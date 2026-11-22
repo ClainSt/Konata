@@ -27,7 +27,9 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: 拉取上游并编译紧凑二进制映射表（v1 向后兼容 + v2 含 TVDB ID）
+      - name: 拉取上游并编译紧凑二进制映射表（v1 向后兼容 + v2 含 TVDB ID 四源融合）
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           OUT_DIR="${RUNNER_TEMP}/dist_mapping"
           mkdir -p "$OUT_DIR"
@@ -35,6 +37,7 @@ jobs:
             --build-binary \
             --fetch-open-ani \
             --fetch-anime-lists \
+            --fetch-bangumi-data \
             --out-bin "$OUT_DIR/bangumi_tmdb_map.bin" \
             --out-manifest "$OUT_DIR/manifest.json" \
             --out-bin-v2 "$OUT_DIR/bangumi_tmdb_map_v2.bin" \

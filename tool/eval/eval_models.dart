@@ -20,6 +20,12 @@ enum EvalMode {
   /// 仅重跑错题本与最近修复样本。
   onlyFailed,
 
+  /// 全量评测云盘快照中所有不带显式 TMDB ID 的可播放作品（验证无 ID 盲测极限覆盖）。
+  corpusNoId,
+
+  /// 全量评测云盘快照中的全部归组作品（常与 `--with-explicit --artwork=off` 搭配验收全库 99.5% 指标）。
+  corpusAll,
+
   /// 将最近一次有效评测汇总锁定为当前对比基线。
   acceptBaseline,
 }
@@ -583,12 +589,18 @@ abstract final class GoldenSetSampler {
   static final RegExp strictExtraNoisePattern = RegExp(
     r'(?:^|[/\\._\-\[\(（【\s])(?:'
     r'ncop(?:ed)?|nced|creditless|textless|non[._ -]?credit|non[._ -]?telop|'
-    r'bd[._ -]?menu|menu(?:[._ -]*\d+)?|tvcm|bdcm|pvcm|cm\d+|pv\d+|'
-    r'trailer|teaser|sample|making|interview|commentary|tokuten|'
-    r'映像特典|特典映像|ノンクレジット|ノンテロップ|メニュー'
+    r'bd[._ -]?menu|menu(?:[._ -]*\d+)?|menue\d*|hauptmenue|vorschau|'
+    r'bd[._ -]?sp[._ -]?live\w*|sp[._ -]?live\w*|bd[._ -]?special[._ -]*talk|'
+    r'tvcm|bdcm|pvcm|cm\d+|pv\d+|'
+    r'trailer|teaser|sample|making|interview|commentary|tokuten|picture[._ -]*drama|'
+    r'映像特典|特典映像|ノンクレジット|ノンテロップ|メニュー|'
+    r'tvスポット|プロモーション映像|ミコージック・クリップ|ミュージック・クリップ|'
+    r'劇場アナウンス|ピクチャードラマ|スペシャル映像'
     r')(?=$|[/\\._\-\]\)）】\s\d])',
     caseSensitive: false,
   );
+
+  static final RegExp _titleWordSplitter = RegExp(r'[^a-z0-9]+');
 
   static final RegExp _ovaSpPattern = RegExp(
     r'(?:^|[\s._\-\[\(（【])(?:ova|oad|oav|sp\d*|specials?|ex\d{0,2}|特别篇|特別編)(?=$|[\s._\-\]\)）】])',
@@ -602,19 +614,37 @@ abstract final class GoldenSetSampler {
 
   static final RegExp _releaseGroupBracket = RegExp(r'[\[【][^\]】]{2,24}[\]】]');
 
-  /// 扫描单作品分组内的正片文件，返回疑似非正片噪音泄漏路径列表。
+  /// 扫描单作品分组内的正片文件，返回疑似非正片噪音泄漏路径列表（自动排除作品本体片名自带词，如 `Shomin Sample`）。
   static List<String> detectSuspectedExtraLeaks(GroupedWorkFolder folder) {
     final leaks = <String>[];
     final slots = folder.slotAssignmentsByPath;
+    final titleWords = <String>{
+      for (final source in [
+        folder.cleanTitle,
+        folder.folderName,
+        ...folder.titleHints,
+        ...folder.fileHints,
+      ])
+        for (final w in source.toLowerCase().split(_titleWordSplitter))
+          if (w.length >= 4) w,
+    };
+    final root = _normalizePhysicalRoot(folder);
     for (final v in folder.variants) {
       if (v.assetKind != AssetKind.video) continue;
       final slot = slots[v.relativePath];
       final isMain = slot == null || slot.category == EpisodeCategory.main;
       if (!isMain) continue;
-      if (strictExtraNoisePattern.hasMatch(v.fileName) ||
-          strictExtraNoisePattern.hasMatch(v.relativePath)) {
-        leaks.add(v.relativePath);
+      var subRel = v.relativePath.replaceAll('\\', '/');
+      if (subRel.startsWith('$root/')) {
+        subRel = subRel.substring(root.length + 1);
       }
+      final hit = strictExtraNoisePattern.firstMatch(subRel);
+      if (hit == null) continue;
+      final token = hit.group(0)!.toLowerCase().replaceAll(_titleWordSplitter, '');
+      if (token.isNotEmpty && titleWords.contains(token)) {
+        continue;
+      }
+      leaks.add(v.relativePath);
     }
     return leaks;
   }
@@ -702,10 +732,37 @@ abstract final class GoldenSetSampler {
     };
 
     final picked = <String, String>{};
+    // 优先将全部多作品拆分根目录纳入黄金集，确保混放 TV+Movie/OVA 拆簇全量受控。
+    for (final root in sortedRoots) {
+      if (byRoot[root]!.length >= 2 && picked.length < targetRootCount) {
+        picked[root] = 'mixed_movie';
+      }
+    }
+    // 优先纳入一定比例的无显式 `{tmdb-N}` 野生目录（如 `未添加TMDB ID`、`天雪论坛`），避免黄金集偏向已规范目录。
+    final untaggedQuota = (targetRootCount * 0.16).round();
+    final untaggedPool = <({String root, String bucket})>[
+      for (final root in sortedRoots)
+        if (!picked.containsKey(root) &&
+            byRoot[root]!.every((c) => c.explicitTmdbId == null))
+          (root: root, bucket: _classifyRootStratum(root, byRoot[root]!)),
+    ];
+    for (final item in _evenlyPick(untaggedPool, untaggedQuota)) {
+      if (picked.length < targetRootCount) {
+        picked[item.root] = item.bucket;
+      }
+    }
+
     for (final entry in quotas.entries) {
-      final pool = strata[entry.key]!;
-      for (final root in _evenlyPick(pool, entry.value)) {
-        picked[root] = entry.key;
+      final pool = [
+        for (final r in strata[entry.key]!)
+          if (!picked.containsKey(r)) r,
+      ];
+      final already = picked.values.where((b) => b == entry.key).length;
+      final remainingQuota = (entry.value - already).clamp(0, entry.value);
+      for (final root in _evenlyPick(pool, remainingQuota)) {
+        if (picked.length < targetRootCount) {
+          picked[root] = entry.key;
+        }
       }
     }
 
@@ -737,8 +794,9 @@ abstract final class GoldenSetSampler {
             ? ''
             : String.fromCharCode('a'.codeUnitAt(0) + i);
         final stats = inspectFolder(g);
+        final isTruePureNoise = stats.mainVideoCount == 0;
         final pred = predictionsByFolderKey[g.folderRelativePath];
-        final bucket = _caseBucketForCluster(stratum, g, stats.hasMainPlayable);
+        final bucket = _caseBucketForCluster(stratum, g, !isTruePureNoise);
         final hint = clusters.length == 1
             ? '*'
             : _buildClusterHint(g, i, clusters.length);
@@ -750,7 +808,7 @@ abstract final class GoldenSetSampler {
         final seasonPred =
             pred?.matchedSeason?.toString() ?? g.seasonHint?.toString() ?? '';
         final bgmPred = pred?.bestBangumiId?.toString() ?? '';
-        final wallPred = !stats.hasMainPlayable
+        final wallPred = isTruePureNoise
             ? 'block'
             : (pred?.wallChannel ?? (tmdbPred.isNotEmpty ? 'tmdb' : ''));
         final titleNote = [
@@ -777,15 +835,15 @@ abstract final class GoldenSetSampler {
             bucket: bucket,
             physicalRoot: root,
             clusterHint: hint,
-            expectedTmdb: stats.hasMainPlayable ? tmdbPred : 'none',
-            expectedSeason: stats.hasMainPlayable ? seasonPred : '',
-            expectedBangumi: stats.hasMainPlayable ? bgmPred : 'none',
+            expectedTmdb: isTruePureNoise ? 'none' : tmdbPred,
+            expectedSeason: isTruePureNoise ? '' : seasonPred,
+            expectedBangumi: isTruePureNoise ? 'none' : bgmPred,
             expectedWall: wallPred,
-            expectedMainCount: stats.hasMainPlayable
-                ? (g.mainEpisodeNumbers.isNotEmpty
+            expectedMainCount: isTruePureNoise
+                ? 0
+                : (g.mainEpisodeNumbers.isNotEmpty
                       ? g.mainEpisodeNumbers.toSet().length
-                      : stats.mainVideoCount)
-                : 0,
+                      : stats.mainVideoCount),
             forbiddenExtraLeak: true,
             verified: false,
             suggestedTitle: titleNote,
@@ -815,8 +873,11 @@ abstract final class GoldenSetSampler {
     }
     final single = clusters.single;
     final info = inspectFolder(single);
-    if (!info.hasMainPlayable) {
+    if (info.mainVideoCount == 0) {
       return 'pure_noise';
+    }
+    if (!info.hasMainPlayable) {
+      return 'remake_multi';
     }
     if (single.isMovieHint) {
       return 'mixed_movie';

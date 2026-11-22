@@ -5,6 +5,7 @@ import '../../domain/models/work.dart';
 import '../../domain/scraping/bangumi_models.dart';
 import '../../domain/scraping/bangumi_tmdb_index.dart';
 import '../../domain/scraping/work_matcher.dart' as legacy;
+import 'hard_work_rescue_engine.dart';
 import 'scrape_candidate_fetcher.dart';
 import 'scrape_compute_worker.dart';
 
@@ -17,6 +18,7 @@ class ScrapeMatchResolution {
     required this.bestBangumi,
     required this.bangumiCandidates,
     required this.candidates,
+    this.rescuedByHardRules = false,
     this.networkError,
   });
 
@@ -34,6 +36,9 @@ class ScrapeMatchResolution {
 
   /// 参与决策的全部 TMDB 候选详情。
   final List<TmdbWorkDetail> candidates;
+
+  /// 是否经由第二套困难目录专属救援规则成功升格自动绑定。
+  final bool rescuedByHardRules;
 
   /// 本阶段首个 TMDB 瞬时网络异常（无异常时为空）。
   final Object? networkError;
@@ -71,10 +76,8 @@ class ScrapeMatchResolver {
 
     bool tmdbBlocked() => tmdbUnavailable || networkError != null;
 
-    final parentCtx = await _fetcher.fetchParentCollectionContext(
-      folder,
-      onNetworkError: recordError,
-    );
+    // 父系列目录上下文仅作为可选补充检索词；其瞬时网络波动不阻断后续主作品 TMDB 检索。
+    final parentCtx = await _fetcher.fetchParentCollectionContext(folder);
     var bgmCandidates = await _fetcher.fetchBangumiCandidates(
       folder,
       extraQueries: parentCtx.extraQueries,
@@ -85,6 +88,9 @@ class ScrapeMatchResolver {
     // 仅拉取映射指向的 1~3 条 TMDB 轻量详情并执行完整复核；若确认高置信 autoBind 则直接短路跳过全部 TMDB 关键词检索，
     // 否则无缝回退常规全量检索并复用已拉取详情，保证准确率零妥协。
     final bgmBest = bgmEval.best;
+    final expectsMovie =
+        folder.isMovieHint ||
+        (bgmBest?.subject.platform?.trim() ?? '') == '剧场版';
     final preloadedMapped = <TmdbWorkDetail>[];
     final orderedMappedTargets = (!tmdbBlocked() &&
             bgmBest != null &&
@@ -110,9 +116,16 @@ class ScrapeMatchResolver {
             mappingIndex: _mappingIndex,
           );
           final fastBest = fastDecision.best;
+          // 当本地目录或 Bangumi 明确指向剧场版、但映射仅返回母剧 TV 条目时，
+          // 不短路快通道，继续搜索独立 Movie 条目参与同池竞争。
+          final movieHijackedByTv =
+              expectsMovie &&
+              fastBest != null &&
+              fastBest.detail.mediaType == TmdbMediaType.tv;
           if (fastDecision.level == MatchLevel.autoBind &&
               fastDecision.primaryReason == 'high_confidence' &&
               fastBest != null &&
+              !movieHijackedByTv &&
               fastBest.score >= 70 &&
               (fastBest.detail.voteCount ?? 1) > 0) {
             return ScrapeMatchResolution(
@@ -128,11 +141,23 @@ class ScrapeMatchResolver {
       }
     }
 
+    // 仅当 Bangumi 达到高置信、或中置信且标题分足够可信（避免仅靠单字巧合的弱候选污染 TMDB 第一波词）时，才借用其别名扩展检索。
+    final bgmTitleScore = bgmBest == null
+        ? 0.0
+        : bgmBest.reasons
+              .where((r) => r.endsWith(' title'))
+              .map((r) => double.tryParse(r.split(' ').first) ?? 0.0)
+              .fold<double>(0.0, (m, v) => v > m ? v : m);
+    final trustedBgmForTmdb =
+        bgmBest != null &&
+        (bgmEval.tier == legacy.MatchTier.high ||
+            (bgmEval.tier == legacy.MatchTier.medium && bgmTitleScore >= 32.0));
+
     var candidates = tmdbBlocked()
         ? List<TmdbWorkDetail>.of(preloadedMapped)
         : await _fetcher.fetchCandidateDetails(
             folder,
-            bangumiCandidate: bgmEval.best,
+            bangumiCandidate: trustedBgmForTmdb ? bgmBest : null,
             extraQueries: parentCtx.extraQueries,
             onNetworkError: recordError,
           );
@@ -144,10 +169,17 @@ class ScrapeMatchResolver {
       candidates = mergedByKey.values.toList(growable: false);
     }
 
-    // Bangumi 高置信条目经离线映射命中的其余 TMDB 条目若未被关键词检索召回，按 ID 补拉进候选池。
-    if (!tmdbBlocked() && orderedMappedTargets.isNotEmpty) {
+    // Bangumi 命中（高置信或标题可信的中置信）经离线映射指向的 TMDB 条目若未被关键词检索召回，按 ID 补拉进候选池参与公平打分。
+    final supplementMappedTargets = (!tmdbBlocked() && trustedBgmForTmdb)
+        ? (orderedMappedTargets.isNotEmpty
+              ? orderedMappedTargets
+              : _orderedUniqueMappedTargets(
+                  bgmBest.subject,
+                ).take(2).toList(growable: false))
+        : const <({TmdbMediaType type, int id})>[];
+    if (!tmdbBlocked() && supplementMappedTargets.isNotEmpty) {
       final missing = <({TmdbMediaType type, int id})>[
-        for (final m in orderedMappedTargets)
+        for (final m in supplementMappedTargets)
           if (!candidates.any((c) => c.mediaType == m.type && c.tmdbId == m.id))
             m,
       ];
@@ -191,8 +223,9 @@ class ScrapeMatchResolver {
     }
 
     // 当初轮 TMDB 未命中、跨源不一致被清空、或优胜条目缺少 16:9 横版背景图时，
-    // 使用已命中的 Bangumi 中/日文净化词干与年份进行二次 `/search/tv` 兜底救回。
-    final rescueBgmTarget = decision.bestBangumi ?? bgmEval.best;
+    // 使用已命中的可信 Bangumi 中/日文净化词干与年份进行二次 `/search/tv` 兜底救回。
+    final rescueBgmTarget =
+        decision.bestBangumi ?? (trustedBgmForTmdb ? bgmEval.best : null);
     if (!tmdbBlocked() &&
         rescueBgmTarget != null &&
         (decision.best == null ||
@@ -244,12 +277,37 @@ class ScrapeMatchResolver {
       }
     }
 
+    // 第二套困难目录专属救援规则（Pass 2）：仅在首轮未达成 autoBind 且网络可用时按需触发，
+    // 首轮高置信命中作品零开销；通过深度去噪、文件名主干接管、增量补搜与安全门禁挽救高难目录。
+    var rescuedByHardRules = false;
+    if (!tmdbBlocked() && decision.level != MatchLevel.autoBind) {
+      final rescueEngine = HardWorkRescueEngine(
+        fetcher: _fetcher,
+        mappingIndex: _mappingIndex,
+      );
+      final rescueOutcome = await rescueEngine.rescue(
+        originalFolder: folder,
+        pass1Decision: decision,
+        existingBangumi: bgmCandidates,
+        existingTmdb: candidates,
+        computeWorker: compute,
+        onNetworkError: recordError,
+      );
+      bgmCandidates = rescueOutcome.bangumiCandidates;
+      candidates = rescueOutcome.candidates;
+      if (rescueOutcome.adopted) {
+        decision = rescueOutcome.decision;
+        rescuedByHardRules = rescueOutcome.rescuedToAutoBind;
+      }
+    }
+
     return ScrapeMatchResolution(
       decision: decision,
       bangumiTier: bgmEval.tier,
       bestBangumi: bgmEval.best,
       bangumiCandidates: bgmCandidates,
       candidates: candidates,
+      rescuedByHardRules: rescuedByHardRules,
       networkError: networkError,
     );
   }

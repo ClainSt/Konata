@@ -10,14 +10,26 @@ class CloudMediaClassifier {
     caseSensitive: false,
   );
 
-  static final RegExp _opDir = RegExp(r'^(?:ncop|op|openings?)$', caseSensitive: false);
-  static final RegExp _edDir = RegExp(r'^(?:nced|ed|endings?)$', caseSensitive: false);
+  static final RegExp _opDir = RegExp(
+    r'^(?:ncop|op|openings?)$',
+    caseSensitive: false,
+  );
+  static final RegExp _edDir = RegExp(
+    r'^(?:nced|ed|endings?)$',
+    caseSensitive: false,
+  );
   static final RegExp _pvDir = RegExp(
     r'^(?:pv|pvs|cm|cms|pv\s*&\s*cm|trailer|trailers|digest|promotional?|tvスポット|プロモーション映像|预告)$',
     caseSensitive: false,
   );
-  static final RegExp _menuDir = RegExp(r'^(?:menu|menus)$', caseSensitive: false);
-  static final RegExp _ovaDir = RegExp(r'^(?:ova|ovas|oad|oads)$', caseSensitive: false);
+  static final RegExp _menuDir = RegExp(
+    r'^(?:menu|menus)$',
+    caseSensitive: false,
+  );
+  static final RegExp _ovaDir = RegExp(
+    r'^(?:ova|ovas|oad|oads)$',
+    caseSensitive: false,
+  );
   static final RegExp _mvDir = RegExp(
     r'^(?:mv|mvs|music\s*video|ミ[コュ]ージック[・\s]*クリップ)$',
     caseSensitive: false,
@@ -106,9 +118,12 @@ class CloudMediaClassifier {
     caseSensitive: false,
   );
 
+  static final RegExp _multiSpace = RegExp(r'\s+');
+  static final RegExp _slashRegex = RegExp(r'[/\\]');
+
   /// 剥离纯技术规格字符串，减少特典识别误判。
   static String stripTechnicalNoise(String input) =>
-      input.replaceAll(_techNoise, ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+      input.replaceAll(_techNoise, ' ').replaceAll(_multiSpace, ' ').trim();
 
   /// 判断相对路径任一目录段是否属于特典/附加内容子目录。
   static bool isSupplementaryDirectory(String? relativePath) {
@@ -126,8 +141,9 @@ class CloudMediaClassifier {
     return false;
   }
 
-  /// 检测文件是否为特典及其细分类型；返回 `null` 表示暂判定为正片。
-  static ExtraKind? detectExtraKind({
+  /// 单趟同时返回特典细分类型、强特典判定与已去噪主干（避免热路径重复调用 [detectExtraKind] 与 [isStrongSupplementary]）。
+  static ({ExtraKind? kind, bool isStrong, String cleanedBase})
+  classifyExtraWithStrength({
     required String fileName,
     String? relativePath,
     bool hasFractionalEpisode = false,
@@ -140,40 +156,117 @@ class CloudMediaClassifier {
         SupplementarySubclassifier.detectExplicitExtraKindFromFileName(
           fileName,
         );
-    if (explicitDecision != null) return explicitDecision;
-
-    if (_ncopTag.hasMatch(cleaned)) return ExtraKind.ncop;
-    if (_ncedTag.hasMatch(cleaned)) return ExtraKind.nced;
-    if (_menuTag.hasMatch(cleaned)) return ExtraKind.menu;
-    if (_mvTag.hasMatch(cleaned)) return ExtraKind.mv;
-    if (_sampleSuffix.hasMatch(cleaned) || _pvTag.hasMatch(cleaned)) {
-      return ExtraKind.pv;
+    if (explicitDecision != null) {
+      return (
+        kind: explicitDecision,
+        isStrong: _isStrongFromPrepared(
+          baseName: baseName,
+          cleaned: cleaned,
+          relativePath: relativePath,
+          hasFractionalEpisode: hasFractionalEpisode,
+        ),
+        cleanedBase: cleaned,
+      );
     }
-    if (_bundledOvaPattern.hasMatch(baseName) || _ovaStrongTag.hasMatch(cleaned)) {
-      return ExtraKind.ova;
+
+    if (_ncopTag.hasMatch(cleaned)) {
+      return (kind: ExtraKind.ncop, isStrong: true, cleanedBase: cleaned);
+    }
+    if (_ncedTag.hasMatch(cleaned)) {
+      return (kind: ExtraKind.nced, isStrong: true, cleanedBase: cleaned);
+    }
+    if (_menuTag.hasMatch(cleaned)) {
+      return (kind: ExtraKind.menu, isStrong: true, cleanedBase: cleaned);
+    }
+    if (_mvTag.hasMatch(cleaned)) {
+      return (kind: ExtraKind.mv, isStrong: true, cleanedBase: cleaned);
+    }
+    if (_sampleSuffix.hasMatch(cleaned) || _pvTag.hasMatch(cleaned)) {
+      return (kind: ExtraKind.pv, isStrong: true, cleanedBase: cleaned);
+    }
+    if (_bundledOvaPattern.hasMatch(baseName) ||
+        _ovaStrongTag.hasMatch(cleaned)) {
+      return (kind: ExtraKind.ova, isStrong: true, cleanedBase: cleaned);
     }
 
     // 2. 其次识别所在目录是否为明确细分类型（op/ed/pv/menu/ova/mv）。
     final specificDirExtra = _detectSpecificExtraFromDirectory(relativePath);
-    if (specificDirExtra != null) return specificDirExtra;
+    if (specificDirExtra != null) {
+      return (kind: specificDirExtra, isStrong: true, cleanedBase: cleaned);
+    }
 
     // 3. 识别小数半集、日版特典关键词与通用 SP/弱特典词。
     if (hasFractionalEpisode || _fractionalTag.hasMatch(baseName)) {
-      return ExtraKind.sp;
+      return (kind: ExtraKind.sp, isStrong: true, cleanedBase: cleaned);
     }
-    if (_jpBdExtraTag.hasMatch(cleaned) ||
-        _strongSpTag.hasMatch(cleaned) ||
-        _weakContextExtraTag.hasMatch(cleaned) ||
-        (_standaloneOrSpTitleTag.hasMatch(cleaned) &&
-            !_hasFolderStandaloneSpecialTitle(relativePath))) {
-      return ExtraKind.sp;
+    if (_jpBdExtraTag.hasMatch(cleaned)) {
+      return (kind: ExtraKind.sp, isStrong: true, cleanedBase: cleaned);
+    }
+    final isStrongSp = _strongSpTag.hasMatch(cleaned);
+    final isWeakContext = _weakContextExtraTag.hasMatch(cleaned);
+    if (isStrongSp || isWeakContext) {
+      final isStrong =
+          isSupplementaryDirectory(relativePath) ||
+          (!(isWeakContext && _explicitEpMarker.hasMatch(baseName)) &&
+              (isStrongSp ||
+                  (_standaloneOrSpTitleTag.hasMatch(cleaned) &&
+                      !_hasFolderStandaloneSpecialTitle(relativePath))));
+      return (kind: ExtraKind.sp, isStrong: isStrong, cleanedBase: cleaned);
+    }
+    if (_standaloneOrSpTitleTag.hasMatch(cleaned) &&
+        !_hasFolderStandaloneSpecialTitle(relativePath)) {
+      return (kind: ExtraKind.sp, isStrong: true, cleanedBase: cleaned);
     }
 
     // 4. 兜底匹配泛化特典容器目录（如 Extras/SPs/特典/番外）。
     if (isSupplementaryDirectory(relativePath)) {
-      return ExtraKind.sp;
+      return (kind: ExtraKind.sp, isStrong: true, cleanedBase: cleaned);
     }
-    return null;
+    return (kind: null, isStrong: false, cleanedBase: cleaned);
+  }
+
+  /// 检测文件是否为特典及其细分类型；返回 `null` 表示暂判定为正片。
+  static ExtraKind? detectExtraKind({
+    required String fileName,
+    String? relativePath,
+    bool hasFractionalEpisode = false,
+  }) => classifyExtraWithStrength(
+    fileName: fileName,
+    relativePath: relativePath,
+    hasFractionalEpisode: hasFractionalEpisode,
+  ).kind;
+
+  static bool _isStrongFromPrepared({
+    required String baseName,
+    required String cleaned,
+    String? relativePath,
+    bool hasFractionalEpisode = false,
+  }) {
+    if (_detectSpecificExtraFromDirectory(relativePath) != null ||
+        isSupplementaryDirectory(relativePath)) {
+      return true;
+    }
+    if (_ncopTag.hasMatch(cleaned) ||
+        _ncedTag.hasMatch(cleaned) ||
+        _menuTag.hasMatch(cleaned) ||
+        _mvTag.hasMatch(cleaned) ||
+        _sampleSuffix.hasMatch(cleaned) ||
+        _pvTag.hasMatch(cleaned) ||
+        _bundledOvaPattern.hasMatch(baseName) ||
+        _ovaStrongTag.hasMatch(cleaned) ||
+        hasFractionalEpisode ||
+        _fractionalTag.hasMatch(baseName) ||
+        _jpBdExtraTag.hasMatch(cleaned)) {
+      return true;
+    }
+    // 对已含正片 `第08话` / `S01E08` 的仅带弱 `Recap`/`Special`/`総集編` 的集数视为弱特典，交由保护器判断。
+    if (_weakContextExtraTag.hasMatch(cleaned) &&
+        _explicitEpMarker.hasMatch(baseName)) {
+      return false;
+    }
+    return _strongSpTag.hasMatch(cleaned) ||
+        (_standaloneOrSpTitleTag.hasMatch(cleaned) &&
+            !_hasFolderStandaloneSpecialTitle(relativePath));
   }
 
   /// 是否属于**强特典**（目录即特典或带 NCOP/NCED/Menu/MV/PV/OVA/小数半集/日版特典关键词）。
@@ -190,26 +283,12 @@ class CloudMediaClassifier {
     }
     final baseName = _stripExt(fileName);
     final cleaned = stripTechnicalNoise(baseName);
-    if (_ncopTag.hasMatch(cleaned) ||
-        _ncedTag.hasMatch(cleaned) ||
-        _menuTag.hasMatch(cleaned) ||
-        _mvTag.hasMatch(cleaned) ||
-        _sampleSuffix.hasMatch(cleaned) ||
-        _pvTag.hasMatch(cleaned) ||
-        _bundledOvaPattern.hasMatch(baseName) ||
-        _ovaStrongTag.hasMatch(cleaned) ||
-        hasFractionalEpisode ||
-        _fractionalTag.hasMatch(baseName) ||
-        _jpBdExtraTag.hasMatch(cleaned)) {
-      return true;
-    }
-    // 对已含正片 `第08话` / `S01E08` 的仅带弱 `Recap`/`Special`/`総集編` 的集数视为弱特典，交由保护器判断。
-    if (_weakContextExtraTag.hasMatch(cleaned) && _explicitEpMarker.hasMatch(baseName)) {
-      return false;
-    }
-    return _strongSpTag.hasMatch(cleaned) ||
-        (_standaloneOrSpTitleTag.hasMatch(cleaned) &&
-            !_hasFolderStandaloneSpecialTitle(relativePath));
+    return _isStrongFromPrepared(
+      baseName: baseName,
+      cleaned: cleaned,
+      relativePath: relativePath,
+      hasFractionalEpisode: hasFractionalEpisode,
+    );
   }
 
   static bool _hasFolderStandaloneSpecialTitle(String? relativePath) {
@@ -235,13 +314,16 @@ class CloudMediaClassifier {
     return int.tryParse(m.group(1) ?? '');
   }
 
-  /// 从 `[OVA01]` / `SP02` / `MenuEX1` 等独立特典标记中提取特典序号（若存在）。
-  static int? extractExplicitExtraNumber(String baseName) {
-    final cleaned = stripTechnicalNoise(baseName);
+  /// 从已剥离技术噪音的主干文本中提取独立特典序号。
+  static int? extractExplicitExtraNumberFromClean(String cleaned) {
     final m = _explicitExtraNumberPattern.firstMatch(cleaned);
     if (m == null) return null;
     return int.tryParse(m.group(1) ?? '');
   }
+
+  /// 从 `[OVA01]` / `SP02` / `MenuEX1` 等独立特典标记中提取特典序号（若存在）。
+  static int? extractExplicitExtraNumber(String baseName) =>
+      extractExplicitExtraNumberFromClean(stripTechnicalNoise(baseName));
 
   static bool hasExplicitEpisodeMarker(String baseName) =>
       _explicitEpMarker.hasMatch(baseName);
@@ -264,7 +346,7 @@ class CloudMediaClassifier {
   }
 
   static String _stripExt(String name) {
-    final slash = name.lastIndexOf(RegExp(r'[/\\]'));
+    final slash = name.lastIndexOf(_slashRegex);
     final fileOnly = slash >= 0 ? name.substring(slash + 1) : name;
     final dot = fileOnly.lastIndexOf('.');
     return dot > 0 ? fileOnly.substring(0, dot) : fileOnly;

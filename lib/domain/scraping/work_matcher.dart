@@ -1,5 +1,6 @@
 import 'directory_analyzer.dart';
 import 'title_normalizer.dart';
+import 'work_season.dart';
 part 'work_matcher_models.dart';
 
 /// 确定性多信号作品匹配打分器：全部特征权重集中定义于此，
@@ -31,8 +32,61 @@ abstract final class WorkMatcher {
     caseSensitive: false,
   );
 
+  static final _seasonDecorPrefix = RegExp(
+    r'^(?:第\s*[0-9一二三四五六七八九十百]+\s*[季期部]|season\s*\d+|series\s*\d+)[\s:：\-–—·・]*',
+    caseSensitive: false,
+  );
+
+  static final _seasonDecorSuffix = RegExp(
+    r'[\s:：\-–—·・]*(?:第\s*[0-9一二三四五六七八九十百]+\s*[季期部]|season\s*\d+|series\s*\d+)$',
+    caseSensitive: false,
+  );
+
+  static final _concertLiveMarker = RegExp(
+    r'\b(?:special\s+live|live\s+(?:19|20)\d{2}|concert)\b|演唱会|演唱會|ライブ',
+    caseSensitive: false,
+  );
+
+  static final _chapterInfixPattern = RegExp(r'(?:前篇|后篇|後篇|中篇|前編|後編|上篇|下篇)');
+
+  static String _stripSeasonLabelDecor(String raw) {
+    var s = raw.trim();
+    if (s.isEmpty) return '';
+    s = s.replaceFirst(_seasonDecorPrefix, '').trim();
+    s = s.replaceFirst(_seasonDecorSuffix, '').trim();
+    return s;
+  }
+
+  static final _zhChapterDigitPattern = RegExp(
+    r'第\s*([一二三四五六七八九十])\s*([章部话話卷巻回期季])',
+  );
+
+  static const _zhSingleDigit = <String, String>{
+    '一': '1',
+    '二': '2',
+    '三': '3',
+    '四': '4',
+    '五': '5',
+    '六': '6',
+    '七': '7',
+    '八': '8',
+    '九': '9',
+    '十': '10',
+  };
+
+  /// 跨源比对用标题规范键：剥离剧场版载体词并将中文数字章节（如 `第五章`）归一为阿拉伯数字（`第5章`）。
+  static String canonTitleKey(String raw) {
+    final normalizedChapter = raw
+        .replaceAll(_movieWord, ' ')
+        .replaceAllMapped(
+          _zhChapterDigitPattern,
+          (m) => '第${_zhSingleDigit[m.group(1)!] ?? m.group(1)!}${m.group(2)!}',
+        );
+    return DirectoryAnalyzer.normalize(normalizedChapter);
+  }
+
   static final _latinMediaCarrier = RegExp(
-    r'(?<![a-z0-9])(?:oad|ova|ona|sp|specials?|ex\d{0,2}|the\s+movie|movie|tv|bd|dvd|rip)(?![a-z0-9])',
+    r'(?<![a-z0-9])(?:oad|ova|ona|tvsp|sp|specials?|ex\d{0,2}|the\s+movie|movie|tv|bd|dvd|rip)(?![a-z0-9])',
     caseSensitive: false,
   );
 
@@ -51,7 +105,7 @@ abstract final class WorkMatcher {
     final out = <String>[];
     final seen = <String>{trimmed.toLowerCase()};
     void add(String candidate) {
-      final clean = candidate.replaceAll(RegExp(r'\s+'), ' ').trim();
+      final clean = candidate.replaceAll(_reHot1, ' ').trim();
       if (clean.isEmpty) return;
       if (seen.add(clean.toLowerCase())) out.add(clean);
     }
@@ -77,8 +131,7 @@ abstract final class WorkMatcher {
     return out;
   }
 
-  static RegExp _romajiArcPattern(String romaji, String stem) =>
-      stem.isNotEmpty
+  static RegExp _romajiArcPattern(String romaji, String stem) => stem.isNotEmpty
       ? RegExp(
           '(?<![a-z0-9])${RegExp.escape(stem)}[\\s\\-]*hen(?![a-z0-9])',
           caseSensitive: false,
@@ -107,32 +160,61 @@ abstract final class WorkMatcher {
   }
 
   static String _canonCjk(String value) {
-    if (value.isEmpty) return value;
-    final buf = StringBuffer();
-    for (var i = 0; i < value.length; i++) {
-      final ch = value[i];
-      buf.write(_cjkCanonMap[ch] ?? ch);
+    final len = value.length;
+    if (len == 0) return value;
+    var firstHit = -1;
+    for (var i = 0; i < len; i++) {
+      final code = value.codeUnitAt(i);
+      if (code >= 0x4E00 && _cjkCanonCodeMap.containsKey(code)) {
+        firstHit = i;
+        break;
+      }
+    }
+    if (firstHit < 0) return value;
+    final buf = StringBuffer()..write(value.substring(0, firstHit));
+    for (var i = firstHit; i < len; i++) {
+      final code = value.codeUnitAt(i);
+      buf.writeCharCode(_cjkCanonCodeMap[code] ?? code);
     }
     return buf.toString();
   }
 
   static List<String> _expandNormArcs(String norm) {
+    if (norm.isEmpty) return const <String>[''];
     final canon = _canonCjk(norm);
+    var hasAscii = false;
+    var hasCjk = false;
+    for (var i = 0; i < canon.length; i++) {
+      final c = canon.codeUnitAt(i);
+      if ((c >= 0x61 && c <= 0x7A) || (c >= 0x41 && c <= 0x5A)) {
+        hasAscii = true;
+      } else if (c >= 0x4E00) {
+        hasCjk = true;
+      }
+      if (hasAscii && hasCjk) break;
+    }
+    // 只有包含 `hen` 或 `篇` 的标题才可能命中罗马音/中日文篇章桥接，绝大多数标题直接零分配返回。
+    final mayHaveRomajiArc = hasAscii && canon.contains('hen');
+    final mayHaveCjkArc = hasCjk && canon.contains('篇');
+    if (!mayHaveRomajiArc && !mayHaveCjkArc) {
+      return canon == norm ? <String>[norm] : <String>[norm, canon];
+    }
     final out = <String>{norm, canon};
-    for (final (romaji, _, cjkNorms) in _romajiArcBridges) {
-      if (canon.contains(romaji)) {
-        for (final cjk in cjkNorms) {
-          out.add(canon.replaceAll(romaji, _canonCjk(cjk)));
+    for (final (romaji, canonCjks) in _precomputedArcBridges) {
+      if (mayHaveRomajiArc && canon.contains(romaji)) {
+        for (final cc in canonCjks) {
+          out.add(canon.replaceAll(romaji, cc));
         }
       }
-      for (final cjk in cjkNorms) {
-        final cc = _canonCjk(cjk);
-        if (canon.contains(cc)) {
-          out.add(canon.replaceAll(cc, romaji));
+      if (mayHaveCjkArc) {
+        for (final cc in canonCjks) {
+          if (canon.contains(cc)) {
+            out.add(canon.replaceAll(cc, romaji));
+          }
         }
       }
     }
-    return out.toList();
+    return out.toList(growable: false);
   }
 
   static String? _romanArabicVariant(String raw, String norm) {
@@ -178,17 +260,12 @@ abstract final class WorkMatcher {
         changed = true;
       }
     });
-    replaced = replaced.replaceAllMapped(
-      RegExp(
-        r'(?:^|(?<=[\s\u3040-\u9fff\-:：]))(II|III|IV|VI{0,3}|IX|V|X)(?=$|[\s\u3040-\u9fff\-:：])',
-      ),
-      (m) {
-        final mapped = asciiRomanMap[m.group(1)!.toLowerCase()];
-        if (mapped == null) return m.group(0)!;
-        changed = true;
-        return ' $mapped ';
-      },
-    );
+    replaced = replaced.replaceAllMapped(_reHot2, (m) {
+      final mapped = asciiRomanMap[m.group(1)!.toLowerCase()];
+      if (mapped == null) return m.group(0)!;
+      changed = true;
+      return ' $mapped ';
+    });
     if (!changed) return null;
     final out = DirectoryAnalyzer.normalize(replaced);
     return out.isNotEmpty && out != norm ? out : null;
@@ -196,15 +273,15 @@ abstract final class WorkMatcher {
 
   static List<String> _significantLatinTokens(String raw) {
     final cleaned = raw
-        .replaceAll(RegExp(r'\{[^}]*\}'), ' ')
-        .replaceAll(RegExp(r'\(\s*(?:19|20)\d{2}\s*\)'), ' ')
+        .replaceAll(_reHot3, ' ')
+        .replaceAll(_reHot4, ' ')
         .replaceAll(_latinMediaCarrier, ' ')
         .toLowerCase();
     final out = <String>[];
     final seen = <String>{};
-    for (final tok in cleaned.split(RegExp(r'[^a-z0-9]+'))) {
+    for (final tok in cleaned.split(_reHot5)) {
       if (tok.length < 3) continue;
-      if (RegExp(r'^\d+$').hasMatch(tok)) continue;
+      if (_reHot6.hasMatch(tok)) continue;
       if (_latinStopwords.contains(tok)) continue;
       if (seen.add(tok)) out.add(tok);
     }
@@ -212,7 +289,7 @@ abstract final class WorkMatcher {
   }
 
   static Set<String> _rawLatinTokens(String raw) => {
-    for (final t in raw.toLowerCase().split(RegExp(r'[^a-z0-9]+')))
+    for (final t in raw.toLowerCase().split(_reHot5))
       if (t.length >= 2) t,
   };
 
@@ -233,8 +310,8 @@ abstract final class WorkMatcher {
   }
 
   static bool _hasSharedCjk(String a, String b) {
-    final ac = _canonCjk(a).replaceAll(RegExp(r'[^\u3040-\u9fff]'), '');
-    final bc = _canonCjk(b).replaceAll(RegExp(r'[^\u3040-\u9fff]'), '');
+    final ac = _canonCjk(a).replaceAll(_reHot7, '');
+    final bc = _canonCjk(b).replaceAll(_reHot7, '');
     if (ac.length < 2 || bc.length < 2) return false;
     final grams = <String>{};
     for (var i = 0; i < ac.length - 1; i++) {
@@ -252,19 +329,11 @@ abstract final class WorkMatcher {
 
   static int? _installmentSlotNumber(Iterable<String> texts) {
     final slots = <int>{};
-    final exStageRe = RegExp(
-      r'(?:^|[\s:：._\-/\[(\【])(?:ex|stage)[\s:：._\-#]*0*([1-9])(?![0-9])',
-      caseSensitive: false,
-    );
-    final altWordRe = RegExp(
-      r'(?:alternative|オルタナティブ|アルタネイティヴ)[\s:：._-]*(one|1|Ⅰ|two|2|Ⅱ)(?![a-z0-9])',
-      caseSensitive: false,
-    );
+    final exStageRe = _reHot8;
+    final altWordRe = _reHot9;
     for (final raw in texts) {
       if (raw.trim().isEmpty) continue;
-      final cleaned = raw
-          .replaceAll(RegExp(r'\{[^}]*\}'), ' ')
-          .replaceAll(RegExp(r'\(\s*(?:19|20)\d{2}\s*\)'), ' ');
+      final cleaned = raw.replaceAll(_reHot3, ' ').replaceAll(_reHot4, ' ');
       for (final m in exStageRe.allMatches(cleaned)) {
         final n = int.tryParse(m.group(1)!);
         if (n != null) slots.add(n);
@@ -281,41 +350,41 @@ abstract final class WorkMatcher {
     return slots.length == 1 ? slots.single : null;
   }
 
+  /// 提取中置序数续季标记（如 `2nd SEASON -觉醒前夜-`、`SAC 2nd GIG`），供未要求续季时的反向防串季惩罚使用。
+  static int? _infixOrdinalSeason(String raw) {
+    final m = _reHot10.firstMatch(raw);
+    return m == null ? null : int.tryParse(m.group(1)!);
+  }
+
   static int? _explicitSequelNumber(String raw) {
     final cleaned = raw
-        .replaceAll(RegExp(r'\{[^}]*\}'), ' ')
-        .replaceAll(RegExp(r'\(\s*(?:19|20)\d{2}\s*\)'), ' ')
-        .replaceAll(RegExp(r'（\s*(?:19|20)\d{2}\s*）'), ' ')
-        .replaceAll(RegExp(r'\[[^\]]*\]'), ' ')
-        .replaceAll(RegExp(r'\b\d+\.\d+\b'), ' ')
-        .replaceAll(RegExp(r'\bs\d{1,2}e\d{1,3}\b', caseSensitive: false), ' ')
-        .replaceAll(RegExp(r'\bex\d{1,2}\b', caseSensitive: false), ' ')
+        .replaceAll(_reHot3, ' ')
+        .replaceAll(_reHot4, ' ')
+        .replaceAll(_reHot11, ' ')
+        .replaceAll(_reHot12, ' ')
+        .replaceAll(_reHot13, ' ')
+        .replaceAll(_reHot14, ' ')
+        .replaceAll(_reHot15, ' ')
         .trim();
     if (cleaned.isEmpty) return null;
 
     final cleanedTitle = cleaned
-        .replaceAll(RegExp(r'第\s*[2-9]\s*季'), ' ')
-        .replaceAll(
-          RegExp(r'(?:^|[\s\-:：])(?:season|s)\s*0*[1-9](?![0-9a-z])', caseSensitive: false),
-          ' ',
-        )
+        .replaceAll(_reHot16, ' ')
+        .replaceAll(_reHot17, ' ')
         .trim();
     if (cleanedTitle.isEmpty) return null;
 
-    final zhPart = RegExp(
-      r'第\s*([2-9])\s*(?:部分|部|幕|期|クール)',
-    ).firstMatch(cleanedTitle);
+    final zhPart = _reHot18.firstMatch(cleanedTitle);
     if (zhPart != null) return int.tryParse(zhPart.group(1)!);
 
-    final enPart = RegExp(
-      r'(?:^|[\s:：\-～~])(?:part\s*([2-9])|cour\s*([2-9])|([2-9])(?:nd|rd|th)?\s*cour)(?=[\s:：\-～~]|$)',
-      caseSensitive: false,
-    ).firstMatch(cleanedTitle);
+    final enPart = _reHot19.firstMatch(cleanedTitle);
     if (enPart != null) {
-      return int.tryParse(enPart.group(1) ?? enPart.group(2) ?? enPart.group(3)!);
+      return int.tryParse(
+        enPart.group(1) ?? enPart.group(2) ?? enPart.group(3)!,
+      );
     }
 
-    if (RegExp(r'(?:^|[\s\-–—])(?:後半|后半)$').hasMatch(cleanedTitle)) {
+    if (_reHot20.hasMatch(cleanedTitle)) {
       return 2;
     }
 
@@ -329,9 +398,7 @@ abstract final class WorkMatcher {
       'IV': 4,
       'V': 5,
     };
-    final romanMatch = RegExp(
-      r'(?:^|[\s:：\-～~])(Ⅱ|Ⅲ|Ⅳ|Ⅴ|II|III|IV|V)(?=[\s:：\-～~]|$)',
-    ).firstMatch(cleanedTitle);
+    final romanMatch = _reHot21.firstMatch(cleanedTitle);
     if (romanMatch != null) {
       final n = romanMap[romanMatch.group(1)!];
       if (n != null) return n;
@@ -345,9 +412,7 @@ abstract final class WorkMatcher {
       return split.season;
     }
 
-    final cjkDigit = RegExp(
-      r'(?<=[\u3040-\u9fff])([2-9])(?=$|[\s:：\-～~]|[^\d.a-zA-Z年月日话集枚人名点倍回章卷季期%])',
-    ).firstMatch(cleanedTitle);
+    final cjkDigit = _reHot22.firstMatch(cleanedTitle);
     if (cjkDigit != null) return int.tryParse(cjkDigit.group(1)!);
 
     const excludedPreWords = <String>{
@@ -370,10 +435,7 @@ abstract final class WorkMatcher {
       'vol',
       'alternative',
     };
-    for (final m in RegExp(
-      r'([a-z]{3,})\s+([2-9])(?![a-z0-9.])(?=$|\s*[-:：～~]|\s+[\u3040-\u9fffA-Za-z])',
-      caseSensitive: false,
-    ).allMatches(cleanedTitle)) {
+    for (final m in _reHot23.allMatches(cleanedTitle)) {
       if (!excludedPreWords.contains(m.group(1)!.toLowerCase())) {
         return int.tryParse(m.group(2)!);
       }
@@ -458,15 +520,17 @@ abstract final class WorkMatcher {
     return false;
   }
 
-  static final List<String> _canonCjkArcSuffixes = List<String>.unmodifiable(() {
-    final out = <String>{
-      for (final (_, queryArc, cjkNorms) in _romajiArcBridges) ...[
-        _canonCjk(queryArc),
-        for (final c in cjkNorms) _canonCjk(c),
-      ],
-    }.toList()..sort((a, b) => b.length.compareTo(a.length));
-    return out;
-  }());
+  static final List<String> _canonCjkArcSuffixes = List<String>.unmodifiable(
+    () {
+      final out = <String>{
+        for (final (_, queryArc, cjkNorms) in _romajiArcBridges) ...[
+          _canonCjk(queryArc),
+          for (final c in cjkNorms) _canonCjk(c),
+        ],
+      }.toList()..sort((a, b) => b.length.compareTo(a.length));
+      return out;
+    }(),
+  );
 
   static final List<String> _allArcSuffixes = List<String>.unmodifiable(() {
     final out = <String>{
@@ -494,32 +558,101 @@ abstract final class WorkMatcher {
       _hasRemasterTag(candidate.title) ||
       candidate.aliases.any(_hasRemasterTag);
 
-  static String _stripRemaster(String value) => value
-      .replaceAll(_remasterPattern, ' ')
-      .replaceAll(RegExp(r'\s+'), ' ')
-      .trim();
+  static String _stripRemaster(String value) =>
+      value.replaceAll(_remasterPattern, ' ').replaceAll(_reHot1, ' ').trim();
+
+  /// 计算一组本地标题提示词与候选条目的最高名称相似度（同时覆盖拉丁罗马音↔假名语音匹配）。
+  static double _hintsMatchScore(
+    Iterable<String> hints,
+    MatchCandidate candidate,
+  ) {
+    final remoteRaw = [candidate.title, ...candidate.aliases];
+    final remoteNorms = [
+      for (final raw in remoteRaw)
+        if (DirectoryAnalyzer.normalize(raw).isNotEmpty)
+          DirectoryAnalyzer.normalize(raw),
+    ];
+    var best = 0.0;
+    for (final rawHint in hints) {
+      final hNorm = DirectoryAnalyzer.normalize(rawHint);
+      if (hNorm.isEmpty) continue;
+      for (final rn in remoteNorms) {
+        final s = similarity(hNorm, rn);
+        if (s > best) best = s;
+      }
+      if (!_cjkPattern.hasMatch(rawHint)) {
+        for (final raw in remoteRaw) {
+          final rs = TitleNormalizer.romajiKanaSimilarity(rawHint, raw);
+          if (rs > best) best = rs;
+        }
+      }
+    }
+    return best;
+  }
+
+  static bool _fileHintsMentionYear(DirectoryInventory inventory, int year) {
+    final token = '$year';
+    return inventory.fileHints.any((f) => f.contains(token));
+  }
 
   static MatchResult bangumi(
     DirectoryInventory inventory,
-    List<MatchCandidate> candidates,
-  ) {
+    List<MatchCandidate> candidates, {
+    bool ignoreBangumiMarker = false,
+  }) {
     if (inventory.shape == WorkShape.empty) return MatchResult.empty;
+    final effectiveBgmId = ignoreBangumiMarker ? null : inventory.bangumiId;
     final localIsRemaster = _hasRemasterInInventory(inventory);
     final localIsEx =
         _inventoryHasExTag(inventory) &&
         (inventory.shape == WorkShape.feature || inventory.episodeCount <= 4);
     final invSeq = _inventorySequelNumber(inventory);
+    final fileOnlySeq = inventory.fileHints.isEmpty
+        ? null
+        : _explicitSequelNumber(inventory.fileHints.first);
+    final folderUnrelatedToBatch =
+        effectiveBgmId == null &&
+        inventory.fileHints.isNotEmpty &&
+        candidates.isNotEmpty &&
+        candidates.every(
+          (c) => _hintsMatchScore(inventory.titleHints, c) < 0.45,
+        );
+    final batchFileDriven =
+        folderUnrelatedToBatch &&
+        candidates.any((c) => _hintsMatchScore(inventory.fileHints, c) >= 0.60);
     final primaryLatinTokens = _significantLatinTokens(inventory.title);
     final invHasCjk = _cjkPattern.hasMatch(inventory.title);
     final ranking = <ScoredCandidate>[];
     for (final candidate in candidates) {
       final scored = ScoredCandidate(candidate);
-      if (inventory.bangumiId != null) {
-        scored.add(inventory.bangumiId == candidate.id ? 60 : -60, 'marker');
+      if (effectiveBgmId != null) {
+        scored.add(effectiveBgmId == candidate.id ? 60 : -60, 'marker');
       }
-      final titleSim = _title(inventory, candidate);
+      final filePrimarySim = batchFileDriven
+          ? _hintsMatchScore(inventory.fileHints, candidate)
+          : 0.0;
+      final fileDriven = batchFileDriven && filePrimarySim >= 0.60;
+      final soleAnimSameType =
+          (candidate.genreIds.isEmpty || candidate.genreIds.contains(16)) &&
+          candidates
+                  .where(
+                    (c) =>
+                        c.type == candidate.type &&
+                        (c.genreIds.isEmpty || c.genreIds.contains(16)),
+                  )
+                  .length ==
+              1;
+      var titleSim = _title(
+        inventory,
+        candidate,
+        allowPreColonBoost: soleAnimSameType,
+      );
+      if (fileDriven && filePrimarySim > titleSim) {
+        titleSim = filePrimarySim;
+      }
       scored.add(45 * titleSim, 'title');
-      if (primaryLatinTokens.length >= 2 &&
+      if (!batchFileDriven &&
+          primaryLatinTokens.length >= 2 &&
           !invHasCjk &&
           !_candidateHasSharedCjkWithInventory(inventory, candidate) &&
           !_candidateSharesRomajiArcCjk(inventory, candidate) &&
@@ -529,13 +662,22 @@ abstract final class WorkMatcher {
       if (localIsRemaster && _hasRemasterInCandidate(candidate)) {
         scored.add(10, 'remaster match');
       }
-      if (titleSim < 0.9) {
+      if (!batchFileDriven && titleSim < 0.9) {
         scored.add(
           _subtitleConflictPenalty(inventory, candidate),
           'conflicting subtitle',
         );
       }
-      _year(scored, inventory.year, candidate.year);
+      final bgmFolderOwnYear = WorkSeason.year({'title': inventory.folder});
+      final bgmDropMessyYear =
+          batchFileDriven &&
+          inventory.year != null &&
+          bgmFolderOwnYear == inventory.year &&
+          !_fileHintsMentionYear(inventory, inventory.year!);
+      final bgmYearInput = bgmDropMessyYear
+          ? inventory.fileYear
+          : inventory.year;
+      _year(scored, bgmYearInput, candidate.year);
       if (inventory.shape == WorkShape.series &&
           candidate.seasons.isNotEmpty &&
           inventory.episodeCount > 0) {
@@ -550,10 +692,17 @@ abstract final class WorkMatcher {
               (remoteEps - localEps).abs() >= 8 &&
               remoteEps != localEps * 2) {
             scored.add(-8, 'episode count mismatch');
-          } else if (localEps <= 4 &&
+          } else if (!fileDriven &&
+              localEps <= 4 &&
               remoteEps >= 11 &&
               _hasConflictingCjkTitle(inventory.title, candidate.title)) {
             scored.add(-18, 'short ova vs long tv');
+          } else if (!fileDriven &&
+              localEps <= 4 &&
+              remoteEps >= 12 &&
+              DirectoryAnalyzer.normalize(inventory.title) !=
+                  DirectoryAnalyzer.normalize(candidate.title)) {
+            scored.add(-8, 'short series vs long tv');
           }
         }
       } else if (inventory.shape == WorkShape.feature &&
@@ -569,7 +718,11 @@ abstract final class WorkMatcher {
               remoteEps >= 11 &&
               (inventory.folderMovieMarker ||
                   inventory.fileMovieMarker ||
-                  _hasConflictingCjkTitle(inventory.title, candidate.title))) {
+                  (!fileDriven &&
+                      _hasConflictingCjkTitle(
+                        inventory.title,
+                        candidate.title,
+                      )))) {
             scored.add(-12, 'feature vs long tv');
           }
         }
@@ -590,8 +743,9 @@ abstract final class WorkMatcher {
       if (localIsEx &&
           !_candidateHasExTag(candidate) &&
           !(localInst != null && localInst == candInst)) {
-        final remoteEps =
-            candidate.seasons.isEmpty ? 0 : candidate.seasons.first.count;
+        final remoteEps = candidate.seasons.isEmpty
+            ? 0
+            : candidate.seasons.first.count;
         final localEps = inventory.shape == WorkShape.feature
             ? inventory.featureCount
             : inventory.episodeCount;
@@ -607,16 +761,21 @@ abstract final class WorkMatcher {
           !_candidateHasSequelSignal(inventory, names)) {
         scored.add(-16, 'base entry vs sequel');
       }
-      if (invSeq != null &&
-          inventory.bangumiId != candidate.id &&
-          !_namesHaveSequelNumber(invSeq, names)) {
-        scored.add(-32, 'missing sequel number $invSeq');
+      final effSeq = batchFileDriven ? fileOnlySeq : invSeq;
+      if (effSeq != null &&
+          effectiveBgmId != candidate.id &&
+          !_namesHaveSequelNumber(effSeq, names)) {
+        scored.add(-32, 'missing sequel number $effSeq');
       }
-      if (invSeq == null &&
+      if (effSeq == null &&
           (inventory.season == null || inventory.season! <= 1) &&
-          inventory.bangumiId != candidate.id) {
-        final candSeq = _explicitSequelNumber(candidate.title);
-        final localNorm = DirectoryAnalyzer.normalize(inventory.title);
+          effectiveBgmId != candidate.id) {
+        final candSeq =
+            _explicitSequelNumber(candidate.title) ??
+            _infixOrdinalSeason(candidate.title);
+        final localNorm = DirectoryAnalyzer.normalize(
+          batchFileDriven ? inventory.fileHints.first : inventory.title,
+        );
         final candNorm = DirectoryAnalyzer.normalize(candidate.title);
         if (candSeq != null && candSeq >= 2 && localNorm != candNorm) {
           scored.add(-24, 'unrequested sequel/part $candSeq');
@@ -630,7 +789,9 @@ abstract final class WorkMatcher {
           );
         }
       }
-      if (inventory.folderMovieMarker && !names.any(_movieWord.hasMatch)) {
+      if (!batchFileDriven &&
+          inventory.folderMovieMarker &&
+          !names.any(_movieWord.hasMatch)) {
         scored.add(-30, 'folder says movie');
       }
       if (inventory.shape == WorkShape.anthology) {
@@ -644,16 +805,31 @@ abstract final class WorkMatcher {
       final multiPart = _resolveBangumiMultiPartTie(inventory, ranking);
       if (multiPart != null) return multiPart;
       if (baseDecision.tier == MatchTier.medium &&
-          inventory.year == null &&
+          (inventory.year == null || batchFileDriven) &&
           ranking.isNotEmpty) {
         final top = ranking.first;
         final margin = ranking.length < 2
             ? double.infinity
             : top.score - ranking[1].score;
-        if (top.score >= 44.5 &&
-            margin >= 12.0 &&
+        final topTitlePts = top.reasons
+            .where((r) => r.endsWith(' title'))
+            .map((r) => double.tryParse(r.split(' ').first) ?? 0.0)
+            .fold<double>(0.0, (m, v) => v > m ? v : m);
+        final exactPrimaryTitle =
             DirectoryAnalyzer.normalize(inventory.title) ==
-                DirectoryAnalyzer.normalize(top.candidate.title)) {
+                DirectoryAnalyzer.normalize(top.candidate.title) ||
+            (batchFileDriven &&
+                _hintsMatchScore(inventory.fileHints, top.candidate) >= 0.90);
+        final sameTitleEpWinner =
+            (exactPrimaryTitle || topTitlePts >= 36.0) &&
+            ranking.length >= 2 &&
+            DirectoryAnalyzer.normalize(top.candidate.title) ==
+                DirectoryAnalyzer.normalize(ranking[1].candidate.title) &&
+            top.reasons.any((r) => r.contains('episode count')) &&
+            !ranking[1].reasons.any((r) => r.contains('episode count')) &&
+            margin >= 7.5;
+        if (top.score >= 44.5 &&
+            ((exactPrimaryTitle && margin >= 12.0) || sameTitleEpWinner)) {
           return MatchResult(MatchTier.high, ranking);
         }
       }
@@ -675,14 +851,41 @@ abstract final class WorkMatcher {
   }) {
     if (inventory.shape == WorkShape.empty) return MatchResult.empty;
     final linked = bangumi?.candidate;
-    final year = inventory.year ?? linked?.year;
-    // 从 Bangumi 借用的年份可能因 TV/OVA 版本发行差异存在偏差，此处采用柔和惩罚。
+    final verifiedBgm = bangumi?.tier == MatchTier.high ? linked : null;
+    // 仅从高置信 Bangumi 借用年份，防止中置信未核验条目借用错误年份误杀精确匹配的 TMDB 候选。
+    final year = inventory.year ?? verifiedBgm?.year;
     final borrowed = inventory.year == null;
-    final matchedBgm =
-        bangumi != null && bangumi.tier != MatchTier.none ? linked : null;
+    final matchedBgm = bangumi != null && bangumi.tier != MatchTier.none
+        ? linked
+        : null;
     final invSeq = _inventorySequelNumber(inventory);
+    final fileOnlySeq = inventory.fileHints.isEmpty
+        ? null
+        : _explicitSequelNumber(inventory.fileHints.first);
+    final folderUnrelatedToBatch =
+        (inventory.tmdbId == null || ignoreTmdbMarker) &&
+        inventory.fileHints.isNotEmpty &&
+        candidates.isNotEmpty &&
+        candidates.every(
+          (c) => _hintsMatchScore(inventory.titleHints, c) < 0.45,
+        );
+    final batchFileDriven =
+        folderUnrelatedToBatch &&
+        candidates.any((c) => _hintsMatchScore(inventory.fileHints, c) >= 0.60);
     final primaryLatinTokens = _significantLatinTokens(inventory.title);
     final invHasCjk = _cjkPattern.hasMatch(inventory.title);
+    final isConcertLive =
+        _concertLiveMarker.hasMatch(inventory.title) ||
+        inventory.titleHints.any(_concertLiveMarker.hasMatch) ||
+        inventory.fileHints.any(_concertLiveMarker.hasMatch);
+    final isLocalOvaFolder =
+        !inventory.folderMovieMarker &&
+        !inventory.fileMovieMarker &&
+        (inventory.season == 0 ||
+            DirectoryAnalyzer.isOvaText(inventory.title) ||
+            DirectoryAnalyzer.isOvaText(inventory.folder) ||
+            inventory.fileHints.any(DirectoryAnalyzer.isOvaText) ||
+            DirectoryAnalyzer.isOva(inventory));
     // TMDB 存在随手创建的空壳条目（无首播日期、无类型、零评分），标题与正主完全相同；
     // 仅当同批次存在信息完整的候选时才降权空壳，避免离线夹具（均无年份/类型）整体失真。
     final anyComplete = candidates.any(
@@ -699,6 +902,20 @@ abstract final class WorkMatcher {
       final scored = ScoredCandidate(candidate);
       if (anyComplete && candidate.year == null && candidate.genreIds.isEmpty) {
         scored.add(-30, 'stub entry');
+      } else if ((anyComplete || verifiedBgm != null) &&
+          candidate.genreIds.isEmpty &&
+          candidate.voteCount == 0 &&
+          (inventory.tmdbId != candidate.id || ignoreTmdbMarker)) {
+        // 无分类且明确零评分的冷门条目（常为非动画短片/同名杂项）不得高分误绑。
+        scored.add(-25, 'unverified empty-genre entry');
+      } else if (anyComplete &&
+          candidate.genreIds.isEmpty &&
+          candidates.any(
+            (c) => c.type == candidate.type && c.genreIds.contains(16),
+          ) &&
+          (inventory.tmdbId != candidate.id || ignoreTmdbMarker)) {
+        // 同批同类型存在明确动画分类（genre 16）候选时，缺失分类信息的条目轻微降权，避免干扰正主分差。
+        scored.add(-5, 'empty-genre entry');
       }
       final votes = candidate.voteCount;
       if (votes != null && votes <= 2) {
@@ -725,20 +942,110 @@ abstract final class WorkMatcher {
       if (isMapped) {
         scored.add(20, 'bangumi-tmdb mapping');
       }
-      var titleSim = _title(inventory, candidate);
-      final verifiedBgm = bangumi?.tier == MatchTier.high ? linked : null;
+      final filePrimarySim = batchFileDriven
+          ? _hintsMatchScore(inventory.fileHints, candidate)
+          : 0.0;
+      final fileDriven = batchFileDriven && filePrimarySim >= 0.60;
+      final soleAnimSameType =
+          (candidate.genreIds.isEmpty || candidate.genreIds.contains(16)) &&
+          candidates
+                  .where(
+                    (c) =>
+                        c.type == candidate.type &&
+                        (c.genreIds.isEmpty || c.genreIds.contains(16)),
+                  )
+                  .length ==
+              1;
+      var titleSim = _title(
+        inventory,
+        candidate,
+        allowPreColonBoost: soleAnimSameType,
+      );
+      if (fileDriven && filePrimarySim > titleSim) {
+        titleSim = filePrimarySim;
+      }
+      final isMappedSpecialBgm =
+          matchedBgm != null &&
+          (matchedBgm.isSpecialFormat ||
+              (inventory.shape == WorkShape.feature &&
+                  matchedBgm.seasons.isNotEmpty &&
+                  matchedBgm.seasons.first.count > 0 &&
+                  matchedBgm.seasons.first.count <= 2) ||
+              (inventory.shape == WorkShape.series &&
+                  inventory.episodeCount > 0 &&
+                  inventory.episodeCount <= 12 &&
+                  matchedBgm.seasons.isNotEmpty &&
+                  matchedBgm.seasons.first.count == inventory.episodeCount));
       final parentTvSpecial =
-          verifiedBgm != null &&
-          _isParentTvForBangumiSpecial(inventory, candidate, verifiedBgm);
+          (verifiedBgm != null &&
+              _isParentTvForBangumiSpecial(
+                inventory,
+                candidate,
+                verifiedBgm,
+              )) ||
+          (isMapped &&
+              mappedTarget.season == 0 &&
+              candidate.type == 'tv' &&
+              candidate.seasons.any((s) => s.number == 0) &&
+              isMappedSpecialBgm);
+      final localOvaParentTv =
+          !parentTvSpecial &&
+          _isParentTvForLocalOvaFolder(inventory, candidate, titleSim);
+      final effectiveParentTvSpecial = parentTvSpecial || localOvaParentTv;
       if (titleSim < 0.85 && verifiedBgm != null) {
         final bridged = _bridgedTitle(verifiedBgm, candidate) * 0.85;
         if (bridged > titleSim) titleSim = bridged;
       }
-      if (parentTvSpecial && titleSim < 0.80) {
-        titleSim = 0.80;
+      if (effectiveParentTvSpecial) {
+        final localNormsForParent = <String>[
+          DirectoryAnalyzer.normalize(inventory.title),
+          for (final fh in inventory.fileHints.take(2))
+            DirectoryAnalyzer.normalize(fh),
+        ]..removeWhere((s) => s.isEmpty);
+        final candNorm = DirectoryAnalyzer.normalize(candidate.title);
+        final exactCjkPrefixParent =
+            localOvaParentTv &&
+            _reHot24.allMatches(candNorm).length >= 3 &&
+            localNormsForParent.any((ln) => ln.startsWith(candNorm));
+        final exactLatinPrefixParent =
+            localOvaParentTv &&
+            !exactCjkPrefixParent &&
+            [candidate.title, ...candidate.aliases].any((n) {
+              final cn = DirectoryAnalyzer.normalize(n);
+              return cn.length >= 12 &&
+                  localNormsForParent.any(
+                    (ln) => ln.startsWith(cn) && ln.length > cn.length,
+                  );
+            });
+        final floor = exactCjkPrefixParent
+            ? 0.94
+            : (exactLatinPrefixParent ? 0.90 : 0.80);
+        if (titleSim < floor) {
+          titleSim = floor;
+        }
       }
       scored.add(45 * titleSim, 'title');
-      if (!parentTvSpecial &&
+      final parentTmdbId = inventory.parentFolderTmdbId;
+      if (inventory.tmdbId == null &&
+          !ignoreTmdbMarker &&
+          parentTmdbId != null &&
+          parentTmdbId == candidate.id &&
+          (titleSim >= 0.45 ||
+              _parentFolderMatchesCandidate(inventory, candidate))) {
+        scored.add(20, 'parent folder marker');
+      }
+      if (!isMapped) {
+        final prefixPenalty = _extraLatinPrefixPenalty(
+          inventory,
+          candidate,
+          batchFileDriven: batchFileDriven,
+        );
+        if (prefixPenalty < 0) {
+          scored.add(prefixPenalty, 'extra prefix mismatch');
+        }
+      }
+      if (!effectiveParentTvSpecial &&
+          !batchFileDriven &&
           primaryLatinTokens.length >= 2 &&
           !invHasCjk &&
           !_candidateHasSharedCjkWithInventory(inventory, candidate) &&
@@ -746,76 +1053,184 @@ abstract final class WorkMatcher {
           _coveredLatinTokens(primaryLatinTokens, candidate) < 2) {
         scored.add(-18, 'partial latin token match');
       }
+      final folderOwnYear = WorkSeason.year({'title': inventory.folder});
+      final dropMessyFolderYear =
+          batchFileDriven &&
+          inventory.year != null &&
+          folderOwnYear == inventory.year &&
+          !_fileHintsMentionYear(inventory, inventory.year!);
+      final effYear = dropMessyFolderYear
+          ? (inventory.fileYear ?? verifiedBgm?.year)
+          : year;
+      final effBorrowed =
+          (borrowed || dropMessyFolderYear) &&
+          !(dropMessyFolderYear && inventory.fileYear != null);
+      final effInvSeq = batchFileDriven ? fileOnlySeq : invSeq;
+      var subtitleConflict = 0.0;
       if (candidate.type == 'movie') {
-        if (!isMapped && !parentTvSpecial && titleSim < 0.9) {
-          scored.add(
-            _subtitleConflictPenalty(
+        if (!isMapped && !effectiveParentTvSpecial && !batchFileDriven) {
+          if (titleSim < 0.9) {
+            subtitleConflict = _subtitleConflictPenalty(
               inventory,
               candidate,
               verifiedBangumi: verifiedBgm,
-            ),
-            'conflicting subtitle',
+            );
+            scored.add(subtitleConflict, 'conflicting subtitle');
+          } else {
+            // 即使候选借共享系列别名达到高相似度，单字分卷/前后篇对立（如 `前篇` vs `后篇`）仍须强制扣分。
+            subtitleConflict = _volumeTailConflictPenalty(inventory, candidate);
+            if (subtitleConflict < 0) {
+              scored.add(subtitleConflict, 'conflicting subtitle');
+            }
+          }
+        }
+        if (!isMapped && !effectiveParentTvSpecial && subtitleConflict == 0) {
+          final unreqSub = _unrequestedMovieSubtitlePenalty(
+            inventory,
+            candidate,
+            batchFileDriven: batchFileDriven,
           );
+          if (unreqSub < 0) {
+            scored.add(unreqSub, 'unrequested movie subtitle');
+          }
         }
         _movie(scored, inventory);
-        _year(scored, year, candidate.year, borrowed: borrowed);
-        if (invSeq != null &&
+        if (isLocalOvaFolder &&
+            !isMapped &&
+            !DirectoryAnalyzer.isOvaText(candidate.title) &&
+            !candidate.aliases.any(DirectoryAnalyzer.isOvaText) &&
+            (_movieWord.hasMatch(candidate.title) ||
+                candidate.title.contains(':') ||
+                candidate.title.contains('：'))) {
+          scored.add(-18, 'ova folder vs non-ova movie');
+        }
+        _year(scored, effYear, candidate.year, borrowed: effBorrowed);
+        if (effInvSeq != null &&
             !(inventory.tmdbId == candidate.id && !ignoreTmdbMarker) &&
-            !_namesHaveSequelNumber(invSeq, [
+            !_namesHaveSequelNumber(effInvSeq, [
               candidate.title,
               ...candidate.aliases,
             ])) {
-          scored.add(-35, 'missing sequel number $invSeq');
+          scored.add(-35, 'missing sequel number $effInvSeq');
+        } else if (effInvSeq == null &&
+            !isMapped &&
+            (inventory.season == null || inventory.season! <= 1) &&
+            !(inventory.tmdbId == candidate.id && !ignoreTmdbMarker)) {
+          final candSeq =
+              _explicitSequelNumber(candidate.title) ??
+              _infixOrdinalSeason(candidate.title);
+          final localNorm = DirectoryAnalyzer.normalize(
+            batchFileDriven ? inventory.fileHints.first : inventory.title,
+          );
+          final candNorm = DirectoryAnalyzer.normalize(candidate.title);
+          if (candSeq != null && candSeq >= 2 && localNorm != candNorm) {
+            scored.add(-18, 'unrequested sequel/part $candSeq');
+          }
         }
       } else {
         _tv(
           scored,
           inventory,
-          year,
-          borrowed,
+          effYear,
+          effBorrowed,
           mappedSeason: isMapped ? mappedTarget.season : null,
           verifiedBangumi: verifiedBgm,
           matchedBangumi: matchedBgm,
-          parentTvSpecial: parentTvSpecial,
+          parentTvSpecial: effectiveParentTvSpecial,
+          localOvaParentTv: localOvaParentTv,
           titleSim: titleSim,
           ignoreTmdbMarker: ignoreTmdbMarker,
+          fileDriven: batchFileDriven,
+          overrideInvSeq: effInvSeq,
         );
-        if (scored.seasonNameMatched && titleSim < 0.85) {
-          scored.add(45 * (0.85 - titleSim), 'season name');
+        final seasonNameFloor = candidates.length == 1 ? 0.95 : 0.85;
+        if (scored.seasonNameMatched && titleSim < seasonNameFloor) {
+          scored.add(45 * (seasonNameFloor - titleSim), 'season name');
         }
         if (!isMapped &&
-            !parentTvSpecial &&
+            !effectiveParentTvSpecial &&
             titleSim < 0.9 &&
             !scored.seasonNameMatched &&
             !scored.tmdbMarkerSeasonMatched) {
-          scored.add(
-            _subtitleConflictPenalty(
-              inventory,
-              candidate,
-              verifiedBangumi: verifiedBgm,
-            ),
-            'conflicting subtitle',
+          subtitleConflict = _subtitleConflictPenalty(
+            inventory,
+            candidate,
+            verifiedBangumi: verifiedBgm,
+            localTitleOverride:
+                batchFileDriven && inventory.fileHints.isNotEmpty
+                ? inventory.fileHints.first
+                : null,
           );
+          scored.add(subtitleConflict, 'conflicting subtitle');
         }
       }
-      if (linked != null) {
-        _linked(scored, linked, parentTvSpecial: parentTvSpecial);
+      // 若同批同类型已存在精确标题且集数结构相容（或同为电影）的动画条目，禁止未核验的 medium 级 Bangumi
+      // 反向把仅靠共享前缀匹配的局部相似条目（如 `LOVE!` vs `High collar!`）抬高反超正主。
+      final blockedByExactPeer =
+          verifiedBgm == null &&
+          matchedBgm != null &&
+          titleSim < 0.85 &&
+          !scored.seasonNameMatched &&
+          !effectiveParentTvSpecial &&
+          candidates.any((other) {
+            if (other == candidate || other.type != candidate.type) {
+              return false;
+            }
+            if (other.genreIds.isNotEmpty && !other.genreIds.contains(16)) {
+              return false;
+            }
+            if (_title(inventory, other) < 0.98) return false;
+            if (other.type == 'movie') return true;
+            if (inventory.episodeCount <= 0) return true;
+            return other.seasons.any(
+              (s) =>
+                  s.number > 0 && (s.count - inventory.episodeCount).abs() <= 1,
+            );
+          });
+      if (verifiedBgm != null ||
+          (matchedBgm != null &&
+              !blockedByExactPeer &&
+              subtitleConflict == 0 &&
+              (batchFileDriven ||
+                  _subtitleConflictPenalty(inventory, matchedBgm) == 0))) {
+        _linked(
+          scored,
+          verifiedBgm ?? matchedBgm!,
+          parentTvSpecial: effectiveParentTvSpecial,
+        );
       }
-      if (candidate.genreIds.isNotEmpty && !candidate.genreIds.contains(16)) {
+      final validMusicGenre =
+          isConcertLive && candidate.genreIds.contains(10402);
+      if (candidate.genreIds.isNotEmpty &&
+          !candidate.genreIds.contains(16) &&
+          !validMusicGenre) {
         scored.add(-35, 'non-animation genre');
       }
       ranking.add(scored);
     }
     final decision = _decide(ranking);
+    final folderOwnYearForPromo = WorkSeason.year({'title': inventory.folder});
+    final promoIgnoreMessyYear =
+        batchFileDriven &&
+        inventory.fileYear == null &&
+        verifiedBgm?.year == null &&
+        inventory.year != null &&
+        folderOwnYearForPromo == inventory.year &&
+        !_fileHintsMentionYear(inventory, inventory.year!);
     if (decision.tier == MatchTier.medium &&
-        year == null &&
+        (year == null || promoIgnoreMessyYear) &&
         ranking.isNotEmpty &&
         inventory.shape != WorkShape.anthology) {
       final top = ranking.first;
+      final topValidGenre =
+          top.candidate.genreIds.isEmpty ||
+          top.candidate.genreIds.contains(16) ||
+          (isConcertLive && top.candidate.genreIds.contains(10402));
       final margin = ranking.length < 2
           ? double.infinity
           : top.score - ranking[1].score;
       var cumulativeWithoutYear = false;
+      var exactSeasonCount = false;
       if (top.candidate.type == 'tv' &&
           top.season != null &&
           top.season! > 0 &&
@@ -823,14 +1238,215 @@ abstract final class WorkMatcher {
         final matchedSeason = top.candidate.seasons
             .where((s) => s.number == top.season)
             .firstOrNull;
+        final minEp = inventory.episodes.reduce((a, b) => a < b ? a : b);
         final maxEp = inventory.episodes.reduce((a, b) => a > b ? a : b);
-        if (matchedSeason != null &&
-            matchedSeason.count > 0 &&
-            maxEp > matchedSeason.count) {
-          cumulativeWithoutYear = true;
+        if (matchedSeason != null && matchedSeason.count > 0) {
+          if (maxEp > matchedSeason.count + 2 &&
+              minEp <= 1 &&
+              (inventory.season == null || inventory.season! <= 1)) {
+            cumulativeWithoutYear = true;
+          } else if (matchedSeason.count == inventory.episodeCount &&
+              inventory.episodeCount >= 4 &&
+              minEp <= 1 &&
+              maxEp <= matchedSeason.count) {
+            exactSeasonCount = true;
+          }
+        }
+      } else if (top.candidate.type == 'tv' &&
+          top.season == 0 &&
+          isLocalOvaFolder) {
+        exactSeasonCount = true;
+      } else if (top.candidate.type == 'tv' &&
+          top.season == null &&
+          inventory.episodeCount >= 36) {
+        final regularEps = top.candidate.seasons
+            .where((s) => s.number > 0)
+            .fold<int>(0, (n, s) => n + s.count);
+        if (regularEps == inventory.episodeCount) {
+          exactSeasonCount = true;
         }
       }
-      if (!cumulativeWithoutYear && top.score >= 59.5 && margin >= 20.0) {
+      final topMovieNorms = top.candidate.type == 'movie'
+          ? <String>{
+              for (final n in [top.candidate.title, ...top.candidate.aliases])
+                DirectoryAnalyzer.normalize(n.replaceAll(_movieWord, ' ')),
+            }
+          : const <String>{};
+      final secondNorms = ranking.length >= 2
+          ? <String>{
+              for (final n in [
+                ranking[1].candidate.title,
+                ...ranking[1].candidate.aliases,
+              ])
+                if (DirectoryAnalyzer.normalize(n.replaceAll(_movieWord, ' '))
+                    case final sn when sn.length >= 3)
+                  sn,
+            }
+          : const <String>{};
+      final topTitleScore = top.reasons
+          .where((r) => r.endsWith(' title'))
+          .map((r) => double.tryParse(r.split(' ').first) ?? 0.0)
+          .fold<double>(0.0, (m, v) => v > m ? v : m);
+      final secondTitleScore = ranking.length >= 2
+          ? ranking[1].reasons
+                .where((r) => r.endsWith(' title'))
+                .map((r) => double.tryParse(r.split(' ').first) ?? 0.0)
+                .fold<double>(0.0, (m, v) => v > m ? v : m)
+          : 0.0;
+      final topHasExactTitleScore = topTitleScore >= 42.0;
+      final exactMovieOverShorterPeer =
+          top.candidate.type == 'movie' &&
+          ranking.length >= 2 &&
+          topHasExactTitleScore &&
+          topMovieNorms.any(
+            (tn) => secondNorms.any(
+              (sn) => tn.length >= sn.length + 2 && tn.startsWith(sn),
+            ),
+          );
+      final exactSeasonOverUnmatchedPeer =
+          exactSeasonCount &&
+          top.season != null &&
+          top.season! > 0 &&
+          ranking.length >= 2 &&
+          ranking[1].season == null;
+      final exactTitleOverPartialPeer =
+          exactSeasonCount &&
+          top.season != null &&
+          top.season! > 0 &&
+          topHasExactTitleScore &&
+          ranking.length >= 2 &&
+          secondTitleScore < 36.0;
+      final promoEffSeq = batchFileDriven ? fileOnlySeq : invSeq;
+      final uncontestedHighTitleS1 =
+          top.candidate.type == 'tv' &&
+          top.season == 1 &&
+          exactSeasonCount &&
+          inventory.episodeCount >= 6 &&
+          topTitleScore >= 40.0 &&
+          margin >= 35.0;
+      // 追番初期（仅 1~3 集/Vol.1）或分段洗版/稀疏跳集（集号合法落在 S1 容量内）：
+      // 当标题精确命中（>= 44）、无竞争对手（margin >= 25）且为有效动画 S1 时允许安全自动绑定。
+      final exactUncontestedPartialTvS1 =
+          top.candidate.type == 'tv' &&
+          top.season == 1 &&
+          inventory.shape == WorkShape.series &&
+          inventory.episodes.isNotEmpty &&
+          topTitleScore >= 44.0 &&
+          margin >= 25.0 &&
+          (top.candidate.voteCount ?? 1) > 0 &&
+          top.candidate.seasons.any(
+            (s) =>
+                s.number == 1 &&
+                s.count > 0 &&
+                inventory.episodes.reduce((a, b) => a > b ? a : b) <= s.count,
+          );
+      final soleTvExactSuffixSequel =
+          ranking.length == 1 &&
+          top.candidate.type == 'tv' &&
+          top.season != null &&
+          top.season! >= 2 &&
+          exactSeasonCount &&
+          inventory.episodeCount >= 6 &&
+          topTitleScore >= 37.0 &&
+          [
+            batchFileDriven && inventory.fileHints.isNotEmpty
+                ? inventory.fileHints.first
+                : inventory.title,
+          ].any((rawLocal) {
+            final lSpaced = rawLocal
+                .toLowerCase()
+                .replaceAll(_reHot25, ' ')
+                .trim();
+            return [top.candidate.title, ...top.candidate.aliases].any((cn) {
+              final cSpaced = cn.toLowerCase().replaceAll(_reHot25, ' ').trim();
+              return cSpaced.length >= 10 &&
+                  cSpaced.split(' ').length >= 2 &&
+                  lSpaced.endsWith(' $cSpaced');
+            });
+          });
+      final exactSequelSeasonWinner =
+          top.candidate.type == 'tv' &&
+          promoEffSeq != null &&
+          promoEffSeq >= 2 &&
+          top.season == promoEffSeq &&
+          topTitleScore >= 44.0 &&
+          margin >= 25.0;
+      final soleLocalOvaParent =
+          top.candidate.type == 'tv' &&
+          top.season == 0 &&
+          !inventory.folderMovieMarker &&
+          !inventory.fileMovieMarker &&
+          (DirectoryAnalyzer.isOvaText(inventory.title) ||
+              DirectoryAnalyzer.isOvaText(inventory.folder) ||
+              inventory.fileHints.any(DirectoryAnalyzer.isOvaText) ||
+              DirectoryAnalyzer.isOva(inventory)) &&
+          !(_inventoryHasExTag(inventory) &&
+              !_candidateHasExTag(top.candidate)) &&
+          ranking.length == 1 &&
+          !DirectoryAnalyzer.isOvaText(top.candidate.title) &&
+          !top.candidate.aliases.any(DirectoryAnalyzer.isOvaText) &&
+          topTitleScore >= 36.0;
+      final minMargin = exactMovieOverShorterPeer
+          ? (ranking[1].candidate.type == 'movie' ? 9.5 : 12.0)
+          : (exactSeasonOverUnmatchedPeer
+                ? 9.5
+                : (exactTitleOverPartialPeer
+                      ? 11.5
+                      : (exactSeasonCount ? 18.0 : 20.0)));
+      final minPromoteScore =
+          (top.candidate.type == 'tv' &&
+              top.seasonNameMatched &&
+              ranking.length == 1)
+          ? 47.0
+          : (soleLocalOvaParent
+                ? 51.0
+                : (soleTvExactSuffixSequel
+                      ? 52.0
+                      : (exactSequelSeasonWinner || exactUncontestedPartialTvS1
+                            ? 52.5
+                            : (uncontestedHighTitleS1 ? 55.0 : 59.5))));
+      if (topValidGenre &&
+          !cumulativeWithoutYear &&
+          top.score >= minPromoteScore &&
+          margin >= minMargin) {
+        return MatchResult(MatchTier.high, ranking);
+      }
+    }
+    // 年份精确吻合且大幅领先次名的动画剧场版（如分部电影 `Movie 2 (2018)` 得分 69、差值 46），允许稳健升格自动绑定。
+    if (decision.tier == MatchTier.medium &&
+        ranking.isNotEmpty &&
+        inventory.shape != WorkShape.anthology) {
+      final top = ranking.first;
+      final margin = ranking.length < 2
+          ? double.infinity
+          : top.score - ranking[1].score;
+      final topValidGenre =
+          top.candidate.genreIds.isEmpty ||
+          top.candidate.genreIds.contains(16) ||
+          (isConcertLive && top.candidate.genreIds.contains(10402));
+      if (top.candidate.type == 'movie' &&
+          year != null &&
+          top.candidate.year == year &&
+          topValidGenre &&
+          top.score >= 68.0 &&
+          margin >= 25.0) {
+        return MatchResult(MatchTier.high, ranking);
+      }
+    }
+    if (decision.tier == MatchTier.medium &&
+        ranking.isNotEmpty &&
+        inventory.shape == WorkShape.feature &&
+        ranking.first.candidate.type == 'tv' &&
+        ranking.first.season == 0 &&
+        (DirectoryAnalyzer.isOvaText(inventory.title) ||
+            DirectoryAnalyzer.isOvaText(inventory.folder) ||
+            inventory.fileHints.any(DirectoryAnalyzer.isOvaText) ||
+            DirectoryAnalyzer.isOva(inventory))) {
+      final top = ranking.first;
+      final margin = ranking.length < 2
+          ? double.infinity
+          : top.score - ranking[1].score;
+      if (top.score >= 60.0 && margin >= 18.0) {
         return MatchResult(MatchTier.high, ranking);
       }
     }
@@ -840,7 +1456,14 @@ abstract final class WorkMatcher {
   static void _movie(ScoredCandidate scored, DirectoryInventory inventory) {
     switch (inventory.shape) {
       case WorkShape.feature:
-        scored.add(inventory.featureCount == 1 ? 15 : 5, 'feature');
+        scored.add(
+          inventory.featureCount == 1
+              ? 15
+              : (inventory.featureCount == 2 && inventory.folderMovieMarker
+                    ? 10
+                    : 5),
+          'feature',
+        );
         if (inventory.folderMovieMarker) {
           scored.add(5, 'folder says movie');
         } else if (inventory.fileMovieMarker) {
@@ -865,8 +1488,11 @@ abstract final class WorkMatcher {
     MatchCandidate? verifiedBangumi,
     MatchCandidate? matchedBangumi,
     bool parentTvSpecial = false,
+    bool localOvaParentTv = false,
     double titleSim = 0,
     bool ignoreTmdbMarker = false,
+    bool fileDriven = false,
+    int? overrideInvSeq,
   }) {
     final candidate = scored.candidate;
     final regular = candidate.seasons.where((s) => s.number > 0).toList();
@@ -878,6 +1504,7 @@ abstract final class WorkMatcher {
     int? yearOf = candidate.year;
     final bridgedSpecial =
         parentTvSpecial ||
+        localOvaParentTv ||
         (verifiedBangumi != null &&
             !inventory.folderMovieMarker &&
             (_bridgedTitle(verifiedBangumi, candidate) >= 0.60 ||
@@ -907,6 +1534,7 @@ abstract final class WorkMatcher {
           ? null
           : epsSet.reduce((a, b) => a > b ? a : b);
       if (!parentTvSpecial &&
+          !fileDriven &&
           inventory.season != 0 &&
           !(matchedBangumi?.isSpecialFormat ?? false) &&
           episodes <= 4 &&
@@ -915,17 +1543,38 @@ abstract final class WorkMatcher {
           _hasConflictingCjkTitle(inventory.title, candidate.title)) {
         scored.add(-18, 'short ova vs long tv');
       }
-      final seasonPick = _season(
-        inventory,
-        candidate,
-        regular,
-        year,
-        mappedSeason: mappedSeason,
-        linkedBangumi: matchedBangumi,
-        localIsRemaster: localIsRemaster,
-        ignoreTmdbMarker: ignoreTmdbMarker,
-      );
-      final maxSpecialEps = inventory.season == 0
+      final isExplicitOvaTarget =
+          DirectoryAnalyzer.isOvaText(inventory.title) ||
+          DirectoryAnalyzer.isOvaText(inventory.folder) ||
+          inventory.fileHints.any(DirectoryAnalyzer.isOvaText) ||
+          DirectoryAnalyzer.isOva(inventory) ||
+          (verifiedBangumi?.isSpecialFormat ?? false) ||
+          (parentTvSpecial && (matchedBangumi?.isSpecialFormat ?? false));
+      final staleMappedS1ForOva =
+          mappedSeason == 1 &&
+          isExplicitOvaTarget &&
+          episodes <= 12 &&
+          regular.any((s) => s.number == 1 && s.count >= episodes + 6);
+      final forceLocalOvaS0 =
+          (localOvaParentTv || (parentTvSpecial && isExplicitOvaTarget)) &&
+          (mappedSeason == null || mappedSeason == 0 || staleMappedS1ForOva) &&
+          specials.isNotEmpty &&
+          specials.first.count >= episodes;
+      final seasonPick = forceLocalOvaS0
+          ? null
+          : _season(
+              inventory,
+              candidate,
+              regular,
+              year,
+              mappedSeason: mappedSeason,
+              linkedBangumi: matchedBangumi,
+              localIsRemaster: localIsRemaster,
+              ignoreTmdbMarker: ignoreTmdbMarker,
+              fileDriven: fileDriven,
+              overrideInvSeq: overrideInvSeq,
+            );
+      final maxSpecialEps = (inventory.season == 0 || forceLocalOvaS0)
           ? (specials.isNotEmpty ? specials.first.count : 0)
           : ((mappedSeason == 0 || (matchedBangumi?.isSpecialFormat ?? false))
                 ? 12
@@ -934,6 +1583,7 @@ abstract final class WorkMatcher {
           inventory.season == 0 ||
           mappedSeason == 0 ||
           parentTvSpecial ||
+          localOvaParentTv ||
           (bridgedSpecial &&
               DirectoryAnalyzer.normalize(inventory.title).length >=
                   DirectoryAnalyzer.normalize(candidate.title).length + 2);
@@ -946,7 +1596,27 @@ abstract final class WorkMatcher {
         scored.seasonNameMatched = seasonPick.nameMatched;
         scored.tmdbMarkerSeasonMatched = seasonPick.tmdbMarkerMatched;
         yearOf = season.year ?? yearOf;
-        scored.add(season.count == episodes ? 15 : 8, 'season count');
+        final exactWithSpecials =
+            regular.length == 1 &&
+            specials.isNotEmpty &&
+            season.count + specials.first.count == episodes;
+        final continuousSeasonTailPart =
+            minEp != null &&
+            minEp > 1 &&
+            maxEp != null &&
+            maxEp <= season.count &&
+            ((regular.length == 1 && season.count >= 50 && episodes >= 12) ||
+                (maxEp == season.count &&
+                    episodes >= (season.count * 0.5).ceil() &&
+                    episodes >= 6));
+        scored.add(
+          season.count == episodes ||
+                  exactWithSpecials ||
+                  continuousSeasonTailPart
+              ? 15
+              : 8,
+          'season count',
+        );
         if (seasonPick.cumulativeOffset) {
           scored.add(6, 'cumulative offset');
         }
@@ -959,7 +1629,11 @@ abstract final class WorkMatcher {
         scored.season = 0;
         yearOf = s0.year ?? yearOf;
         scored.add(
-          parentTvSpecial || inventory.season == 0 ? 12 : 10,
+          s0.count == episodes || (localOvaParentTv && episodes >= 2)
+              ? 15
+              : (parentTvSpecial || localOvaParentTv || inventory.season == 0
+                    ? 12
+                    : 10),
           'special season',
         );
       } else if (regular.isNotEmpty &&
@@ -967,14 +1641,18 @@ abstract final class WorkMatcher {
               (minEp == 1 &&
                   sortedRegular.length >= 2 &&
                   _matchesConsecutivePrefixSum(sortedRegular, episodes)))) {
-        scored.add(15, 'all seasons count');
+        final multiSeasonLongExact = episodes >= 36 && regular.length >= 2;
+        scored.add(multiSeasonLongExact ? 20 : 15, 'all seasons count');
       } else if (regular.isEmpty) {
         scored.add(episodes >= 10 ? 10 : 5, 'series');
       } else if (regular.any((s) => s.count >= episodes) || episodes > 30) {
         scored.add(5, 'series');
       }
 
-      if (!scored.cumulativeOffsetMatched && minEp != null && minEp > 1 && maxEp != null) {
+      if (!scored.cumulativeOffsetMatched &&
+          minEp != null &&
+          minEp > 1 &&
+          maxEp != null) {
         final totalRegular = regular.fold<int>(0, (n, s) => n + s.count);
         if (regular.length == 1 &&
             totalRegular > 0 &&
@@ -993,7 +1671,7 @@ abstract final class WorkMatcher {
         final s0 = specials.first;
         scored.season = 0;
         yearOf = s0.year ?? yearOf;
-        scored.add(12, 'mapped special season');
+        scored.add(15, 'mapped special season');
       } else {
         // 特别篇或 OVA 合集可能挂在 TMDB 第 0 季或独立短季下方。
         final small = [...specials, ...regular.where((s) => s.count <= 3)]
@@ -1015,10 +1693,21 @@ abstract final class WorkMatcher {
           final match = small.first;
           scored.season = match.number;
           yearOf = match.year ?? yearOf;
-          scored.add(
-            regular.isEmpty && specials.isEmpty ? 0 : 10,
-            'special/short season',
-          );
+          if (inventory.folderMovieMarker || inventory.fileMovieMarker) {
+            scored.add(-5, 'movie folder vs tv special');
+          } else {
+            final strongS0Feature =
+                match.number == 0 &&
+                (localOvaParentTv ||
+                    DirectoryAnalyzer.isOva(inventory) ||
+                    (year == null && titleSim >= 0.90));
+            scored.add(
+              regular.isEmpty && specials.isEmpty
+                  ? 0
+                  : (strongS0Feature ? 15 : 10),
+              'special/short season',
+            );
+          }
         } else if (inventory.folderMovieMarker || inventory.fileMovieMarker) {
           scored.add(-35, 'movie vs tv');
         } else if (candidate.seasons.isNotEmpty) {
@@ -1043,7 +1732,9 @@ abstract final class WorkMatcher {
         scored.add(-20, 'ex special missing ex/s0');
       }
     }
-    final invSeq = _inventorySequelNumber(inventory);
+    final invSeq = fileDriven
+        ? overrideInvSeq
+        : (overrideInvSeq ?? _inventorySequelNumber(inventory));
     if (invSeq != null &&
         !(inventory.tmdbId == candidate.id && !ignoreTmdbMarker) &&
         !_namesHaveSequelNumber(invSeq, [
@@ -1064,8 +1755,14 @@ abstract final class WorkMatcher {
           episodes > 0 &&
           invSeq >= 2 &&
           (year == null || yearOf == null || year >= yearOf);
+      final hasMatchingSeqSeason = regular.any((s) => s.number == invSeq);
       final validSequelSeason =
-          (chosen != null && chosen >= 2) ||
+          (chosen != null &&
+              chosen >= 2 &&
+              (!hasMatchingSeqSeason ||
+                  chosen == invSeq ||
+                  scored.seasonNameMatched ||
+                  mappedSeason == chosen)) ||
           (chosen == 0 &&
               (parentTvSpecial ||
                   bridgedSpecial ||
@@ -1102,17 +1799,28 @@ abstract final class WorkMatcher {
       _year(scored, year, candidate.year, borrowed: borrowed);
     } else if (scored.season == 0 &&
         bridgedSpecial &&
+        year != null &&
+        (yearOf != null || candidate.year != null) &&
         (parentTvSpecial
-            ? (year == null || yearOf == null || year >= yearOf - 1)
-            : (year != null && yearOf != null && year > yearOf + 1))) {
-      scored.add(
-        _yearDiff(year, yearOf) == 0 ? 15 : 8,
-        'franchise special year',
-      );
+            ? (year >= (yearOf ?? candidate.year!) - 1 ||
+                  (candidate.year != null && year >= candidate.year! - 1))
+            : (yearOf != null && year > yearOf + 1))) {
+      final specialYearScore = _yearDiff(year, yearOf) <= 1
+          ? 15.0
+          : (localOvaParentTv && titleSim >= 0.90 ? 13.0 : 8.0);
+      scored.add(specialYearScore, 'franchise special year');
     } else if (mergedContinuousSequelYear) {
       scored.add(8, 'merged single-season sequel year');
     } else {
-      _year(scored, year, yearOf, borrowed: borrowed);
+      final parentYear = year == null && scored.seasonNameMatched
+          ? inventory.parentFolderInfo?.year
+          : null;
+      _year(
+        scored,
+        year ?? parentYear,
+        yearOf,
+        borrowed: borrowed || parentYear != null,
+      );
     }
   }
 
@@ -1140,7 +1848,9 @@ abstract final class WorkMatcher {
   }) {
     final rawName = season.name?.trim() ?? '';
     if (rawName.isEmpty || _genericSeasonName.hasMatch(rawName)) return 0.0;
-    final sNorm = _canonCjk(DirectoryAnalyzer.normalize(rawName));
+    final strippedName = _stripSeasonLabelDecor(rawName);
+    final effectiveName = strippedName.isNotEmpty ? strippedName : rawName;
+    final sNorm = _canonCjk(DirectoryAnalyzer.normalize(effectiveName));
     if (sNorm.length < 2) return 0.0;
     final baseNorm = _canonCjk(
       DirectoryAnalyzer.normalize(_stripRemaster(candidate.title)),
@@ -1151,20 +1861,33 @@ abstract final class WorkMatcher {
             sNorm.length > baseNorm.length + 1
         ? sNorm.substring(baseNorm.length)
         : sNorm;
-    final combinedNorm =
-        baseNorm.isNotEmpty && !sNorm.startsWith(baseNorm)
+    final combinedNorm = baseNorm.isNotEmpty && !sNorm.startsWith(baseNorm)
         ? '$baseNorm$sNorm'
         : sNorm;
 
     final primaryNorm = _canonCjk(
       DirectoryAnalyzer.normalize(_stripRemaster(inventory.title)),
     );
-    final localResidual =
-        baseNorm.isNotEmpty &&
-            primaryNorm.startsWith(baseNorm) &&
-            primaryNorm.length >= baseNorm.length + 2
-        ? primaryNorm.substring(baseNorm.length)
-        : '';
+    // 若本地主标题已在系列基础名之后携带独立篇章/续作副标题（如 `SEED DESTINY` 相对 `SEED`），
+    // 则仅含系列基础名的第 1 季不得借次要父系列提示词拿到季名精确命中。
+    if (sNorm == baseNorm &&
+        primaryNorm.length > baseNorm.length + 1 &&
+        primaryNorm.startsWith(baseNorm)) {
+      return 0.0;
+    }
+    final localResiduals = <String>{
+      if (baseNorm.isNotEmpty &&
+          primaryNorm.startsWith(baseNorm) &&
+          primaryNorm.length >= baseNorm.length + 2)
+        primaryNorm.substring(baseNorm.length),
+    };
+    final candAliasNorms = <String>{
+      if (baseNorm.length >= 4) baseNorm,
+      for (final a in candidate.aliases)
+        if (_canonCjk(DirectoryAnalyzer.normalize(_stripRemaster(a)))
+            case final an when an.length >= 4)
+          an,
+    };
 
     final localNorms = <String>{
       if (primaryNorm.isNotEmpty) primaryNorm,
@@ -1173,14 +1896,35 @@ abstract final class WorkMatcher {
       for (final f in inventory.fileHints.take(2))
         _canonCjk(DirectoryAnalyzer.normalize(_stripRemaster(f))),
       if (linkedBangumi != null) ...[
-        _canonCjk(DirectoryAnalyzer.normalize(_stripRemaster(linkedBangumi.title))),
+        _canonCjk(
+          DirectoryAnalyzer.normalize(_stripRemaster(linkedBangumi.title)),
+        ),
         for (final a in linkedBangumi.aliases.take(2))
           _canonCjk(DirectoryAnalyzer.normalize(_stripRemaster(a))),
       ],
     }..removeWhere((s) => s.isEmpty);
 
+    // 同步按候选别名剥离本地前缀提取副标题残差（如罗马音 `Jungle ... Deluxe` 剥去别名后得 `deluxe`，
+    // 从而与中文季名 `热带雨林的爆笑生活 DELUXE` 的残差 `deluxe` 跨语种精确吻合）。
+    for (final l in localNorms) {
+      for (final an in candAliasNorms) {
+        if (l.startsWith(an) && l.length >= an.length + 2) {
+          localResiduals.add(l.substring(an.length));
+        }
+      }
+    }
+
     final sArc = _extractTrailingCanonArc(sNorm);
     var best = 0.0;
+    // 日语续季常以右上撇号 `’`/`'` 记作 `Dash`（如 `邪神与厨二病少女’` 对应 `Jashin-chan Dropkick Dash`）。
+    final rawTrimmedSeason = effectiveName.trim();
+    if (rawTrimmedSeason.endsWith("'") ||
+        rawTrimmedSeason.endsWith('’') ||
+        rawTrimmedSeason.endsWith('′')) {
+      if (localResiduals.contains('dash')) {
+        best = 0.95;
+      }
+    }
     if (sArc != null) {
       for (final l in localNorms) {
         for (final lv in _expandNormArcs(l)) {
@@ -1190,15 +1934,17 @@ abstract final class WorkMatcher {
         }
       }
     }
-    if (localResidual.isNotEmpty && sNorm != baseNorm) {
-      for (final lv in _expandNormArcs(localResidual)) {
-        for (final sv in _expandNormArcs(seasonResidual)) {
-          final sim = similarity(lv, sv);
-          if (sim > best) best = sim;
-        }
-        for (final sv in _expandNormArcs(sNorm)) {
-          final simRaw = similarity(lv, sv);
-          if (simRaw > best) best = simRaw;
+    if (localResiduals.isNotEmpty && sNorm != baseNorm) {
+      for (final localRes in localResiduals) {
+        for (final lv in _expandNormArcs(localRes)) {
+          for (final sv in _expandNormArcs(seasonResidual)) {
+            final sim = similarity(lv, sv);
+            if (sim > best) best = sim;
+          }
+          for (final sv in _expandNormArcs(sNorm)) {
+            final simRaw = similarity(lv, sv);
+            if (simRaw > best) best = simRaw;
+          }
         }
       }
     }
@@ -1244,6 +1990,8 @@ abstract final class WorkMatcher {
     MatchCandidate? linkedBangumi,
     bool localIsRemaster = false,
     bool ignoreTmdbMarker = false,
+    bool fileDriven = false,
+    int? overrideInvSeq,
   }) {
     if (regular.isEmpty) return null;
     final rawExplicit =
@@ -1253,20 +2001,18 @@ abstract final class WorkMatcher {
             ? inventory.main.map((i) => i.season).whereType<int>().first
             : null);
     if (rawExplicit == 0) return null;
-    final invSeq = _inventorySequelNumber(inventory);
+    final invSeq = fileDriven
+        ? overrideInvSeq
+        : (overrideInvSeq ?? _inventorySequelNumber(inventory));
     final candHasSeq =
         invSeq == null ||
+        _namesHaveSequelNumber(invSeq, [candidate.title, ...candidate.aliases]);
+    final primaryTitleHasSeq =
+        invSeq != null &&
         _namesHaveSequelNumber(invSeq, [
           candidate.title,
-          ...candidate.aliases,
+          if (candidate.originalTitle != null) candidate.originalTitle!,
         ]);
-    final explicit =
-        (invSeq != null &&
-            !candHasSeq &&
-            rawExplicit == 1 &&
-            inventory.season == null)
-        ? null
-        : rawExplicit;
     final localArcs = <String>{
       for (final raw in [
         inventory.title,
@@ -1302,6 +2048,13 @@ abstract final class WorkMatcher {
       0.0,
       (m, v) => v > m ? v : m,
     );
+    final explicit =
+        (rawExplicit == 1 &&
+            inventory.season == null &&
+            ((invSeq != null && !candHasSeq) ||
+                (bestNameScore >= 0.88 && (nameScores[1] ?? 0.0) < 0.72)))
+        ? null
+        : rawExplicit;
 
     if (explicit == null &&
         mappedSeason == null &&
@@ -1312,7 +2065,8 @@ abstract final class WorkMatcher {
       final singleExactMatch = sortedRegular.any(
         (s) =>
             s.count == episodes &&
-            (_yearDiff(year, s.year) == 0 || (nameScores[s.number] ?? 0) >= 0.72),
+            (_yearDiff(year, s.year) == 0 ||
+                (nameScores[s.number] ?? 0) >= 0.72),
       );
       if (!singleExactMatch &&
           ((allSum > 0 && episodes == allSum) ||
@@ -1328,20 +2082,48 @@ abstract final class WorkMatcher {
         mappedSeason == null &&
         year == null &&
         minEp == 1 &&
-        DirectoryAnalyzer.normalize(inventory.title) ==
-            DirectoryAnalyzer.normalize(candidate.title);
+        invSeq == null &&
+        bestNameScore < 0.72 &&
+        [inventory.title, if (fileDriven) ...inventory.fileHints].any((h) {
+          final hn = DirectoryAnalyzer.normalize(h);
+          return hn.isNotEmpty &&
+              [
+                candidate.title,
+                ...candidate.aliases,
+              ].any((n) => DirectoryAnalyzer.normalize(n) == hn);
+        });
+    final parentInfo = inventory.parentFolderInfo;
+    final parentNorm = parentInfo == null
+        ? ''
+        : _canonCjk(DirectoryAnalyzer.normalize(parentInfo.title));
 
     SeasonInfo? best;
     var bestScore = 0, tie = false;
     var bestCumOffset = false, bestNameHit = false, bestMarkerMatched = false;
     var priorCount = 0;
     for (final season in sortedRegular) {
+      final effectiveSeqForMerged =
+          invSeq ??
+          (inventory.season != null && inventory.season! >= 2
+              ? inventory.season
+              : null);
+      final candHasEffectiveSeq =
+          effectiveSeqForMerged != null &&
+          _namesHaveSequelNumber(effectiveSeqForMerged, [
+            candidate.title,
+            ...candidate.aliases,
+          ]);
+      final continuousOffsetInMergedS1 =
+          minEp != null &&
+          minEp >= 10 &&
+          maxEp != null &&
+          maxEp <= season.count;
       final isMergedContinuousS1 =
           season.number == 1 &&
           sortedRegular.length == 1 &&
-          invSeq != null &&
-          invSeq >= 2 &&
-          !candHasSeq &&
+          effectiveSeqForMerged != null &&
+          effectiveSeqForMerged >= 2 &&
+          (!candHasEffectiveSeq || continuousOffsetInMergedS1) &&
           episodes > 0 &&
           season.count >= episodes + 12;
       if (invSeq != null &&
@@ -1359,13 +2141,34 @@ abstract final class WorkMatcher {
         }
       }
       var score = 0;
-      if (mappedSeason != null) {
+      // 当 TMDB 自身季名已以极高相似度命中另一季时（如 `SEED DESTINY 第 2 季`），
+      // 忽略离线映射表里默认填写的冲突季号（常见 `open-ani` 默认 season=1）。
+      final ignoreConflictingMappedSeason =
+          mappedSeason != null &&
+          bestNameScore >= 0.88 &&
+          (nameScores[mappedSeason] ?? 0.0) < 0.72;
+      if (mappedSeason != null && !ignoreConflictingMappedSeason) {
         score += season.number == mappedSeason ? 8 : -6;
       }
       if (explicit != null) {
         score += season.number == explicit
             ? 6
             : (isMergedContinuousS1 ? 0 : -6);
+      } else if (invSeq != null &&
+          invSeq >= 2 &&
+          !primaryTitleHasSeq &&
+          sortedRegular.length >= 2 &&
+          sortedRegular.any((s) => s.number == invSeq)) {
+        // 剧集主名未带续作序号（仅别名汇总了续季名如 `DD北斗神拳` 含 `DD Hokuto no Ken 2`）时，
+        // 优先将对应续季号（如 `S2`）作为默认季候选项。
+        if (season.number == invSeq) {
+          score += 4;
+        } else if (season.number == 1 &&
+            (nameScores[1] ?? 0.0) < 0.72 &&
+            !(season.name != null &&
+                _namesHaveSequelNumber(invSeq, [season.name!]))) {
+          score -= 4;
+        }
       }
       if (isMergedContinuousS1) {
         score += 6;
@@ -1377,15 +2180,6 @@ abstract final class WorkMatcher {
         if (sArc != null && !localArcs.contains(sArc)) {
           score -= 10;
         }
-      }
-      if (season.count == episodes) {
-        score += 3;
-      } else if ((season.count - episodes).abs() <= 1) {
-        score += 2;
-      } else if (localIsRemaster &&
-          season.count >= episodes &&
-          season.count - episodes <= 4) {
-        score += 2;
       }
       // 分割放送作品常沿用累计集号编码（例如第 2 季文件仍从 13 编至 24 话）。
       var cumOffset = false;
@@ -1402,6 +2196,49 @@ abstract final class WorkMatcher {
           score += 6;
           cumOffset = true;
         }
+      }
+      // 残缺起始集（如 3..12）或稀疏跳集（如 1,3,5）判定：物理最大集号超出短季总集数且非累计偏移时，
+      // 绝不因文件个数巧合相等误判短季，优先匹配能完整容纳最大集号的正片季。
+      final isPartialOrSparse =
+          minEp != null && maxEp != null && (minEp > 1 || maxEp > episodes);
+      final exceedsSeasonCapacity =
+          !cumOffset &&
+          maxEp != null &&
+          season.count > 0 &&
+          maxEp > season.count + 1 &&
+          (isPartialOrSparse || sortedRegular.length >= 2);
+      if (!exceedsSeasonCapacity) {
+        if (!isPartialOrSparse) {
+          if (season.count == episodes) {
+            score += 3;
+          } else if ((season.count - episodes).abs() <= 1) {
+            score += 2;
+          } else if (sortedRegular.length == 1 &&
+              ((episodes >= 4 && (season.count - episodes).abs() <= 2) ||
+                  (minEp != null &&
+                      minEp >= 1 &&
+                      maxEp != null &&
+                      maxEp <= season.count &&
+                      episodes >= 1))) {
+            score += 2;
+          } else if (localIsRemaster &&
+              season.count >= episodes &&
+              season.count - episodes <= 4) {
+            score += 2;
+          }
+        } else if (!cumOffset && maxEp <= season.count) {
+          if (maxEp == season.count) {
+            score += 3;
+          } else if (season.number == 1 &&
+              explicit == null &&
+              invSeq == null &&
+              bestNameScore < 0.72) {
+            score += 2;
+          }
+        }
+      } else if (isPartialOrSparse &&
+          sortedRegular.any((s) => s.count >= maxEp)) {
+        score -= 2;
       }
       final diff = _yearDiff(year, season.year);
       if (diff == 0) {
@@ -1425,7 +2262,34 @@ abstract final class WorkMatcher {
           season.count == episodes;
       if (markerMatched) score += 2;
 
-      final nScore = nameScores[season.number] ?? 0.0;
+      var nScore = nameScores[season.number] ?? 0.0;
+      if (bestNameScore < 0.72 &&
+          year == null &&
+          parentNorm.length >= 4 &&
+          parentNorm !=
+              _canonCjk(DirectoryAnalyzer.normalize(candidate.title)) &&
+          season.name != null &&
+          season.name!.trim().isNotEmpty &&
+          !_genericSeasonName.hasMatch(season.name!.trim())) {
+        final rawSeasonNorm = _canonCjk(
+          DirectoryAnalyzer.normalize(season.name!),
+        );
+        final strippedSeasonNorm = _canonCjk(
+          DirectoryAnalyzer.normalize(_stripSeasonLabelDecor(season.name!)),
+        );
+        final parentSeasonSim = [rawSeasonNorm, strippedSeasonNorm]
+            .where((s) => s.length >= 4)
+            .fold<double>(0.0, (m, s) {
+              final v = similarity(parentNorm, s);
+              return v > m ? v : m;
+            });
+        if (parentSeasonSim >= 0.92) {
+          final pYearDiff = _yearDiff(parentInfo?.year, season.year);
+          if (pYearDiff <= 1 || pYearDiff == 99) {
+            nScore = 0.90;
+          }
+        }
+      }
       final nameHit = nScore >= 0.72;
       if (nScore >= 0.88) {
         score += 8;
@@ -1434,7 +2298,11 @@ abstract final class WorkMatcher {
       }
 
       final sAirDate = _parseFullDate(season.airDate);
-      if (bgmAirDate != null && sAirDate != null) {
+      // 仅当本地无显式年份或 Bangumi 首播年份与本地年份一致时才采纳 Bangumi 精确日期加权，
+      // 防止未核验的第一季 Bangumi 条目（如 2018）反压文件名显式标注的续季年份（如 2019）。
+      if (bgmAirDate != null &&
+          sAirDate != null &&
+          (year == null || bgmAirDate.year == year)) {
         final days = bgmAirDate.difference(sAirDate).inDays.abs();
         if (days <= 7) {
           score += 7;
@@ -1495,18 +2363,47 @@ abstract final class WorkMatcher {
     MatchCandidate bangumi, {
     bool parentTvSpecial = false,
   }) {
-    final remote = {
-      for (final name in [scored.candidate.title, ...scored.candidate.aliases])
-        DirectoryAnalyzer.normalize(name),
+    final remote = <String>{
+      for (final name in [
+        scored.candidate.title,
+        ...scored.candidate.aliases,
+      ]) ...[DirectoryAnalyzer.normalize(name), canonTitleKey(name)],
     }..remove('');
-    final original = bangumi.aliases.isEmpty
+    final originalRaw = bangumi.aliases.isEmpty ? '' : bangumi.aliases.first;
+    final original = originalRaw.isEmpty
         ? ''
-        : DirectoryAnalyzer.normalize(bangumi.aliases.first);
-    var bonus = original.isNotEmpty && remote.contains(original) ? 12.0 : 0.0;
+        : DirectoryAnalyzer.normalize(originalRaw);
+    final originalCanon = originalRaw.isEmpty ? '' : canonTitleKey(originalRaw);
+    final allowStripSequel =
+        scored.candidate.type == 'tv' &&
+        scored.season != null &&
+        scored.season! >= 2;
+    String strippedSeasonKey(String raw) {
+      if (!allowStripSequel || raw.isEmpty) return '';
+      final base = DirectoryAnalyzer.splitSeasonSuffix(
+        raw,
+        isSeries: true,
+      ).baseTitle;
+      return base == raw ? '' : DirectoryAnalyzer.normalize(base);
+    }
+
+    final originalBase = strippedSeasonKey(originalRaw);
+    var bonus =
+        (original.isNotEmpty && remote.contains(original)) ||
+            (originalCanon.isNotEmpty && remote.contains(originalCanon)) ||
+            (originalBase.isNotEmpty && remote.contains(originalBase))
+        ? 12.0
+        : 0.0;
     var others = 0;
     for (final name in {bangumi.title, ...bangumi.aliases.skip(1)}) {
       final key = DirectoryAnalyzer.normalize(name);
-      if (key.isNotEmpty && key != original && remote.contains(key)) others++;
+      final cKey = canonTitleKey(name);
+      final bKey = strippedSeasonKey(name);
+      if ((key.isNotEmpty && key != original && remote.contains(key)) ||
+          (cKey.isNotEmpty && cKey != originalCanon && remote.contains(cKey)) ||
+          (bKey.isNotEmpty && bKey != originalBase && remote.contains(bKey))) {
+        others++;
+      }
     }
     bonus += (others * 5).clamp(0, 10).toDouble();
     if (bonus == 0 && parentTvSpecial && scored.season == 0) {
@@ -1533,8 +2430,9 @@ abstract final class WorkMatcher {
         : inventory.shape == WorkShape.feature
         ? inventory.featureCount
         : 0;
-    final maxCount =
-        verifiedBangumi.isSpecialFormat || inventory.season == 0 ? 12 : 4;
+    final maxCount = verifiedBangumi.isSpecialFormat || inventory.season == 0
+        ? 12
+        : 4;
     if (localCount < 1 || localCount > maxCount) return false;
     if ((verifiedBangumi.seasons.firstOrNull?.count ?? 0) > maxCount) {
       return false;
@@ -1556,11 +2454,7 @@ abstract final class WorkMatcher {
 
     final candNorms = [candidate.title, ...candidate.aliases]
         .map(DirectoryAnalyzer.normalize)
-        .where(
-          (s) =>
-              RegExp(r'[\u3040-\u9fff]').allMatches(s).length >= 4 ||
-              s.length >= 8,
-        )
+        .where((s) => _reHot24.allMatches(s).length >= 4 || s.length >= 8)
         .toList();
     if (candNorms.isEmpty) return false;
 
@@ -1581,6 +2475,53 @@ abstract final class WorkMatcher {
           (c) => localNorm.startsWith(c) && localNorm.length > c.length,
         ) ||
         _bridgedTitle(verifiedBangumi, candidate) >= 0.60;
+  }
+
+  /// 在无高置信 Bangumi 支撑时，判断本地显式 OVA/OAD/EX 目录是否应直接归入母剧 TMDB TV 的第 0 季：
+  /// 若候选自身已是独立 OVA 条目（如 `我的女神 OAD`），则返回 false 保持常规正片季匹配，避免压制独立条目。
+  static bool _isParentTvForLocalOvaFolder(
+    DirectoryInventory inventory,
+    MatchCandidate candidate,
+    double titleSim,
+  ) {
+    if (candidate.type != 'tv') return false;
+    if ((inventory.season != null && inventory.season != 0) ||
+        inventory.folderMovieMarker ||
+        inventory.fileMovieMarker) {
+      return false;
+    }
+    final explicitOvaFolder =
+        DirectoryAnalyzer.isOvaText(inventory.title) ||
+        DirectoryAnalyzer.isOvaText(inventory.folder) ||
+        DirectoryAnalyzer.isOva(inventory) ||
+        ((inventory.shape == WorkShape.feature ||
+                (inventory.shape == WorkShape.series &&
+                    inventory.episodeCount >= 2)) &&
+            inventory.fileHints.any(DirectoryAnalyzer.isOvaText));
+    if (!explicitOvaFolder) return false;
+    if (DirectoryAnalyzer.isOvaText(candidate.title) ||
+        candidate.aliases.any(DirectoryAnalyzer.isOvaText)) {
+      return false;
+    }
+    final localCount = inventory.shape == WorkShape.series
+        ? inventory.episodeCount
+        : inventory.shape == WorkShape.feature
+        ? inventory.featureCount
+        : 0;
+    if (localCount < 1 || localCount > 12) return false;
+
+    final specials = candidate.seasons.where((s) => s.number == 0).toList();
+    if (specials.isEmpty || specials.first.count < localCount) return false;
+
+    if (titleSim >= 0.72) return true;
+
+    final localNorm = DirectoryAnalyzer.normalize(inventory.title);
+    final candNorms = [candidate.title, ...candidate.aliases]
+        .map(DirectoryAnalyzer.normalize)
+        .where((s) => _reHot24.allMatches(s).length >= 2 || s.length >= 6);
+    return candNorms.any(
+      (c) => localNorm.startsWith(c) && localNorm.length > c.length,
+    );
   }
 
   static bool _candidateHasSequelSignal(
@@ -1604,40 +2545,73 @@ abstract final class WorkMatcher {
     DirectoryInventory inventory,
     MatchCandidate candidate, {
     MatchCandidate? verifiedBangumi,
+    String? localTitleOverride,
   }) {
     if (verifiedBangumi != null &&
         _bridgedTitle(verifiedBangumi, candidate) >= 0.70) {
       return 0;
     }
     final localPrimary = DirectoryAnalyzer.normalize(
-      _stripRemaster(inventory.title.replaceAll(_movieWord, ' ')),
+      _stripRemaster(
+        (localTitleOverride ?? inventory.title).replaceAll(_movieWord, ' '),
+      ),
     );
     if (localPrimary.length < 4) return 0;
 
-    final remoteNames = [
-      candidate.title,
-      ...candidate.aliases,
-      if (candidate.type == 'tv')
-        for (final s in candidate.seasons)
-          if (s.name != null &&
-              s.name!.trim().isNotEmpty &&
-              !_genericSeasonName.hasMatch(s.name!.trim())) ...[
-            s.name!.trim(),
-            '${candidate.title} ${s.name!.trim()}',
-          ],
-    ]
-        .map(
-          (n) => DirectoryAnalyzer.normalize(
-            _stripRemaster(n.replaceAll(_movieWord, ' ')),
+    // 卷章型单字副标题对立（如 `雪の巻` vs `月の巻` vs `華の巻`、`前篇` vs `后篇`、`上卷` vs `下卷`）：
+    // 若本地片名与候选全部名称均以同类单字卷/章/篇后缀结尾、且没有任何别名与本地卷字一致，直接判冲突。
+    ({String head, String unit})? extractVolumeTail(String norm) {
+      final m = _reHot26.firstMatch(norm);
+      if (m == null) return null;
+      final unit = switch (m.group(2)!) {
+        '巻' => '卷',
+        '編' => '篇',
+        final u => u,
+      };
+      return (head: m.group(1)!, unit: unit);
+    }
+
+    final localVol = extractVolumeTail(localPrimary);
+    if (localVol != null) {
+      final candVols = [
+        for (final n in [candidate.title, ...candidate.aliases])
+          ?extractVolumeTail(
+            DirectoryAnalyzer.normalize(
+              _stripRemaster(n.replaceAll(_movieWord, ' ')),
+            ),
           ),
-        )
-        .where((n) => n.isNotEmpty)
-        .toList();
+      ].where((v) => v.unit == localVol.unit).toList(growable: false);
+      if (candVols.isNotEmpty &&
+          !candVols.any((v) => v.head == localVol.head)) {
+        return -25;
+      }
+    }
+
+    final remoteNames =
+        [
+              candidate.title,
+              ...candidate.aliases,
+              if (candidate.type == 'tv')
+                for (final s in candidate.seasons)
+                  if (s.name != null &&
+                      s.name!.trim().isNotEmpty &&
+                      !_genericSeasonName.hasMatch(s.name!.trim())) ...[
+                    s.name!.trim(),
+                    '${candidate.title} ${s.name!.trim()}',
+                  ],
+            ]
+            .map(
+              (n) => DirectoryAnalyzer.normalize(
+                _stripRemaster(n.replaceAll(_movieWord, ' ')),
+              ),
+            )
+            .where((n) => n.isNotEmpty)
+            .toList();
     if (remoteNames.any((r) => similarity(localPrimary, r) >= 0.80)) {
       return 0;
     }
 
-    // 若文件名携带了明确的副标题且与某候选别名高度一致（且不附带单边续作后缀），
+    // 若文件名携带了明确的副标题且与某候选别名高度一致（且不附带单边续作后缀、尾部副标题不互相冲突），
     // 即使文件夹名与 TMDB 中译存在跨语言翻译差异也不再扣分。
     // 保障文件名自带副标题的高置信精准绑定不受目录译名差异影响。
     for (final fh in inventory.fileHints.take(2)) {
@@ -1648,6 +2622,20 @@ abstract final class WorkMatcher {
             rn.length > fn.length &&
             _sequelOrSpinoffSuffix.hasMatch(rn.substring(fn.length))) {
           continue;
+        }
+        var pLen = 0;
+        final lim = fn.length < rn.length ? fn.length : rn.length;
+        while (pLen < lim && fn.codeUnitAt(pLen) == rn.codeUnitAt(pLen)) {
+          pLen++;
+        }
+        if (pLen >= 6) {
+          final fnTail = fn.substring(pLen);
+          final rnTail = rn.substring(pLen);
+          if (fnTail.length >= 3 &&
+              rnTail.length >= 3 &&
+              similarity(fnTail, rnTail) < 0.25) {
+            continue;
+          }
         }
         if (similarity(fn, rn) >= 0.70) return 0;
       }
@@ -1668,8 +2656,7 @@ abstract final class WorkMatcher {
       prefixLen++;
     }
     final prefix = localPrimary.substring(0, prefixLen);
-    final hasCjkPrefix =
-        RegExp(r'[\u3040-\u9fff]').allMatches(prefix).length >= 3;
+    final hasCjkPrefix = _reHot24.allMatches(prefix).length >= 3;
     if (!hasCjkPrefix && prefixLen < 6) return 0;
 
     var localRem = localPrimary.substring(prefixLen);
@@ -1686,10 +2673,7 @@ abstract final class WorkMatcher {
         localRem.length >= 2 &&
         inventory.season == null &&
         (inventory.shape == WorkShape.feature || inventory.episodeCount <= 4) &&
-        !RegExp(
-          r'^(?:ova|oad|sp|specials?)$',
-          caseSensitive: false,
-        ).hasMatch(localRem)) {
+        !_reHot27.hasMatch(localRem)) {
       return -18;
     }
     if (localRem.length < 2 || candRem.length < 2) return 0;
@@ -1706,9 +2690,8 @@ abstract final class WorkMatcher {
   }
 
   static bool _hasConflictingCjkTitle(String localTitle, String candTitle) {
-    String cjkOnly(String s) => RegExp(
-      r'[\u4e00-\u9fff]+',
-    ).allMatches(s).map((m) => m.group(0)!).join();
+    String cjkOnly(String s) =>
+        _reHot28.allMatches(s).map((m) => m.group(0)!).join();
     final a = cjkOnly(localTitle);
     final b = cjkOnly(candTitle);
     if (a.length < 4 || b.length < 4) return false;
@@ -1721,9 +2704,24 @@ abstract final class WorkMatcher {
     const prefix = r'(?:stage|ova|oad|vol|volume|ep|part|act|chapter|第)?0*';
     const tail = r'(?:部|巻|卷|话|話|期|幕|章|[^a-z0-9]|$)';
     final patterns = <(RegExp, int)>[
-      (RegExp('^$prefix(?:one|1(?!\\d)|i|前篇|前編|上篇?|前章)$tail', caseSensitive: false), 1),
-      (RegExp('^$prefix(?:two|2(?!\\d)|ii|后篇|後編|下篇?|后章|後章)$tail', caseSensitive: false), 2),
-      (RegExp('^$prefix(?:three|3(?!\\d)|iii|中篇?)$tail', caseSensitive: false), 3),
+      (
+        RegExp(
+          '^$prefix(?:one|1(?!\\d)|i|前篇|前編|上篇?|前章)$tail',
+          caseSensitive: false,
+        ),
+        1,
+      ),
+      (
+        RegExp(
+          '^$prefix(?:two|2(?!\\d)|ii|后篇|後編|下篇?|后章|後章)$tail',
+          caseSensitive: false,
+        ),
+        2,
+      ),
+      (
+        RegExp('^$prefix(?:three|3(?!\\d)|iii|中篇?)$tail', caseSensitive: false),
+        3,
+      ),
       (RegExp('^$prefix(?:four|4(?!\\d)|iv)$tail', caseSensitive: false), 4),
     ];
     for (final (re, part) in patterns) {
@@ -1795,7 +2793,7 @@ abstract final class WorkMatcher {
         if (TitleNormalizer.containsKana(raw))
           TitleNormalizer.kanaToRomaji(raw),
     ].join(' ');
-    final romajiWords = RegExp(r'[a-z0-9]{2,}')
+    final romajiWords = _reHot29
         .allMatches(romajiRuns.toLowerCase())
         .map((m) => m.group(0)!)
         .toList();
@@ -1820,49 +2818,81 @@ abstract final class WorkMatcher {
 
   /// 计算本地片名列表与远程候选别名间的最优相似度（`0..1`）；
   /// 其中目录推导名称的权重信任度高于文件名推导名称。
-  static double _title(DirectoryInventory inventory, MatchCandidate candidate) {
+  static double _title(
+    DirectoryInventory inventory,
+    MatchCandidate candidate, {
+    bool allowPreColonBoost = false,
+  }) {
     final primaryNorm = DirectoryAnalyzer.normalize(inventory.title);
     final baseCandNorm = DirectoryAnalyzer.normalize(candidate.title);
     final sharesBase =
         baseCandNorm.length >= 2 && primaryNorm.contains(baseCandNorm);
+    final localHasChapterInfix =
+        _chapterInfixPattern.hasMatch(inventory.title) ||
+        inventory.titleHints.any(_chapterInfixPattern.hasMatch);
     final remoteRaw = <String>[
       candidate.title,
       ...candidate.aliases,
+      if (candidate.type == 'movie' && !localHasChapterInfix)
+        for (final raw in [candidate.title, ...candidate.aliases])
+          if (_chapterInfixPattern.hasMatch(raw))
+            raw.replaceAll(_chapterInfixPattern, ' ').trim(),
       if (candidate.type == 'tv')
         for (final s in candidate.seasons)
           if (s.name != null &&
               s.name!.trim().isNotEmpty &&
               !_genericSeasonName.hasMatch(s.name!.trim())) ...[
             '${candidate.title} ${s.name!.trim()}',
+            if (_stripSeasonLabelDecor(s.name!) case final stripped
+                when stripped.isNotEmpty && stripped != s.name!.trim()) ...[
+              '${candidate.title} $stripped',
+              if (DirectoryAnalyzer.normalize(stripped).length >= 4 ||
+                  sharesBase)
+                stripped,
+            ],
             if (DirectoryAnalyzer.normalize(s.name!.trim()).length >= 4 ||
                 sharesBase)
               s.name!.trim(),
           ],
     ];
     final remote = <String>{};
+    final preColonHeads = <String>{};
+    final colonSubPat = _reHot30;
     for (final name in remoteRaw) {
       final norm = DirectoryAnalyzer.normalize(name);
       if (norm.isEmpty) continue;
       remote.addAll(_expandNormArcs(norm));
+      final cm = colonSubPat.firstMatch(name.trim());
+      if (cm != null) {
+        final headRaw = cm.group(1)!.trim();
+        final tailRaw = cm.group(2)!.trim();
+        final headNorm = DirectoryAnalyzer.normalize(headRaw);
+        final tailNorm = DirectoryAnalyzer.normalize(tailRaw);
+        if (headNorm.length >= 4 &&
+            tailNorm.length >= 4 &&
+            !_sequelOrSpinoffSuffix.hasMatch(tailNorm) &&
+            _explicitSequelNumber(tailRaw) == null &&
+            _infixOrdinalSeason(tailRaw) == null) {
+          preColonHeads.add(headNorm);
+        }
+      }
       final arabic = _romanArabicVariant(name, norm);
       if (arabic != null) remote.addAll(_expandNormArcs(arabic));
+      // 剧场版/总集篇候选剥离前后置 `剧场版`/`劇場版`/`The Movie`/`総集編` 后同步纳入比对，
+      // 消除 `剧场版 偶像活动` 与 `偶像活动 剧场版` 的语序差异。
+      if (candidate.type == 'movie') {
+        final strippedMovie = name
+            .replaceAll(_reHot31, ' ')
+            .replaceAll(_reHot1, ' ')
+            .trim();
+        final strippedNorm = DirectoryAnalyzer.normalize(strippedMovie);
+        if (strippedNorm.length >= 2 && strippedNorm != norm) {
+          remote.addAll(_expandNormArcs(strippedNorm));
+        }
+      }
     }
     remote.removeWhere((name) => name.isEmpty);
 
-    final regularSeasons = candidate.seasons.where((s) => s.number > 0).toList();
-    final multiSeasonTv =
-        candidate.provider == 'tmdb' &&
-        candidate.type == 'tv' &&
-        inventory.season != null &&
-        regularSeasons.length >= inventory.season!;
-    final mergedSingleSeasonTv =
-        candidate.provider == 'tmdb' &&
-        candidate.type == 'tv' &&
-        inventory.season != null &&
-        inventory.season! >= 2 &&
-        regularSeasons.length == 1 &&
-        inventory.episodeCount > 0 &&
-        regularSeasons.single.count >= inventory.episodeCount + 12;
     final localHasSequel =
         inventory.season != null && inventory.season! > 1 ||
         DirectoryAnalyzer.splitSeasonSuffix(
@@ -1879,6 +2909,9 @@ abstract final class WorkMatcher {
       candidate,
     );
 
+    // 延迟按需预编译含假名远程别名，避免外层 `hint × remoteRaw` 笛卡尔积重复执行假名音译。
+    List<PreparedKanaTarget>? preparedKanaRemote;
+
     var best = 0.0;
     void check(Iterable<String> hints, double weight) {
       for (final hint in hints) {
@@ -1887,12 +2920,12 @@ abstract final class WorkMatcher {
         // 剥离季度后的基础名称提示主要用于召回辅助：在多季或单季连续 TMDB 剧集保持全权重，
         // 而在按单季分条建档的 Bangumi 候选中予以权重折减以防季号串台。
         var effectiveWeight = weight;
-        if (inventory.season != null &&
+        if (candidate.provider == 'bangumi' &&
+            inventory.season != null &&
             inventory.season! > 1 &&
             primaryNorm.startsWith(localNorm) &&
             localNorm.length < primaryNorm.length) {
-          effectiveWeight =
-              weight * ((multiSeasonTv || mergedSingleSeasonTv) ? 1.0 : 0.80);
+          effectiveWeight = weight * 0.80;
         }
         final hintHasEx = _exTagPattern.hasMatch(hint);
         final sigTokens = _significantLatinTokens(hint);
@@ -1903,15 +2936,25 @@ abstract final class WorkMatcher {
             !candHasCjkOverlap &&
             _coveredLatinTokens(sigTokens, candidate) < 2;
         if (!hintHasCjk && !latinPrefixOnly) {
-          for (final raw in remoteRaw) {
-            final rSim = TitleNormalizer.romajiKanaSimilarity(hint, raw);
-            if (rSim > 0) {
-              var bounded = rSim;
-              if (localIsEx && !candHasEx && !hintHasEx && bounded > 0.72) {
-                bounded = 0.72;
+          final preparedLocal = TitleNormalizer.prepareLocalAscii(hint);
+          if (preparedLocal != null) {
+            preparedKanaRemote ??= [
+              for (final raw in remoteRaw)
+                ?TitleNormalizer.prepareKanaTarget(raw),
+            ];
+            for (final target in preparedKanaRemote!) {
+              final rSim = TitleNormalizer.romajiKanaSimilarityPrepared(
+                preparedLocal,
+                target,
+              );
+              if (rSim > 0) {
+                var bounded = rSim;
+                if (localIsEx && !candHasEx && !hintHasEx && bounded > 0.72) {
+                  bounded = 0.72;
+                }
+                final weighted = bounded * effectiveWeight;
+                if (weighted > best) best = weighted;
               }
-              final weighted = bounded * effectiveWeight;
-              if (weighted > best) best = weighted;
             }
           }
         }
@@ -1935,15 +2978,17 @@ abstract final class WorkMatcher {
             if (!localHasSequel &&
                 name.startsWith(local) &&
                 name.length > local.length &&
-                _sequelOrSpinoffSuffix.hasMatch(
-                  name.substring(local.length),
-                )) {
+                (_sequelOrSpinoffSuffix.hasMatch(
+                      name.substring(local.length),
+                    ) ||
+                    (_reHot32.hasMatch(local) &&
+                        _reHot33.hasMatch(name.substring(local.length))))) {
               pairSim *= 0.62;
             } else if (inventory.shape == WorkShape.feature &&
                 inventory.featureCount == 1 &&
                 weight == 1.0 &&
                 local == primaryNorm &&
-                RegExp(r'[\u3040-\u9fff]').allMatches(local).length >= 5 &&
+                _reHot24.allMatches(local).length >= 5 &&
                 name.startsWith(local) &&
                 name.length > local.length &&
                 !_sequelOrSpinoffSuffix.hasMatch(
@@ -1962,13 +3007,32 @@ abstract final class WorkMatcher {
                 pairSim < 0.90) {
               pairSim = 0.90;
             }
+            if (allowPreColonBoost &&
+                !localHasSequel &&
+                !latinPrefixOnly &&
+                preColonHeads.contains(local) &&
+                (local.length >= 8 ||
+                    (local.length >= 4 &&
+                        inventory.year != null &&
+                        candidate.year == inventory.year)) &&
+                pairSim < 0.90) {
+              pairSim = 0.90;
+            }
             if (localIsEx && !candHasEx && !hintHasEx && pairSim > 0.72) {
               pairSim = 0.72;
             }
             if (latinPrefixOnly && pairSim > 0.34) {
               pairSim = 0.34;
             }
-            final value = pairSim * effectiveWeight;
+            // 完整长文件名主干与候选正式名归一化后完全一致时，不因来源为文件名而折损权重。
+            final hitWeight =
+                (pairSim >= 0.999 &&
+                    effectiveWeight < 1.0 &&
+                    local.length >= 10 &&
+                    !(localIsEx && !candHasEx && !hintHasEx))
+                ? 1.0
+                : effectiveWeight;
+            final value = pairSim * hitWeight;
             if (value > best) best = value;
           }
         }
@@ -2038,7 +3102,237 @@ abstract final class WorkMatcher {
     return best;
   }
 
-  /// 完全一致返回 `1.0`；包含关系按长度比例缩放；其余情况退化计算二元字符集 Dice 系数。
+  /// 判断直接父目录名是否与候选剧名、别名或季名高度相符（用于验证父目录 TMDB 软锚定）。
+  static bool _parentFolderMatchesCandidate(
+    DirectoryInventory inventory,
+    MatchCandidate candidate,
+  ) {
+    final parentTitle = inventory.parentFolderInfo?.title;
+    if (parentTitle == null || parentTitle.isEmpty) return false;
+    final pNorm = _canonCjk(DirectoryAnalyzer.normalize(parentTitle));
+    if (pNorm.length < 3) return false;
+    final candNames = <String>[
+      candidate.title,
+      ...candidate.aliases,
+      for (final s in candidate.seasons)
+        if (s.name != null && s.name!.trim().isNotEmpty) s.name!.trim(),
+    ];
+    for (final raw in candNames) {
+      final cn = _canonCjk(DirectoryAnalyzer.normalize(raw));
+      if (cn.length >= 3 && similarity(pNorm, cn) >= 0.72) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// 若候选主名与原名同时带有本地未出现的短拉丁前缀词（如 `sin 七大罪` / `sin 七つの大罪` 相对 `Nanatsu no Taizai`），予以扣分避免被污染别名打平。
+  static double _extraLatinPrefixPenalty(
+    DirectoryInventory inventory,
+    MatchCandidate candidate, {
+    required bool batchFileDriven,
+  }) {
+    final orig = candidate.originalTitle?.trim() ?? '';
+    if (orig.isEmpty) return 0.0;
+    final prefixPat = _reHot34;
+    final m1 = prefixPat.firstMatch(candidate.title.trim());
+    final m2 = prefixPat.firstMatch(orig);
+    if (m1 == null || m2 == null) return 0.0;
+    final p1 = m1.group(1)!.toLowerCase();
+    final p2 = m2.group(1)!.toLowerCase();
+    if (p1 != p2) return 0.0;
+    const commonWords = {'the', 'new', 'big', 'one', 'two', 'our', 'all'};
+    if (commonWords.contains(p1)) return 0.0;
+    final localHints = batchFileDriven
+        ? inventory.fileHints
+        : [inventory.title, ...inventory.titleHints, ...inventory.fileHints];
+    final wordPat = RegExp(
+      r'(?<![a-z])' + RegExp.escape(p1) + r'(?![a-z])',
+      caseSensitive: false,
+    );
+    if (localHints.any(wordPat.hasMatch)) return 0.0;
+    return -18.0;
+  }
+
+  /// 剧场版候选带有本地未请求的事件/番外副标题（如 `前夜祭`、`MUSIC AWARD`、`Extra `、或主名与原名均含冒号/破折号副标题而本地仅为无副标题主名）时扣分。
+  static double _unrequestedMovieSubtitlePenalty(
+    DirectoryInventory inventory,
+    MatchCandidate candidate, {
+    required bool batchFileDriven,
+  }) {
+    final localHints = batchFileDriven
+        ? inventory.fileHints
+        : [inventory.title, ...inventory.titleHints, ...inventory.fileHints];
+    final localText = localHints.join(' ');
+    final primary = candidate.title.trim();
+    final orig = candidate.originalTitle?.trim() ?? '';
+    final candHead = '$primary $orig';
+    final eventChecks = <(RegExp, RegExp)>[
+      (_reHot35, _reHot35),
+      (_reHot36, _reHot36),
+      (_reHot37, _reHot38),
+    ];
+    for (final (candPat, localPat) in eventChecks) {
+      if (candPat.hasMatch(candHead) && !localPat.hasMatch(localText)) {
+        return -22.0;
+      }
+    }
+    final subSplit = _reHot39;
+    final mp = subSplit.firstMatch(primary);
+    final mo = orig.isEmpty ? mp : subSplit.firstMatch(orig);
+    final stripMovie = _reHot31;
+    final localNorms = [
+      for (final h in localHints)
+        DirectoryAnalyzer.normalize(h.replaceAll(stripMovie, ' ')),
+    ].where((s) => s.isNotEmpty).toList();
+    if (mp != null && mo != null) {
+      final pHeadNorm = DirectoryAnalyzer.normalize(
+        mp.group(1)!.replaceAll(stripMovie, ' '),
+      );
+      final oHeadNorm = DirectoryAnalyzer.normalize(
+        mo.group(1)!.replaceAll(stripMovie, ' '),
+      );
+      final pTail = mp.group(2)!.trim();
+      final oTail = mo.group(2)!.trim();
+      final pTailNorm = DirectoryAnalyzer.normalize(pTail);
+      if (pHeadNorm.length >= 4 && pTailNorm.length >= 4) {
+        final headMatchedExactly = localNorms.any(
+          (ln) =>
+              (pHeadNorm.length >= 4 && similarity(ln, pHeadNorm) >= 0.92) ||
+              (oHeadNorm.length >= 4 && similarity(ln, oHeadNorm) >= 0.92),
+        );
+        if (headMatchedExactly) {
+          final tailTokens = <String>[
+            for (final m in _reHot40.allMatches('$pTail $oTail'))
+              m.group(0)!.toLowerCase(),
+            for (final m in _reHot41.allMatches('$pTail $oTail')) m.group(0)!,
+          ];
+          if (tailTokens.isNotEmpty) {
+            final localLower = localText.toLowerCase();
+            final anyTailHit = tailTokens.any(
+              (tok) =>
+                  localLower.contains(tok) ||
+                  localNorms.any((ln) => ln.contains(tok)),
+            );
+            if (!anyTailHit) {
+              return -15.0;
+            }
+          }
+        }
+      }
+    }
+    // 空格分隔的日文/中文剧场版专属副标题（如 `トリニティセブン 七つの大罪と七魔道士` 相对 `Trinity Seven`，
+    // 或 `勇者斗恶龙 达尔的大冒险 站起来!! 阿邦的使徒` 相对无副标题的 `Dragon Quest Dai no Daibouken`）：
+    // 当原名或主名比本地主干多出独立副标题词段、且本地未出现该副标题任何词汇时扣分。
+    final strippedLocalHints = [
+      for (final h in localHints)
+        h.replaceAll(stripMovie, ' ').replaceAll(_reHot1, ' ').trim(),
+    ].where((s) => s.isNotEmpty).toList();
+    final localLower = localText.toLowerCase();
+    final candTitlePool = <String>[
+      if (orig.isNotEmpty) orig,
+      if (primary.isNotEmpty && primary != orig) primary,
+    ];
+    final localMatchesWhole = localNorms.any(
+      (ln) =>
+          (orig.isNotEmpty &&
+              similarity(
+                    ln,
+                    DirectoryAnalyzer.normalize(
+                      orig.replaceAll(stripMovie, ' '),
+                    ),
+                  ) >=
+                  0.85) ||
+          (primary.isNotEmpty &&
+              similarity(
+                    ln,
+                    DirectoryAnalyzer.normalize(
+                      primary.replaceAll(stripMovie, ' '),
+                    ),
+                  ) >=
+                  0.85),
+    );
+    if (!localMatchesWhole) {
+      for (final rawCand in candTitlePool) {
+        final parts = rawCand
+            .replaceAll(stripMovie, ' ')
+            .trim()
+            .split(_reHot1)
+            .where((s) => s.isNotEmpty)
+            .toList();
+        if (parts.length < 2) continue;
+        for (var k = 1; k < parts.length; k++) {
+          final headStr = parts.take(k).join(' ');
+          final headNorm = DirectoryAnalyzer.normalize(headStr);
+          final tailStr = parts.skip(k).join(' ');
+          final tailNorm = DirectoryAnalyzer.normalize(tailStr);
+          if (headNorm.length < 4 || tailNorm.length < 4) continue;
+          final localMatchesHead =
+              localNorms.any((ln) => similarity(ln, headNorm) >= 0.88) ||
+              strippedLocalHints.any(
+                (lh) =>
+                    TitleNormalizer.romajiKanaSimilarity(lh, headStr) >= 0.86,
+              );
+          if (!localMatchesHead) continue;
+          final tailTokens = <String>[
+            for (final m in _reHot40.allMatches(tailStr))
+              m.group(0)!.toLowerCase(),
+            for (final m in _reHot41.allMatches(tailStr)) m.group(0)!,
+          ];
+          if (tailTokens.isNotEmpty &&
+              !tailTokens.any(
+                (t) =>
+                    localLower.contains(t) ||
+                    localNorms.any((ln) => ln.contains(t)),
+              )) {
+            return -15.0;
+          }
+        }
+      }
+    }
+    return 0.0;
+  }
+
+  /// 单独检测单字卷/章/篇后缀对立（如 `前篇` vs `后篇`、`雪の巻` vs `月の巻`），不受 `titleSim < 0.9` 跳过门限影响。
+  static double _volumeTailConflictPenalty(
+    DirectoryInventory inventory,
+    MatchCandidate candidate,
+  ) {
+    final localPrimary = DirectoryAnalyzer.normalize(
+      _stripRemaster(inventory.title.replaceAll(_movieWord, ' ')),
+    );
+    if (localPrimary.length < 4) return 0;
+    final localVol = _extractVolumeTail(localPrimary);
+    if (localVol == null) return 0;
+    final candVols = [
+      for (final n in [candidate.title, ...candidate.aliases])
+        ?_extractVolumeTail(
+          DirectoryAnalyzer.normalize(
+            _stripRemaster(n.replaceAll(_movieWord, ' ')),
+          ),
+        ),
+    ].where((v) => v.unit == localVol.unit).toList(growable: false);
+    if (candVols.isNotEmpty && !candVols.any((v) => v.head == localVol.head)) {
+      return -25;
+    }
+    return 0;
+  }
+
+  static final _volumeTailPattern = RegExp(
+    r'([\u4e00-\u9fff])(?:の|之)?([巻卷篇編章部])$',
+  );
+
+  static ({String head, String unit})? _extractVolumeTail(String norm) {
+    final m = _volumeTailPattern.firstMatch(norm);
+    if (m == null) return null;
+    final unit = switch (m.group(2)!) {
+      '巻' => '卷',
+      '編' => '篇',
+      final u => u,
+    };
+    return (head: m.group(1)!, unit: unit);
+  }
+
   /// 完全一致返回 `1.0`；包含关系按长度比例缩放；其余情况退化计算二元字符集 Dice 系数。
   static double similarity(String a, String b) => _wmSimilarity(a, b);
 
@@ -2060,4 +3354,91 @@ abstract final class WorkMatcher {
         : MatchTier.none;
     return MatchResult(tier, ranking);
   }
+
+  /// 预编译热点正则表达式（避免在逐文件遍历与归组打分热路径中重复编译）。
+  static final RegExp _reHot1 = RegExp(r'\s+');
+  static final RegExp _reHot2 = RegExp(
+    r'(?:^|(?<=[\s\u3040-\u9fff\-:：]))(II|III|IV|VI{0,3}|IX|V|X)(?=$|[\s\u3040-\u9fff\-:：])',
+  );
+  static final RegExp _reHot3 = RegExp(r'\{[^}]*\}');
+  static final RegExp _reHot4 = RegExp(r'\(\s*(?:19|20)\d{2}\s*\)');
+  static final RegExp _reHot5 = RegExp(r'[^a-z0-9]+');
+  static final RegExp _reHot6 = RegExp(r'^\d+$');
+  static final RegExp _reHot7 = RegExp(r'[^\u3040-\u9fff]');
+  static final RegExp _reHot8 = RegExp(
+    r'(?:^|[\s:：._\-/\[(\【])(?:ex|stage)[\s:：._\-#]*0*([1-9])(?![0-9])',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot9 = RegExp(
+    r'(?:alternative|オルタナティブ|アルタネイティヴ)[\s:：._-]*(one|1|Ⅰ|two|2|Ⅱ)(?![a-z0-9])',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot10 = RegExp(
+    r'(?:^|[\s:：\-～~])([2-9])(?:nd|rd|th)\s*(?:season|series|gig)\b',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot11 = RegExp(r'（\s*(?:19|20)\d{2}\s*）');
+  static final RegExp _reHot12 = RegExp(r'\[[^\]]*\]');
+  static final RegExp _reHot13 = RegExp(r'\b\d+\.\d+\b');
+  static final RegExp _reHot14 = RegExp(
+    r'\bs\d{1,2}e\d{1,3}\b',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot15 = RegExp(r'\bex\d{1,2}\b', caseSensitive: false);
+  static final RegExp _reHot16 = RegExp(r'第\s*[2-9]\s*季');
+  static final RegExp _reHot17 = RegExp(
+    r'(?:^|[\s\-:：])(?:season|s)\s*0*[1-9](?![0-9a-z])',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot18 = RegExp(r'第\s*([2-9])\s*(?:部分|部|幕|期|クール)');
+  static final RegExp _reHot19 = RegExp(
+    r'(?:^|[\s:：\-～~])(?:part\s*([2-9])|cour\s*([2-9])|([2-9])(?:nd|rd|th)?\s*cour)(?=[\s:：\-～~]|$)',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot20 = RegExp(r'(?:^|[\s\-–—])(?:後半|后半)$');
+  static final RegExp _reHot21 = RegExp(
+    r'(?:^|[\s:：\-～~])(Ⅱ|Ⅲ|Ⅳ|Ⅴ|II|III|IV|V)(?=[\s:：\-～~]|$)',
+  );
+  static final RegExp _reHot22 = RegExp(
+    r'(?<=[\u3040-\u9fff])([2-9])(?=$|[\s:：\-～~]|[^\d.a-zA-Z年月日话集枚人名点倍回章卷季期%])',
+  );
+  static final RegExp _reHot23 = RegExp(
+    r'([a-z]{3,})\s+([2-9])(?![a-z0-9.])(?=$|\s*[-:：～~]|\s+[\u3040-\u9fffA-Za-z])',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot24 = RegExp(r'[\u3040-\u9fff]');
+  static final RegExp _reHot25 = RegExp(r'[^a-z0-9\u3040-\u9fff]+');
+  static final RegExp _reHot26 = RegExp(
+    r'([\u4e00-\u9fff])(?:の|之)?([巻卷篇編章部])$',
+  );
+  static final RegExp _reHot27 = RegExp(
+    r'^(?:ova|oad|sp|specials?)$',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot28 = RegExp(r'[\u4e00-\u9fff]+');
+  static final RegExp _reHot29 = RegExp(r'[a-z0-9]{2,}');
+  static final RegExp _reHot30 = RegExp(r'^(.+?)\s*[:：]\s*(.+)$');
+  static final RegExp _reHot31 = RegExp(
+    r'剧场版|劇場版|総集編|总集篇|\b(?:the\s+movie|movie|ova|oad|oab)\b',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot32 = RegExp(r'^[\u3040-\u9fff]{3,}$');
+  static final RegExp _reHot33 = RegExp(r'^[a-z]{3,}');
+  static final RegExp _reHot34 = RegExp(
+    r'^([a-z]{2,5})\s+(\S.*)$',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot35 = RegExp(r'前夜祭');
+  static final RegExp _reHot36 = RegExp(
+    r'\bmusic\s+award\b|ミュージックアワード',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot37 = RegExp(
+    r'(?<=\s)extra(?=\s)',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot38 = RegExp(r'\bextra\b', caseSensitive: false);
+  static final RegExp _reHot39 = RegExp(r'^(.+?)\s*(?:[:：]|[-–—]\s*)(.+)$');
+  static final RegExp _reHot40 = RegExp(r'[a-z]{4,}', caseSensitive: false);
+  static final RegExp _reHot41 = RegExp(r'[\u3040-\u9fff]{2,}');
 }

@@ -21,6 +21,7 @@ abstract final class StoragePathConfig {
   static const String cloudSubsetCacheSubdirName = 'konata_cloud_subs';
   static const String mpvShaderCacheSubdirName = 'mpv_shaders';
   static const String mpvIccCacheSubdirName = 'mpv_icc';
+  static const String scanSnapshotsSubdirName = 'scan_snapshots';
 }
 
 /// Konata 统一便携根目录解析与工作区路径服务。
@@ -181,7 +182,23 @@ class StorageRootService {
   /// 解析并按需创建运行诊断日志目录 `<Root>/userdata/logs/`。
   Future<Directory> ensureLogsDir() async {
     final userdata = await ensureUserdataDir();
-    final dir = Directory(p.join(userdata.path, StoragePathConfig.logsSubdirName));
+    final dir = Directory(
+      p.join(userdata.path, StoragePathConfig.logsSubdirName),
+    );
+    await dir.create(recursive: true);
+    return dir;
+  }
+
+  /// 解析并按需创建媒体源目录扫描快照与断点续扫目录 `<Root>/userdata/cache/scan_snapshots/`。
+  Future<Directory> ensureScanSnapshotsDir() async {
+    final userdata = await ensureUserdataDir();
+    final dir = Directory(
+      p.join(
+        userdata.path,
+        StoragePathConfig.cacheDirName,
+        StoragePathConfig.scanSnapshotsSubdirName,
+      ),
+    );
     await dir.create(recursive: true);
     return dir;
   }
@@ -328,7 +345,9 @@ class StorageRootService {
         .replaceAll(RegExp(r'\s+'), '_')
         .trim();
     final prefix = cleanTag.isEmpty ? 'shot' : cleanTag;
-    var candidate = File(p.join(workPhotoDirectory.path, '${prefix}_$stamp.png'));
+    var candidate = File(
+      p.join(workPhotoDirectory.path, '${prefix}_$stamp.png'),
+    );
     var index = 1;
     while (candidate.existsSync()) {
       candidate = File(

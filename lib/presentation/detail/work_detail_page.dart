@@ -66,6 +66,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
   final Set<String> _scoreBackfillRequested = <String>{};
   final Set<String> _tmdbBackfillRequested = <String>{};
   final Set<String> _remoteWarmupRequested = <String>{};
+  final Set<String> _directorySyncRequested = <String>{};
   late final ScanThumbnailScheduler _scanScheduler;
   late final WorkDetailWarmupService _warmupService;
   final ScrollController _portraitScrollCtrl = ScrollController();
@@ -113,6 +114,30 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
         variants: bundle.variants,
         sourcesById: bundle.sourcesById,
       );
+    });
+  }
+
+  /// 进入详情页后静默核验作品目录：自动追加追番新集、自动清理源目录已删文件与幽灵剧集。
+  void _maybeSyncWorkDirectory(String workId) {
+    if (!_directorySyncRequested.add(workId)) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      final result = await ref
+          .read(scrapeControllerProvider.notifier)
+          .syncWorkDirectorySilently(workId);
+      if (!mounted || !result.changed || workId != _activeWorkId) return;
+      if (result.workRemoved) {
+        _showToast('源目录文件已全部移除，已从媒体库清理');
+        _returnToLibrary();
+      } else if (result.addedFileCount > 0 && result.removedFileCount == 0) {
+        _showToast('已自动同步新增 ${result.addedFileCount} 个文件');
+      } else if (result.removedFileCount > 0 && result.addedFileCount == 0) {
+        _showToast('检测到源文件已移除，已自动清理 ${result.removedFileCount} 个失效条目');
+      } else if (result.addedFileCount > 0 && result.removedFileCount > 0) {
+        _showToast(
+          '已自动同步目录变更（+${result.addedFileCount} / -${result.removedFileCount}）',
+        );
+      }
     });
   }
 
@@ -654,6 +679,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                     _maybeBackfillBangumiScore(work.id, work.bangumiScore);
                     _maybeBackfillTmdbArtwork(work);
                     _maybeWarmupRemoteSources(bundle);
+                    _maybeSyncWorkDirectory(work.id);
                     final screenSize = MediaQuery.sizeOf(context);
                     final safePad = MediaQuery.paddingOf(context);
                     final isAndroidPhone =

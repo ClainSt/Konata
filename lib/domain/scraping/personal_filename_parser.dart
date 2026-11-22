@@ -30,9 +30,9 @@ class PersonalFilenameParser {
   static String normalizeIdentity(String title) =>
       unifyIdentityPunctuation(title)
           .toLowerCase()
-          .replaceAll(RegExp(r'\{tmdb-\d+\}', caseSensitive: false), ' ')
-          .replaceAll(RegExp(r'\((?:19|20)\d{2}\)'), ' ')
-          .replaceAll(RegExp(r'[\s\-_—–:：.()（）\[\]【】{}!?！？・·,，、]'), '')
+          .replaceAll(_reHot1, ' ')
+          .replaceAll(_reHot2, ' ')
+          .replaceAll(_reHot3, '')
           .trim();
 
   static final _tmdbMarkers = [
@@ -63,16 +63,8 @@ class PersonalFilenameParser {
   }
 
   static Set<String> tmdbTypes(String title) => {
-    if (RegExp(
-      r'tmdbmovie\s*[-=:]|type\s*=\s*(movie|film)',
-      caseSensitive: false,
-    ).hasMatch(title))
-      'movie',
-    if (RegExp(
-      r'tmdbtv\s*[-=:]|type\s*=\s*tv',
-      caseSensitive: false,
-    ).hasMatch(title))
-      'tv',
+    if (_reHot4.hasMatch(title)) 'movie',
+    if (_reHot5.hasMatch(title)) 'tv',
   };
 
   static String withoutTmdbMarkers(String title) {
@@ -83,11 +75,44 @@ class PersonalFilenameParser {
     return result;
   }
 
+  static const Set<String> _extraKnownExtensions = {
+    '.nfo',
+    '.txt',
+    '.xml',
+    '.json',
+    '.log',
+    '.zip',
+    '.rar',
+    '.7z',
+    '.mks',
+    '.m3u',
+    '.m3u8',
+    '.sfv',
+    '.md5',
+    '.torrent',
+    '.part',
+  };
+
+  static bool _isKnownFileExtension(String ext) {
+    final lower = ext.toLowerCase();
+    return KonataMediaExtensions.video.contains(lower) ||
+        KonataMediaExtensions.scannableAudio.contains(lower) ||
+        KonataMediaExtensions.subtitle.contains(lower) ||
+        KonataMediaExtensions.scanImage.contains(lower) ||
+        _extraKnownExtensions.contains(lower);
+  }
+
   static String baseNameWithoutExtension(String pathOrName) {
     final trimmed = pathOrName.trim();
     if (trimmed.isEmpty) return '';
     final base = p.posix.basename(trimmed.replaceAll('\\', '/'));
-    return p.basenameWithoutExtension(base).trim();
+    final ext = p.extension(base);
+    // 仅剥离已知媒体/字幕/文档扩展名，防止对已去扩展名的片名二次调用时
+    // 将标题中的点号缩写（如 `C.E. 73 Stargazer`、`Dr. STONE`）误判为扩展名截断。
+    if (ext.isNotEmpty && _isKnownFileExtension(ext)) {
+      return base.substring(0, base.length - ext.length).trim();
+    }
+    return base.trim();
   }
 
   static final _groupLikeSuffix = RegExp(
@@ -193,7 +218,7 @@ class PersonalFilenameParser {
     bool groupPart(String part) =>
         _looksLikeGroupName(part) || _cjkGroupSuffix.hasMatch(part);
     // 带空格的 ` & ` 多见于片名（`TIGER & BUNNY`），要求每段都像组名；紧贴的 `A&B` 只需任一段可识别。
-    return RegExp(r'\s[&＆]\s').hasMatch(trimmed)
+    return _reHot6.hasMatch(trimmed)
         ? parts.every(groupPart)
         : parts.any(groupPart);
   }
@@ -207,7 +232,7 @@ class PersonalFilenameParser {
   );
 
   static final _genericMarkerBlock = RegExp(
-    r'^(?:ova|oad|oav|sps?|specials?|(?:the[ ._-]+)?movie|剧场版|劇場版|tv版?|extras?|bonus|'
+    r'^(?:(?:ova|oad|oav|sp|special)\d*|sps|specials|(?:the[ ._-]+)?movie|剧场版|劇場版|tv版?|extras?|bonus|'
     r'menus?|pvs?|cms?|ncop|nced|live)$',
     caseSensitive: false,
   );
@@ -221,7 +246,7 @@ class PersonalFilenameParser {
 
   static bool _isLanguageOrPackageBlock(String block) {
     final parts = block
-        .split(RegExp(r'[\s_+,&/|-]+'))
+        .split(_reHot7)
         .where((s) => s.isNotEmpty)
         .toList(growable: false);
     return parts.isNotEmpty &&
@@ -273,23 +298,18 @@ class PersonalFilenameParser {
     name = _stripTechnicalBrackets(name.replaceAll(_crc32Bracket, ' '));
     final parts = _allBracketParts(name);
     if (parts == null) return '';
-    return parts.qualifier
-        .replaceAll(RegExp(r'[\s._-]*\d{1,4}(?:v\d+)?\s*$'), '')
-        .replaceAll('_', ' ')
-        .trim();
+    return parts.qualifier.replaceAll(_reHot8, '').replaceAll('_', ' ').trim();
   }
 
   /// 提供额外的候选片名线索供搜索比对，绝不破坏原始文件名语义。
   /// 仅命中字幕组词典不足以直接作为作品身份依据。
   static String? withoutKnownReleaseGroups(String filename) {
     final base = baseNameWithoutExtension(filename);
-    var stripped = base.replaceAllMapped(RegExp(r'\[([^\]]+)\]|【([^】]+)】'), (
-      m,
-    ) {
+    var stripped = base.replaceAllMapped(_reHot9, (m) {
       final tag = (m[1] ?? m[2]!).trim();
       return isReleaseGroupTag(tag) ? ' ' : m[0]!;
     }).trim();
-    final separators = RegExp(r'-').allMatches(stripped).toList();
+    final separators = _reHot10.allMatches(stripped).toList();
     // 限制尾缀探测深度；部分字幕组名内部自带连字符，须保持名称整体性。
     for (final match in separators.skip(
       separators.length > 8 ? separators.length - 8 : 0,
@@ -308,11 +328,8 @@ class PersonalFilenameParser {
   /// 切勿仅凭方括号位置武断区分字幕组与正片标题。
   static List<String> bracketTitleCandidates(String filename) {
     final base = baseNameWithoutExtension(filename);
-    final pattern = RegExp(r'\[([^\]]+)\]|【([^】]+)】');
-    if (base
-        .replaceAll(pattern, '')
-        .replaceAll(RegExp(r'[\s._-]'), '')
-        .isNotEmpty) {
+    final pattern = _reHot9;
+    if (base.replaceAll(pattern, '').replaceAll(_reHot11, '').isNotEmpty) {
       return const [];
     }
     final blocks = pattern
@@ -324,15 +341,12 @@ class PersonalFilenameParser {
       final block = blocks[i];
       if (block.isEmpty ||
           tmdbIds('[$block]').isNotEmpty ||
-          RegExp(
-            r'^(?:S\d{1,2}(?:E\d{1,3})?|EP?\d{1,3})$',
-            caseSensitive: false,
-          ).hasMatch(block)) {
+          _reHot12.hasMatch(block)) {
         continue;
       }
-      if (RegExp(r'^\d{1,4}(?:v\d+)?$', caseSensitive: false).hasMatch(block)) {
+      if (_reHot13.hasMatch(block)) {
         // 仅当后续紧跟另一组数字标签块时，才保留前方纯数字块作为数字片名（如 `[86]`）。
-        if (!blocks.skip(i + 1).any((b) => RegExp(r'^\d{1,3}$').hasMatch(b))) {
+        if (!blocks.skip(i + 1).any((b) => _reHot14.hasMatch(b))) {
           continue;
         }
       }
@@ -342,17 +356,13 @@ class PersonalFilenameParser {
           _episodeLikeBlock.hasMatch(block) ||
           _genericMarkerBlock.hasMatch(block) ||
           block
-              .split(RegExp(r'[\s_+.,/|&-]+'))
+              .split(_reHot15)
               .where((s) => s.isNotEmpty)
               .every(_technicalPart.hasMatch)) {
         continue;
       }
-      final technical = block.toLowerCase().split(RegExp(r'[\s_+,-]+'));
-      if (technical.every(
-        (part) => RegExp(
-          r'^(?:\d{3,4}[pi]|\d{3,5}x\d{3,5}|[248]k|(?:ma|hi)?\d{1,2}p|(?:x|h)\.?26[45]|hevc|avc|av1|(?:aac|flac|opus|ac3|eac3|dts|truehd|ass|ssa|srt)(?:x\d+)?|yuv(?:420|422|444)p?\d*|\d{1,2}\.\d|10bit|8bit|bdrip|bluray|web-?dl|webrip|jpsc|jptc|chs|cht|gb|big5|mp4|mkv|[0-9a-f]{8})$',
-        ).hasMatch(part),
-      )) {
+      final technical = block.toLowerCase().split(_reHot16);
+      if (technical.every((part) => _reHot17.hasMatch(part))) {
         continue;
       }
       result.add(block);
@@ -364,11 +374,8 @@ class PersonalFilenameParser {
     final base = _stripTrailingTags(
       _stripLeadingGroupTags(baseNameWithoutExtension(filename)),
     );
-    final match = RegExp(
-      r'^(.+\S)\s+(\d{1,3})(?:v\d+)?$',
-      caseSensitive: false,
-    ).firstMatch(base);
-    if (match == null || RegExp(r'[-_#]$').hasMatch(match[1]!)) return null;
+    final match = _reHot18.firstMatch(base);
+    if (match == null || _reHot19.hasMatch(match[1]!)) return null;
     return (title: match[1]!.trim(), episode: int.parse(match[2]!));
   }
 
@@ -393,17 +400,14 @@ class PersonalFilenameParser {
 
   /// 生成在线元数据搜索的标题候选；保留数字番名和括号中的作品名。
   static String extractAnimeTitleKeyword(String pathOrName) {
-    final cleaned = pathOrName.replaceAllMapped(
-      RegExp(r'\[([^\]]+)\]|【([^】]+)】'),
-      (tag) {
-        return isReleaseGroupTag((tag[1] ?? tag[2]!).trim()) ? ' ' : tag[0]!;
-      },
-    );
+    final cleaned = pathOrName.replaceAllMapped(_reHot9, (tag) {
+      return isReleaseGroupTag((tag[1] ?? tag[2]!).trim()) ? ' ' : tag[0]!;
+    });
     if (cleaned != pathOrName) {
       final candidate = _extractAnimeTitleKeyword(cleaned);
       // 部分已知字幕组短名也可能与真实作品标题重名（如 `WAR`），
       // 需保留该候选供上层结合已确认目录别名复核。
-      if (candidate.isNotEmpty && !RegExp(r'^\d+$').hasMatch(candidate)) {
+      if (candidate.isNotEmpty && !_reHot20.hasMatch(candidate)) {
         return candidate;
       }
     }
@@ -416,90 +420,88 @@ class PersonalFilenameParser {
   );
 
   static final _technicalPart = RegExp(
-    r'^(?:\d{3,4}[pi]|\d{3,5}x\d{3,5}|[248]k|(?:ma|hi)?\d{1,2}p|'
+    r'^(?:\d{3,4}[pi]|\d{3,5}x\d{3,5}|[248]k|(?:ma|hi)?\d{1,2}p|\d{1,3}(?:\.\d{1,3})?fps|'
     r'(?:x|h)\.?26[45]|hevc|avc|av1|vp9|mpeg[24]|'
-    r'(?:aac|flac|opus|ac3|eac3|dts(?:-?hd)?|truehd|alac|lpcm|mp3|ass|ssa|srt|sup|pgs)(?:x\d+)?|'
+    r'\d*(?:aac|flac|opus|ac3|eac3|dts(?:-?hd)?(?:ma)?|truehd|alac|lpcm|mp3|ass|ssa|srt|sup|pgs)(?:[x×]\d+)?|'
+    r'hdma|hd|ma|2audio|multi[-_]?audio|'
     r'\d\.\d(?:ch)?|\dch|yuv(?:420|422|444)p?\d*|12bits?|10bits?|8bits?|10bpp|8bpp|main\d{0,2}p?|als|'
     r'hdr10\+?|hdr|dv|sdr|'
     '${KonataMediaExtensions.sourceTagAlternation}|'
-    r'jpsc|jptc|jpchs|jpcht|chs|cht|sc|tc|gb|big5|jap|jpn|eng|dual[-_]?audio|multi[-_]?subs?|'
+    r'jpsc|jptc|jpchs|jpcht|chs|cht|sc|tc|gb|big5|jap|jpn|eng|enhard|ensub|sourceunknown|dual[-_]?audio|multi[-_]?subs?|'
     '${KonataMediaExtensions.videoExtensionAlternation}|'
     r'[0-9a-f]{8})$',
     caseSensitive: false,
   );
 
-  static String _stripTechnicalBrackets(String input) => input.replaceAllMapped(
-    RegExp(r'\[([^\]]+)\]|【([^】]+)】|\(([^)]+)\)|（([^）]+)）'),
-    (m) {
-      final raw = (m[1] ?? m[2] ?? m[3] ?? m[4] ?? '').trim();
-      if (raw.isEmpty) return ' ';
-      final parts = raw
-          .split(RegExp(r'[\s_+.,/|+&-]+'))
-          .where((s) => s.isNotEmpty)
-          .toList();
-      if (parts.isNotEmpty && parts.every(_technicalPart.hasMatch)) {
-        return ' ';
-      }
-      return m[0]!;
-    },
+  /// 判断方括号/圆括号内文本是否完全由音视频编码、分辨率、介质或语言等技术标签构成。
+  static bool isTechnicalBracketBlock(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return true;
+    final parts = trimmed.split(_reHot21).where((s) => s.isNotEmpty).toList();
+    return parts.isNotEmpty && parts.every(_technicalPart.hasMatch);
+  }
+
+  static String _stripTechnicalBrackets(String input) =>
+      input.replaceAllMapped(_reHot22, (m) {
+        final raw = (m[1] ?? m[2] ?? m[3] ?? m[4] ?? '').trim();
+        if (isTechnicalBracketBlock(raw)) {
+          return ' ';
+        }
+        return m[0]!;
+      });
+
+  static final RegExp _unbracketedTechCueRegex = RegExp(
+    r'(?<![a-z0-9])(?:'
+    r'(?:2160|1440|1080|720|576|480)[pi]|'
+    '${KonataMediaExtensions.explicitSourceTagAlternation}|web[ ._-]?dl|'
+    r'[xh]\.?26[45]|hevc|avc|10bit|12bit|hi10p|ma10p|main12|ddp?(?:\d+(?:\.\d+)?)?|ac3|eac3'
+    r')(?![a-z0-9])',
+    caseSensitive: false,
+  );
+
+  static final RegExp _unbracketedTrailingGroupRegex = RegExp(
+    r'(?<=(?:2160|1440|1080|720|576|480)[pi]|'
+    '${KonataMediaExtensions.explicitSourceTagAlternation}|web[ ._-]?dl|'
+    r'[xh]\.?26[45]|hevc|avc|av1|10bit|12bit|8bit|hi10p|ma10p|main12|'
+    r'flac|aac|alac|ddp?(?:\d+(?:\.\d+)?)?|ac3|eac3|dts(?:-?hd)?|opus|truehd)'
+    r'-[a-z0-9][a-z0-9._-]{1,24}$',
+    caseSensitive: false,
+  );
+
+  static final RegExp _unbracketedTechStripRegex = RegExp(
+    r'(?<![a-z0-9])(?:'
+    r'(?:2160|1440|1080|720|576|480)[pi]|(?:1920|1280)x(?:1080|720)|[248]k|'
+    '${KonataMediaExtensions.explicitSourceTagAlternation}|web[ ._-]?dl|'
+    r'[xh]\.?26[45]|hevc|avc|av1|vp9|'
+    r'10bit|12bit|8bit|hi10p|ma10p|main12|hdr10\+?|hdr|sdr|dv|yuv\d{3}p?\d*|'
+    r'flac|aac|alac|ddp?\d*(?:\.\d+)?|ac3|eac3|dts(?:-?hd)?|opus|truehd|lpcm|mp3|'
+    r'(?:2\.0|5\.1|7\.1)(?:ch)?'
+    r')(?![a-z0-9])',
+    caseSensitive: false,
   );
 
   /// 剥离场景发布文件名中未加括号的技术参数与附着于其后的 `-ReleaseGroup` 后缀，
   /// 如 `... 2010 1080p BluRay x264 10bit FLAC-Shiniori`。
   static String stripUnbracketedTechTokens(String input) {
-    final explicitSources = KonataMediaExtensions.explicitSourceTagAlternation;
-    final hasTechCue = RegExp(
-      r'(?<![a-z0-9])(?:'
-      r'(?:2160|1440|1080|720|576|480)[pi]|'
-      '$explicitSources|web[ ._-]?dl|'
-      r'[xh]\.?26[45]|hevc|avc|10bit|12bit|hi10p|ma10p|main12|ddp?(?:\d+(?:\.\d+)?)?|ac3|eac3'
-      r')(?![a-z0-9])',
-      caseSensitive: false,
-    ).hasMatch(input);
-    if (!hasTechCue) return input;
+    if (!_unbracketedTechCueRegex.hasMatch(input)) return input;
 
-    var s = input.replaceFirst(
-      RegExp(
-        r'(?<=(?:2160|1440|1080|720|576|480)[pi]|'
-        '$explicitSources|web[ ._-]?dl|'
-        r'[xh]\.?26[45]|hevc|avc|av1|10bit|12bit|8bit|hi10p|ma10p|main12|'
-        r'flac|aac|alac|ddp?(?:\d+(?:\.\d+)?)?|ac3|eac3|dts(?:-?hd)?|opus|truehd)'
-        r'-[a-z0-9][a-z0-9._-]{1,24}$',
-        caseSensitive: false,
-      ),
-      '',
-    );
-    s = s.replaceAll(
-      RegExp(
-        r'(?<![a-z0-9])(?:'
-        r'(?:2160|1440|1080|720|576|480)[pi]|(?:1920|1280)x(?:1080|720)|[248]k|'
-        '$explicitSources|web[ ._-]?dl|'
-        r'[xh]\.?26[45]|hevc|avc|av1|vp9|'
-        r'10bit|12bit|8bit|hi10p|ma10p|main12|hdr10\+?|hdr|sdr|dv|yuv\d{3}p?\d*|'
-        r'flac|aac|alac|ddp?\d*(?:\.\d+)?|ac3|eac3|dts(?:-?hd)?|opus|truehd|lpcm|mp3|'
-        r'(?:2\.0|5\.1|7\.1)(?:ch)?'
-        r')(?![a-z0-9])',
-        caseSensitive: false,
-      ),
-      ' ',
-    );
-    return s
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .replaceFirst(RegExp(r'[\s._-]+$'), '')
-        .trim();
+    var s = input.replaceFirst(_unbracketedTrailingGroupRegex, '');
+    s = s.replaceAll(_unbracketedTechStripRegex, ' ');
+    return s.replaceAll(_reHot23, ' ').replaceFirst(_reHot24, '').trim();
   }
 
   static String _extractAnimeTitleKeyword(String pathOrName) {
     var name = withoutTmdbMarkers(baseNameWithoutExtension(pathOrName));
     if (name.isEmpty) return '';
 
-    // 阶段一（Anitomy 式消去）：先剥离 8 位 CRC32 校验码与纯技术参数括号块，
-    // 防止压制标签干扰右侧集数定界，同时保留标题内括号与数字番名。
+    // 阶段一（Anitomy 式消去）：先剥离紧贴技术规格方括号尾部的压制者签名（如 `[BD ... FLAC] - yan04000985`）、
+    // 8 位 CRC32 校验码与纯技术参数括号块，防止压制标签干扰右侧集数定界，同时保留标题内括号与数字番名。
+    name = name.replaceFirst(_reHot25, '');
     name = name.replaceAll(_crc32Bracket, ' ');
     name = _stripTechnicalBrackets(name);
 
     // 常见分隔符归一化（保留 12.5 这类半集小数点）
-    name = name.replaceAll(RegExp(r'_|(?<!\d)\.|\.(?!5\b)'), ' ').trim();
+    name = name.replaceAll(_reHot26, ' ').trim();
 
     // 全方括号命名直接取片名块，避免把首块压制组名当作片名。
     final bracketParts = _allBracketParts(name);
@@ -511,12 +513,9 @@ class PersonalFilenameParser {
     // 去掉末尾的编码/分辨率等标签（可能存在多个）
     name = _stripTrailingTags(name);
 
-    // 阶段二：从右侧集数定界符切分，左侧数字番名（86、Mob Psycho 100、Steins;Gate 0）自然保留
-    final episodeMarker = RegExp(
-      r'[／/]?\s*\b(?:S\d{1,2}E\d{1,3}(?:\.5)?(?:v\d+)?|EP?\s*\d{1,3}(?:\.5)?(?:v\d+)?)\b|'
-      r'第\s*\d{1,3}(?:\.5)?\s*[话話集]',
-      caseSensitive: false,
-    ).firstMatch(name);
+    // 阶段二：从右侧集数定界符切分，左侧数字番名（86、Mob Psycho 100、Steins;Gate 0）自然保留。
+    // 裸 `E` 必须紧贴数字（`E01`），避免 `C.E. 73` 经点号归一化为 `C E 73` 后误触发截断。
+    final episodeMarker = _reHot27.firstMatch(name);
     if (episodeMarker != null) {
       name = name.substring(0, episodeMarker.start).trim();
     }
@@ -527,62 +526,29 @@ class PersonalFilenameParser {
     }
 
     // 去掉常见季/集标识（仅影响搜索关键词，不做全局数字清理）
-    name = name.replaceAll(
-      RegExp(r'\bS\d{1,2}E\d{1,3}(?:\.5)?(?:v\d+)?\b', caseSensitive: false),
-      ' ',
-    );
-    name = name.replaceAll(
-      RegExp(
-        r'\bS\d{1,2}(?:\s*[+&~～]\s*S\d{1,2})+\b|\bS\d{1,2}\b',
-        caseSensitive: false,
-      ),
-      ' ',
-    );
-    name = name.replaceAll(
-      RegExp(r'\b(?:EP|Ep|ep)\s*\d{1,3}(?:\.5)?(?:v\d+)?\b'),
-      ' ',
-    );
-    name = name.replaceAll(
-      RegExp(r'\bE\d{1,3}(?:\.5)?(?:v\d+)?\b', caseSensitive: false),
-      ' ',
-    );
+    name = name.replaceAll(_reHot28, ' ');
+    name = name.replaceAll(_reHot29, ' ');
+    name = name.replaceAll(_reHot30, ' ');
+    name = name.replaceAll(_reHot31, ' ');
 
     // 中文/日文“第X话/集/期”
-    name = name.replaceAll(RegExp(r'第\s*\d{1,3}(?:\.5)?\s*[话話集期]'), ' ');
-    name = name.replaceAll(RegExp(r'\d{1,3}(?:\.5)?\s*[话話集期]\b'), ' ');
+    name = name.replaceAll(_reHot32, ' ');
+    name = name.replaceAll(_reHot33, ' ');
 
     // 形如 [01] / [01v2] / [12.5] / [01-02] 的独立集数方括号块（避免误删番名中的数字）
-    final numericTitle = RegExp(
-      r'^[\[【]\s*\d{1,3}(?:\.5)?(?:v\d+)?\s*[\]】]$',
-      caseSensitive: false,
-    ).hasMatch(name);
+    final numericTitle = _reHot34.hasMatch(name);
     if (!numericTitle) {
-      name = name.replaceAll(
-        RegExp(
-          r'[\[【]\s*\d{1,3}(?:\.5)?(?:v\d+)?(?:\s*[-–—~&+]\s*\d{1,3}(?:v\d+)?)?\s*[\]】]',
-          caseSensitive: false,
-        ),
-        ' ',
-      );
+      name = name.replaceAll(_reHot35, ' ');
     }
 
     // 形如 " - 01" / " - 02v2" / " - 12.5" / " - 01-02" 的结尾集数
     // 最多剥离一次年份或尾缀；连续多次剥离会把如 `Animation 12 - 01`
     // 误削为 `Animation`，从而抹掉真实片名组成部分。
-    name = name.replaceFirst(
-      RegExp(
-        r'(?:(?:\s+[-_]\s*\d{1,3}(?:\.5)?|\s+0\d{1,2}(?:\.5)?|\s*#\s*\d{1,3}(?:\.5)?)(?:v\d+)?'
-        r'(?:(?:[-–—]|\s*[&+~]\s*)\d{1,3}(?:v\d+)?)+|'
-        r'(?:\s*[-_#]\s*\d{1,3}(?:\.5)?|\s+0\d{1,2}(?:\.5)?)(?:v\d+)?)'
-        r'(?:\s*[- ]*(?:END|FINAL|FIN))?$',
-        caseSensitive: false,
-      ),
-      ' ',
-    );
+    name = name.replaceFirst(_reHot36, ' ');
 
     // 清理残留括号/多余空白
-    name = name.replaceAll(RegExp(r'[\[\]【】()（）{}]'), ' ');
-    name = name.replaceAll(RegExp(r'\s+'), ' ').trim();
+    name = name.replaceAll(_reHot37, ' ');
+    name = name.replaceAll(_reHot23, ' ').trim();
     return name;
   }
 
@@ -597,26 +563,12 @@ class PersonalFilenameParser {
     final title = extractAnimeTitleKeyword(pathOrName);
     if (title.isEmpty) return '';
 
-    final technicalToken = RegExp(
-      r'^(?:'
-      r'\d{3,4}p|[248]k|'
-      r'x26[45]|h26[45]|hevc|avc|av1|'
-      r'aac|flac|opus|ac3|eac3|dts|'
-      r'web-?dl|webrip|bluray|bdrip|brrip|hdtv|'
-      r'hdr10\+?|hdr|dolby|vision|dv|'
-      r'jptc|jpchs|jpcht|chs|cht|gb|big5|'
-      r'mp4|mkv'
-      r')$',
-      caseSensitive: false,
-    );
+    final technicalToken = _reHot38;
     var removedEpisode = false;
     final kept = <String>[];
 
-    for (final token in title.split(RegExp(r'\s+'))) {
-      final normalized = token.replaceAll(
-        RegExp(r'^[\[\]【】()（）{}]+|[\[\]【】()（）{}]+$'),
-        '',
-      );
+    for (final token in title.split(_reHot23)) {
+      final normalized = token.replaceAll(_reHot39, '');
       if (normalized.isEmpty || technicalToken.hasMatch(normalized)) {
         continue;
       }
@@ -631,26 +583,17 @@ class PersonalFilenameParser {
       kept.add(normalized);
     }
 
-    return kept.join(' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+    return kept.join(' ').replaceAll(_reHot23, ' ').trim();
   }
 
   static String _stripLeadingGroupTags(String name) {
     // 括号标题后若仅跟集号或技术规格标签，必须完整保留该标题；
     // 对相邻未知方括号区块不做不可靠的主从切分猜测。
     final outside = name
-        .replaceAll(RegExp(r'\[[^\]]*\]|【[^】]*】'), ' ')
-        .replaceAll(
-          RegExp(r'\b(?:S\d+E\d+|EP?\d+|\d+)\b', caseSensitive: false),
-          ' ',
-        )
-        .replaceAll(
-          RegExp(
-            r'\b(?:\d{3,4}p|x26[45]|h26[45]|hevc|avc|flac|aac|bdrip|bluray|chs|cht)\b',
-            caseSensitive: false,
-          ),
-          ' ',
-        )
-        .replaceAll(RegExp(r'[\s._-]+'), '');
+        .replaceAll(_reHot40, ' ')
+        .replaceAll(_reHot41, ' ')
+        .replaceAll(_reHot42, ' ')
+        .replaceAll(_reHot43, '');
     if (outside.isEmpty) return name;
     var result = name.trimLeft();
     while (true) {
@@ -675,7 +618,7 @@ class PersonalFilenameParser {
 
   static String _stripTrailingTags(String name) {
     var result = name.trimRight();
-    final block = RegExp(r'\s*(?:\[[^\]]*\]|【[^】]*】|\([^)]*\)|（[^）]*）)\s*$');
+    final block = _reHot44;
     while (true) {
       final match = block.firstMatch(result);
       if (match == null) break;
@@ -685,4 +628,117 @@ class PersonalFilenameParser {
     }
     return result.trim();
   }
+
+  /// 预编译热点正则表达式（避免在逐文件遍历与归组打分热路径中重复编译）。
+  static final RegExp _reHot1 = RegExp(r'\{tmdb-\d+\}', caseSensitive: false);
+  static final RegExp _reHot2 = RegExp(r'\((?:19|20)\d{2}\)');
+  static final RegExp _reHot3 = RegExp(r'[\s\-_—–:：.()（）\[\]【】{}!?！？・·,，、]');
+  static final RegExp _reHot4 = RegExp(
+    r'tmdbmovie\s*[-=:]|type\s*=\s*(movie|film)',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot5 = RegExp(
+    r'tmdbtv\s*[-=:]|type\s*=\s*tv',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot6 = RegExp(r'\s[&＆]\s');
+  static final RegExp _reHot7 = RegExp(r'[\s_+,&/|-]+');
+  static final RegExp _reHot8 = RegExp(r'[\s._-]*\d{1,4}(?:v\d+)?\s*$');
+  static final RegExp _reHot9 = RegExp(r'\[([^\]]+)\]|【([^】]+)】');
+  static final RegExp _reHot10 = RegExp(r'-');
+  static final RegExp _reHot11 = RegExp(r'[\s._-]');
+  static final RegExp _reHot12 = RegExp(
+    r'^(?:S\d{1,2}(?:E\d{1,3})?|EP?\d{1,3})$',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot13 = RegExp(
+    r'^\d{1,4}(?:v\d+)?$',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot14 = RegExp(r'^\d{1,3}$');
+  static final RegExp _reHot15 = RegExp(r'[\s_+.,/|&-]+');
+  static final RegExp _reHot16 = RegExp(r'[\s_+,-]+');
+  static final RegExp _reHot17 = RegExp(
+    r'^(?:\d{3,4}[pi]|\d{3,5}x\d{3,5}|[248]k|(?:ma|hi)?\d{1,2}p|(?:x|h)\.?26[45]|hevc|avc|av1|(?:aac|flac|opus|ac3|eac3|dts|truehd|ass|ssa|srt)(?:x\d+)?|yuv(?:420|422|444)p?\d*|\d{1,2}\.\d|10bit|8bit|bdrip|bluray|web-?dl|webrip|jpsc|jptc|chs|cht|gb|big5|mp4|mkv|[0-9a-f]{8})$',
+  );
+  static final RegExp _reHot18 = RegExp(
+    r'^(.+\S)\s+(\d{1,3})(?:v\d+)?$',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot19 = RegExp(r'[-_#]$');
+  static final RegExp _reHot20 = RegExp(r'^\d+$');
+  static final RegExp _reHot21 = RegExp(r'[\s_+.,/|+&-]+');
+  static final RegExp _reHot22 = RegExp(
+    r'\[([^\]]+)\]|【([^】]+)】|\(([^)]+)\)|（([^）]+)）',
+  );
+  static final RegExp _reHot23 = RegExp(r'\s+');
+  static final RegExp _reHot24 = RegExp(r'[\s._-]+$');
+  static final RegExp _reHot25 = RegExp(
+    r'(?<=\])\s+[-–—]\s+[a-zA-Z][a-zA-Z0-9._-]{3,24}\s*$',
+  );
+  static final RegExp _reHot26 = RegExp(r'_|(?<!\d)\.|\.(?!5\b)');
+  static final RegExp _reHot27 = RegExp(
+    r'[／/]?\s*\b(?:S\d{1,2}E\d{1,3}(?:\.5)?(?:v\d+)?|EP\s*\d{1,3}(?:\.5)?(?:v\d+)?|E\d{1,3}(?:\.5)?(?:v\d+)?)\b|'
+    r'第\s*\d{1,3}(?:\.5)?\s*[话話集]',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot28 = RegExp(
+    r'\bS\d{1,2}E\d{1,3}(?:\.5)?(?:v\d+)?\b',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot29 = RegExp(
+    r'\bS\d{1,2}(?:\s*[+&~～]\s*S\d{1,2})+\b|\bS\d{1,2}\b',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot30 = RegExp(
+    r'\b(?:EP|Ep|ep)\s*\d{1,3}(?:\.5)?(?:v\d+)?\b',
+  );
+  static final RegExp _reHot31 = RegExp(
+    r'\bE\d{1,3}(?:\.5)?(?:v\d+)?\b',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot32 = RegExp(r'第\s*\d{1,3}(?:\.5)?\s*[话話集期]');
+  static final RegExp _reHot33 = RegExp(r'\d{1,3}(?:\.5)?\s*[话話集期]\b');
+  static final RegExp _reHot34 = RegExp(
+    r'^[\[【]\s*\d{1,3}(?:\.5)?(?:v\d+)?\s*[\]】]$',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot35 = RegExp(
+    r'[\[【]\s*\d{1,3}(?:\.5)?(?:v\d+)?(?:\s*[-–—~&+]\s*\d{1,3}(?:v\d+)?)?\s*[\]】]',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot36 = RegExp(
+    r'(?:(?:\s+[-_]\s*\d{1,3}(?:\.5)?|\s+0\d{1,2}(?:\.5)?|\s*#\s*\d{1,3}(?:\.5)?)(?:v\d+)?'
+    r'(?:(?:[-–—]|\s*[&+~]\s*)\d{1,3}(?:v\d+)?)+|'
+    r'(?:\s*[-_#]\s*\d{1,3}(?:\.5)?|\s+0\d{1,2}(?:\.5)?)(?:v\d+)?)'
+    r'(?:\s*[- ]*(?:END|FINAL|FIN))?$',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot37 = RegExp(r'[\[\]【】()（）{}]');
+  static final RegExp _reHot38 = RegExp(
+    r'^(?:'
+    r'\d{3,4}p|[248]k|'
+    r'x26[45]|h26[45]|hevc|avc|av1|'
+    r'aac|flac|opus|ac3|eac3|dts|'
+    r'web-?dl|webrip|bluray|bdrip|brrip|hdtv|'
+    r'hdr10\+?|hdr|dolby|vision|dv|'
+    r'jptc|jpchs|jpcht|chs|cht|gb|big5|'
+    r'mp4|mkv'
+    r')$',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot39 = RegExp(r'^[\[\]【】()（）{}]+|[\[\]【】()（）{}]+$');
+  static final RegExp _reHot40 = RegExp(r'\[[^\]]*\]|【[^】]*】');
+  static final RegExp _reHot41 = RegExp(
+    r'\b(?:S\d+E\d+|EP?\d+|\d+)\b',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot42 = RegExp(
+    r'\b(?:\d{3,4}p|x26[45]|h26[45]|hevc|avc|flac|aac|bdrip|bluray|chs|cht)\b',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot43 = RegExp(r'[\s._-]+');
+  static final RegExp _reHot44 = RegExp(
+    r'\s*(?:\[[^\]]*\]|【[^】]*】|\([^)]*\)|（[^）]*）)\s*$',
+  );
 }

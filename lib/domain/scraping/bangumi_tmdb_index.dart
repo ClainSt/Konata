@@ -23,6 +23,12 @@ class BangumiTmdbTarget {
   /// 来源标志位：来自 `Fribb/anime-lists`（MIT）补充的 TheTVDB 关联标识。
   static const int flagAnimeListsTvdb = 1 << 2;
 
+  /// 来源标志位：来自 `Fribb/anime-lists`（MIT）补漏的 Bangumi ↔ TMDB 跨站映射。
+  static const int flagAnimeListsMap = 1 << 3;
+
+  /// 来源标志位：来自 `bangumi-data`（MIT）补充的新老番映射与季号线索。
+  static const int flagBangumiData = 1 << 4;
+
   /// TMDB 媒体类型（剧集或电影）。
   final TmdbMediaType type;
 
@@ -46,6 +52,35 @@ class BangumiTmdbTarget {
 
   /// 是否源自 `open-ani/bangumi-tmdb` 社区核验快照。
   bool get isOpenAni => (flags & flagOpenAni) != 0;
+
+  /// 是否源自 `Fribb/anime-lists` 补漏映射。
+  bool get isAnimeListsMap => (flags & flagAnimeListsMap) != 0;
+}
+
+/// 由 TMDB 条目（及可选季号）离线反查得到的 Bangumi 关联条目。
+class BangumiReverseMatch {
+  /// 创建反向映射匹配记录。
+  const BangumiReverseMatch({
+    required this.bangumiId,
+    this.season,
+    this.flags = 0,
+    this.tvdbId,
+  });
+
+  /// 关联的 Bangumi 条目 ID。
+  final int bangumiId;
+
+  /// 已知精确季号（`null` 表示作品级或电影）。
+  final int? season;
+
+  /// 来源位掩码标志。
+  final int flags;
+
+  /// 关联的 TheTVDB 剧集 ID（未知时为 `null`）。
+  final int? tvdbId;
+
+  /// 是否源自 `open-ani/bangumi-tmdb` 社区核验快照。
+  bool get isOpenAni => (flags & BangumiTmdbTarget.flagOpenAni) != 0;
 }
 
 /// 用于离线编码二进制表的扁平记录条目。
@@ -233,6 +268,12 @@ class BangumiTmdbIndex {
   final Uint8List _bytes;
   final ByteData _view;
 
+  /// 按 `packedTarget` 升序排列的惰性反查键数组（仅在首次反查时按需构建，O(log N) 二分查询）。
+  Uint32List? _reversePackedKeys;
+
+  /// 与 [_reversePackedKeys] 对齐的原始记录下标数组。
+  Uint32List? _reverseRecordIndices;
+
   /// 当前索引二进制版本号（`1` 或 `2`）。
   final int version;
 
@@ -322,23 +363,161 @@ class BangumiTmdbIndex {
     return targets;
   }
 
-  /// 按 TMDB 媒体类型与 ID 反查离线映射表中的 TheTVDB ID（仅 v2 索引生效，零额外内存占用）。
+  /// 按需惰性构建按 `packedTarget` 升序排列的紧凑反查索引（约 1ms 完成，支持双向 O(log N) 二分查找）。
+  void _ensureReverseIndex() {
+    if (_reversePackedKeys != null) return;
+    if (recordCount == 0) {
+      _reversePackedKeys = Uint32List(0);
+      _reverseRecordIndices = Uint32List(0);
+      return;
+    }
+    final rawPacked = Uint32List(recordCount);
+    final order = List<int>.generate(recordCount, (i) => i, growable: false);
+    for (var i = 0; i < recordCount; i++) {
+      rawPacked[i] = _view.getUint32(
+        headerBytes + i * recordSize + 4,
+        Endian.little,
+      );
+    }
+    order.sort((a, b) {
+      final cmp = rawPacked[a].compareTo(rawPacked[b]);
+      if (cmp != 0) return cmp;
+      return a.compareTo(b);
+    });
+    final sortedKeys = Uint32List(recordCount);
+    final sortedIndices = Uint32List(recordCount);
+    for (var i = 0; i < recordCount; i++) {
+      final recIdx = order[i];
+      sortedKeys[i] = rawPacked[recIdx];
+      sortedIndices[i] = recIdx;
+    }
+    _reversePackedKeys = sortedKeys;
+    _reverseRecordIndices = sortedIndices;
+  }
+
+  /// 在惰性反查数组中定位首个 >= [desiredPacked] 的位置。
+  int _reverseLowerBound(int desiredPacked) {
+    final keys = _reversePackedKeys!;
+    var lo = 0;
+    var hi = keys.length;
+    while (lo < hi) {
+      final mid = (lo + hi) >> 1;
+      if (keys[mid] < desiredPacked) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    return lo;
+  }
+
+  /// 按 TMDB 媒体类型与 ID 以 O(log N) 二分反查离线映射表中的 TheTVDB ID（仅 v2 索引生效）。
   int? lookupTvdbIdByTmdb({
     required TmdbMediaType mediaType,
     required int tmdbId,
   }) {
     if (!supportsTvdbId || recordCount == 0 || tmdbId <= 0) return null;
+    _ensureReverseIndex();
     final desiredPacked =
         (mediaType == TmdbMediaType.movie ? _movieBitMask : 0) |
         (tmdbId & _maxTmdbId);
-    for (var i = 0; i < recordCount; i++) {
-      final off = headerBytes + i * recordSize;
-      final packed = _view.getUint32(off + 4, Endian.little);
-      if (packed != desiredPacked) continue;
+    final keys = _reversePackedKeys!;
+    final indices = _reverseRecordIndices!;
+    final start = _reverseLowerBound(desiredPacked);
+    for (var i = start; i < keys.length && keys[i] == desiredPacked; i++) {
+      final off = headerBytes + indices[i] * recordSize;
       final tvdb = _view.getUint32(off + 12, Endian.little);
       if (tvdb > 0) return tvdb;
     }
     return null;
+  }
+
+  /// 按 TMDB 媒体类型、ID（与可选季号）以 O(log N) 离线反查精准 Bangumi 条目列表。
+  ///
+  /// - 传入 [season] 且 [strictSeason] 为 `true`（默认）时：优先返回精确命中该季号的记录；
+  ///   若未找到精确季号但存在无季号作品级映射（`season == null`）且目标为第 1 季或电影，则返回该作品级映射；
+  ///   若全部反查记录均明确指向其他冲突季号，返回空列表以回退关键词搜索，严防跨季错配。
+  List<BangumiReverseMatch> lookupBangumiIdsByTmdb({
+    required TmdbMediaType mediaType,
+    required int tmdbId,
+    int? season,
+    bool strictSeason = true,
+  }) {
+    if (recordCount == 0 || tmdbId <= 0) return const [];
+    _ensureReverseIndex();
+    final desiredPacked =
+        (mediaType == TmdbMediaType.movie ? _movieBitMask : 0) |
+        (tmdbId & _maxTmdbId);
+    final keys = _reversePackedKeys!;
+    final indices = _reverseRecordIndices!;
+    final start = _reverseLowerBound(desiredPacked);
+    if (start >= keys.length || keys[start] != desiredPacked) {
+      return const [];
+    }
+
+    final all = <BangumiReverseMatch>[];
+    for (var i = start; i < keys.length && keys[i] == desiredPacked; i++) {
+      final off = headerBytes + indices[i] * recordSize;
+      final bgmId = _view.getUint32(off, Endian.little);
+      final rawSeason = _view.getInt16(off + 8, Endian.little);
+      final flags = _view.getUint16(off + 10, Endian.little);
+      final rawTvdb = supportsTvdbId
+          ? _view.getUint32(off + 12, Endian.little)
+          : 0;
+      all.add(
+        BangumiReverseMatch(
+          bangumiId: bgmId,
+          season: rawSeason >= 0 ? rawSeason : null,
+          flags: flags,
+          tvdbId: rawTvdb > 0 ? rawTvdb : null,
+        ),
+      );
+    }
+
+    int sourceRank(int flags) {
+      if ((flags & BangumiTmdbTarget.flagOpenAni) != 0) return 0;
+      if ((flags & BangumiTmdbTarget.flagBangumiData) != 0) return 1;
+      if ((flags & BangumiTmdbTarget.flagWikidata) != 0) return 2;
+      if ((flags & BangumiTmdbTarget.flagAnimeListsMap) != 0) return 3;
+      return 4;
+    }
+
+    if (season != null && mediaType == TmdbMediaType.tv) {
+      final exact = all.where((m) => m.season == season).toList();
+      if (exact.isNotEmpty) {
+        exact.sort((a, b) {
+          final bySrc = sourceRank(a.flags).compareTo(sourceRank(b.flags));
+          return bySrc != 0 ? bySrc : a.bangumiId.compareTo(b.bangumiId);
+        });
+        return exact;
+      }
+      if (strictSeason) {
+        // 未标注具体季号的作品级记录仅在查询第 1 季时作为安全兜底，避免第 2/3 季误绑初代条目。
+        if (season == 1) {
+          final unseasoned = all.where((m) => m.season == null).toList();
+          if (unseasoned.isNotEmpty) {
+            unseasoned.sort((a, b) {
+              final bySrc = sourceRank(a.flags).compareTo(sourceRank(b.flags));
+              return bySrc != 0 ? bySrc : a.bangumiId.compareTo(b.bangumiId);
+            });
+            return unseasoned;
+          }
+        }
+        return const [];
+      }
+    }
+
+    all.sort((a, b) {
+      final aExact = season != null && a.season == season ? 0 : 1;
+      final bExact = season != null && b.season == season ? 0 : 1;
+      if (aExact != bExact) return aExact.compareTo(bExact);
+      final aUnseasoned = a.season == null ? 0 : 1;
+      final bUnseasoned = b.season == null ? 0 : 1;
+      if (aUnseasoned != bUnseasoned) return aUnseasoned.compareTo(bUnseasoned);
+      final bySrc = sourceRank(a.flags).compareTo(sourceRank(b.flags));
+      return bySrc != 0 ? bySrc : a.bangumiId.compareTo(b.bangumiId);
+    });
+    return all;
   }
 
   /// 优先从当前二进制索引查询；若当前索引为空（如纯离线单测），自动回退静态内置 Wikidata 映射表。

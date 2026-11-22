@@ -634,7 +634,7 @@ abstract final class SupplementarySubclassifier {
     if (pack != null) {
       return pack
           .group(1)!
-          .replaceAll(RegExp(r'\s+'), '')
+          .replaceAll(_reHot1, '')
           .toUpperCase()
           .replaceAll('WEBP', 'WebP');
     }
@@ -652,7 +652,7 @@ abstract final class SupplementarySubclassifier {
     final trimmed = rawStem.trim();
     if (trimmed.isEmpty) return (trackNumber: null, cleanTitle: rawStem);
 
-    final bracketMatch = RegExp(r'^\[(\d{1,2})\]\s*(.+)$').firstMatch(trimmed);
+    final bracketMatch = _reHot2.firstMatch(trimmed);
     if (bracketMatch != null) {
       final num = int.tryParse(bracketMatch.group(1)!);
       final rest = bracketMatch.group(2)!.trim();
@@ -661,10 +661,7 @@ abstract final class SupplementarySubclassifier {
       }
     }
 
-    final sepMatch = RegExp(
-      r'^(?:track\s*)?(?:\d{1,2}\s*[-_]\s*)?(\d{1,2})\s*(?:[.\-–—_、]\s*|\)\s+)(.+)$',
-      caseSensitive: false,
-    ).firstMatch(trimmed);
+    final sepMatch = _reHot3.firstMatch(trimmed);
     if (sepMatch != null) {
       final num = int.tryParse(sepMatch.group(1)!);
       final rest = sepMatch.group(2)!.trim();
@@ -673,7 +670,7 @@ abstract final class SupplementarySubclassifier {
       }
     }
 
-    final zeroSpaceMatch = RegExp(r'^(0\d)\s+(.+)$').firstMatch(trimmed);
+    final zeroSpaceMatch = _reHot4.firstMatch(trimmed);
     if (zeroSpaceMatch != null) {
       final num = int.tryParse(zeroSpaceMatch.group(1)!);
       final rest = zeroSpaceMatch.group(2)!.trim();
@@ -777,10 +774,7 @@ abstract final class SupplementarySubclassifier {
 
       bool isPureFormatTag(String? t) {
         if (t == null || t.isEmpty) return true;
-        return RegExp(
-          r'^(?:FLAC|AAC|MP3|WAV|APE|ALAC|M4A|OPUS|WEBP|\+)+$',
-          caseSensitive: false,
-        ).hasMatch(t);
+        return _reHot5.hasMatch(t);
       }
 
       final usedLabels = <String>{};
@@ -1118,18 +1112,15 @@ abstract final class SupplementarySubclassifier {
     text = text
         .replaceAll('｢', '「')
         .replaceAll('｣', '」')
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .replaceAll(RegExp(r'\s*／\s*'), '／')
+        .replaceAll(_reHot1, ' ')
+        .replaceAll(_reHot6, '／')
         .trim();
 
     if (text.isEmpty) {
       text = dateToken != null ? 'CD ($dateToken)' : rawSegment.trim();
     }
 
-    final isOstExact = RegExp(
-      r'^original[\s._-]*soundtrack$',
-      caseSensitive: false,
-    ).hasMatch(text);
+    final isOstExact = _reHot7.hasMatch(text);
 
     if (isOstExact) {
       final hasDup =
@@ -1168,24 +1159,18 @@ abstract final class SupplementarySubclassifier {
   }
 
   static bool _isVolumeLikeScanSeg(String seg) {
-    return RegExp(
-      r'^(?:vol(?:ume)?[\s._-]*\d+|v\d{1,2}|bd[\s._-]*\d+|booklet|bk|box)',
-      caseSensitive: false,
-    ).hasMatch(seg);
+    return _reHot8.hasMatch(seg);
   }
 
   static String _cleanScanSegmentLabel(String raw) {
     var s = _stripTrailingTechBrackets(raw.trim());
-    s = s.replaceAll(RegExp(r'\s+'), ' ').trim();
+    s = s.replaceAll(_reHot1, ' ').trim();
     return s;
   }
 
   static String _stripTrailingTechBrackets(String input) {
     var s = input.trim();
-    final trailingTech = RegExp(
-      r'\s*[\[(（【]\s*(?:BD|BDRip|DVD|DVDRip|Web|1080p|720p|4K|Ma10p|Hi10p|FLAC|AAC|MP3|WebP|PNG|JPG)\s*[\])）】]\s*$',
-      caseSensitive: false,
-    );
+    final trailingTech = _reHot9;
     while (trailingTech.hasMatch(s)) {
       final next = s.replaceFirst(trailingTech, '').trim();
       if (next == s || next.isEmpty) break;
@@ -1195,22 +1180,14 @@ abstract final class SupplementarySubclassifier {
   }
 
   static String _cleanVideoTitleStem(String stem) {
-    var s = stem.replaceAllMapped(
-      RegExp(r'\[([^\]]*)\]|【([^】]*)】|\(([^)]*)\)'),
-      (m) {
-        final inner = (m.group(1) ?? m.group(2) ?? m.group(3) ?? '').trim();
-        if (RegExp(
-          r'^(?:\d{3,4}p|\d{3,4}x\d{3,4}|(?:x|h)\.?26[45]|hevc|avc|av1|'
-          r'(?:ma|hi)?\d{1,2}p|\d{1,2}bit|yuv\w*|flac\w*|aac\w*|opus|'
-          r'bdrip|dvdrip|web-?dl|[0-9a-f]{8}|chs|cht|jpn|eng)$',
-          caseSensitive: false,
-        ).hasMatch(inner)) {
-          return ' ';
-        }
-        return ' $inner ';
-      },
-    );
-    s = s.replaceAll(RegExp(r'\s+'), ' ').trim();
+    var s = stem.replaceAllMapped(_reHot10, (m) {
+      final inner = (m.group(1) ?? m.group(2) ?? m.group(3) ?? '').trim();
+      if (_reHot11.hasMatch(inner)) {
+        return ' ';
+      }
+      return ' $inner ';
+    });
+    s = s.replaceAll(_reHot1, ' ').trim();
     return s;
   }
 
@@ -1243,28 +1220,25 @@ abstract final class SupplementarySubclassifier {
       working = working.substring(m.end).trimLeft();
     }
 
-    var s = working.replaceAllMapped(
-      RegExp(r'\[([^\]]*)\]|【([^】]*)】|\(([^)]*)\)'),
-      (m) {
-        final inner = (m.group(1) ?? m.group(2) ?? m.group(3) ?? '').trim();
-        if (inner.isEmpty) return ' ';
-        final parts = inner
-            .split(RegExp(r'[\s_/&+,]+'))
-            .where((p) => p.isNotEmpty)
-            .toList(growable: false);
-        final allTechOrRelease =
-            parts.isNotEmpty && parts.every(_techOrReleaseSegRegex.hasMatch);
-        final isReleaseGroup =
-            !_canonicalTokenRegex.hasMatch(inner) &&
-            !_mergeKeyProtectedBracketRegex.hasMatch(inner) &&
-            _releaseGroupSuffixRegex.hasMatch(inner);
-        if (allTechOrRelease || isReleaseGroup) {
-          return ' ';
-        }
-        return ' $inner ';
-      },
-    );
-    s = s.replaceAll(RegExp(r'\s+'), ' ').trim();
+    var s = working.replaceAllMapped(_reHot10, (m) {
+      final inner = (m.group(1) ?? m.group(2) ?? m.group(3) ?? '').trim();
+      if (inner.isEmpty) return ' ';
+      final parts = inner
+          .split(_reHot12)
+          .where((p) => p.isNotEmpty)
+          .toList(growable: false);
+      final allTechOrRelease =
+          parts.isNotEmpty && parts.every(_techOrReleaseSegRegex.hasMatch);
+      final isReleaseGroup =
+          !_canonicalTokenRegex.hasMatch(inner) &&
+          !_mergeKeyProtectedBracketRegex.hasMatch(inner) &&
+          _releaseGroupSuffixRegex.hasMatch(inner);
+      if (allTechOrRelease || isReleaseGroup) {
+        return ' ';
+      }
+      return ' $inner ';
+    });
+    s = s.replaceAll(_reHot1, ' ').trim();
     return s;
   }
 
@@ -1357,13 +1331,10 @@ abstract final class SupplementarySubclassifier {
       'special' => 'Special',
       'blu-ray' || 'bluray' => 'Blu-ray',
       _ => () {
-        if (RegExp(
-          r'^\d+(?:st|nd|rd|th)$',
-          caseSensitive: false,
-        ).hasMatch(raw)) {
+        if (_reHot13.hasMatch(raw)) {
           return lower;
         }
-        if (RegExp(r'^[a-z]+$').hasMatch(lower)) {
+        if (_reHot14.hasMatch(lower)) {
           return '${lower[0].toUpperCase()}${lower.substring(1)}';
         }
         return raw;
@@ -1372,7 +1343,7 @@ abstract final class SupplementarySubclassifier {
   }
 
   static String _formatPromoMainType(String raw) {
-    final compact = raw.toLowerCase().replaceAll(RegExp(r'[\s._-]+'), '');
+    final compact = raw.toLowerCase().replaceAll(_reHot15, '');
     return switch (compact) {
       'pvcm' => 'PVCM',
       'pv' => 'PV',
@@ -1392,7 +1363,7 @@ abstract final class SupplementarySubclassifier {
   ) {
     final prefixParts = rawPrefix
         .trim()
-        .split(RegExp(r'[\s._]+'))
+        .split(_reHot16)
         .where((s) => s.isNotEmpty)
         .map(_formatPromoQualifierToken)
         .toList(growable: false);
@@ -1403,13 +1374,10 @@ abstract final class SupplementarySubclassifier {
         prefixParts.first.toLowerCase() == formattedType.toLowerCase()) {
       return null;
     }
-    final cleanNum = (rawNum ?? '').replaceAll(RegExp(r'[\s._-]+'), '');
+    final cleanNum = (rawNum ?? '').replaceAll(_reHot15, '');
     final base = '${prefixParts.join(' ')} $formattedType';
     if (cleanNum.isEmpty) return base;
-    final numMatch = RegExp(
-      r'^(\d+)([a-z])?$',
-      caseSensitive: false,
-    ).firstMatch(cleanNum);
+    final numMatch = _reHot17.firstMatch(cleanNum);
     if (numMatch != null && numMatch.group(2) != null) {
       return '$base ${numMatch.group(1)}${numMatch.group(2)!.toLowerCase()}';
     }
@@ -1418,13 +1386,11 @@ abstract final class SupplementarySubclassifier {
 
   static List<String> _extractBracketSegments(String stem) {
     final segments = <String>[];
-    for (final m in RegExp(
-      r'\[([^\]]*)\]|【([^】]*)】|\(([^)]*)\)',
-    ).allMatches(stem)) {
+    for (final m in _reHot18.allMatches(stem)) {
       final raw = (m.group(1) ?? m.group(2) ?? m.group(3) ?? '').trim();
       if (raw.isEmpty) continue;
       final parts = raw
-          .split(RegExp(r'[\s_/]+'))
+          .split(_reHot19)
           .where((p) => p.isNotEmpty)
           .toList(growable: false);
       if (parts.isNotEmpty && parts.every(_techOrReleaseSegRegex.hasMatch)) {
@@ -1470,8 +1436,8 @@ abstract final class SupplementarySubclassifier {
       }
     }
     final stemWithoutBrackets = stem
-        .replaceAll(RegExp(r'\[[^\]]*\]|【[^】]*】|\([^)]*\)'), ' ')
-        .replaceAll(RegExp(r'\s+'), ' ')
+        .replaceAll(_reHot20, ' ')
+        .replaceAll(_reHot1, ' ')
         .trim();
     final ncStem = _explicitNcSubVariantRegex.firstMatch(stemWithoutBrackets);
     if (ncStem != null) {
@@ -1518,10 +1484,7 @@ abstract final class SupplementarySubclassifier {
   }
 
   static String? _canonicalVolDiscTag(String fileName, String relativePath) {
-    final volPattern = RegExp(
-      r'(?:^|[\s._\-\[\(【])(vol(?:ume)?|disc|bd|dvd|part)[\s._-]*0*(\d{1,2})(?=$|[\s._\-\]\)】])',
-      caseSensitive: false,
-    );
+    final volPattern = _reHot21;
     for (final input in [fileName, relativePath]) {
       final m = volPattern.firstMatch(input);
       if (m != null) {
@@ -1560,12 +1523,12 @@ abstract final class SupplementarySubclassifier {
     if (_isCdBundledExtraPath(path)) {
       final albumGroup = extractCdAlbumGroup(relativePath: path);
       final normAlbum = albumGroup.albumKey.toLowerCase().replaceAll(
-        RegExp(r'[^a-z0-9\u3040-\u9fff]+'),
+        _reHot22,
         '_',
       );
       final normStem = _cleanStemForMergeKey(
         stem,
-      ).toLowerCase().replaceAll(RegExp(r'[^a-z0-9\u3040-\u9fff]+'), '_');
+      ).toLowerCase().replaceAll(_reHot22, '_');
       return '${kind.name}::cd::$normAlbum::$normStem';
     }
 
@@ -1596,40 +1559,20 @@ abstract final class SupplementarySubclassifier {
     if (tokenMatch != null) {
       var coreRaw = tokenMatch.group(1)!.toLowerCase();
       coreRaw = coreRaw
-          .replaceAll(
-            RegExp(
-              r'^(?:creditless|textless|non[\s._-]*(?:telop|credit)|clean)[\s._-]*opening$',
-            ),
-            'ncop',
-          )
-          .replaceAll(
-            RegExp(
-              r'^(?:creditless|textless|non[\s._-]*(?:telop|credit)|clean)[\s._-]*ending$',
-            ),
-            'nced',
-          )
-          .replaceAll(
-            RegExp(
-              r'^(?:creditless|textless|non[\s._-]*(?:telop|credit)|clean)[\s._-]*op$',
-            ),
-            'ncop',
-          )
-          .replaceAll(
-            RegExp(
-              r'^(?:creditless|textless|non[\s._-]*(?:telop|credit)|clean)[\s._-]*ed$',
-            ),
-            'nced',
-          )
+          .replaceAll(_reHot23, 'ncop')
+          .replaceAll(_reHot24, 'nced')
+          .replaceAll(_reHot25, 'ncop')
+          .replaceAll(_reHot26, 'nced')
           .replaceAll('information', 'info')
           .replaceAll('trailers', 'trailer')
           .replaceAll('teasers', 'teaser')
           .replaceAll('previews', 'preview')
           .replaceAll('spots', 'spot')
           .replaceAll('menus', 'menu')
-          .replaceAll(RegExp(r'music[\s._-]*(?:video|clip)'), 'mv');
+          .replaceAll(_reHot27, 'mv');
       final coreNorm = coreRaw
-          .replaceAll(RegExp(r'[\s._-]+'), '_')
-          .replaceAll(RegExp(r'^_+|_+$'), '')
+          .replaceAll(_reHot15, '_')
+          .replaceAll(_reHot28, '')
           .replaceFirst('character_', 'char_')
           .replaceFirst('blu_ray_', 'bluray_');
       // 保留限定词边界，避免 `character_pv` 与 `pv` 混淆；同时统一 `nc_op` -> `ncop`, `pv_cm` -> `pvcm`, `tv_cm` -> `tv_cm`
@@ -1639,7 +1582,7 @@ abstract final class SupplementarySubclassifier {
           .replaceAll('nc_ed', 'nced')
           .replaceAll('menu_ex', 'menuex')
           .replaceAll('pv_cm', 'pvcm')
-          .replaceFirst(RegExp(r'^char_'), 'character_');
+          .replaceFirst(_reHot29, 'character_');
       final rawNum = tokenMatch.group(2);
       final numPart = rawNum != null ? int.parse(rawNum).toString() : '';
       final subVar = (tokenMatch.group(3) ?? '').toLowerCase();
@@ -1662,20 +1605,21 @@ abstract final class SupplementarySubclassifier {
     var stripped = _cleanStemForMergeKey(stem).toLowerCase();
     if (workTitle != null && workTitle.trim().isNotEmpty) {
       final normWork = workTitle.trim().toLowerCase();
-      stripped = stripped.replaceFirst(
-        RegExp('^${RegExp.escape(normWork)}[\\s._\\-–—_:：]*'),
-        '',
-      );
+      if (stripped.startsWith(normWork)) {
+        stripped = stripped
+            .substring(normWork.length)
+            .replaceFirst(_leadingWorkDelimTrim, '');
+      }
     }
     final stemNorm = stripped
-        .replaceAll(RegExp(r'[^a-z0-9\u3040-\u9fff]+'), '_')
-        .replaceAll(RegExp(r'_+'), '_')
-        .replaceAll(RegExp(r'^_+|_+$'), '');
+        .replaceAll(_reHot22, '_')
+        .replaceAll(_reHot30, '_')
+        .replaceAll(_reHot28, '');
     final hintNorm = cleanedHint
         .toLowerCase()
-        .replaceAll(RegExp(r'[^a-z0-9\u3040-\u9fff]+'), '_')
-        .replaceAll(RegExp(r'_+'), '_')
-        .replaceAll(RegExp(r'^_+|_+$'), '');
+        .replaceAll(_reHot22, '_')
+        .replaceAll(_reHot30, '_')
+        .replaceAll(_reHot28, '');
     final effective = stemNorm.isNotEmpty
         ? stemNorm
         : (hintNorm.isNotEmpty ? hintNorm : path.toLowerCase());
@@ -1693,14 +1637,8 @@ abstract final class SupplementarySubclassifier {
     if (existing.isEmpty) return true;
     if (existing == resolved) return false;
 
-    final compactExisting = existing.toLowerCase().replaceAll(
-      RegExp(r'\s+'),
-      '',
-    );
-    final compactResolved = resolved.toLowerCase().replaceAll(
-      RegExp(r'\s+'),
-      '',
-    );
+    final compactExisting = existing.toLowerCase().replaceAll(_reHot1, '');
+    final compactResolved = resolved.toLowerCase().replaceAll(_reHot1, '');
     if (compactExisting == compactResolved) return false;
 
     if (_legacyTruncatedExtraTitleRegex.hasMatch(existing)) {
@@ -1710,10 +1648,81 @@ abstract final class SupplementarySubclassifier {
     if (compactResolved.length > compactExisting.length &&
         (compactResolved.endsWith(compactExisting) ||
             compactResolved.startsWith(compactExisting))) {
-      return RegExp(
-        r'^(?:pv|cm|teaser|trailer|preview|spot|ncop|nced|menu|sp)\d*$',
-      ).hasMatch(compactExisting);
+      return _reHot31.hasMatch(compactExisting);
     }
     return false;
   }
+
+  /// 预编译热点正则表达式（避免在逐文件遍历与归组打分热路径中重复编译）。
+  static final RegExp _reHot1 = RegExp(r'\s+');
+  static final RegExp _reHot2 = RegExp(r'^\[(\d{1,2})\]\s*(.+)$');
+  static final RegExp _reHot3 = RegExp(
+    r'^(?:track\s*)?(?:\d{1,2}\s*[-_]\s*)?(\d{1,2})\s*(?:[.\-–—_、]\s*|\)\s+)(.+)$',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot4 = RegExp(r'^(0\d)\s+(.+)$');
+  static final RegExp _reHot5 = RegExp(
+    r'^(?:FLAC|AAC|MP3|WAV|APE|ALAC|M4A|OPUS|WEBP|\+)+$',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot6 = RegExp(r'\s*／\s*');
+  static final RegExp _reHot7 = RegExp(
+    r'^original[\s._-]*soundtrack$',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot8 = RegExp(
+    r'^(?:vol(?:ume)?[\s._-]*\d+|v\d{1,2}|bd[\s._-]*\d+|booklet|bk|box)',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot9 = RegExp(
+    r'\s*[\[(（【]\s*(?:BD|BDRip|DVD|DVDRip|Web|1080p|720p|4K|Ma10p|Hi10p|FLAC|AAC|MP3|WebP|PNG|JPG)\s*[\])）】]\s*$',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot10 = RegExp(r'\[([^\]]*)\]|【([^】]*)】|\(([^)]*)\)');
+  static final RegExp _reHot11 = RegExp(
+    r'^(?:\d{3,4}p|\d{3,4}x\d{3,4}|(?:x|h)\.?26[45]|hevc|avc|av1|'
+    r'(?:ma|hi)?\d{1,2}p|\d{1,2}bit|yuv\w*|flac\w*|aac\w*|opus|'
+    r'bdrip|dvdrip|web-?dl|[0-9a-f]{8}|chs|cht|jpn|eng)$',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot12 = RegExp(r'[\s_/&+,]+');
+  static final RegExp _reHot13 = RegExp(
+    r'^\d+(?:st|nd|rd|th)$',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot14 = RegExp(r'^[a-z]+$');
+  static final RegExp _reHot15 = RegExp(r'[\s._-]+');
+  static final RegExp _reHot16 = RegExp(r'[\s._]+');
+  static final RegExp _reHot17 = RegExp(
+    r'^(\d+)([a-z])?$',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot18 = RegExp(r'\[([^\]]*)\]|【([^】]*)】|\(([^)]*)\)');
+  static final RegExp _reHot19 = RegExp(r'[\s_/]+');
+  static final RegExp _reHot20 = RegExp(r'\[[^\]]*\]|【[^】]*】|\([^)]*\)');
+  static final RegExp _reHot21 = RegExp(
+    r'(?:^|[\s._\-\[\(【])(vol(?:ume)?|disc|bd|dvd|part)[\s._-]*0*(\d{1,2})(?=$|[\s._\-\]\)】])',
+    caseSensitive: false,
+  );
+  static final RegExp _reHot22 = RegExp(r'[^a-z0-9\u3040-\u9fff]+');
+  static final RegExp _reHot23 = RegExp(
+    r'^(?:creditless|textless|non[\s._-]*(?:telop|credit)|clean)[\s._-]*opening$',
+  );
+  static final RegExp _reHot24 = RegExp(
+    r'^(?:creditless|textless|non[\s._-]*(?:telop|credit)|clean)[\s._-]*ending$',
+  );
+  static final RegExp _reHot25 = RegExp(
+    r'^(?:creditless|textless|non[\s._-]*(?:telop|credit)|clean)[\s._-]*op$',
+  );
+  static final RegExp _reHot26 = RegExp(
+    r'^(?:creditless|textless|non[\s._-]*(?:telop|credit)|clean)[\s._-]*ed$',
+  );
+  static final RegExp _reHot27 = RegExp(r'music[\s._-]*(?:video|clip)');
+  static final RegExp _reHot28 = RegExp(r'^_+|_+$');
+  static final RegExp _reHot29 = RegExp(r'^char_');
+  static final RegExp _reHot30 = RegExp(r'_+');
+  static final RegExp _reHot31 = RegExp(
+    r'^(?:pv|cm|teaser|trailer|preview|spot|ncop|nced|menu|sp)\d*$',
+  );
+  static final RegExp _leadingWorkDelimTrim = RegExp(r'^[\s._\-–—_:：]*');
 }

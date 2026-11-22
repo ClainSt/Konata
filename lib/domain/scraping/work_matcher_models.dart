@@ -198,35 +198,56 @@ const _romajiArcBridges = <(String romaji, String queryArc, List<String> cjkNorm
     ('kohen', '后篇', ['后篇', '後編', '後篇']),
   ];
 
-const _cjkCanonMap = <String, String>{
-    '編': '篇',
-    '絶': '绝',
-    '絕': '绝',
-    '學': '学',
-    '園': '园',
-    '劍': '剑',
-    '櫻': '樱',
-    '龍': '龙',
-    '戰': '战',
-    '國': '国',
-    '劇': '剧',
-    '話': '话',
-    '彈': '弹',
-    '氣': '气',
-    '惡': '恶',
-    '終': '终',
-    '邊': '边',
-    '實': '实',
-    '與': '与',
-    '覺': '觉',
-    '擊': '击',
-    '動': '动',
-    '憶': '忆',
-    '後': '后',
-    '萬': '万',
-    '體': '体',
-    '號': '号',
-  };
+const _precomputedArcBridges = <(String romaji, List<String> canonCjks)>[
+  ('miraihen', ['未来篇']),
+  ('zetsubouhen', ['绝望篇']),
+  ('zetsubohen', ['绝望篇']),
+  ('kibouhen', ['希望篇']),
+  ('kibohen', ['希望篇']),
+  ('kakohen', ['过去篇', '過去篇']),
+  ('gendaihen', ['现代篇', '現代篇']),
+  ('shinsouhen', ['真相篇']),
+  ('kanketsuhen', ['完结篇', '完結篇']),
+  ('kakuseihen', ['觉醒篇']),
+  ('hangekihen', ['反击篇']),
+  ('shidouhen', ['始动篇']),
+  ('tsuiokuhen', ['追忆篇']),
+  ('saishuuhen', ['最终篇']),
+  ('saishuhen', ['最终篇']),
+  ('zenpen', ['前篇']),
+  ('kouhen', ['后篇']),
+  ('kohen', ['后篇']),
+];
+
+const _cjkCanonCodeMap = <int, int>{
+  0x7DE8: 0x7BC7, // 編 -> 篇
+  0x7D76: 0x7EDD, // 絶 -> 绝
+  0x7D55: 0x7EDD, // 絕 -> 绝
+  0x5B78: 0x5B66, // 學 -> 学
+  0x5712: 0x56ED, // 園 -> 园
+  0x528D: 0x5251, // 劍 -> 剑
+  0x6AFB: 0x6A31, // 櫻 -> 樱
+  0x9F8D: 0x9F99, // 龍 -> 龙
+  0x6230: 0x6218, // 戰 -> 战
+  0x570B: 0x56FD, // 國 -> 国
+  0x5287: 0x5267, // 劇 -> 剧
+  0x8A71: 0x8BDD, // 話 -> 话
+  0x5F48: 0x5F39, // 彈 -> 弹
+  0x6C23: 0x6C14, // 氣 -> 气
+  0x60E1: 0x6076, // 惡 -> 恶
+  0x7D42: 0x7EC8, // 終 -> 终
+  0x908A: 0x8FB9, // 邊 -> 边
+  0x5BE6: 0x5B9E, // 實 -> 实
+  0x8207: 0x4E0E, // 與 -> 与
+  0x89BA: 0x89C9, // 覺 -> 觉
+  0x64CA: 0x51FB, // 擊 -> 击
+  0x52D5: 0x52A8, // 動 -> 动
+  0x61B6: 0x5FC6, // 憶 -> 忆
+  0x5F8C: 0x540E, // 後 -> 后
+  0x842C: 0x4E07, // 萬 -> 万
+  0x9AD4: 0x4F53, // 體 -> 体
+  0x865F: 0x53F7, // 號 -> 号
+};
 
 
 DateTime? _parseFullDate(String? raw) {
@@ -252,24 +273,23 @@ double _wmSimilarity(String a, String b) {
       return 0.55 + 0.4 * shorter.length / longer.length;
     }
     if (shorter.length < 2) return 0;
-    final grams = <String, int>{};
+    final grams = <int, int>{};
     for (var i = 0; i < a.length - 1; i++) {
-      final gram = a.substring(i, i + 2);
+      final gram = (a.codeUnitAt(i) << 16) | a.codeUnitAt(i + 1);
       grams[gram] = (grams[gram] ?? 0) + 1;
     }
     var shared = 0;
     for (var i = 0; i < b.length - 1; i++) {
-      final gram = b.substring(i, i + 2);
-      final left = grams[gram] ?? 0;
-      if (left > 0) {
+      final gram = (b.codeUnitAt(i) << 16) | b.codeUnitAt(i + 1);
+      final left = grams[gram];
+      if (left != null && left > 0) {
         shared++;
         grams[gram] = left - 1;
       }
     }
     final dice = 2 * shared / (a.length + b.length - 2) * 0.9;
-    // 较长的本地标题几乎完整落入更长官方名称且包含独立分隔词元时的补充匹配分支。
-    // inserted subtitle ("キノの旅 病気の国" vs "キノの旅 the Beautiful World
-    // 病気の国") is strong evidence even when Dice is diluted.
+    // 较长的本地标题几乎完整落入更长官方名称且包含独立分隔词元时的补充匹配分支
+    // （如 `キノの旅 病気の国` 与 `キノの旅 the Beautiful World 病気の国`），即使 Dice 被稀释仍保持有效召回。
     final coverage = shorter.length >= 6
         ? shared / (shorter.length - 1) * 0.8
         : 0.0;

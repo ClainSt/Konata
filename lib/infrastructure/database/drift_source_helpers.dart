@@ -15,10 +15,8 @@ Future<void> pruneStaleSourceEntriesInDb(
 }) async {
   final normalizedRoots = scopedRoots
       .map(
-        (r) => r
-            .trim()
-            .replaceAll('\\', '/')
-            .replaceAll(RegExp(r'^/+|/+$'), ''),
+        (r) =>
+            r.trim().replaceAll('\\', '/').replaceAll(RegExp(r'^/+|/+$'), ''),
       )
       .where((r) => r.isNotEmpty)
       .toList(growable: false);
@@ -40,10 +38,12 @@ Future<void> pruneStaleSourceEntriesInDb(
     )..where((t) => t.sourceId.equals(sourceId))).get();
 
     final staleVariantIds = <String>[];
+    final worksWithDeletedVariants = <String>{};
     for (final v in existingVariants) {
       if (!inScope(v.relativePath)) continue;
       if (!activeVariantIds.contains(v.id)) {
         staleVariantIds.add(v.id);
+        worksWithDeletedVariants.add(v.workId);
       }
     }
 
@@ -54,9 +54,12 @@ Future<void> pruneStaleSourceEntriesInDb(
           ? staleVariantIds.length
           : i + chunkSize;
       final chunk = staleVariantIds.sublist(i, end);
-      await (db.delete(
-        db.mediaVariants,
-      )..where((t) => t.id.isIn(chunk))).go();
+      await (db.delete(db.mediaVariants)..where((t) => t.id.isIn(chunk))).go();
+    }
+
+    // 清理活跃作品内失去物理变体的剧集，保留同一剧集的其他来源。
+    for (final workId in worksWithDeletedVariants.intersection(activeWorkIds)) {
+      await deleteOrphanEpisodesInDb(db, workId);
     }
 
     // 一次索引聚合查询找出仍拥有至少一个物理变体的作品 ID，彻底消除逐作品 N+1 查询。
@@ -88,11 +91,26 @@ Future<void> pruneStaleSourceEntriesInDb(
   });
 }
 
-/// 清理作品下无物理视频/资源关联的孤儿剧集。
-Future<void> deleteOrphanEpisodesInDb(
+/// 按 ID 批量删除已从物理目录移除的失效文件变体（分块防 SQLite 参数上限）。
+Future<void> deleteMediaVariantsBatchInDb(
   KonataDatabase db,
-  String workId,
+  List<String> variantIds,
 ) async {
+  if (variantIds.isEmpty) return;
+  const chunkSize = 200;
+  await db.transaction(() async {
+    for (var i = 0; i < variantIds.length; i += chunkSize) {
+      final end = (i + chunkSize < variantIds.length)
+          ? i + chunkSize
+          : variantIds.length;
+      final chunk = variantIds.sublist(i, end);
+      await (db.delete(db.mediaVariants)..where((t) => t.id.isIn(chunk))).go();
+    }
+  });
+}
+
+/// 清理作品下无物理视频/资源关联的孤儿剧集。
+Future<void> deleteOrphanEpisodesInDb(KonataDatabase db, String workId) async {
   await db.transaction(() async {
     final variants = await (db.select(
       db.mediaVariants,
@@ -166,8 +184,9 @@ Future<void> removeIgnoredFolderInDb(
 /// 仅从媒体库移除指定作品及衍生数据（绝不触碰源目录文件）。
 Future<void> deleteWorkInDb(KonataDatabase db, String workId) async {
   await db.transaction(() async {
-    await (db.delete(db.mediaVariants)..where((t) => t.workId.equals(workId)))
-        .go();
+    await (db.delete(
+      db.mediaVariants,
+    )..where((t) => t.workId.equals(workId))).go();
     await (db.delete(db.episodes)..where((t) => t.workId.equals(workId))).go();
     await (db.delete(
       db.scrapeCandidates,

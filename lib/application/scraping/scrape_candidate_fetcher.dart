@@ -25,6 +25,8 @@ class ScrapeCandidateFetcher {
   /// Bangumi 首波检索全部失败后整体重试前的等待时长。
   static const Duration _bangumiWaveRetryDelay = Duration(seconds: 2);
 
+  static final RegExp _latinWordPattern = RegExp(r'[A-Za-z]{3,}');
+
   /// 并发发起一组互不依赖的请求（实际并发度由后台网络调度器限制），再按原顺序还原逐条串行的语义：
   /// 遇到首个瞬时网络异常即上报并丢弃其后的结果，非瞬时异常按顺序原样抛出，空结果跳过。
   /// 每部作品原本要逐条等待的候选详情、季详情往返因此可以重叠，刮削总耗时随之下降。
@@ -159,12 +161,32 @@ class ScrapeCandidateFetcher {
   }
 
   /// 在线 Bangumi 多波次检索并补全 Top 4 候选完整 `infobox`、封面大图与简介（不查询角色/声优接口）。
+  /// 当目录或文件名携带显式 `{bgm-N}` / `[bgmid=N]` 标记时，优先按 ID 直连拉取保证 100% 召回。
   Future<List<BangumiSubjectCandidate>> fetchBangumiCandidates(
     GroupedWorkFolder folder, {
     List<String> extraQueries = const [],
   }) async {
     final bgm = bangumiService;
     if (bgm == null) return const [];
+
+    final explicitBgmId = folder.explicitBangumiId;
+    if (explicitBgmId != null && explicitBgmId > 0) {
+      try {
+        final direct = await bgm.getSubjectDetail(
+          explicitBgmId,
+          priority: RequestPriority.background,
+        );
+        if (direct != null) {
+          return [direct];
+        }
+      } catch (error) {
+        developer.log(
+          '显式 Bangumi ID 直连拉取失败，回退关键词检索',
+          name: 'konata.scrape_candidate_fetcher',
+          error: error,
+        );
+      }
+    }
 
     final queries = ScrapeDomainAdapter.buildSearchQueries(
       folder,
@@ -209,24 +231,28 @@ class ScrapeCandidateFetcher {
       await Future<void>.delayed(_bangumiWaveRetryDelay);
       await runWave(firstWave);
     }
+    final wave1Eval = rawById.isEmpty
+        ? null
+        : ScrapeDomainAdapter.evaluateBangumiMatch(
+            folder,
+            rawById.values.toList(growable: false),
+          );
     final needWave2 =
         queries.length > 3 &&
-        (rawById.isEmpty ||
-            ScrapeDomainAdapter.evaluateBangumiMatch(
-                  folder,
-                  rawById.values.toList(growable: false),
-                ).tier ==
-                legacy.MatchTier.none);
+        (wave1Eval == null || wave1Eval.tier == legacy.MatchTier.none);
+    final beforeWave2Count = rawById.length;
     if (needWave2) {
       await runWave(queries.skip(3).take(4).toList(growable: false));
     }
 
     if (rawById.isEmpty) return const [];
 
-    final prelim = ScrapeDomainAdapter.evaluateBangumiMatch(
-      folder,
-      rawById.values.toList(growable: false),
-    );
+    final prelim = (wave1Eval != null && rawById.length == beforeWave2Count)
+        ? wave1Eval
+        : ScrapeDomainAdapter.evaluateBangumiMatch(
+            folder,
+            rawById.values.toList(growable: false),
+          );
     final limit = prelim.tier == legacy.MatchTier.high ? 2 : 4;
     final topIds = <int>{
       ...prelim.topCandidates.take(limit).map((e) => e.subject.id),
@@ -325,31 +351,70 @@ class ScrapeCandidateFetcher {
       String language = 'zh-CN',
       required int cap,
     }) async {
-      if (networkAborted) return;
-      for (final q in qs) {
-        try {
-          final hits = await _tmdbService.searchAnime(
-            q,
-            year: year,
-            language: language,
-            mediaTypeFilter: typeFilter,
-            priority: RequestPriority.background,
+      final list = qs.toList(growable: false);
+      if (networkAborted || list.isEmpty) return;
+
+      bool mergeHits(List<TmdbSearchResult> hits) {
+        for (final h in hits) {
+          candidatesMap.putIfAbsent(
+            '${h.mediaType.name}:${h.tmdbId}',
+            () => h,
           );
-          for (final h in hits) {
-            candidatesMap.putIfAbsent(
-              '${h.mediaType.name}:${h.tmdbId}',
-              () => h,
-            );
-          }
-          if (candidatesMap.length >= cap) break;
-        } catch (error) {
-          if (NetworkErrorSanitizer.isTransientNetworkError(error)) {
-            networkAborted = true;
-            onNetworkError?.call(error);
-            return;
-          }
-          rethrow;
         }
+        // 仅统计动画/未标分类候选计入波次上限，防止通用中文词（如 `避难所`）返回大量真人片挤掉英文文件名查询。
+        final animCount = candidatesMap.values
+            .where((h) => h.genreIds.contains(16) || h.genreIds.isEmpty)
+            .length;
+        return animCount >= cap || candidatesMap.length >= cap * 4;
+      }
+
+      // 首词快路径：常规作品首词即满足上限，零多余请求；未满时剩余备选词并发执行并按原顺序合入以保证确定性。
+      try {
+        final firstHits = await _tmdbService.searchAnime(
+          list.first,
+          year: year,
+          language: language,
+          mediaTypeFilter: typeFilter,
+          priority: RequestPriority.background,
+        );
+        if (mergeHits(firstHits) || list.length == 1) return;
+      } catch (error) {
+        if (NetworkErrorSanitizer.isTransientNetworkError(error)) {
+          networkAborted = true;
+          onNetworkError?.call(error);
+          return;
+        }
+        rethrow;
+      }
+
+      Object? fatalError;
+      final restHits = await Future.wait(
+        list.skip(1).map((q) async {
+          if (networkAborted) return const <TmdbSearchResult>[];
+          try {
+            return await _tmdbService.searchAnime(
+              q,
+              year: year,
+              language: language,
+              mediaTypeFilter: typeFilter,
+              priority: RequestPriority.background,
+            );
+          } catch (error) {
+            if (NetworkErrorSanitizer.isTransientNetworkError(error)) {
+              if (!networkAborted) {
+                networkAborted = true;
+                onNetworkError?.call(error);
+              }
+              return const <TmdbSearchResult>[];
+            }
+            fatalError ??= error;
+            return const <TmdbSearchResult>[];
+          }
+        }),
+      );
+      if (fatalError != null) throw fatalError!;
+      for (final hits in restHits) {
+        if (mergeHits(hits)) break;
       }
     }
 
@@ -381,6 +446,74 @@ class ScrapeCandidateFetcher {
     }
     if (!networkAborted && (candidatesMap.length < 3 || waveNeedsBackup())) {
       await collectWave(queries.take(3), language: 'ja-JP', cap: 12);
+    }
+
+    // Wave 4（零召回兜底）：前 3 波均彻底零召回时，先对多词英文/罗马音查询逐级裁去尾部外传/版本词
+    // 或首部前缀词（如合体首词/副标前置词 `Denshin Mamotte Shugogetten` -> `Mamotte Shugogetten`），
+    // 仍零召回且短集数（<=4 集）曾锁定仅搜 TV 时，再放开电影检索一次（如分篇剧场版）。
+    // 正常已有候选的作品完全零开销。
+    if (!networkAborted && candidatesMap.isEmpty) {
+      final trimmedFallbacks = <String>[];
+      final seenTrim = <String>{for (final q in queries) q.toLowerCase()};
+      for (final q in queries.take(4)) {
+        final tokens = q
+            .split(RegExp(r'\s+'))
+            .where((t) => t.isNotEmpty)
+            .toList(growable: false);
+        if (tokens.length < 3 || RegExp(r'[\u4e00-\u9fff]').hasMatch(q)) {
+          continue;
+        }
+        for (var drop = 1; drop <= 2 && tokens.length - drop >= 2; drop++) {
+          final cand = tokens.take(tokens.length - drop).join(' ').trim();
+          if (cand.length >= 6 && seenTrim.add(cand.toLowerCase())) {
+            trimmedFallbacks.add(cand);
+          }
+        }
+        final headDropped = tokens.skip(1).join(' ').trim();
+        if (headDropped.length >= 8 &&
+            seenTrim.add(headDropped.toLowerCase())) {
+          trimmedFallbacks.add(headDropped);
+        }
+      }
+      if (trimmedFallbacks.isNotEmpty) {
+        await collectWave(trimmedFallbacks.take(6), cap: 8);
+        if (!networkAborted && candidatesMap.isEmpty) {
+          await collectWave(
+            trimmedFallbacks.take(3),
+            language: 'en-US',
+            cap: 8,
+          );
+        }
+      }
+      if (!networkAborted &&
+          candidatesMap.isEmpty &&
+          typeFilter == TmdbMediaType.tv &&
+          folder.mainEpisodeNumbers.toSet().length <= 4) {
+        for (final q in queries.take(2)) {
+          try {
+            final movieHits = await _tmdbService.searchAnime(
+              q,
+              language: 'zh-CN',
+              mediaTypeFilter: TmdbMediaType.movie,
+              priority: RequestPriority.background,
+            );
+            for (final h in movieHits) {
+              candidatesMap.putIfAbsent(
+                '${h.mediaType.name}:${h.tmdbId}',
+                () => h,
+              );
+            }
+            if (candidatesMap.isNotEmpty) break;
+          } catch (error) {
+            if (NetworkErrorSanitizer.isTransientNetworkError(error)) {
+              networkAborted = true;
+              onNetworkError?.call(error);
+              break;
+            }
+            rethrow;
+          }
+        }
+      }
     }
 
     if (candidatesMap.isEmpty) return const [];
@@ -513,7 +646,7 @@ class ScrapeCandidateFetcher {
     final platform = bangumi?.platform?.trim() ?? '';
     final bangumiSaysMovie =
         platform == '剧场版' || platform.toLowerCase() == 'movie';
-    if (bangumiSaysMovie && folder.mainEpisodeNumbers.toSet().length <= 2) {
+    if (bangumiSaysMovie && folder.mainEpisodeNumbers.toSet().length <= 4) {
       return null;
     }
     return TmdbMediaType.tv;
@@ -547,50 +680,122 @@ class ScrapeCandidateFetcher {
     final typeFilter = _tvOnlyFilter(folder, bangumi);
     var networkAborted = false;
 
+    bool isYearCompatibleAnimation(TmdbSearchResult h) =>
+        h.genreIds.contains(16) &&
+        (bangumi.year == null ||
+            h.year == null ||
+            (h.year! - bangumi.year!).abs() <= 1);
+
     Future<void> runSearch(
       Iterable<String> qs, {
       int? year,
       required String lang,
     }) async {
-      if (networkAborted) return;
-      for (final q in qs) {
-        try {
-          final hits = await _tmdbService.searchAnime(
-            q,
-            year: year,
-            language: lang,
-            mediaTypeFilter: typeFilter,
-            priority: RequestPriority.background,
-          );
-          for (final h in hits) {
-            final k = '${h.mediaType.name}:${h.tmdbId}';
-            if (!seenIds.contains(k)) {
-              hitMap.putIfAbsent(k, () => h);
-            }
+      final list = qs.toList(growable: false);
+      if (networkAborted || list.isEmpty) return;
+
+      bool mergeHits(List<TmdbSearchResult> hits) {
+        for (final h in hits) {
+          final k = '${h.mediaType.name}:${h.tmdbId}';
+          if (!seenIds.contains(k)) {
+            hitMap.putIfAbsent(k, () => h);
           }
-          if (hitMap.length >= 6) break;
-        } catch (error) {
-          if (NetworkErrorSanitizer.isTransientNetworkError(error)) {
-            networkAborted = true;
-            onNetworkError?.call(error);
-            return;
-          }
-          rethrow;
         }
+        final animCount = hitMap.values
+            .where(isYearCompatibleAnimation)
+            .length;
+        return animCount >= 6;
+      }
+
+      try {
+        final firstHits = await _tmdbService.searchAnime(
+          list.first,
+          year: year,
+          language: lang,
+          mediaTypeFilter: typeFilter,
+          priority: RequestPriority.background,
+        );
+        if (mergeHits(firstHits) || list.length == 1) return;
+      } catch (error) {
+        if (NetworkErrorSanitizer.isTransientNetworkError(error)) {
+          networkAborted = true;
+          onNetworkError?.call(error);
+          return;
+        }
+        rethrow;
+      }
+
+      Object? fatalError;
+      final restHits = await Future.wait(
+        list.skip(1).map((q) async {
+          if (networkAborted) return const <TmdbSearchResult>[];
+          try {
+            return await _tmdbService.searchAnime(
+              q,
+              year: year,
+              language: lang,
+              mediaTypeFilter: typeFilter,
+              priority: RequestPriority.background,
+            );
+          } catch (error) {
+            if (NetworkErrorSanitizer.isTransientNetworkError(error)) {
+              if (!networkAborted) {
+                networkAborted = true;
+                onNetworkError?.call(error);
+              }
+              return const <TmdbSearchResult>[];
+            }
+            fatalError ??= error;
+            return const <TmdbSearchResult>[];
+          }
+        }),
+      );
+      if (fatalError != null) throw fatalError!;
+      for (final hits in restHits) {
+        if (mergeHits(hits)) break;
       }
     }
 
+    bool hasAnimationHit() => hitMap.values.any(isYearCompatibleAnimation);
+
     await runSearch(queries.take(3), year: bangumi.year, lang: 'zh-CN');
-    if (!networkAborted && hitMap.isEmpty && bangumi.year != null) {
+    if (!networkAborted && !hasAnimationHit() && bangumi.year != null) {
       await runSearch(queries.take(3), lang: 'zh-CN');
     }
-    if (!networkAborted && hitMap.isEmpty) {
+    if (!networkAborted && !hasAnimationHit()) {
+      final asciiQueries = queries
+          .where((q) => RegExp(r'[A-Za-z]{3,}').hasMatch(q))
+          .take(2)
+          .toList(growable: false);
+      if (asciiQueries.isNotEmpty) {
+        if (bangumi.year != null) {
+          await runSearch(asciiQueries, year: bangumi.year, lang: 'en-US');
+        }
+        if (!networkAborted && !hasAnimationHit()) {
+          await runSearch(asciiQueries, lang: 'en-US');
+        }
+      }
+    }
+    if (!networkAborted && !hasAnimationHit()) {
       await runSearch(queries.take(2), lang: 'ja-JP');
     }
     if (hitMap.isEmpty) return existingDetails;
 
+    final rankedHits = hitMap.values.toList(growable: false)
+      ..sort((a, b) {
+        final aAnim = a.genreIds.contains(16) ? 0 : 1;
+        final bAnim = b.genreIds.contains(16) ? 0 : 1;
+        if (aAnim != bAnim) return aAnim.compareTo(bAnim);
+        final aYear = (bangumi.year != null && a.year == bangumi.year) ? 0 : 1;
+        final bYear = (bangumi.year != null && b.year == bangumi.year) ? 0 : 1;
+        if (aYear != bYear) return aYear.compareTo(bYear);
+        final aPoster = (a.posterPath?.isNotEmpty ?? false) ? 0 : 1;
+        final bPoster = (b.posterPath?.isNotEmpty ?? false) ? 0 : 1;
+        return aPoster.compareTo(bPoster);
+      });
+
     final rescued = await _fetchAllInOrder(
-      hitMap.values.take(4),
+      rankedHits.take(4),
       (hit) => _tmdbService.getWorkDetail(
         hit.tmdbId,
         hit.mediaType,
@@ -604,6 +809,157 @@ class ScrapeCandidateFetcher {
       for (final detail in rescued.results)
         if (seenIds.add('${detail.mediaType.name}:${detail.tmdbId}')) detail,
     ];
+  }
+
+  /// 第二套困难目录救援专用补充检索：仅对首轮未覆盖的新净化查询词拉取增量 Bangumi 与 TMDB 候选，
+  /// 自动跳过已拉取条目，常规首轮命中作品零调用。
+  Future<
+    ({
+      List<BangumiSubjectCandidate> bangumiCandidates,
+      List<TmdbWorkDetail> tmdbDetails,
+      bool networkAborted,
+    })
+  >
+  fetchHardRescueSupplements(
+    GroupedWorkFolder rescuedFolder, {
+    required List<String> newQueries,
+    required List<BangumiSubjectCandidate> existingBangumi,
+    required List<TmdbWorkDetail> existingTmdb,
+    void Function(Object error)? onNetworkError,
+  }) async {
+    if (newQueries.isEmpty) {
+      return (
+        bangumiCandidates: const <BangumiSubjectCandidate>[],
+        tmdbDetails: const <TmdbWorkDetail>[],
+        networkAborted: false,
+      );
+    }
+    final limitedQueries = newQueries.take(3).toList(growable: false);
+    final existingBgmIds = <int>{for (final b in existingBangumi) b.id};
+    final addedBgm = <int, BangumiSubjectCandidate>{};
+
+    final bgm = bangumiService;
+    if (bgm != null) {
+      final bgmLists = await Future.wait(
+        limitedQueries.map((q) async {
+          try {
+            return await bgm.searchSubjects(
+              q,
+              priority: RequestPriority.background,
+            );
+          } catch (_) {
+            return const <BangumiSubjectCandidate>[];
+          }
+        }),
+      );
+      for (final list in bgmLists) {
+        for (final item in list) {
+          if (item.id > 0 && !existingBgmIds.contains(item.id)) {
+            addedBgm.putIfAbsent(item.id, () => item);
+          }
+        }
+      }
+      if (addedBgm.isNotEmpty) {
+        final prelim = ScrapeDomainAdapter.evaluateBangumiMatch(
+          rescuedFolder,
+          [...existingBangumi, ...addedBgm.values],
+        );
+        final topNewIds = prelim.topCandidates
+            .map((e) => e.subject.id)
+            .where(addedBgm.containsKey)
+            .take(2)
+            .toList(growable: false);
+        await Future.wait(
+          topNewIds.map((id) async {
+            try {
+              final full = await bgm.getSubjectDetail(
+                id,
+                priority: RequestPriority.background,
+              );
+              if (full != null) addedBgm[id] = full;
+            } catch (error, stackTrace) {
+              developer.log(
+                '二轮救援补拉 Bangumi 详情失败（id=$id），沿用检索摘要',
+                name: 'konata.scrape_candidate_fetcher',
+                error: error,
+                stackTrace: stackTrace,
+              );
+            }
+          }),
+        );
+      }
+    }
+
+    final existingTmdbKeys = <String>{
+      for (final d in existingTmdb) '${d.mediaType.name}:${d.tmdbId}',
+    };
+    final hitMap = <String, TmdbSearchResult>{};
+    final typeFilter = _tvOnlyFilter(rescuedFolder, null);
+    var aborted = false;
+
+    Future<void> runTmdbLang(String language) async {
+      if (aborted) return;
+      final res = await _fetchAllInOrder(
+        limitedQueries,
+        (q) => _tmdbService.searchAnime(
+          q,
+          language: language,
+          mediaTypeFilter: typeFilter,
+          priority: RequestPriority.background,
+        ),
+        onNetworkError: onNetworkError,
+      );
+      if (res.aborted) {
+        aborted = true;
+        return;
+      }
+      for (final list in res.results) {
+        for (final h in list) {
+          final k = '${h.mediaType.name}:${h.tmdbId}';
+          if (!existingTmdbKeys.contains(k)) {
+            hitMap.putIfAbsent(k, () => h);
+          }
+        }
+      }
+    }
+
+    await runTmdbLang('zh-CN');
+    if (!aborted &&
+        !hitMap.values.any((h) => h.genreIds.contains(16)) &&
+        limitedQueries.any(_latinWordPattern.hasMatch)) {
+      await runTmdbLang('en-US');
+    }
+
+    if (aborted || hitMap.isEmpty) {
+      return (
+        bangumiCandidates: addedBgm.values.toList(growable: false),
+        tmdbDetails: const <TmdbWorkDetail>[],
+        networkAborted: aborted,
+      );
+    }
+
+    final rankedHits = hitMap.values.toList(growable: false)
+      ..sort(
+        (a, b) => ScrapeDomainAdapter.scoreSearchHitPreview(
+          rescuedFolder,
+          b,
+        ).compareTo(ScrapeDomainAdapter.scoreSearchHitPreview(rescuedFolder, a)),
+      );
+    final fetched = await _fetchAllInOrder(
+      rankedHits.take(4),
+      (h) => _tmdbService.getWorkDetail(
+        h.tmdbId,
+        h.mediaType,
+        priority: RequestPriority.background,
+        includeImages: false,
+      ),
+      onNetworkError: onNetworkError,
+    );
+    return (
+      bangumiCandidates: addedBgm.values.toList(growable: false),
+      tmdbDetails: fetched.results,
+      networkAborted: fetched.aborted,
+    );
   }
 
   /// 一次拉取各引用季完整详情（含单季专属封面、季名、简介与分集列表）。
@@ -641,6 +997,47 @@ class ScrapeCandidateFetcher {
       allEpisodes.addAll(entry.detail.episodes);
     }
     return (episodes: allEpisodes, seasonDetails: details);
+  }
+
+  /// 按离线映射反查或目录显式标注的 Bangumi ID 直接并发拉取条目详情（跳过关键词模糊搜索）。
+  Future<List<BangumiSubjectCandidate>> fetchBangumiSubjectsByIds(
+    List<int> subjectIds, {
+    void Function(Object error)? onNetworkError,
+  }) async {
+    final bgm = bangumiService;
+    if (bgm == null || subjectIds.isEmpty) return const [];
+    final uniqueIds = <int>[];
+    final seen = <int>{};
+    for (final id in subjectIds) {
+      if (id > 0 && seen.add(id)) {
+        uniqueIds.add(id);
+      }
+    }
+    if (uniqueIds.isEmpty) return const [];
+    final fetched = await _fetchAllInOrder(
+      uniqueIds,
+      (id) async {
+        try {
+          return await bgm.getSubjectDetail(
+            id,
+            priority: RequestPriority.background,
+          );
+        } catch (error, stackTrace) {
+          if (NetworkErrorSanitizer.isTransientNetworkError(error)) {
+            rethrow;
+          }
+          developer.log(
+            '离线反查直拉 Bangumi 条目详情失败（id=$id），准备回退关键词检索',
+            name: 'konata.scrape_candidate_fetcher',
+            error: error,
+            stackTrace: stackTrace,
+          );
+          return null;
+        }
+      },
+      onNetworkError: onNetworkError,
+    );
+    return fetched.results;
   }
 
   /// 拉取指定 Bangumi 条目的分集标题与集号映射（传 `type: null` 可同时获取正片与 SP）。

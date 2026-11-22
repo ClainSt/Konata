@@ -1,6 +1,6 @@
-import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../application/playback/playback_dispatcher.dart';
 import '../../application/playback/playback_preferences_provider.dart';
@@ -11,6 +11,7 @@ import '../../domain/matching/supplementary_subclassifier.dart';
 import '../../domain/models/episode.dart';
 import '../../domain/models/media_variant.dart';
 import '../../domain/models/playback_record.dart';
+import '../../domain/playback/playback_history_timeline.dart';
 import '../audio/mini_audio_bar.dart';
 import '../detail/work_detail_page.dart';
 import '../theme/konata_adaptive_tokens.dart';
@@ -32,7 +33,33 @@ enum PlaybackHistoryCategory { video, audio }
 
 enum _HistoryBatchMode { markCompleted, delete }
 
-/// 播放记录页面（支持全端音视频五层紧凑卡片、桌面双列等高网格与批量多选管理）。
+sealed class _TimelineListItem {
+  const _TimelineListItem();
+}
+
+final class _DayHeaderItem extends _TimelineListItem {
+  const _DayHeaderItem({
+    required this.section,
+    required this.showTopConnector,
+  });
+
+  final PlaybackHistoryDaySection section;
+  final bool showTopConnector;
+}
+
+final class _WorkGroupItem extends _TimelineListItem {
+  const _WorkGroupItem({
+    required this.group,
+    required this.isLastInDay,
+    required this.isLastSection,
+  });
+
+  final PlaybackHistoryWorkGroup group;
+  final bool isLastInDay;
+  final bool isLastSection;
+}
+
+/// 播放记录页面（日记式时间轴 + 单日作品聚合 + 原地展开分集剧照/专辑封面与进度条）。
 class PlaybackHistoryPage extends ConsumerStatefulWidget {
   /// 创建播放记录页面。
   const PlaybackHistoryPage({super.key});
@@ -43,15 +70,29 @@ class PlaybackHistoryPage extends ConsumerStatefulWidget {
 }
 
 class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
-  final ScrollController _scrollCtrl = ScrollController();
+  final ScrollController _videoScrollCtrl = ScrollController();
+  final ScrollController _audioScrollCtrl = ScrollController();
   final FocusNode _selectionFocusNode = FocusNode();
   PlaybackHistoryCategory _activeTab = PlaybackHistoryCategory.video;
   _HistoryBatchMode? _batchMode;
   final Set<String> _selectedIds = <String>{};
+  final Set<String> _expandedVideoGroups = <String>{};
+  final Set<String> _expandedAudioGroups = <String>{};
+
+  ScrollController get _activeScrollCtrl =>
+      _activeTab == PlaybackHistoryCategory.audio
+      ? _audioScrollCtrl
+      : _videoScrollCtrl;
+
+  Set<String> get _activeExpandedGroups =>
+      _activeTab == PlaybackHistoryCategory.audio
+      ? _expandedAudioGroups
+      : _expandedVideoGroups;
 
   @override
   void dispose() {
-    _scrollCtrl.dispose();
+    _videoScrollCtrl.dispose();
+    _audioScrollCtrl.dispose();
     _selectionFocusNode.dispose();
     super.dispose();
   }
@@ -78,6 +119,14 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
     });
   }
 
+  void _toggleExpanded(String groupKey) {
+    setState(() {
+      if (!_activeExpandedGroups.remove(groupKey)) {
+        _activeExpandedGroups.add(groupKey);
+      }
+    });
+  }
+
   void _enterBatchMode(_HistoryBatchMode mode) {
     setState(() {
       _batchMode = mode;
@@ -96,10 +145,27 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
     });
   }
 
-  void _toggleSelected(String id) {
+  void _toggleSelectedRecord(String id) {
     setState(() {
       if (!_selectedIds.remove(id)) {
         _selectedIds.add(id);
+      }
+    });
+  }
+
+  void _toggleSelectedGroup(PlaybackHistoryWorkGroup group) {
+    setState(() {
+      final allSelected = group.records.every(
+        (r) => _selectedIds.contains(r.id),
+      );
+      if (allSelected) {
+        for (final r in group.records) {
+          _selectedIds.remove(r.id);
+        }
+      } else {
+        for (final r in group.records) {
+          _selectedIds.add(r.id);
+        }
       }
     });
   }
@@ -183,11 +249,15 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
     }
   }
 
+  /// 点击作品封面进入作品详情页，并在返回播放记录页后精确恢复进入前的滚动位置。
   Future<void> _openWorkDetail(
     BuildContext context,
     PlaybackRecord rec,
     WorkLibraryItem? item,
   ) async {
+    final scrollCtrl = _activeScrollCtrl;
+    final savedOffset = scrollCtrl.hasClients ? scrollCtrl.offset : null;
+
     var targetId = rec.workId;
     if (item == null) {
       final redirects = ref.read(workRedirectMapProvider);
@@ -201,16 +271,28 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
         return;
       }
     }
+
     await Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (_) => WorkDetailPage(workId: targetId)),
     );
+    if (!mounted || savedOffset == null) return;
+
+    // 返回时在下一帧复核滚动位置，防止详情页触发列表刷新后偏移归零回顶。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !scrollCtrl.hasClients) return;
+      final maxExtent = scrollCtrl.position.maxScrollExtent;
+      final clamped = savedOffset.clamp(0.0, maxExtent);
+      if ((scrollCtrl.offset - clamped).abs() > 0.5) {
+        scrollCtrl.jumpTo(clamped);
+      }
+    });
   }
 
   Future<void> _resumeRecord({
     required BuildContext context,
     required WidgetRef ref,
     required PlaybackRecord rec,
-    required PreferredPlaybackEngine overrideEngine,
+    PreferredPlaybackEngine? overrideEngine,
   }) async {
     final navigator = Navigator.of(context);
     final bundle = await ref.read(workDetailBundleProvider(rec.workId).future);
@@ -335,7 +417,156 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
     );
   }
 
-  Future<void> _showRowMenu({
+  Future<void> _showGroupMenu({
+    required BuildContext context,
+    required WidgetRef ref,
+    required Offset globalPos,
+    required PlaybackHistoryWorkGroup group,
+    required WorkLibraryItem? workItem,
+    required bool isAudio,
+  }) async {
+    final latest = group.latestRecord;
+    final pos = RelativeRect.fromLTRB(
+      globalPos.dx,
+      globalPos.dy,
+      globalPos.dx,
+      globalPos.dy,
+    );
+    final itemHeight = KonataAdaptiveTokens.isAndroid
+        ? KonataAdaptiveTokens.touchTarget
+        : kMinInteractiveDimension;
+    final resumeLabel = KonataAdaptiveTokens.isAndroid
+        ? (isAudio ? '继续收听' : '继续观看')
+        : (isAudio ? '使用内置音频续播' : '使用内置播放器续播');
+    final hasIncomplete = group.records.any((r) => !r.isCompleted);
+
+    final action = await showMenu<String>(
+      context: context,
+      position: pos,
+      items: [
+        PopupMenuItem<String>(
+          value: 'builtin',
+          height: itemHeight,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                isAudio
+                    ? Icons.graphic_eq_rounded
+                    : (KonataAdaptiveTokens.isAndroid
+                          ? Icons.play_circle_outline_rounded
+                          : Icons.smart_display_outlined),
+                size: 17,
+              ),
+              const SizedBox(width: 8),
+              Text(resumeLabel),
+            ],
+          ),
+        ),
+        if (KonataAdaptiveTokens.isWindows)
+          PopupMenuItem<String>(
+            value: 'external',
+            height: itemHeight,
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.open_in_new_rounded, size: 17),
+                SizedBox(width: 8),
+                Text('使用外部播放器续播'),
+              ],
+            ),
+          ),
+        PopupMenuItem<String>(
+          value: 'detail',
+          height: itemHeight,
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.info_outline_rounded, size: 17),
+              SizedBox(width: 8),
+              Text('查看作品详情'),
+            ],
+          ),
+        ),
+        if (hasIncomplete)
+          PopupMenuItem<String>(
+            value: 'complete',
+            height: itemHeight,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.check_circle_outline_rounded, size: 17),
+                const SizedBox(width: 8),
+                Text(
+                  group.entryCount > 1
+                      ? '当日全部标为${isAudio ? '已听' : '已看'}'
+                      : (isAudio ? '标为已听' : '标为已看'),
+                ),
+              ],
+            ),
+          ),
+        PopupMenuItem<String>(
+          value: 'delete',
+          height: itemHeight,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.delete_outline_rounded, size: 17),
+              const SizedBox(width: 8),
+              Text(group.entryCount > 1 ? '删除当日记录' : '删除记录'),
+            ],
+          ),
+        ),
+      ],
+    );
+    if (!context.mounted || action == null) return;
+    switch (action) {
+      case 'builtin':
+        if (isAudio) {
+          await _resumeAudioRecord(
+            context: context,
+            ref: ref,
+            rec: latest,
+            overrideEngine: PreferredPlaybackEngine.builtinLibmpv,
+          );
+        } else {
+          await _resumeRecord(
+            context: context,
+            ref: ref,
+            rec: latest,
+            overrideEngine: PreferredPlaybackEngine.builtinLibmpv,
+          );
+        }
+      case 'external':
+        if (isAudio) {
+          await _resumeAudioRecord(
+            context: context,
+            ref: ref,
+            rec: latest,
+            overrideEngine: PreferredPlaybackEngine.desktopRelay,
+          );
+        } else {
+          await _resumeRecord(
+            context: context,
+            ref: ref,
+            rec: latest,
+            overrideEngine: PreferredPlaybackEngine.desktopRelay,
+          );
+        }
+      case 'detail':
+        await _openWorkDetail(context, latest, workItem);
+      case 'complete':
+        await ref
+            .read(playbackCoordinatorProvider)
+            .markRecordsCompleted(group.records);
+      case 'delete':
+        await ref
+            .read(playbackCoordinatorProvider)
+            .deleteHistoryRecords(group.records);
+    }
+  }
+
+  Future<void> _showEntryMenu({
     required BuildContext context,
     required WidgetRef ref,
     required Offset globalPos,
@@ -479,42 +710,192 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
     return null;
   }
 
-  Widget _buildRecordItemCard({
+  List<_TimelineListItem> _flattenSections(
+    List<PlaybackHistoryDaySection> sections,
+  ) {
+    final flat = <_TimelineListItem>[];
+    for (var sIdx = 0; sIdx < sections.length; sIdx++) {
+      final section = sections[sIdx];
+      final isLastSection = sIdx == sections.length - 1;
+      flat.add(_DayHeaderItem(section: section, showTopConnector: sIdx > 0));
+      for (var wIdx = 0; wIdx < section.works.length; wIdx++) {
+        flat.add(
+          _WorkGroupItem(
+            group: section.works[wIdx],
+            isLastInDay: wIdx == section.works.length - 1,
+            isLastSection: isLastSection,
+          ),
+        );
+      }
+    }
+    return flat;
+  }
+
+  Widget _buildTimelineBody({
     required BuildContext context,
-    required PlaybackRecord rec,
-    required WorkLibraryItem? item,
-    required bool isAudio,
-    required bool stretchHeight,
-    required String? audioDirLabel,
+    required KonataPalette p,
+    required List<PlaybackRecord> loadedRecords,
+    required List<PlaybackRecord> records,
+    required Map<String, WorkLibraryItem> workById,
     required ManagedImageLoader imageLoader,
+    required bool isAudioTab,
+    required bool inSelection,
+    required double bottomClearance,
   }) {
-    final inSelection = _batchMode != null;
-    final selected = inSelection && _selectedIds.contains(rec.id);
+    if (records.isEmpty) {
+      final emptyTitle = loadedRecords.isEmpty
+          ? '暂无播放记录'
+          : (isAudioTab ? '暂无音频播放记录' : '暂无视频播放记录');
+      final emptySubtitle = isAudioTab
+          ? '播放作品 CD / 无损音轨后，将在此按时间轴展示'
+          : '在任意番剧详情页点击播放后，将在此按时间轴展示';
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              isAudioTab ? Icons.album_outlined : Icons.history_rounded,
+              size: 52,
+              color: p.textMuted,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              emptyTitle,
+              style: KonataTheme.cardTitleStyle(
+                p,
+                fontSize: KonataTheme.fontSizeTitleLg,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              emptySubtitle,
+              style: KonataTheme.captionStyle(
+                p,
+                fontSize: KonataTheme.fontSizeBodyMd,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final sections = PlaybackHistoryTimelineBuilder.build(records);
+    final flatItems = _flattenSections(sections);
+    final cdSummaryCache = <String, CdAlbumGroupSummary>{};
+    final scrollCtrl = _activeScrollCtrl;
+    final expandedGroups = _activeExpandedGroups;
     final isDeleteMode = _batchMode == _HistoryBatchMode.delete;
-    return PlaybackHistoryItemCard(
-      record: rec,
-      workItem: item,
-      imageLoader: imageLoader,
-      isAudio: isAudio,
-      stretchHeight: stretchHeight,
-      inSelection: inSelection,
-      selected: selected,
-      isDeleteMode: isDeleteMode,
-      audioDirLabel: audioDirLabel,
-      onTapCard: () {
-        if (inSelection) {
-          _toggleSelected(rec.id);
-        } else {
-          _openWorkDetail(context, rec, item);
-        }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compactList =
+            KonataAdaptiveTokens.isAndroid &&
+            constraints.maxWidth < KonataAdaptiveTokens.tabletBreakpoint;
+        final basePadH = compactList
+            ? KonataAdaptiveTokens.horizontalInset
+            : KonataTheme.pageHorizontalPadding;
+        final contentWidth = constraints.maxWidth - basePadH * 2;
+        final extraPadH =
+            contentWidth > PlaybackHistoryCardMetrics.maxTimelineWidth
+            ? (contentWidth - PlaybackHistoryCardMetrics.maxTimelineWidth) / 2
+            : 0.0;
+        final listPadH = basePadH + extraPadH;
+
+        return KonataDraggableScrollbar(
+          controller: scrollCtrl,
+          builder: (_, ctrl) => ListView.builder(
+            key: PageStorageKey<String>(
+              isAudioTab
+                  ? 'playback_history_timeline_audio'
+                  : 'playback_history_timeline_video',
+            ),
+            controller: ctrl,
+            padding: EdgeInsets.fromLTRB(
+              listPadH,
+              4,
+              listPadH,
+              36 + bottomClearance,
+            ),
+            itemCount: flatItems.length,
+            itemBuilder: (_, index) {
+              final item = flatItems[index];
+              return switch (item) {
+                _DayHeaderItem(:final section, :final showTopConnector) =>
+                  PlaybackHistoryDayHeader(
+                    section: section,
+                    showTopConnector: showTopConnector,
+                  ),
+                _WorkGroupItem(
+                  :final group,
+                  :final isLastInDay,
+                  :final isLastSection,
+                ) =>
+                  PlaybackHistoryWorkGroupCard(
+                    group: group,
+                    workItem: workById[group.workId],
+                    imageLoader: imageLoader,
+                    isAudio: isAudioTab,
+                    isExpanded: expandedGroups.contains(group.groupKey),
+                    isLastInDay: isLastInDay,
+                    isLastSection: isLastSection,
+                    inSelection: inSelection,
+                    selectedIds: _selectedIds,
+                    isDeleteMode: isDeleteMode,
+                    audioDirLabelResolver: (rec) => _resolveAudioDirectoryLabel(
+                      rec,
+                      workById[rec.workId],
+                      cdSummaryCache,
+                    ),
+                    onTapCover: () {
+                      if (inSelection) {
+                        _toggleSelectedGroup(group);
+                      } else {
+                        _openWorkDetail(
+                          context,
+                          group.latestRecord,
+                          workById[group.workId],
+                        );
+                      }
+                    },
+                    onTapCardBody: () {
+                      if (inSelection) {
+                        _toggleSelectedGroup(group);
+                      } else {
+                        _toggleExpanded(group.groupKey);
+                      }
+                    },
+                    onTapEntry: (rec) {
+                      if (inSelection) {
+                        _toggleSelectedRecord(rec.id);
+                      } else if (isAudioTab) {
+                        _resumeAudioRecord(context: context, ref: ref, rec: rec);
+                      } else {
+                        _resumeRecord(context: context, ref: ref, rec: rec);
+                      }
+                    },
+                    onShowGroupMenu: (globalPos, targetGroup, targetAudio) =>
+                        _showGroupMenu(
+                          context: context,
+                          ref: ref,
+                          globalPos: globalPos,
+                          group: targetGroup,
+                          workItem: workById[targetGroup.workId],
+                          isAudio: targetAudio,
+                        ),
+                    onShowEntryMenu: (globalPos, targetRec, targetAudio) =>
+                        _showEntryMenu(
+                          context: context,
+                          ref: ref,
+                          globalPos: globalPos,
+                          rec: targetRec,
+                          isAudio: targetAudio,
+                        ),
+                  ),
+              };
+            },
+          ),
+        );
       },
-      onShowMenu: (globalPos, targetRec, targetAudio) => _showRowMenu(
-        context: context,
-        ref: ref,
-        globalPos: globalPos,
-        rec: targetRec,
-        isAudio: targetAudio,
-      ),
     );
   }
 
@@ -530,7 +911,8 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
         item.work.id: item,
     };
 
-    final allRecords = historyAsync.value ?? const <PlaybackRecord>[];
+    final loadedRecords = historyAsync.value;
+    final allRecords = loadedRecords ?? const <PlaybackRecord>[];
     final isAudioTab = _activeTab == PlaybackHistoryCategory.audio;
     final records = allRecords
         .where((r) {
@@ -547,6 +929,30 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
         .where((r) => _selectedIds.contains(r.id))
         .length;
     final markCompletedLabel = isAudioTab ? '标记为已听' : '标记为已看';
+
+    Widget bodyWidget;
+    if (loadedRecords != null) {
+      bodyWidget = _buildTimelineBody(
+        context: context,
+        p: p,
+        loadedRecords: loadedRecords,
+        records: records,
+        workById: workById,
+        imageLoader: imageLoader,
+        isAudioTab: isAudioTab,
+        inSelection: inSelection,
+        bottomClearance: bottomClearance,
+      );
+    } else if (historyAsync.hasError) {
+      bodyWidget = Center(
+        child: Text(
+          '加载播放记录失败: ${historyAsync.error}',
+          style: TextStyle(color: p.danger),
+        ),
+      );
+    } else {
+      bodyWidget = const Center(child: CircularProgressIndicator());
+    }
 
     return Focus(
       focusNode: _selectionFocusNode,
@@ -669,174 +1075,7 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
                   ],
                 ),
               ),
-            Expanded(
-              child: historyAsync.when(
-                data: (loadedRecords) {
-                  if (records.isEmpty) {
-                    final emptyTitle = loadedRecords.isEmpty
-                        ? '暂无播放记录'
-                        : (isAudioTab ? '暂无音频播放记录' : '暂无视频播放记录');
-                    final emptySubtitle = isAudioTab
-                        ? '播放作品 CD / 无损音轨后，将在此按时间轴展示'
-                        : '在任意番剧详情页点击播放后，将在此按时间轴展示';
-                    return Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            isAudioTab
-                                ? Icons.album_outlined
-                                : Icons.history_rounded,
-                            size: 52,
-                            color: p.textMuted,
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            emptyTitle,
-                            style: KonataTheme.cardTitleStyle(p, fontSize: KonataTheme.fontSizeTitleLg),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            emptySubtitle,
-                            style: KonataTheme.captionStyle(p, fontSize: KonataTheme.fontSizeBodyMd),
-                          ),
-                        ],
-                      ),
-                    );
-                  }
-
-                  return LayoutBuilder(
-                    builder: (context, constraints) {
-                      final mqSize = MediaQuery.sizeOf(context);
-                      final isPortraitTablet =
-                          KonataAdaptiveTokens.isAndroid &&
-                          mqSize.shortestSide >=
-                              KonataAdaptiveTokens.tabletBreakpoint &&
-                          mqSize.height >= mqSize.width;
-                      final compactList =
-                          KonataAdaptiveTokens.isAndroid &&
-                          constraints.maxWidth <
-                              KonataAdaptiveTokens.tabletBreakpoint;
-                      final listPadH = compactList
-                          ? KonataAdaptiveTokens.horizontalInset
-                          : KonataTheme.pageHorizontalPadding;
-                      final twoColumns =
-                          !isPortraitTablet &&
-                          constraints.maxWidth >=
-                              PlaybackHistoryCardMetrics.twoColumnBreakpoint;
-                      final rowCount = twoColumns
-                          ? (records.length + 1) ~/ 2
-                          : records.length;
-                      final cdSummaryCache = <String, CdAlbumGroupSummary>{};
-
-                      return KonataDraggableScrollbar(
-                        controller: _scrollCtrl,
-                        builder: (_, ctrl) => ListView.separated(
-                          controller: ctrl,
-                          padding: EdgeInsets.fromLTRB(
-                            listPadH,
-                            0,
-                            listPadH,
-                            36 + bottomClearance,
-                          ),
-                          itemCount: rowCount,
-                          separatorBuilder: (_, _) =>
-                              const SizedBox(height: 10),
-                          itemBuilder: (_, rowIndex) {
-                            if (!twoColumns) {
-                              final rec = records[rowIndex];
-                              final workItem = workById[rec.workId];
-                              final dirLabel = isAudioTab
-                                  ? _resolveAudioDirectoryLabel(
-                                      rec,
-                                      workItem,
-                                      cdSummaryCache,
-                                    )
-                                  : null;
-                              return _buildRecordItemCard(
-                                context: context,
-                                rec: rec,
-                                item: workItem,
-                                isAudio: isAudioTab,
-                                stretchHeight: false,
-                                audioDirLabel: dirLabel,
-                                imageLoader: imageLoader,
-                              );
-                            }
-
-                            final leftIndex = rowIndex * 2;
-                            final rightIndex = leftIndex + 1;
-                            final leftRec = records[leftIndex];
-                            final rightRec = rightIndex < records.length
-                                ? records[rightIndex]
-                                : null;
-                            final leftItem = workById[leftRec.workId];
-                            final rightItem = rightRec != null
-                                ? workById[rightRec.workId]
-                                : null;
-                            final leftDirLabel = isAudioTab
-                                ? _resolveAudioDirectoryLabel(
-                                    leftRec,
-                                    leftItem,
-                                    cdSummaryCache,
-                                  )
-                                : null;
-                            final rightDirLabel =
-                                (isAudioTab && rightRec != null)
-                                ? _resolveAudioDirectoryLabel(
-                                    rightRec,
-                                    rightItem,
-                                    cdSummaryCache,
-                                  )
-                                : null;
-
-                            return Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(
-                                  child: _buildRecordItemCard(
-                                    context: context,
-                                    rec: leftRec,
-                                    item: leftItem,
-                                    isAudio: isAudioTab,
-                                    stretchHeight: true,
-                                    audioDirLabel: leftDirLabel,
-                                    imageLoader: imageLoader,
-                                  ),
-                                ),
-                                const SizedBox(
-                                  width: PlaybackHistoryCardMetrics.colGap,
-                                ),
-                                Expanded(
-                                  child: rightRec != null
-                                      ? _buildRecordItemCard(
-                                          context: context,
-                                          rec: rightRec,
-                                          item: rightItem,
-                                          isAudio: isAudioTab,
-                                          stretchHeight: true,
-                                          audioDirLabel: rightDirLabel,
-                                          imageLoader: imageLoader,
-                                        )
-                                      : const SizedBox.shrink(),
-                                ),
-                              ],
-                            );
-                          },
-                        ),
-                      );
-                    },
-                  );
-                },
-                loading: () => const Center(child: CircularProgressIndicator()),
-                error: (err, _) => Center(
-                  child: Text(
-                    '加载播放记录失败: $err',
-                    style: TextStyle(color: p.danger),
-                  ),
-                ),
-              ),
-            ),
+            Expanded(child: bodyWidget),
           ],
         ),
       ),

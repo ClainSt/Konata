@@ -841,30 +841,21 @@ void main() {
       expect(find.byIcon(Icons.check_circle_outline_rounded), findsNothing);
       expect(find.text('标记为已看'), findsOneWidget);
       expect(find.text('清理记录'), findsOneWidget);
+      expect(find.text('2026.11.16'), findsOneWidget);
 
-      // 验证长标题最多两行省略截断且不挤出底部进度日期两行
+      // 验证长标题最多两行省略截断
       final longTitleText = tester.widget<Text>(find.text(longTitle));
       expect(longTitleText.maxLines, equals(2));
       expect(longTitleText.overflow, equals(TextOverflow.ellipsis));
 
-      // 验证双列同行左右两张卡片顶部齐平且等高
+      // 验证同一日期时间轴下两张作品聚合卡垂直排列且左/右边缘齐平
       final cards = find.byType(KonataSurfaceCard);
       expect(cards, findsNWidgets(2));
-      final leftRect = tester.getRect(cards.at(0));
-      final rightRect = tester.getRect(cards.at(1));
-      expect((leftRect.top - rightRect.top).abs(), lessThanOrEqualTo(1.0));
-      expect(
-        (leftRect.height - rightRect.height).abs(),
-        lessThanOrEqualTo(1.0),
-      );
-      expect(rightRect.left, greaterThan(leftRect.right));
-
-      // 验证视频记录封面固定为 112x160 (2:3)
-      final coverSizes = tester
-          .widgetList<SizedBox>(find.byType(SizedBox))
-          .where((s) => s.width == 112 && s.height == 160)
-          .length;
-      expect(coverSizes, equals(2));
+      final topCardRect = tester.getRect(cards.at(0));
+      final bottomCardRect = tester.getRect(cards.at(1));
+      expect((topCardRect.left - bottomCardRect.left).abs(), lessThanOrEqualTo(1.0));
+      expect((topCardRect.width - bottomCardRect.width).abs(), lessThanOrEqualTo(1.0));
+      expect(bottomCardRect.top, greaterThan(topCardRect.bottom));
 
       // 批量「标记为已看」：选中第一张并二次确认
       await tester.tap(find.text('标记为已看'));
@@ -883,6 +874,10 @@ void main() {
             )
             .last,
       );
+      await tester.pumpAndSettle();
+
+      // 点击卡片原地展开后可见「已看完」状态
+      await tester.tap(find.text(shortTitle));
       await tester.pumpAndSettle();
       expect(find.text('已看完'), findsOneWidget);
 

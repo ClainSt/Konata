@@ -442,7 +442,16 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('02:00 / 24:00'));
+      // 点击作品封面触发跳转已删除作品，应提示拦截且不跳入死页
+      await tester.tap(
+        find.byWidgetPredicate(
+          (w) =>
+              w.key is ValueKey<String> &&
+              (w.key! as ValueKey<String>).value.startsWith(
+                'history_work_cover_',
+              ),
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(find.byType(WorkDetailPage), findsNothing);

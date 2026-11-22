@@ -942,49 +942,44 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        // 顶栏存在 视频 / 音频 双页签
+        // 顶栏存在 视频 / 音频 双页签及时间轴日期头
         expect(find.text('视频'), findsOneWidget);
         expect(find.text('音频'), findsOneWidget);
         expect(find.text('标记为已看'), findsOneWidget);
+        expect(find.text('2026.11.16'), findsOneWidget);
 
-        // 视频封面 112x160
-        expect(
-          tester
-              .widgetList<SizedBox>(find.byType(SizedBox))
-              .where((s) => s.width == 112 && s.height == 160),
-          hasLength(1),
+        // 点击作品卡片原地展开视频剧照、进度条与 24 小时制观看时间
+        await tester.tap(
+          find.byKey(const ValueKey('history_work_card_2026-11-16::w_p4')),
         );
+        await tester.pumpAndSettle();
 
-        // 进度条加「时间进度 + 观看日期」两行固定贴在封面底边（底边差值 <= 1px）
-        final coverRect = tester.getRect(
-          find.byWidgetPredicate(
-            (w) => w is SizedBox && w.width == 112 && w.height == 160,
-          ),
+        final stillRect = tester.getRect(
+          find.byKey(const ValueKey('history_video_still_rec_vid')),
         );
+        expect(stillRect.width, greaterThan(stillRect.height));
         final progressBarRect = tester.getRect(
           find.byType(LinearProgressIndicator),
         );
-        final dateRect = tester.getRect(find.text('2026-11-16 21:58'));
-        expect(dateRect.top, greaterThanOrEqualTo(progressBarRect.bottom));
-        expect(
-          (dateRect.bottom - coverRect.bottom).abs(),
-          lessThanOrEqualTo(1.0),
-        );
+        final timeRect = tester.getRect(find.text('21:58'));
+        expect(timeRect.top, greaterThanOrEqualTo(progressBarRect.bottom));
 
-        // 切换至「音频」页签
+        // 切换至「音频」页签并展开校验 1:1 专辑封面（Folder.jpg）与 24 小时制时间
         await tester.tap(find.text('音频'));
         await tester.pumpAndSettle();
 
         expect(find.text('标记为已听'), findsOneWidget);
-        expect(find.text('ハルユキの災難'), findsOneWidget);
-        expect(find.text('2026-11-16 22:12'), findsOneWidget);
-        // 音频紧凑 1:1 封面 86x86，且成功加载 Folder.jpg (Image.memory)
-        expect(
-          tester
-              .widgetList<SizedBox>(find.byType(SizedBox))
-              .where((s) => s.width == 86 && s.height == 86),
-          hasLength(1),
+        expect(find.textContaining('ハルユキの災難'), findsOneWidget);
+        await tester.tap(
+          find.byKey(const ValueKey('history_work_card_2026-11-16::w_p4')),
         );
+        await tester.pumpAndSettle();
+
+        expect(find.text('22:12'), findsOneWidget);
+        final albumCoverSize = tester.getSize(
+          find.byKey(const ValueKey('history_audio_cover_cd::track_1')),
+        );
+        expect(albumCoverSize.width, equals(albumCoverSize.height));
         expect(find.byType(Image), findsAtLeastNWidgets(1));
       },
     );

@@ -640,16 +640,17 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        expect(find.textContaining('观看至'), findsNothing);
-        expect(find.text('18:56 / 23:41'), findsOneWidget);
-        final videoTitleRect = tester.getRect(find.text('吹响吧！上低音号 第三季'));
-        final moreBtnRect = tester.getRect(
+        // 点击作品卡片展开明细，验证不带「观看至」前缀且保留 Android 48dp 更多热区
+        final moreBtnSize = tester.getSize(
           find.byKey(const ValueKey('history_more_rec_vid_1')),
         );
-        expect(
-          (moreBtnRect.top - videoTitleRect.top).abs(),
-          lessThanOrEqualTo(8),
-        );
+        expect(moreBtnSize.width, greaterThanOrEqualTo(48.0));
+        expect(moreBtnSize.height, greaterThanOrEqualTo(48.0));
+
+        await tester.tap(find.text('吹响吧！上低音号 第三季'));
+        await tester.pumpAndSettle();
+        expect(find.textContaining('观看至'), findsNothing);
+        expect(find.text('18:56 / 23:41'), findsOneWidget);
 
         // 切换到音频记录页签：验证作品名采用常规 textPrimary 而非蓝色 accent
         await tester.tap(find.textContaining('音频'));
@@ -661,21 +662,23 @@ void main() {
         expect(audioWorkText.style?.color, isNot(equals(darkPal.accent)));
         expect(audioWorkText.style?.color, equals(darkPal.textPrimary));
 
-        // 2. 手机横屏：视频海报与音频 1:1 封面高度统一锚定在 108dp
+        // 2. 手机横屏：展开后音频展示 1:1 专辑封面，视频展示 16:9 单集剧照，零溢出
         tester.view.physicalSize = const Size(844, 390);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('吹响吧！上低音号 第三季'));
         await tester.pumpAndSettle();
         final audioCoverSize = tester.getSize(
           find.byKey(ValueKey('history_audio_cover_${audioRec.id}')),
         );
-        expect(audioCoverSize.height, closeTo(108.0, 0.5));
-        expect(audioCoverSize.width, closeTo(108.0, 0.5));
+        expect(audioCoverSize.width, equals(audioCoverSize.height));
 
         await tester.tap(find.textContaining('视频'));
         await tester.pumpAndSettle();
-        final videoPosterSize = tester.getSize(
-          find.byKey(ValueKey('history_video_cover_${videoRec.id}')),
+        final videoStillSize = tester.getSize(
+          find.byKey(ValueKey('history_video_still_${videoRec.id}')),
         );
-        expect(videoPosterSize.height, closeTo(108.0, 0.5));
+        expect(videoStillSize.width, greaterThan(videoStillSize.height));
+        expect(tester.takeException(), isNull);
         await tester.pumpWidget(const SizedBox.shrink());
         debugDefaultTargetPlatformOverride = null;
       },

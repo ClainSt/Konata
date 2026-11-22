@@ -792,6 +792,11 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      // 日记时间轴展示 YYYY.MM.DD 日期头，点击作品卡片原地展开当天两集明细
+      expect(find.text('2026.11.15'), findsOneWidget);
+      await tester.tap(find.text('动物朋友'));
+      await tester.pumpAndSettle();
+
       expect(find.text('01 · 动物园GO!'), findsOneWidget);
       expect(find.text('SP01'), findsOneWidget);
       expect(find.textContaining('WebDAV'), findsNothing);

@@ -253,38 +253,56 @@ void main() {
               expect(tester.takeException(), isNull);
               expect(find.byType(IntrinsicHeight), findsNothing);
 
-              for (final id in ['rec_v_short', 'rec_v_long']) {
-                final coverBottom = tester
-                    .getRect(find.byKey(ValueKey('history_video_cover_$id')))
-                    .bottom;
-                final rowBottom = tester
-                    .getRect(find.byKey(ValueKey('history_progress_row_$id')))
-                    .bottom;
-                expect(
-                  (rowBottom - coverBottom).abs(),
-                  lessThanOrEqualTo(1.0),
-                  reason:
-                      '视频记录贴底失败 viewport=$size theme=$themeMode scale=$scale id=$id',
+              expect(find.text('2026.11.19'), findsOneWidget);
+              for (final (workId, recId) in [
+                (shortWork.id, 'rec_v_short'),
+                (longWork.id, 'rec_v_long'),
+              ]) {
+                final cardFinder = find.byKey(
+                  ValueKey('history_work_card_2026-11-19::$workId'),
                 );
+                await tester.ensureVisible(cardFinder);
+                await tester.tap(cardFinder);
+                await tester.pumpAndSettle();
+                expect(tester.takeException(), isNull);
+                final stillRect = tester.getRect(
+                  find.byKey(ValueKey('history_video_still_$recId')),
+                );
+                final rowRect = tester.getRect(
+                  find.byKey(ValueKey('history_progress_row_$recId')),
+                );
+                expect(stillRect.width, greaterThan(stillRect.height));
+                expect(rowRect.left, greaterThanOrEqualTo(stillRect.right));
+                // 收起避免小屏下把第二张卡挤出视口外
+                await tester.tap(cardFinder);
+                await tester.pumpAndSettle();
               }
 
               await tester.tap(find.textContaining('音频'));
               await tester.pumpAndSettle();
               expect(tester.takeException(), isNull);
 
-              for (final id in ['rec_a_short', 'rec_a_long']) {
-                final coverBottom = tester
-                    .getRect(find.byKey(ValueKey('history_audio_cover_$id')))
-                    .bottom;
-                final rowBottom = tester
-                    .getRect(find.byKey(ValueKey('history_progress_row_$id')))
-                    .bottom;
-                expect(
-                  (rowBottom - coverBottom).abs(),
-                  lessThanOrEqualTo(1.0),
-                  reason:
-                      '音频记录贴底失败 viewport=$size theme=$themeMode scale=$scale id=$id',
+              for (final (workId, recId) in [
+                (shortWork.id, 'rec_a_short'),
+                (longWork.id, 'rec_a_long'),
+              ]) {
+                final cardFinder = find.byKey(
+                  ValueKey('history_work_card_2026-11-19::$workId'),
                 );
+                await tester.ensureVisible(cardFinder);
+                await tester.tap(cardFinder);
+                await tester.pumpAndSettle();
+                expect(tester.takeException(), isNull);
+                final coverRect = tester.getRect(
+                  find.byKey(ValueKey('history_audio_cover_$recId')),
+                );
+                final rowRect = tester.getRect(
+                  find.byKey(ValueKey('history_progress_row_$recId')),
+                );
+                expect(coverRect.width, closeTo(coverRect.height, 0.01));
+                expect(rowRect.left, greaterThanOrEqualTo(coverRect.right));
+                await tester.tap(cardFinder);
+                await tester.pumpAndSettle();
               }
             }
           }

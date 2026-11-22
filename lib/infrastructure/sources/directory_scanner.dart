@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:developer' as developer;
 
 import 'package:path/path.dart' as p;
 
@@ -10,6 +11,7 @@ import '../../domain/models/media_variant.dart';
 import '../../domain/playback/subtitle_and_audio_choices.dart';
 import '../../domain/repositories/file_system_gateway.dart';
 import '../../domain/scraping/personal_filename_parser.dart';
+import 'directory_scan_snapshot.dart';
 import 'scan_throttle_policy.dart';
 import 'source_access_error.dart';
 import 'subtitle_matcher.dart';
@@ -24,6 +26,9 @@ class DirectoryScanResult {
     this.localCoverByFolder = const {},
     this.folderVideoCounts = const {},
     this.cancelled = false,
+    this.reusedDirectories = 0,
+    this.resumedFromCheckpoint = false,
+    this.snapshot,
   });
 
   /// 已归类与关联外挂字幕后的媒体文件输入列表。
@@ -35,7 +40,7 @@ class DirectoryScanResult {
   /// 仅限本地磁盘源扫描时顺手识别的目录封面相对路径（优先级：`poster` > `cover` > `folder`，绝不扫描本地 Logo）。
   final Map<String, String> localCoverByFolder;
 
-  /// 本次遍历的目录总数。
+  /// 本次遍历的目录总数（含快照直接复用的目录）。
   final int scannedDirectories;
 
   /// 各已遍历目录对应的视频文件计数。
@@ -43,6 +48,15 @@ class DirectoryScanResult {
 
   /// 本次遍历是否因用户取消而提前中断。
   final bool cancelled;
+
+  /// 本次扫描通过目录快照验证标识命中或断点恢复免网络请求的目录数。
+  final int reusedDirectories;
+
+  /// 本次扫描是否自未完成断点检查点续扫恢复。
+  final bool resumedFromCheckpoint;
+
+  /// 本次扫描产出的完整目录树快照或中途断点检查点。
+  final DirectoryScanSnapshot? snapshot;
 }
 
 /// 扫描进度回调。
@@ -56,6 +70,10 @@ typedef DirectoryScanProgressCallback =
 /// 单目录枚举完成回调。
 typedef DirectoryFolderVisitedCallback =
     void Function(String folderPath, int videoCount, bool completed);
+
+/// 周期性与收尾目录快照持久化回调。
+typedef DirectoryScanCheckpointCallback =
+    Future<void> Function(DirectoryScanSnapshot snapshot);
 
 /// 统一异步只读目录扫描器（支持分协议自适应并发、云盘 AIMD 防风控起搏与显式 ID 免读 NFO）。
 ///
@@ -127,10 +145,15 @@ class DirectoryScanner {
 
   static final RegExp _trimSlashesPattern = RegExp(r'^/+|/+$');
 
+  /// 断点续扫周期落盘阈值：每新完成指定数量实盘列举目录即刷新一次检查点。
+  static const int _checkpointFlushInterval = 128;
+  static const Duration _checkpointMinimumInterval = Duration(seconds: 5);
+
   /// 异步递归扫描媒体源根目录或用户勾选的 [scanRoots]，返回可供后台 Isolate 归组的文件清单。
   ///
   /// - 自动按协议选择并发与防风控起搏（WebDAV 采用冷热感知 AIMD 并发 2~4 + 429 乘性降窗）；
   /// - 目录路径已含显式 TMDB / Bangumi 编号时跳过 `.nfo` 远程 `GET`，大幅降低云盘直链签发风控；
+  /// - 支持通过 [previousSnapshot] 对未变更叶目录与静态附属子树免网络列举复用，并在中断后自断点恢复；
   /// - 仅当 [detectLocalCovers] 为 `true`（仅本地磁盘源启用）时顺手记录同级常规封面文件。
   Future<DirectoryScanResult> scan(
     MediaSourceGateway gateway, {
@@ -140,29 +163,214 @@ class DirectoryScanner {
     DirectoryFolderVisitedCallback? onFolderVisited,
     bool Function()? isCancelled,
     DirectoryScanProfile? profileOverride,
+    String sourceId = '',
+    DirectoryScanSnapshot? previousSnapshot,
+    bool enableSnapshotReuse = true,
+    bool enableCheckpointResume = true,
+    DirectoryScanCheckpointCallback? onCheckpoint,
+    DateTime? clockNow,
   }) async {
+    final effectiveNow = (clockNow ?? DateTime.now()).toUtc();
     final effectiveProfile =
         profileOverride ?? profile ?? DirectoryScanProfile.forGateway(gateway);
     final controller = AdaptiveScanController(effectiveProfile);
-    final queue = ListQueue<String>.from(_normalizeScanRoots(scanRoots));
+    final normalizedRoots = normalizeScanRoots(scanRoots);
+    final trackSnapshot = sourceId.isNotEmpty;
+    final queue = ListQueue<String>();
     final visitedDirs = <String>{};
+    final inFlightDirs = <String>{};
     final rawFiles = <RemoteEntry>[];
     final subtitlesByFolder = <String, List<RemoteEntry>>{};
     final nfoByFolder = <String, String>{};
     final localCoverByFolder = <String, String>{};
     final localCoverRankByFolder = <String, int>{};
     final folderVideoCounts = <String, int>{};
+    final snapshotNodes = <String, DirectoryScanSnapshotNode>{};
+    final validatorsByDir = <String, String>{};
+    final staticSuppDirFlags = <String, bool>{};
     var scannedDirectories = 0;
+    var reusedDirectories = 0;
+    var liveCompletedSinceCheckpoint = 0;
+    var resumedFromCheckpoint = false;
     var cancelled = false;
     var inFlight = 0;
     Object? fatalError;
     StackTrace? fatalStackTrace;
+    Future<void>? checkpointWrite;
+    final checkpointClock = Stopwatch()..start();
+    var startedAt = effectiveNow;
+    var lastFullScanAt = effectiveNow;
     final done = Completer<void>();
+
+    void ingestSnapshotNode(
+      DirectoryScanSnapshotNode node, {
+      required bool countAsReused,
+    }) {
+      final dirPath = node.relativePath;
+      snapshotNodes[dirPath] = node;
+      if (node.cacheValidator != null && node.cacheValidator!.isNotEmpty) {
+        validatorsByDir[dirPath] = node.cacheValidator!;
+      }
+      scannedDirectories++;
+      if (countAsReused) {
+        reusedDirectories++;
+      }
+      var dirVideoCount = 0;
+      for (final entry in node.fileEntries) {
+        final lowerName = entry.name.toLowerCase();
+        final ext = p.posix.extension(lowerName);
+        if (_subtitleExts.contains(ext)) {
+          subtitlesByFolder.putIfAbsent(dirPath, () => []).add(entry);
+          continue;
+        }
+        final kind = _classifyAssetKind(dirPath, ext);
+        if (kind != null) {
+          rawFiles.add(entry);
+          if (kind == AssetKind.video) {
+            dirVideoCount++;
+          }
+        }
+      }
+      if (node.nfoText != null && node.nfoText!.trim().isNotEmpty) {
+        nfoByFolder[dirPath] = node.nfoText!;
+      }
+      if (detectLocalCovers &&
+          node.localCoverPath != null &&
+          node.localCoverPath!.isNotEmpty) {
+        localCoverByFolder[dirPath] = node.localCoverPath!;
+      }
+      folderVideoCounts[dirPath] = dirVideoCount;
+      onFolderVisited?.call(dirPath, dirVideoCount, true);
+      onProgress?.call(dirPath, scannedDirectories, rawFiles.length);
+    }
+
+    bool inferIsStaticSupplementaryPath(String dirPath) {
+      if (dirPath.isEmpty) return false;
+      var inStatic = false;
+      for (final seg in dirPath.split('/')) {
+        if (seg.isEmpty) continue;
+        inStatic = DirectoryScanSnapshot.isStaticSupplementaryChildDir(
+          seg,
+          parentIsStaticSupplementary: inStatic,
+        );
+      }
+      return inStatic;
+    }
+
+    DirectoryScanSnapshot buildSnapshot({required bool isComplete}) {
+      final pending = <String>[];
+      final pendingSeen = <String>{};
+      if (!isComplete) {
+        for (final dir in inFlightDirs) {
+          if (!snapshotNodes.containsKey(dir) && pendingSeen.add(dir)) {
+            pending.add(dir);
+          }
+        }
+        for (final dir in queue) {
+          if (!snapshotNodes.containsKey(dir) && pendingSeen.add(dir)) {
+            pending.add(dir);
+          }
+        }
+      }
+      final pendingValidators = <String, String>{
+        for (final dir in pending)
+          if (validatorsByDir[dir] case final v? when v.isNotEmpty) dir: v,
+      };
+      return DirectoryScanSnapshot(
+        sourceId: sourceId,
+        scanRoots: normalizedRoots,
+        detectLocalCovers: detectLocalCovers,
+        startedAt: startedAt,
+        lastFullScanAt: lastFullScanAt,
+        isComplete: isComplete,
+        nodes: Map<String, DirectoryScanSnapshotNode>.unmodifiable(
+          snapshotNodes,
+        ),
+        pendingQueue: List<String>.unmodifiable(pending),
+        pendingValidators: Map<String, String>.unmodifiable(pendingValidators),
+      );
+    }
+
+    Future<void> saveSnapshot(DirectoryScanSnapshot snapshot) async {
+      try {
+        await onCheckpoint?.call(snapshot);
+      } catch (error, stackTrace) {
+        developer.log(
+          '保存目录扫描快照失败',
+          name: 'konata.directory_scanner',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
+    }
+
+    void scheduleCheckpointFlush() {
+      if (onCheckpoint == null ||
+          !trackSnapshot ||
+          checkpointWrite != null ||
+          liveCompletedSinceCheckpoint < _checkpointFlushInterval ||
+          checkpointClock.elapsed < _checkpointMinimumInterval) {
+        return;
+      }
+      final checkpoint = buildSnapshot(isComplete: false);
+      if (checkpoint.pendingQueue.isEmpty) return;
+      liveCompletedSinceCheckpoint = 0;
+      checkpointClock.reset();
+      checkpointWrite = saveSnapshot(checkpoint).whenComplete(() {
+        checkpointWrite = null;
+      });
+    }
+
+    final reusableCompleteSnapshot =
+        trackSnapshot &&
+            enableSnapshotReuse &&
+            previousSnapshot != null &&
+            previousSnapshot.sourceId == sourceId &&
+            previousSnapshot.isComplete &&
+            previousSnapshot.isFresh(now: effectiveNow)
+        ? previousSnapshot
+        : null;
+    if (reusableCompleteSnapshot != null) {
+      lastFullScanAt = reusableCompleteSnapshot.lastFullScanAt;
+    }
+
+    if (trackSnapshot &&
+        enableCheckpointResume &&
+        previousSnapshot != null &&
+        previousSnapshot.sourceId == sourceId &&
+        previousSnapshot.canResumeCheckpoint(
+          normalizedRoots: normalizedRoots,
+          requireLocalCovers: detectLocalCovers,
+          now: effectiveNow,
+        )) {
+      resumedFromCheckpoint = true;
+      startedAt = previousSnapshot.startedAt;
+      lastFullScanAt = previousSnapshot.lastFullScanAt;
+      validatorsByDir.addAll(previousSnapshot.pendingValidators);
+      for (final node in previousSnapshot.nodes.values) {
+        if (visitedDirs.add(node.relativePath)) {
+          ingestSnapshotNode(node, countAsReused: true);
+        }
+      }
+      for (final pendingDir in previousSnapshot.pendingQueue) {
+        final normPending = _normalizeDirectory(pendingDir);
+        if (!visitedDirs.contains(normPending)) {
+          staticSuppDirFlags[normPending] = inferIsStaticSupplementaryPath(
+            normPending,
+          );
+          queue.addLast(normPending);
+        }
+      }
+    } else {
+      for (final root in normalizedRoots) {
+        staticSuppDirFlags[root] = false;
+        queue.addLast(root);
+      }
+    }
 
     void maybeFinish() {
       if (done.isCompleted) return;
-      if (inFlight == 0 &&
-          (cancelled || fatalError != null || queue.isEmpty)) {
+      if (inFlight == 0 && (cancelled || fatalError != null || queue.isEmpty)) {
         done.complete();
       }
     }
@@ -197,17 +405,23 @@ class DirectoryScanner {
         RemoteEntry? preferredNfo;
         var preferredNfoRank = 0;
         final skipNfoDownload = _pathHasExplicitExternalId(normalizedCurrent);
+        final parentIsStaticSupp =
+            staticSuppDirFlags[normalizedCurrent] ?? false;
+        final children = <RemoteEntry>[];
+        final childDirs = <String>[];
+        final nodeFileEntries = <RemoteEntry>[];
+        var hasNonSupplementarySubdir = false;
 
         for (final entry in entries) {
           if (entry.isDirectory) {
-            final normChild = entry.relativePath
-                .trim()
-                .replaceAll('\\', '/')
-                .replaceAll(_trimSlashesPattern, '');
-            if (!_shouldSkipDirectory(entry.name) &&
-                normChild.isNotEmpty &&
-                !visitedDirs.contains(normChild)) {
-              queue.addLast(normChild);
+            if (_shouldSkipDirectory(entry.name)) continue;
+            if (trackSnapshot) {
+              children.add(entry);
+            } else {
+              final child = _normalizeDirectory(entry.relativePath);
+              if (child.isNotEmpty && !visitedDirs.contains(child)) {
+                queue.addLast(child);
+              }
             }
             continue;
           }
@@ -215,7 +429,8 @@ class DirectoryScanner {
           final lowerName = entry.name.toLowerCase();
           final ext = p.posix.extension(lowerName);
           if (ext == '.nfo') {
-            if (!skipNfoDownload && !nfoByFolder.containsKey(normalizedCurrent)) {
+            if (!skipNfoDownload &&
+                !nfoByFolder.containsKey(normalizedCurrent)) {
               final rank = _nfoPriority(lowerName);
               if (rank > preferredNfoRank) {
                 preferredNfoRank = rank;
@@ -229,6 +444,7 @@ class DirectoryScanner {
             subtitlesByFolder
                 .putIfAbsent(normalizedCurrent, () => [])
                 .add(entry);
+            if (trackSnapshot) nodeFileEntries.add(entry);
             continue;
           }
 
@@ -248,6 +464,7 @@ class DirectoryScanner {
           final kind = _classifyAssetKind(normalizedCurrent, ext);
           if (kind != null) {
             rawFiles.add(entry);
+            if (trackSnapshot) nodeFileEntries.add(entry);
             if (kind == AssetKind.video) {
               dirVideoCount++;
             }
@@ -266,6 +483,64 @@ class DirectoryScanner {
           if (nfoText != null && nfoText.trim().isNotEmpty) {
             nfoByFolder[normalizedCurrent] = nfoText;
           }
+        }
+
+        if (isCancelled?.call() ?? false) {
+          cancelled = true;
+          return;
+        }
+        if (trackSnapshot) {
+          for (final entry in children) {
+            final normChild = _normalizeDirectory(entry.relativePath);
+            if (normChild.isEmpty) continue;
+            childDirs.add(normChild);
+            final childIsStaticSupp =
+                DirectoryScanSnapshot.isStaticSupplementaryChildDir(
+                  entry.name,
+                  parentIsStaticSupplementary: parentIsStaticSupp,
+                );
+            staticSuppDirFlags[normChild] = childIsStaticSupp;
+            if (!childIsStaticSupp) {
+              hasNonSupplementarySubdir = true;
+            }
+            final childValidator = _snapshotValidator(
+              entry,
+              isArchive: childIsStaticSupp,
+            );
+            if (childValidator != null && childValidator.isNotEmpty) {
+              validatorsByDir[normChild] = childValidator;
+            }
+            if (reusableCompleteSnapshot != null &&
+                reusableCompleteSnapshot.canReuseSubtree(
+                  normChild,
+                  expectedValidator: childValidator,
+                  allowArchiveReuse: childIsStaticSupp,
+                  requireLocalCovers: detectLocalCovers,
+                )) {
+              final cachedNodes = reusableCompleteSnapshot.collectSubtreeNodes(
+                normChild,
+              );
+              for (final cachedNode in cachedNodes) {
+                if (visitedDirs.add(cachedNode.relativePath)) {
+                  ingestSnapshotNode(cachedNode, countAsReused: true);
+                }
+              }
+            } else if (!visitedDirs.contains(normChild)) {
+              queue.addLast(normChild);
+            }
+          }
+          snapshotNodes[normalizedCurrent] = DirectoryScanSnapshotNode(
+            relativePath: normalizedCurrent,
+            cacheValidator: validatorsByDir[normalizedCurrent],
+            childDirs: List<String>.unmodifiable(childDirs),
+            hasNonSupplementarySubdir: hasNonSupplementarySubdir,
+            fileEntries: List<RemoteEntry>.unmodifiable(nodeFileEntries),
+            nfoText: nfoByFolder[normalizedCurrent],
+            localCoverPath: localCoverByFolder[normalizedCurrent],
+          );
+          inFlightDirs.remove(normalizedCurrent);
+          liveCompletedSinceCheckpoint++;
+          scheduleCheckpointFlush();
         }
 
         folderVideoCounts[normalizedCurrent] = dirVideoCount;
@@ -295,13 +570,11 @@ class DirectoryScanner {
           queue.isNotEmpty &&
           inFlight < controller.currentConcurrency) {
         final rawDir = queue.removeFirst();
-        final normalizedCurrent = rawDir
-            .trim()
-            .replaceAll('\\', '/')
-            .replaceAll(_trimSlashesPattern, '');
+        final normalizedCurrent = _normalizeDirectory(rawDir);
         if (!visitedDirs.add(normalizedCurrent)) {
           continue;
         }
+        if (trackSnapshot) inFlightDirs.add(normalizedCurrent);
         inFlight++;
         unawaited(
           visitDirectory(normalizedCurrent).whenComplete(() {
@@ -315,8 +588,18 @@ class DirectoryScanner {
 
     pump();
     await done.future;
+    await checkpointWrite;
+
+    Future<DirectoryScanSnapshot?> savePartial() async {
+      if (!trackSnapshot || snapshotNodes.isEmpty) return null;
+      final partial = buildSnapshot(isComplete: false);
+      if (partial.pendingQueue.isEmpty) return null;
+      await saveSnapshot(partial);
+      return partial;
+    }
 
     if (fatalError != null) {
+      await savePartial();
       Error.throwWithStackTrace(fatalError!, fatalStackTrace!);
     }
 
@@ -327,8 +610,16 @@ class DirectoryScanner {
         scannedDirectories: scannedDirectories,
         folderVideoCounts: Map.unmodifiable(folderVideoCounts),
         cancelled: true,
+        reusedDirectories: reusedDirectories,
+        resumedFromCheckpoint: resumedFromCheckpoint,
+        snapshot: await savePartial(),
       );
     }
+
+    final finalSnapshot = trackSnapshot
+        ? buildSnapshot(isComplete: true)
+        : null;
+    if (finalSnapshot != null) await saveSnapshot(finalSnapshot);
 
     // 并发枚举完成顺序可能因 RTT 不同交错，按规范相对路径稳定排序，保证下游归组 100% 确定性。
     rawFiles.sort((a, b) => a.relativePath.compareTo(b.relativePath));
@@ -386,6 +677,9 @@ class DirectoryScanner {
       localCoverByFolder: Map.unmodifiable(localCoverByFolder),
       scannedDirectories: scannedDirectories,
       folderVideoCounts: Map.unmodifiable(folderVideoCounts),
+      reusedDirectories: reusedDirectories,
+      resumedFromCheckpoint: resumedFromCheckpoint,
+      snapshot: finalSnapshot,
     );
   }
 
@@ -497,7 +791,7 @@ class DirectoryScanner {
   }
 
   /// 规范化勾选目录，并剔除被祖先目录覆盖的重复子目录。
-  List<String> _normalizeScanRoots(List<String> scanRoots) {
+  static List<String> normalizeScanRoots(List<String> scanRoots) {
     final cleaned = <String>{
       for (final raw in scanRoots)
         raw.replaceAll('\\', '/').replaceAll(_trimSlashesPattern, ''),
@@ -517,6 +811,22 @@ class DirectoryScanner {
       }
     }
     return deduped;
+  }
+
+  static String _normalizeDirectory(String path) =>
+      path.trim().replaceAll('\\', '/').replaceAll(_trimSlashesPattern, '');
+
+  static String? _snapshotValidator(
+    RemoteEntry entry, {
+    required bool isArchive,
+  }) {
+    final etag = entry.etag?.trim();
+    final modified = entry.modifiedAt?.microsecondsSinceEpoch;
+    // 普通目录仅采用强版本标记，归档附属目录允许用修改时间短期复用。
+    if (etag != null && etag.isNotEmpty && !etag.startsWith('W/')) {
+      return 'etag:$etag;mtime:$modified';
+    }
+    return isArchive && modified != null ? 'mtime:$modified' : null;
   }
 
   bool _shouldSkipDirectory(String name) {

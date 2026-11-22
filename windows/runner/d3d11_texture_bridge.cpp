@@ -24,7 +24,9 @@ constexpr wchar_t kDcompHostClassName[] = L"KONATA_DCOMP_VIDEO_HOST";
 constexpr size_t kMinSurfaceExtent = 2;
 constexpr size_t kMaxSurfaceExtent = 8192;
 constexpr size_t kTripleBufferSlots = 3;
+constexpr size_t kPrimaryBufferSlots = 2;
 constexpr size_t kMetricsWindowCapacity = 512;
+constexpr DWORD kIdleD3D11DeviceTtlMs = 8000;
 
 using FnRenderContextCreate = int (*)(mpv_render_context** res,
                                       mpv_handle* mpv,
@@ -70,6 +72,7 @@ VSOut main(uint id : SV_VertexID) {
 )";
 
 // 读取高色深 FP16 / 10-bit 渲染目标并施加三角分布交错梯度噪声（IGN）消除色带截断的像素着色器源码。
+// 纯黑像素（如遮幅黑边）直通零噪点，保护 OLED 纯黑对比度与驱动快速清除压缩。
 constexpr char kResolvePixelShaderHlsl[] = R"(
 Texture2D<float4> srcTex : register(t0);
 SamplerState srcSampler : register(s0);
@@ -79,6 +82,9 @@ struct PSIn {
 };
 float4 main(PSIn input) : SV_Target {
   float4 c = srcTex.Sample(srcSampler, input.uv);
+  if (all(c.rgb <= 1e-6)) {
+    return float4(0.0, 0.0, 0.0, 1.0);
+  }
   float ign = frac(52.9829189 * frac(dot(input.pos.xy, float2(0.06711056, 0.00583715))));
   float dither = (ign - 0.5) / 255.0;
   return float4(saturate(c.rgb + dither), 1.0);
@@ -401,45 +407,118 @@ bool CreateD3D11Device(flutter::FlutterEngine* engine,
   return true;
 }
 
+// 通知 DXGI 驱动主动收缩空闲显存与命令缓冲区驻留，降低视频关闭或窗口最小化后的内存占用。
+void TrimDxgiDevice(ID3D11Device* device) {
+  if (device == nullptr) {
+    return;
+  }
+  Microsoft::WRL::ComPtr<IDXGIDevice3> dxgi_device3;
+  if (SUCCEEDED(device->QueryInterface(IID_PPV_ARGS(&dxgi_device3))) &&
+      dxgi_device3) {
+    dxgi_device3->Trim();
+  }
+}
+
+// 轻量读取首选 DXGI 显卡名称，不创建额外的 D3D11 探测设备上下文。
+std::string ProbePrimaryAdapterNameLightweight(flutter::FlutterEngine* engine) {
+  if (engine != nullptr) {
+    IDXGIAdapter* raw_adapter = nullptr;
+    if (engine->GetGraphicsAdapter(&raw_adapter) && raw_adapter != nullptr) {
+      Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
+      adapter.Attach(raw_adapter);
+      DXGI_ADAPTER_DESC desc{};
+      if (SUCCEEDED(adapter->GetDesc(&desc))) {
+        const std::string utf8 = WideToUtf8(desc.Description);
+        if (!utf8.empty()) {
+          return utf8;
+        }
+      }
+    }
+  }
+  Microsoft::WRL::ComPtr<IDXGIFactory1> factory;
+  if (SUCCEEDED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))) && factory) {
+    Microsoft::WRL::ComPtr<IDXGIAdapter1> adapter1;
+    if (SUCCEEDED(factory->EnumAdapters1(0, &adapter1)) && adapter1) {
+      DXGI_ADAPTER_DESC1 desc1{};
+      if (SUCCEEDED(adapter1->GetDesc1(&desc1))) {
+        const std::string utf8 = WideToUtf8(desc1.Description);
+        if (!utf8.empty()) {
+          return utf8;
+        }
+      }
+    }
+  }
+  return "";
+}
+
+struct ResolveShaderBytecodeCache {
+  std::vector<uint8_t> vs;
+  std::vector<uint8_t> ps;
+  bool valid = false;
+};
+
+// 进程级缓存全屏三角形抖动解析着色器的 DXBC 字节码，避免每次打开视频重复触发 D3DCompile。
+const ResolveShaderBytecodeCache& GetCompiledResolveShaderBytecode() {
+  static ResolveShaderBytecodeCache cache;
+  static std::once_flag once;
+  std::call_once(once, []() {
+    FnD3DCompile compile_fn = ResolveD3DCompile();
+    if (compile_fn == nullptr) {
+      return;
+    }
+    Microsoft::WRL::ComPtr<ID3DBlob> vs_blob;
+    Microsoft::WRL::ComPtr<ID3DBlob> ps_blob;
+    Microsoft::WRL::ComPtr<ID3DBlob> err_blob;
+
+    HRESULT hr = compile_fn(
+        kResolveVertexShaderHlsl, std::strlen(kResolveVertexShaderHlsl),
+        "vs_resolve", nullptr, nullptr, "main", "vs_4_0",
+        D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &vs_blob, &err_blob);
+    if (FAILED(hr) || !vs_blob) {
+      return;
+    }
+
+    hr = compile_fn(kResolvePixelShaderHlsl,
+                    std::strlen(kResolvePixelShaderHlsl), "ps_resolve", nullptr,
+                    nullptr, "main", "ps_4_0", D3DCOMPILE_OPTIMIZATION_LEVEL3,
+                    0, &ps_blob, &err_blob);
+    if (FAILED(hr) || !ps_blob) {
+      return;
+    }
+
+    const auto* vs_ptr =
+        static_cast<const uint8_t*>(vs_blob->GetBufferPointer());
+    const auto* ps_ptr =
+        static_cast<const uint8_t*>(ps_blob->GetBufferPointer());
+    cache.vs.assign(vs_ptr, vs_ptr + vs_blob->GetBufferSize());
+    cache.ps.assign(ps_ptr, ps_ptr + ps_blob->GetBufferSize());
+    cache.valid = !cache.vs.empty() && !cache.ps.empty();
+  });
+  return cache;
+}
+
 bool CompileResolveShaders(ID3D11Device* device,
                            Microsoft::WRL::ComPtr<ID3D11VertexShader>* out_vs,
                            Microsoft::WRL::ComPtr<ID3D11PixelShader>* out_ps,
                            Microsoft::WRL::ComPtr<ID3D11SamplerState>* out_sm) {
-  FnD3DCompile compile_fn = ResolveD3DCompile();
-  if (compile_fn == nullptr || device == nullptr) {
+  if (device == nullptr) {
+    return false;
+  }
+  const ResolveShaderBytecodeCache& bytecode =
+      GetCompiledResolveShaderBytecode();
+  if (!bytecode.valid) {
     return false;
   }
 
-  Microsoft::WRL::ComPtr<ID3DBlob> vs_blob;
-  Microsoft::WRL::ComPtr<ID3DBlob> ps_blob;
-  Microsoft::WRL::ComPtr<ID3DBlob> err_blob;
-
-  HRESULT hr = compile_fn(kResolveVertexShaderHlsl,
-                          std::strlen(kResolveVertexShaderHlsl), "vs_resolve",
-                          nullptr, nullptr, "main", "vs_4_0",
-                          D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &vs_blob,
-                          &err_blob);
-  if (FAILED(hr) || !vs_blob) {
-    return false;
-  }
-
-  hr = compile_fn(kResolvePixelShaderHlsl, std::strlen(kResolvePixelShaderHlsl),
-                  "ps_resolve", nullptr, nullptr, "main", "ps_4_0",
-                  D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &ps_blob, &err_blob);
-  if (FAILED(hr) || !ps_blob) {
-    return false;
-  }
-
-  hr = device->CreateVertexShader(vs_blob->GetBufferPointer(),
-                                  vs_blob->GetBufferSize(), nullptr,
-                                  out_vs->ReleaseAndGetAddressOf());
+  HRESULT hr = device->CreateVertexShader(bytecode.vs.data(),
+                                          bytecode.vs.size(), nullptr,
+                                          out_vs->ReleaseAndGetAddressOf());
   if (FAILED(hr)) {
     return false;
   }
 
-  hr = device->CreatePixelShader(ps_blob->GetBufferPointer(),
-                                 ps_blob->GetBufferSize(), nullptr,
-                                 out_ps->ReleaseAndGetAddressOf());
+  hr = device->CreatePixelShader(bytecode.ps.data(), bytecode.ps.size(),
+                                 nullptr, out_ps->ReleaseAndGetAddressOf());
   if (FAILED(hr)) {
     return false;
   }
@@ -488,6 +567,15 @@ class D3D11TextureBridge::RenderSession
                          const std::string& adapter_name,
                          const std::string& reason)>;
 
+  using DeviceAcquirer =
+      std::function<bool(Microsoft::WRL::ComPtr<ID3D11Device>*,
+                         Microsoft::WRL::ComPtr<ID3D11DeviceContext>*,
+                         std::string*)>;
+  using DeviceRecycler =
+      std::function<void(Microsoft::WRL::ComPtr<ID3D11Device>,
+                         Microsoft::WRL::ComPtr<ID3D11DeviceContext>,
+                         std::string)>;
+
   RenderSession(int64_t session_id,
                 HWND parent_window,
                 mpv_handle* mpv,
@@ -496,7 +584,9 @@ class D3D11TextureBridge::RenderSession
                 flutter::TextureRegistrar* registrar,
                 size_t width,
                 size_t height,
-                TextureChangedCallback on_texture_changed)
+                TextureChangedCallback on_texture_changed,
+                DeviceAcquirer acquire_device,
+                DeviceRecycler recycle_device)
       : session_id_(session_id),
         parent_window_(parent_window),
         mpv_(mpv),
@@ -504,6 +594,8 @@ class D3D11TextureBridge::RenderSession
         engine_(engine),
         registrar_(registrar),
         on_texture_changed_(std::move(on_texture_changed)),
+        acquire_device_(std::move(acquire_device)),
+        recycle_device_(std::move(recycle_device)),
         target_width_(width),
         target_height_(height) {}
 
@@ -574,6 +666,26 @@ class D3D11TextureBridge::RenderSession
       force_render_ = true;
     }
     render_cv_.notify_one();
+  }
+
+  // 在共享纹理模式下动态切换离屏高色深渲染目标：SDR 常态保持 10-bit（4 字节/像素），HDR 升档至 FP16（8 字节/像素）。
+  bool SetHdrFboEnabled(bool enabled) {
+    if (is_software_ || backend_mode_ != BackendMode::kD3D11HighBitDepth ||
+        !device_ || !resolve_vs_ || !resolve_ps_ || !resolve_sampler_) {
+      return false;
+    }
+    const DXGI_FORMAT desired_fmt = NegotiateHighBitDepthFormat(!enabled);
+    {
+      std::lock_guard<std::mutex> lock(render_mutex_);
+      if (stop_requested_ || disposed_) {
+        return false;
+      }
+      pending_hdr_fbo_format_ = desired_fmt;
+      pending_hdr_fbo_change_ = true;
+      force_render_ = true;
+    }
+    render_cv_.notify_one();
+    return true;
   }
 
   // 在 Win32 主线程同步底层 10-bit 渲染宿主（gpu-next 子窗口或 DirectComposition 底层视觉层）的视口几何、圆角裁剪与显隐。
@@ -705,6 +817,31 @@ class D3D11TextureBridge::RenderSession
 
     UnregisterCurrentTexture();
     ReleaseDirectCompositionResources();
+
+    // 渲染上下文已销毁且渲染线程已汇合，将健康 D3D11 设备归还 8 秒短期复用池，释放会话私有着色器与 FBO。
+    Microsoft::WRL::ComPtr<ID3D11Device> recyclable_device;
+    Microsoft::WRL::ComPtr<ID3D11DeviceContext> recyclable_context;
+    std::string recyclable_adapter;
+    {
+      std::lock_guard<std::mutex> lock(surface_mutex_);
+      hdr_fbo_srv_.Reset();
+      hdr_fbo_texture_.Reset();
+      hdr_fbo_width_ = 0;
+      hdr_fbo_height_ = 0;
+      resolve_sampler_.Reset();
+      resolve_ps_.Reset();
+      resolve_vs_.Reset();
+      if (!is_software_ && device_ && context_) {
+        recyclable_device = std::move(device_);
+        recyclable_context = std::move(context_);
+        recyclable_adapter = adapter_name_;
+      }
+    }
+    if (recyclable_device && recyclable_context && recycle_device_) {
+      recycle_device_(std::move(recyclable_device),
+                      std::move(recyclable_context),
+                      std::move(recyclable_adapter));
+    }
   }
 
   int64_t session_id() const { return session_id_; }
@@ -713,9 +850,14 @@ class D3D11TextureBridge::RenderSession
     return reinterpret_cast<int64_t>(dcomp_hwnd_);
   }
   std::string adapter_name() const { return adapter_name_; }
-  int64_t color_bit_depth() const { return BitDepthForDxgi(active_fbo_format_); }
+  int64_t color_bit_depth() const {
+    return BitDepthForDxgi(active_fbo_format_.load(std::memory_order_acquire));
+  }
   std::string surface_format() const {
-    return is_software_ ? "SW_RGBA8888" : FormatNameForDxgi(active_fbo_format_);
+    return is_software_
+               ? "SW_RGBA8888"
+               : FormatNameForDxgi(
+                     active_fbo_format_.load(std::memory_order_acquire));
   }
 
   std::string backend() const {
@@ -729,14 +871,17 @@ class D3D11TextureBridge::RenderSession
         return "dcomp_10bit";
       case BackendMode::kDirectCompositionFp16:
         return "dcomp_fp16";
-      case BackendMode::kD3D11HighBitDepth:
-        if (active_fbo_format_ == DXGI_FORMAT_R16G16B16A16_FLOAT) {
+      case BackendMode::kD3D11HighBitDepth: {
+        const DXGI_FORMAT fmt =
+            active_fbo_format_.load(std::memory_order_acquire);
+        if (fmt == DXGI_FORMAT_R16G16B16A16_FLOAT) {
           return "d3d11_fp16";
         }
-        if (active_fbo_format_ == DXGI_FORMAT_R10G10B10A2_UNORM) {
+        if (fmt == DXGI_FORMAT_R10G10B10A2_UNORM) {
           return "d3d11_10bit";
         }
         return "d3d11";
+      }
       case BackendMode::kSoftware:
         return "sw";
     }
@@ -821,8 +966,9 @@ class D3D11TextureBridge::RenderSession
   }
 
   bool EnsureHighBitDepthFboLocked(size_t width, size_t height) {
-    if (active_fbo_format_ == DXGI_FORMAT_B8G8R8A8_UNORM || !resolve_vs_ ||
-        !resolve_ps_ || !resolve_sampler_) {
+    const DXGI_FORMAT fmt = active_fbo_format_.load(std::memory_order_acquire);
+    if (fmt == DXGI_FORMAT_B8G8R8A8_UNORM || !resolve_vs_ || !resolve_ps_ ||
+        !resolve_sampler_) {
       hdr_fbo_texture_.Reset();
       hdr_fbo_srv_.Reset();
       hdr_fbo_width_ = 0;
@@ -830,7 +976,7 @@ class D3D11TextureBridge::RenderSession
       return true;
     }
     if (hdr_fbo_texture_ && hdr_fbo_srv_ && hdr_fbo_width_ == width &&
-        hdr_fbo_height_ == height) {
+        hdr_fbo_height_ == height && hdr_fbo_format_ == fmt) {
       return true;
     }
     hdr_fbo_texture_.Reset();
@@ -841,7 +987,7 @@ class D3D11TextureBridge::RenderSession
     desc.Height = static_cast<UINT>(height);
     desc.MipLevels = 1;
     desc.ArraySize = 1;
-    desc.Format = active_fbo_format_;
+    desc.Format = fmt;
     desc.SampleDesc.Count = 1;
     desc.SampleDesc.Quality = 0;
     desc.Usage = D3D11_USAGE_DEFAULT;
@@ -856,7 +1002,7 @@ class D3D11TextureBridge::RenderSession
     }
 
     D3D11_SHADER_RESOURCE_VIEW_DESC srv_desc{};
-    srv_desc.Format = active_fbo_format_;
+    srv_desc.Format = fmt;
     srv_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
     srv_desc.Texture2D.MostDetailedMip = 0;
     srv_desc.Texture2D.MipLevels = 1;
@@ -872,22 +1018,29 @@ class D3D11TextureBridge::RenderSession
     hdr_fbo_srv_ = std::move(srv);
     hdr_fbo_width_ = width;
     hdr_fbo_height_ = height;
+    hdr_fbo_format_ = fmt;
     return true;
   }
 
   bool InitializeD3D11HighBitDepthBackend(bool prefer_10bit) {
-    if (!CreateD3D11Device(engine_, &device_, &context_, &adapter_name_)) {
+    const bool acquired =
+        acquire_device_
+            ? acquire_device_(&device_, &context_, &adapter_name_)
+            : CreateD3D11Device(engine_, &device_, &context_, &adapter_name_);
+    if (!acquired) {
       return false;
     }
-    active_fbo_format_ = NegotiateHighBitDepthFormat(prefer_10bit);
-    if (active_fbo_format_ != DXGI_FORMAT_B8G8R8A8_UNORM) {
+    DXGI_FORMAT chosen_fmt = NegotiateHighBitDepthFormat(prefer_10bit);
+    if (chosen_fmt != DXGI_FORMAT_B8G8R8A8_UNORM) {
       if (!CompileResolveShaders(device_.Get(), &resolve_vs_, &resolve_ps_,
                                  &resolve_sampler_)) {
         // 若系统缺失 d3dcompiler_47.dll，则降级至直绘 8-bit 共享表面。
-        active_fbo_format_ = DXGI_FORMAT_B8G8R8A8_UNORM;
+        chosen_fmt = DXGI_FORMAT_B8G8R8A8_UNORM;
       }
     }
-    if (!AllocateD3D11SlotsLocked(target_width_, target_height_) ||
+    active_fbo_format_.store(chosen_fmt, std::memory_order_release);
+    // 初始化期仅按需预创建 1 个共享纹理槽校验硬件链路，其余槽位待真实视口尺寸就绪后再按需分配，避免占位尺寸浪费显存。
+    if (!CreateSlotTextureLocked(0, target_width_, target_height_) ||
         !EnsureHighBitDepthFboLocked(target_width_, target_height_)) {
       ReleaseD3D11ResourcesLocked();
       return false;
@@ -923,16 +1076,10 @@ class D3D11TextureBridge::RenderSession
     if (parent_window_ == nullptr || !IsWindow(parent_window_)) {
       return false;
     }
-    Microsoft::WRL::ComPtr<ID3D11Device> probe_dev;
-    Microsoft::WRL::ComPtr<ID3D11DeviceContext> probe_ctx;
-    std::string probed_adapter;
-    if (CreateD3D11Device(engine_, &probe_dev, &probe_ctx, &probed_adapter)) {
-      adapter_name_ = probed_adapter;
-      probe_ctx.Reset();
-      probe_dev.Reset();
-    } else {
-      adapter_name_ = "D3D11 libplacebo";
-    }
+    const std::string probed_adapter =
+        ProbePrimaryAdapterNameLightweight(engine_);
+    adapter_name_ =
+        probed_adapter.empty() ? "D3D11 libplacebo" : probed_adapter;
 
     EnsureDcompHostWindowClassRegistered();
     HWND host_hwnd = CreateWindowExW(
@@ -949,7 +1096,8 @@ class D3D11TextureBridge::RenderSession
                  SWP_NOACTIVATE | SWP_HIDEWINDOW);
 
     dcomp_hwnd_ = host_hwnd;
-    active_fbo_format_ = DXGI_FORMAT_R10G10B10A2_UNORM;
+    active_fbo_format_.store(DXGI_FORMAT_R10G10B10A2_UNORM,
+                             std::memory_order_release);
     backend_mode_ = BackendMode::kGpuNextUnderlay;
     texture_id_ = -1;
     is_software_ = false;
@@ -964,7 +1112,11 @@ class D3D11TextureBridge::RenderSession
         !IsWindow(parent_window_)) {
       return false;
     }
-    if (!CreateD3D11Device(engine_, &device_, &context_, &adapter_name_)) {
+    const bool acquired =
+        acquire_device_
+            ? acquire_device_(&device_, &context_, &adapter_name_)
+            : CreateD3D11Device(engine_, &device_, &context_, &adapter_name_);
+    if (!acquired) {
       return false;
     }
 
@@ -1081,7 +1233,7 @@ class D3D11TextureBridge::RenderSession
     dcomp_swap_chain_ = std::move(swap_chain);
     dcomp_width_ = target_width_;
     dcomp_height_ = target_height_;
-    active_fbo_format_ = swap_fmt;
+    active_fbo_format_.store(swap_fmt, std::memory_order_release);
     render_ctx_ = ctx;
     is_software_ = false;
     backend_mode_ = (swap_fmt == DXGI_FORMAT_R16G16B16A16_FLOAT)
@@ -1134,7 +1286,8 @@ class D3D11TextureBridge::RenderSession
     render_ctx_ = ctx;
     is_software_ = true;
     backend_mode_ = BackendMode::kSoftware;
-    active_fbo_format_ = DXGI_FORMAT_B8G8R8A8_UNORM;
+    active_fbo_format_.store(DXGI_FORMAT_B8G8R8A8_UNORM,
+                             std::memory_order_release);
     adapter_name_ = "Software Rasterizer (mpv sw)";
     RegisterSoftwareTexture();
     symbols_.set_update_callback(render_ctx_, &RenderSession::OnMpvUpdate, this);
@@ -1225,19 +1378,6 @@ class D3D11TextureBridge::RenderSession
     sw_descriptor_.release_callback = nullptr;
     sw_descriptor_.release_context = nullptr;
     return &sw_descriptor_;
-  }
-
-  bool AllocateD3D11SlotsLocked(size_t width, size_t height) {
-    if (!device_) {
-      return false;
-    }
-    PruneRetiredTexturesLocked();
-    for (size_t i = 0; i < kTripleBufferSlots; ++i) {
-      if (!CreateSlotTextureLocked(i, width, height)) {
-        return false;
-      }
-    }
-    return true;
   }
 
   bool CreateSlotTextureLocked(size_t index, size_t width, size_t height) {
@@ -1333,25 +1473,70 @@ class D3D11TextureBridge::RenderSession
   int AcquireWritableD3D11Slot(size_t width, size_t height) {
     std::lock_guard<std::mutex> lock(surface_mutex_);
     PruneRetiredTexturesLocked();
-    for (size_t offset = 1; offset <= kTripleBufferSlots; ++offset) {
-      const int candidate =
-          static_cast<int>((write_cursor_ + offset) % kTripleBufferSlots);
+    // 视口缩小时（如全屏切入悬浮小窗）立刻释放其余未被占用的旧大尺寸纹理槽，避免旧全屏显存滞留。
+    for (size_t i = 0; i < kTripleBufferSlots; ++i) {
+      if (static_cast<int>(i) == latest_slot_) {
+        continue;
+      }
+      auto& slot = slots_[i];
+      if (slot && (slot->width != width || slot->height != height) &&
+          slot->pinned_count.load(std::memory_order_acquire) <= 0) {
+        slot.reset();
+      }
+    }
+    // 自适应双缓冲：第 3 弹性槽一旦不再为最新呈现帧且已解钉，立刻释放回归双槽驻留，常态节省 33% 共享纹理显存。
+    if (latest_slot_ != 2 && slots_[2] &&
+        slots_[2]->pinned_count.load(std::memory_order_acquire) <= 0) {
+      slots_[2].reset();
+    }
+
+    auto try_acquire = [&](int candidate) -> bool {
+      if (!CreateSlotTextureLocked(static_cast<size_t>(candidate), width,
+                                   height)) {
+        return false;
+      }
+      write_cursor_ = static_cast<size_t>(candidate);
+      return true;
+    };
+
+    // 优先在主双槽 [0, 1] 中选择非最新且未钉住的槽位，兼顾零撕裂与低显存。
+    const int first_primary = (latest_slot_ == 0) ? 1 : 0;
+    const std::array<int, kPrimaryBufferSlots> primaries = {
+        first_primary,
+        1 - first_primary,
+    };
+    for (int candidate : primaries) {
       const auto& alloc = slots_[candidate];
       const int pinned =
           alloc ? alloc->pinned_count.load(std::memory_order_acquire) : 0;
-      if (candidate == latest_slot_ && pinned > 0) {
-        continue;
-      }
-      if (pinned == 0 || offset == kTripleBufferSlots) {
-        if (!CreateSlotTextureLocked(static_cast<size_t>(candidate), width,
-                                     height)) {
-          return -1;
-        }
-        write_cursor_ = static_cast<size_t>(candidate);
-        return candidate;
+      if (candidate != latest_slot_ && pinned == 0) {
+        return try_acquire(candidate) ? candidate : -1;
       }
     }
-    return -1;
+
+    // 主双槽同时被光栅线程钉住时按需临时启用第 3 弹性槽，保证高帧率零阻塞。
+    {
+      const auto& burst = slots_[2];
+      const int burst_pinned =
+          burst ? burst->pinned_count.load(std::memory_order_acquire) : 0;
+      if (latest_slot_ != 2 && burst_pinned == 0) {
+        return try_acquire(2) ? 2 : -1;
+      }
+    }
+
+    // 兜底：若存在任何未钉住槽位则复用，否则轮转下一个非最新槽。
+    for (int candidate = 0; candidate < static_cast<int>(kTripleBufferSlots);
+         ++candidate) {
+      const auto& alloc = slots_[candidate];
+      const int pinned =
+          alloc ? alloc->pinned_count.load(std::memory_order_acquire) : 0;
+      if (pinned == 0) {
+        return try_acquire(candidate) ? candidate : -1;
+      }
+    }
+    const int fallback =
+        static_cast<int>((write_cursor_ + 1) % kTripleBufferSlots);
+    return try_acquire(fallback) ? fallback : -1;
   }
 
   void RenderThreadMain() {
@@ -1360,11 +1545,14 @@ class D3D11TextureBridge::RenderSession
       size_t render_h = kMinSurfaceExtent;
       bool force_draw = false;
       bool stop_now = false;
+      bool apply_hdr_fbo_change = false;
+      DXGI_FORMAT desired_hdr_fbo_fmt = DXGI_FORMAT_R10G10B10A2_UNORM;
 
       {
         std::unique_lock<std::mutex> lock(render_mutex_);
         render_cv_.wait(lock, [this]() {
-          return stop_requested_ || render_requested_ || resize_requested_;
+          return stop_requested_ || render_requested_ || resize_requested_ ||
+                 pending_hdr_fbo_change_;
         });
         if (stop_requested_) {
           stop_now = true;
@@ -1373,6 +1561,11 @@ class D3D11TextureBridge::RenderSession
           resize_requested_ = false;
           force_draw = force_render_;
           force_render_ = false;
+          if (pending_hdr_fbo_change_) {
+            apply_hdr_fbo_change = true;
+            desired_hdr_fbo_fmt = pending_hdr_fbo_format_;
+            pending_hdr_fbo_change_ = false;
+          }
           render_w = target_width_;
           render_h = target_height_;
         }
@@ -1384,6 +1577,19 @@ class D3D11TextureBridge::RenderSession
 
       if (render_ctx_ == nullptr) {
         continue;
+      }
+
+      if (apply_hdr_fbo_change && !is_software_ && !IsDirectCompositionMode()) {
+        if (desired_hdr_fbo_fmt !=
+            active_fbo_format_.load(std::memory_order_acquire)) {
+          std::lock_guard<std::mutex> lock(surface_mutex_);
+          active_fbo_format_.store(desired_hdr_fbo_fmt,
+                                   std::memory_order_release);
+          hdr_fbo_srv_.Reset();
+          hdr_fbo_texture_.Reset();
+          hdr_fbo_width_ = 0;
+          hdr_fbo_height_ = 0;
+        }
       }
 
       const uint64_t update_flags = symbols_.update(render_ctx_);
@@ -1422,9 +1628,6 @@ class D3D11TextureBridge::RenderSession
     if (!device_ || !context_) {
       return false;
     }
-    if (FAILED(device_->GetDeviceRemovedReason())) {
-      return false;
-    }
     Microsoft::WRL::ComPtr<IDXGISwapChain1> sc;
     {
       std::lock_guard<std::mutex> lock(dcomp_mutex_);
@@ -1438,7 +1641,8 @@ class D3D11TextureBridge::RenderSession
       context_->Flush();
       const HRESULT rhr = sc->ResizeBuffers(
           static_cast<UINT>(kTripleBufferSlots), static_cast<UINT>(width),
-          static_cast<UINT>(height), active_fbo_format_, 0);
+          static_cast<UINT>(height),
+          active_fbo_format_.load(std::memory_order_acquire), 0);
       if (FAILED(rhr)) {
         return false;
       }
@@ -1460,7 +1664,7 @@ class D3D11TextureBridge::RenderSession
         {MPV_RENDER_PARAM_INVALID, nullptr},
     };
     const int rc = symbols_.render(render_ctx_, params);
-    if (rc < 0 || FAILED(device_->GetDeviceRemovedReason())) {
+    if (rc < 0) {
       return false;
     }
     const HRESULT phr = sc->Present(0, 0);
@@ -1482,12 +1686,17 @@ class D3D11TextureBridge::RenderSession
     vp.MinDepth = 0.0f;
     vp.MaxDepth = 1.0f;
 
-    context_->ClearState();
+    // 仅重置解析全屏三角形所需的最小管线槽位，省去每帧额外的 2 次全上下文 ClearState 缓存失效。
     context_->RSSetViewports(1, &vp);
+    context_->RSSetState(nullptr);
+    context_->OMSetDepthStencilState(nullptr, 0);
+    context_->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFFu);
     context_->OMSetRenderTargets(1, &dst_rtv, nullptr);
+    context_->IASetInputLayout(nullptr);
     context_->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     context_->VSSetShader(resolve_vs_.Get(), nullptr, 0);
     context_->PSSetShader(resolve_ps_.Get(), nullptr, 0);
+    context_->GSSetShader(nullptr, nullptr, 0);
     ID3D11ShaderResourceView* srv = hdr_fbo_srv_.Get();
     ID3D11SamplerState* samp = resolve_sampler_.Get();
     context_->PSSetShaderResources(0, 1, &srv);
@@ -1498,15 +1707,10 @@ class D3D11TextureBridge::RenderSession
     ID3D11RenderTargetView* null_rtv = nullptr;
     context_->PSSetShaderResources(0, 1, &null_srv);
     context_->OMSetRenderTargets(1, &null_rtv, nullptr);
-    context_->ClearState();
   }
 
   bool RenderD3D11Frame(size_t width, size_t height) {
     if (!device_ || !context_) {
-      return false;
-    }
-    const HRESULT removed = device_->GetDeviceRemovedReason();
-    if (FAILED(removed)) {
       return false;
     }
 
@@ -1529,8 +1733,9 @@ class D3D11TextureBridge::RenderSession
     }
 
     const bool use_high_bit_fbo =
-        active_fbo_format_ != DXGI_FORMAT_B8G8R8A8_UNORM && resolve_vs_ &&
-        resolve_ps_ && resolve_sampler_;
+        active_fbo_format_.load(std::memory_order_acquire) !=
+            DXGI_FORMAT_B8G8R8A8_UNORM &&
+        resolve_vs_ && resolve_ps_ && resolve_sampler_;
     ID3D11Texture2D* mpv_target = shared_target.Get();
     if (use_high_bit_fbo) {
       if (!EnsureHighBitDepthFboLocked(width, height)) {
@@ -1548,7 +1753,7 @@ class D3D11TextureBridge::RenderSession
     };
 
     const int rc = symbols_.render(render_ctx_, params);
-    if (rc < 0 || FAILED(device_->GetDeviceRemovedReason())) {
+    if (rc < 0) {
       return false;
     }
 
@@ -1637,12 +1842,12 @@ class D3D11TextureBridge::RenderSession
     // 恢复方案 1：原地重建高色深 D3D11 共享纹理管线。
     if (!d3d11_recovery_attempted_) {
       d3d11_recovery_attempted_ = true;
-      if (InitializeD3D11HighBitDepthBackend(false)) {
+      if (InitializeD3D11HighBitDepthBackend(true)) {
         if (RenderD3D11Frame(width, height)) {
           if (was_dcomp && on_texture_changed_) {
             on_texture_changed_(session_id_, texture_id_, backend(),
                                 surface_format(), color_bit_depth(),
-                                adapter_name_, "DCOMP_FALLBACK_TO_D3D11_FP16");
+                                adapter_name_, "DCOMP_FALLBACK_TO_D3D11_10BIT");
           }
           return;
         }
@@ -1674,6 +1879,8 @@ class D3D11TextureBridge::RenderSession
   flutter::FlutterEngine* const engine_;
   flutter::TextureRegistrar* const registrar_;
   TextureChangedCallback on_texture_changed_;
+  DeviceAcquirer acquire_device_;
+  DeviceRecycler recycle_device_;
 
   Microsoft::WRL::ComPtr<ID3D11Device> device_;
   Microsoft::WRL::ComPtr<ID3D11DeviceContext> context_;
@@ -1684,7 +1891,8 @@ class D3D11TextureBridge::RenderSession
   Microsoft::WRL::ComPtr<ID3D11SamplerState> resolve_sampler_;
   size_t hdr_fbo_width_ = 0;
   size_t hdr_fbo_height_ = 0;
-  DXGI_FORMAT active_fbo_format_ = DXGI_FORMAT_B8G8R8A8_UNORM;
+  DXGI_FORMAT hdr_fbo_format_ = DXGI_FORMAT_B8G8R8A8_UNORM;
+  std::atomic<DXGI_FORMAT> active_fbo_format_{DXGI_FORMAT_B8G8R8A8_UNORM};
   BackendMode backend_mode_ = BackendMode::kD3D11HighBitDepth;
 
   std::mutex dcomp_mutex_;
@@ -1726,6 +1934,8 @@ class D3D11TextureBridge::RenderSession
   bool render_requested_ = true;
   bool resize_requested_ = false;
   bool force_render_ = true;
+  bool pending_hdr_fbo_change_ = false;
+  DXGI_FORMAT pending_hdr_fbo_format_ = DXGI_FORMAT_R10G10B10A2_UNORM;
   bool stop_requested_ = false;
   bool disposed_ = false;
   bool is_software_ = false;
@@ -1773,9 +1983,134 @@ void D3D11TextureBridge::Shutdown() {
       kv.second->Dispose();
     }
   }
+  ClearCachedD3D11Device(true);
   if (channel_) {
     channel_->SetMethodCallHandler(nullptr);
     channel_.reset();
+  }
+}
+
+bool D3D11TextureBridge::AcquireReusableD3D11Device(
+    Microsoft::WRL::ComPtr<ID3D11Device>* out_device,
+    Microsoft::WRL::ComPtr<ID3D11DeviceContext>* out_context,
+    std::string* out_adapter_name) {
+  Microsoft::WRL::ComPtr<ID3D11Device> dev;
+  Microsoft::WRL::ComPtr<ID3D11DeviceContext> ctx;
+  std::string adapter;
+  HANDLE old_timer = nullptr;
+  {
+    std::lock_guard<std::mutex> lock(device_cache_mutex_);
+    old_timer = idle_device_timer_;
+    idle_device_timer_ = nullptr;
+    dev = std::move(cached_device_);
+    ctx = std::move(cached_context_);
+    adapter = std::move(cached_adapter_name_);
+    cached_adapter_name_.clear();
+  }
+  if (old_timer != nullptr) {
+    DeleteTimerQueueTimer(nullptr, old_timer, nullptr);
+  }
+  if (dev && ctx && SUCCEEDED(dev->GetDeviceRemovedReason())) {
+    *out_device = std::move(dev);
+    *out_context = std::move(ctx);
+    if (out_adapter_name != nullptr) {
+      *out_adapter_name = std::move(adapter);
+    }
+    return true;
+  }
+  return CreateD3D11Device(engine_, out_device, out_context, out_adapter_name);
+}
+
+void D3D11TextureBridge::RecycleD3D11Device(
+    Microsoft::WRL::ComPtr<ID3D11Device> device,
+    Microsoft::WRL::ComPtr<ID3D11DeviceContext> context,
+    std::string adapter_name) {
+  if (!device || !context || FAILED(device->GetDeviceRemovedReason())) {
+    return;
+  }
+  {
+    std::lock_guard<std::mutex> lock(sessions_mutex_);
+    if (shutdown_called_) {
+      return;
+    }
+  }
+  context->ClearState();
+  context->Flush();
+  TrimDxgiDevice(device.Get());
+
+  HANDLE old_timer = nullptr;
+  Microsoft::WRL::ComPtr<ID3D11Device> displaced_device;
+  Microsoft::WRL::ComPtr<ID3D11DeviceContext> displaced_context;
+  {
+    std::lock_guard<std::mutex> lock(device_cache_mutex_);
+    old_timer = idle_device_timer_;
+    idle_device_timer_ = nullptr;
+    displaced_device = std::move(cached_device_);
+    displaced_context = std::move(cached_context_);
+    cached_device_ = std::move(device);
+    cached_context_ = std::move(context);
+    cached_adapter_name_ = std::move(adapter_name);
+    cached_device_at_ = std::chrono::steady_clock::now();
+    CreateTimerQueueTimer(&idle_device_timer_, nullptr,
+                          &D3D11TextureBridge::OnIdleDeviceTimerCallback, this,
+                          kIdleD3D11DeviceTtlMs, 0, WT_EXECUTEONLYONCE);
+  }
+  if (old_timer != nullptr) {
+    DeleteTimerQueueTimer(nullptr, old_timer, nullptr);
+  }
+  if (displaced_device) {
+    TrimDxgiDevice(displaced_device.Get());
+  }
+}
+
+void D3D11TextureBridge::ClearCachedD3D11Device(bool wait_for_timer) {
+  HANDLE old_timer = nullptr;
+  Microsoft::WRL::ComPtr<ID3D11Device> dev;
+  Microsoft::WRL::ComPtr<ID3D11DeviceContext> ctx;
+  {
+    std::lock_guard<std::mutex> lock(device_cache_mutex_);
+    old_timer = idle_device_timer_;
+    idle_device_timer_ = nullptr;
+    dev = std::move(cached_device_);
+    ctx = std::move(cached_context_);
+    cached_adapter_name_.clear();
+  }
+  if (old_timer != nullptr) {
+    DeleteTimerQueueTimer(nullptr, old_timer,
+                          wait_for_timer ? INVALID_HANDLE_VALUE : nullptr);
+  }
+  if (dev) {
+    TrimDxgiDevice(dev.Get());
+  }
+}
+
+VOID CALLBACK D3D11TextureBridge::OnIdleDeviceTimerCallback(
+    PVOID param,
+    BOOLEAN /*timer_or_wait_fired*/) {
+  auto* self = static_cast<D3D11TextureBridge*>(param);
+  if (self == nullptr) {
+    return;
+  }
+  Microsoft::WRL::ComPtr<ID3D11Device> expired_dev;
+  Microsoft::WRL::ComPtr<ID3D11DeviceContext> expired_ctx;
+  {
+    std::lock_guard<std::mutex> lock(self->device_cache_mutex_);
+    if (!self->cached_device_) {
+      return;
+    }
+    const auto elapsed_ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - self->cached_device_at_)
+            .count();
+    if (elapsed_ms + 1000 < static_cast<int64_t>(kIdleD3D11DeviceTtlMs)) {
+      return;
+    }
+    expired_dev = std::move(self->cached_device_);
+    expired_ctx = std::move(self->cached_context_);
+    self->cached_adapter_name_.clear();
+  }
+  if (expired_dev) {
+    TrimDxgiDevice(expired_dev.Get());
   }
 }
 
@@ -1784,6 +2119,14 @@ void D3D11TextureBridge::HandleMethodCall(
     std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
   if (call.method_name() == "getAdapterInfo") {
     HandleGetAdapterInfo(std::move(result));
+    return;
+  }
+  if (call.method_name() == "trimMemory") {
+    const auto* opt_args =
+        call.arguments()
+            ? std::get_if<flutter::EncodableMap>(call.arguments())
+            : nullptr;
+    HandleTrimMemory(opt_args, std::move(result));
     return;
   }
 
@@ -1801,6 +2144,8 @@ void D3D11TextureBridge::HandleMethodCall(
     HandleSetViewportRect(*args, std::move(result));
   } else if (call.method_name() == "getSessionMetrics") {
     HandleGetSessionMetrics(*args, std::move(result));
+  } else if (call.method_name() == "setHdrFboEnabled") {
+    HandleSetHdrFboEnabled(*args, std::move(result));
   } else if (call.method_name() == "disposeSession") {
     HandleDisposeSession(*args, std::move(result));
   } else {
@@ -1858,6 +2203,16 @@ void D3D11TextureBridge::HandleCreateSession(
              const std::string& adapter, const std::string& reason) {
         QueueTextureChanged(sid, tid, backend, surface_format, color_bit_depth,
                             adapter, reason);
+      },
+      [this](Microsoft::WRL::ComPtr<ID3D11Device>* out_dev,
+             Microsoft::WRL::ComPtr<ID3D11DeviceContext>* out_ctx,
+             std::string* out_adapter) {
+        return AcquireReusableD3D11Device(out_dev, out_ctx, out_adapter);
+      },
+      [this](Microsoft::WRL::ComPtr<ID3D11Device> dev,
+             Microsoft::WRL::ComPtr<ID3D11DeviceContext> ctx,
+             std::string adapter) {
+        RecycleD3D11Device(std::move(dev), std::move(ctx), std::move(adapter));
       });
 
   std::string err;
@@ -1986,6 +2341,28 @@ void D3D11TextureBridge::HandleGetSessionMetrics(
   result->Success(flutter::EncodableValue(payload));
 }
 
+void D3D11TextureBridge::HandleSetHdrFboEnabled(
+    const flutter::EncodableMap& args,
+    std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
+  const int64_t session_id = ReadInt64Arg(args, "sessionId", 0);
+  const bool enabled = ReadBoolArg(args, "enabled", false);
+
+  std::shared_ptr<RenderSession> session;
+  {
+    std::lock_guard<std::mutex> lock(sessions_mutex_);
+    auto it = sessions_.find(session_id);
+    if (it != sessions_.end()) {
+      session = it->second;
+    }
+  }
+  if (!session) {
+    result->Success(flutter::EncodableValue(false));
+    return;
+  }
+  const bool scheduled = session->SetHdrFboEnabled(enabled);
+  result->Success(flutter::EncodableValue(scheduled));
+}
+
 void D3D11TextureBridge::HandleDisposeSession(
     const flutter::EncodableMap& args,
     std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
@@ -2010,7 +2387,7 @@ void D3D11TextureBridge::HandleGetAdapterInfo(
   Microsoft::WRL::ComPtr<ID3D11Device> dev;
   Microsoft::WRL::ComPtr<ID3D11DeviceContext> ctx;
   std::string adapter_name;
-  const bool ok = CreateD3D11Device(engine_, &dev, &ctx, &adapter_name);
+  const bool ok = AcquireReusableD3D11Device(&dev, &ctx, &adapter_name);
   const bool supports_fp16 =
       ok && SupportsRenderTargetAndShaderResource(
                 dev.Get(), DXGI_FORMAT_R16G16B16A16_FLOAT);
@@ -2020,6 +2397,9 @@ void D3D11TextureBridge::HandleGetAdapterInfo(
   const bool supports_dcomp_10bit =
       ok && ResolveDCompositionCreateDevice() != nullptr &&
       SupportsDisplaySwapChainFormat(dev.Get(), DXGI_FORMAT_R10G10B10A2_UNORM);
+  if (ok) {
+    RecycleD3D11Device(std::move(dev), std::move(ctx), adapter_name);
+  }
 
   flutter::EncodableMap payload;
   payload[flutter::EncodableValue("available")] = flutter::EncodableValue(ok);
@@ -2032,6 +2412,51 @@ void D3D11TextureBridge::HandleGetAdapterInfo(
   payload[flutter::EncodableValue("supportsDcomp10Bit")] =
       flutter::EncodableValue(supports_dcomp_10bit);
   result->Success(flutter::EncodableValue(payload));
+}
+
+void D3D11TextureBridge::HandleTrimMemory(
+    const flutter::EncodableMap* args,
+    std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result) {
+  const bool release_idle_device =
+      args != nullptr ? ReadBoolArg(*args, "releaseIdleDevice", false) : false;
+  const bool trim_working_set =
+      args != nullptr ? ReadBoolArg(*args, "trimWorkingSet", true) : true;
+
+  if (release_idle_device) {
+    ClearCachedD3D11Device(false);
+  } else {
+    Microsoft::WRL::ComPtr<ID3D11Device> cached_ref;
+    {
+      std::lock_guard<std::mutex> lock(device_cache_mutex_);
+      cached_ref = cached_device_;
+    }
+    if (cached_ref) {
+      TrimDxgiDevice(cached_ref.Get());
+    }
+  }
+
+  if (trim_working_set) {
+    SetProcessWorkingSetSizeEx(GetCurrentProcess(), static_cast<SIZE_T>(-1),
+                               static_cast<SIZE_T>(-1), 0);
+  }
+  result->Success();
+}
+
+void D3D11TextureBridge::TrimMemoryOnMinimize() {
+  bool has_active_sessions = false;
+  {
+    std::lock_guard<std::mutex> lock(sessions_mutex_);
+    if (shutdown_called_) {
+      return;
+    }
+    has_active_sessions = !sessions_.empty();
+  }
+  if (has_active_sessions) {
+    return;
+  }
+  ClearCachedD3D11Device(false);
+  SetProcessWorkingSetSizeEx(GetCurrentProcess(), static_cast<SIZE_T>(-1),
+                             static_cast<SIZE_T>(-1), 0);
 }
 
 void D3D11TextureBridge::QueueTextureChanged(int64_t session_id,

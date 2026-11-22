@@ -1,5 +1,6 @@
-import 'dart:typed_data';
 import 'dart:developer' as developer;
+import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 
@@ -245,7 +246,9 @@ class AudioAssetExtractor {
     );
     if (head == null || head.length < 16) return null;
 
-    final fastHit = extractEmbeddedCoverFromHeaderBytes(head);
+    final fastHit = head.length >= 64 * 1024
+        ? await Isolate.run(() => extractEmbeddedCoverFromHeaderBytes(head))
+        : extractEmbeddedCoverFromHeaderBytes(head);
     if (fastHit != null && fastHit.isNotEmpty) {
       return fastHit;
     }
@@ -267,7 +270,7 @@ class AudioAssetExtractor {
     final merged = Uint8List(head.length + tail.length);
     merged.setRange(0, head.length, head);
     merged.setRange(head.length, merged.length, tail);
-    return extractEmbeddedCoverFromHeaderBytes(merged);
+    return Isolate.run(() => extractEmbeddedCoverFromHeaderBytes(merged));
   }
 
   /// 根据首段 256 KiB 容器头部判断是否存在跨段未读完的封面块及所需总字节数；确认无封面时返回 `0`。

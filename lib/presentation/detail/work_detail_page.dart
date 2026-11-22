@@ -1,13 +1,14 @@
 import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/playback/playback_preferences_provider.dart';
 import '../../application/providers/artwork_provider.dart';
 import '../../application/providers/detail_display_preferences_provider.dart';
+import '../../application/providers/konata_value_notifier.dart';
 import '../../application/providers/library_providers.dart';
 import '../../application/providers/playback_providers.dart';
 import '../../application/providers/scraping_providers.dart';
@@ -38,12 +39,15 @@ import 'series_switcher_dropdown.dart';
 import 'work_detail_sub_views.dart';
 
 /// 详情页底部选集区当前会话收展状态与选中分页（退出详情页即自动销毁重置，每次进入默认收起剧集缩略图，仅展示紧凑胶囊）。
-final detailDrawerExpandedProvider = StateProvider.autoDispose<bool>(
-  (ref) => false,
-);
-final detailDrawerTabProvider = StateProvider.autoDispose<DetailDrawerTab>(
-  (ref) => DetailDrawerTab.main,
-);
+final detailDrawerExpandedProvider =
+    NotifierProvider.autoDispose<KonataValueNotifier<bool>, bool>(
+      () => KonataValueNotifier<bool>.value(false),
+    );
+final detailDrawerTabProvider =
+    NotifierProvider.autoDispose<
+      KonataValueNotifier<DetailDrawerTab>,
+      DetailDrawerTab
+    >(() => KonataValueNotifier<DetailDrawerTab>.value(DetailDrawerTab.main));
 
 /// 全屏沉浸式「高通透原画 + 无框悬浮选集」番剧详情页。
 class WorkDetailPage extends ConsumerStatefulWidget {
@@ -122,7 +126,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
   }
 
   void _maybeBackfillTmdbArtwork(Work work) {
-    final config = ref.read(tmdbNetworkConfigProvider).valueOrNull;
+    final config = ref.read(tmdbNetworkConfigProvider).value;
     final missingTmdbAfterBangumiFallback =
         !work.metadataLocked &&
         work.tmdbId == null &&
@@ -169,7 +173,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
         screenSize.shortestSide >= KonataAdaptiveTokens.tabletBreakpoint &&
         screenSize.height >= screenSize.width;
     final hasLoadedBundle =
-        ref.read(workDetailBundleProvider(_activeWorkId)).valueOrNull != null;
+        ref.read(workDetailBundleProvider(_activeWorkId)).value != null;
     if (!isAndroidPhone &&
         !isTabletPortrait &&
         hasLoadedBundle &&
@@ -576,7 +580,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
     final bundleAsync = ref.watch(workDetailBundleProvider(_activeWorkId));
     final redirectMap = ref.watch(workRedirectMapProvider);
     final isMissing = bundleAsync.hasValue && bundleAsync.value == null;
-    final hasActiveBundle = bundleAsync.valueOrNull != null;
+    final hasActiveBundle = bundleAsync.value != null;
     final redirectTarget = isMissing
         ? resolveWorkRedirectChain(redirectMap, _activeWorkId)
         : _activeWorkId;
@@ -587,7 +591,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
     }
 
     final players =
-        ref.watch(desktopVideoRelayTargetsProvider).valueOrNull ?? const [];
+        ref.watch(desktopVideoRelayTargetsProvider).value ?? const [];
     final imageLoader = ref.watch(tmdbImageLoaderProvider);
     final isDrawerExpanded = ref.watch(detailDrawerExpandedProvider);
     final displayPrefs = ref.watch(detailDisplayPreferencesProvider);
@@ -612,7 +616,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
         isOuterPhone && outerSize.height >= outerSize.width;
     // 仅手机竖屏在右上角顶栏保留操作胶囊；平板竖屏与手机横屏均将其下移至「正片」分类胶囊同一行最右侧。
     final showPortraitOpsInTopBar =
-        isOuterPhonePortrait && bundleAsync.valueOrNull != null;
+        isOuterPhonePortrait && bundleAsync.value != null;
     final useLightTopBarIcons =
         forceLightChrome ||
         (KonataAdaptiveTokens.isAndroid && hasActiveBundle);
@@ -1118,7 +1122,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                       onBack: _returnToLibrary,
                       trailingOps: showPortraitOpsInTopBar
                           ? _buildTopOpsCapsule(
-                              bundleAsync.valueOrNull!,
+                              bundleAsync.value!,
                               preferredTab,
                               displayPrefs,
                               isExpanded: _phonePortraitExpanded,

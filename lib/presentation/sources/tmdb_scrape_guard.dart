@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/providers/library_providers.dart';
@@ -19,7 +19,7 @@ Future<bool> ensureTmdbConfiguredForScrape(
   WidgetRef ref, {
   bool allowBangumiFallback = false,
 }) async {
-  var cfg = ref.read(tmdbNetworkConfigProvider).valueOrNull;
+  var cfg = ref.read(tmdbNetworkConfigProvider).value;
   if (cfg == null) {
     try {
       cfg = await ref.read(tmdbNetworkConfigProvider.future);

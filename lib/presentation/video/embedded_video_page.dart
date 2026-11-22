@@ -3,7 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -23,7 +23,6 @@ import '../widgets/design_system/konata_glass_capsule.dart';
 import '../widgets/design_system/konata_glass_menu.dart';
 import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_toast.dart';
-import '../widgets/playback/konata_osd_stroked_text.dart';
 import '../widgets/playback/konata_playback_capsule.dart';
 import '../widgets/playback/konata_spec_badge.dart';
 import '../widgets/playback/konata_stage_morph_frame.dart';
@@ -667,6 +666,19 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage>
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<VideoTransientNotice?>(
+      videoPlaybackProvider(widget.request).select((s) => s.transientNotice),
+      (prev, next) {
+        if (next == null || next.seq == prev?.seq || !mounted) return;
+        showKonataToast(
+          context,
+          next.message,
+          isError: next.isError,
+          duration: next.duration,
+        );
+      },
+    );
+
     // 严格隔离高频进度：顶层绝不订阅 positionSeconds 或 durationSeconds！
     final snap = ref.watch(
       videoPlaybackProvider(widget.request).select(
@@ -689,7 +701,6 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage>
           probeStats: s.probeStats,
           chapters: s.chapters,
           activeSkipWindow: s.activeSkipWindow,
-          transientBanner: s.transientBanner,
           errorMessage: s.errorMessage,
           episodeId: s.currentEpisode.id,
           workId: s.currentWork?.id,
@@ -898,27 +909,7 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage>
               ),
             ),
 
-          // 6. 自动连播 / 硬解回退 / 截图保存顶部描边纯文字提示
-          if (snap.transientBanner != null && !_screenLocked)
-            Positioned(
-              top: 76,
-              left: 24,
-              right: 24,
-              child: IgnorePointer(
-                child: Center(
-                  child: KonataOsdStrokedText(
-                    snap.transientBanner!,
-                    fontSize: KonataTheme.fontSizeSubtitle,
-                    fontWeight: FontWeight.w600,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              ),
-            ),
-
-          // 7. 右下角智能跳过 OP/ED 胶囊
+          // 6. 右下角智能跳过 OP/ED 胶囊
           if (snap.activeSkipWindow != null && !_screenLocked)
             Positioned(
               bottom: KonataPlaybackTokens.skipPillBottomOffset,

@@ -20,7 +20,7 @@ import 'package:ccplayer/infrastructure/sources/byte_stream_source_gateway.dart'
 import 'package:ccplayer/infrastructure/sources/local_source_gateway.dart';
 import 'package:ccplayer/infrastructure/storage/storage_root_provider.dart';
 import 'package:ccplayer/infrastructure/stream_bridge/local_stream_bridge.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:path/path.dart' as p;

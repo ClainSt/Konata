@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../theme/konata_palette.dart';
 import '../../theme/konata_playback_tokens.dart';

@@ -5,10 +5,7 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   flutter_acrylic
   media_kit_libs_windows_video
-  screen_retriever_windows
-  sqlite3_flutter_libs
   url_launcher_windows
-  window_manager
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST

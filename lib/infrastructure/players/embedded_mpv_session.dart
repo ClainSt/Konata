@@ -43,6 +43,8 @@ class EmbeddedVideoLoadRequest {
     this.startSeconds = 0.0,
     this.initialWidth = 1280,
     this.initialHeight = 720,
+    this.prewarmedStreamToken,
+    this.prewarmedMediaTarget,
   });
 
   final String workId;
@@ -51,6 +53,12 @@ class EmbeddedVideoLoadRequest {
   final double startSeconds;
   final int initialWidth;
   final int initialHeight;
+
+  /// 已在后台完成首尾元数据预热的流网桥会话令牌（无缝切换下一集时直接接管，免二次建联）。
+  final String? prewarmedStreamToken;
+
+  /// 与 [prewarmedStreamToken] 对应的本地回环播放 URL。
+  final String? prewarmedMediaTarget;
 }
 
 /// 原画截图模式（严格经 FFI 参数数组传递给 `screenshot-to-file`）。
@@ -148,6 +156,7 @@ class EmbeddedMpvSession {
   final SubtitleFontPoolManager _fontPoolManager;
 
   String _defaultSubFontsDir = '';
+  String _baselineSubFontsDir = '';
   String _activeSubFontsDir = '';
 
   final ValueNotifier<int?> _textureId = ValueNotifier<int?>(null);
@@ -213,18 +222,15 @@ class EmbeddedMpvSession {
   /// 读取已挂载 `memory://` 内存字幕轨道 ID 到真实原始文件路径映射的回调（供轨道合并去重与组名提炼）。
   Map<int, String> Function()? mountedSubtitleSourcePathsReader;
 
+  /// 读取当前已挂载云端子集化独立对比轨道 ID 集合的回调（供侧栏保留「子集化」独立选项）。
+  Set<int> Function()? mountedCloudSubsetTrackIdsReader;
+
   /// 当前已生效的 `sub-fonts-dir` 目录路径（用于单测验证字库直挂与哈希池切换）。
   String get activeSubFontsDir => _activeSubFontsDir;
 
-  /// 实时更新底层 `libmpv` 的 `sub-fonts-dir` 属性（供 `Fonts.zip`、ASS `[Fonts]` 与远程字库入池联动）。
-  void applySubFontsDir(String dirPath) {
-    final trimmed = dirPath.trim();
-    if (trimmed.isEmpty || trimmed == _activeSubFontsDir) return;
-    final client = _client;
-    if (_disposed || client == null || client.isDisposed) return;
-    client.setPropertyString('sub-fonts-dir', trimmed);
-    _activeSubFontsDir = trimmed;
-  }
+  /// 非云端子集化基准字体目录（原字幕切换回本地/默认字体对比时恢复此目录）。
+  String get baselineSubFontsDir =>
+      _baselineSubFontsDir.isNotEmpty ? _baselineSubFontsDir : _defaultSubFontsDir;
 
   LibMpvClient? _client;
   StreamSubscription<MpvClientEvent>? _eventSub;
@@ -252,6 +258,8 @@ class EmbeddedMpvSession {
   double? _pendingInitialSeekSeconds;
   double _totalDurationSeconds = 0.0;
   double _desiredVolume = 100.0;
+  double _currentSpeed = 1.0;
+  bool _currentMediaIsRemote = false;
   bool _isMuted = false;
   int _loadGeneration = 0;
   int? _activePlaylistEntryId;
@@ -260,7 +268,9 @@ class EmbeddedMpvSession {
   bool _hwdecWasEnabled = true;
   bool _hwdecFallbackAttempted = false;
   bool _usingSoftwareFallback = false;
+  bool? _lastDynamicHdrActive;
   bool _positionObserved = true;
+  Timer? _metadataSnapshotTimer;
   String _activeAndroidVo = MpvQualityProfile.androidVideoDriver;
   bool _disposed = false;
   bool _videoTrackEnabled = true;
@@ -343,11 +353,22 @@ class EmbeddedMpvSession {
     final useDesktopSurface = Platform.isWindows && !_useAndroidSurfaceSession;
     final isRemote =
         request.source != null && request.source!.kind != MediaSourceKind.local;
+    _currentMediaIsRemote = isRemote;
 
-    final mpvDir = await storageRoot.ensureMpvConfigDir();
+    // 并行创建配置沙箱、着色器/ICC 缓存与作品截图目录，将启动期 4 次串行磁盘往返收敛为单次并发等待。
+    final dirResults = await Future.wait<Directory>([
+      storageRoot.ensureMpvConfigDir(),
+      storageRoot.ensureMpvShaderCacheDir(),
+      storageRoot.ensureMpvIccCacheDir(),
+      _resolveScreenshotDir(request.workId),
+    ]);
+    final mpvDir = dirResults[0];
+    final gpuShaderCacheDir = dirResults[1];
+    final iccCacheDir = dirResults[2];
+    final workPhotoDir = dirResults[3];
     _defaultSubFontsDir = p.join(mpvDir.path, 'fonts');
+    _baselineSubFontsDir = _defaultSubFontsDir;
     _activeSubFontsDir = _defaultSubFontsDir;
-    final workPhotoDir = await _resolveScreenshotDir(request.workId);
     final verifiedShaders = await MpvQualityProfile.filterExistingShaderPaths(
       qualityConfig.activeShaderPaths,
     );
@@ -362,6 +383,8 @@ class EmbeddedMpvSession {
       qualityConfig: qualityConfig,
       mpvDir: mpvDir,
       workPhotoDir: workPhotoDir,
+      gpuShaderCacheDir: gpuShaderCacheDir,
+      iccCacheDir: iccCacheDir,
       verifiedShaders: verifiedShaders,
       isRemote: isRemote,
       useDesktopSurface: useDesktopSurface,
@@ -474,6 +497,7 @@ class EmbeddedMpvSession {
     _firstFrameWatchdogReboundOnce = false;
     _firstFrameWatchdogTimer?.cancel();
     _hwdecFallbackAttempted = false;
+    _lastDynamicHdrActive = null;
     if (_hwdecWasEnabled && _usingSoftwareFallback) {
       _usingSoftwareFallback = false;
       client.setPropertyString(
@@ -508,9 +532,11 @@ class EmbeddedMpvSession {
 
     final isRemote =
         request.source != null && request.source!.kind != MediaSourceKind.local;
-    // 本地媒体优先同级 Fonts/ 原位只读直挂，其次同级 Fonts.zip 解包入单级哈希池。
+    _currentMediaIsRemote = isRemote;
+    // 本地媒体先执行零阻塞的同级 Fonts/ 原位直挂检测；若无原位目录，则与 loadfile 并行异步解包 Fonts.zip。
+    var asyncLocalFontZip = false;
     if (!isRemote) {
-      final resolvedFontDir = await _resolveLocalFontPackDir(
+      final inPlaceDir = await _resolveLocalInPlaceFontsDir(
         resolved.mediaTarget,
       );
       if (_disposed || generation != _loadGeneration) {
@@ -518,10 +544,11 @@ class EmbeddedMpvSession {
         await _unregisterTokens(previousTokens);
         return;
       }
-      final targetFontsDir = resolvedFontDir ?? _defaultSubFontsDir;
+      final targetFontsDir = inPlaceDir ?? _defaultSubFontsDir;
       if (targetFontsDir.isNotEmpty) {
         applySubFontsDir(targetFontsDir);
       }
+      asyncLocalFontZip = inPlaceDir == null;
     } else if (_defaultSubFontsDir.isNotEmpty) {
       applySubFontsDir(_defaultSubFontsDir);
     }
@@ -531,8 +558,19 @@ class EmbeddedMpvSession {
       isRemoteStream: isRemote,
       isAudio: false,
       config: _lastQualityConfig,
+      isAndroidOverride: _useAndroidSurfaceSession,
       logStore: logStore,
     );
+    if (isRemote) {
+      client.setPropertyInt64(
+        'demuxer-readahead-secs',
+        MpvQualityProfile.resolveDemuxerReadaheadSecs(
+          playbackSpeed: _currentSpeed,
+          isRemoteStream: true,
+          isAndroid: _useAndroidSurfaceSession,
+        ),
+      );
+    }
     onApplyAudiophileSafetyChain?.call(client);
 
     if (request.startSeconds > 0) {
@@ -557,11 +595,20 @@ class EmbeddedMpvSession {
     }
     client.setPropertyFlag('pause', false);
 
-    final rc = client.command(['loadfile', resolved.mediaTarget, 'replace']);
+    final rc = client.commandAsync(0, ['loadfile', resolved.mediaTarget, 'replace']);
     await _unregisterTokens(previousTokens);
     if (rc < 0) {
       onFatalError?.call('视频装载失败: ${client.errorString(rc)}');
       return;
+    }
+
+    if (asyncLocalFontZip) {
+      unawaited(
+        _extractLocalFontZipInBackground(
+          resolved.mediaTarget,
+          generation: generation,
+        ),
+      );
     }
 
     if (request.source != null &&
@@ -596,13 +643,14 @@ class EmbeddedMpvSession {
         _fileLoadedForCurrentGen = true;
         onFileLoaded?.call();
         _enforceHwdecSafetyPolicy();
+        _syncDynamicHdrPipeline();
         final pendingSeek = _pendingInitialSeekSeconds;
         _pendingInitialSeekSeconds = null;
         _client?.setPropertyString('start', 'none');
         if (pendingSeek != null && pendingSeek > 0) {
           final currentPos = _client?.getPropertyDouble('time-pos');
           if (currentPos != null && (currentPos - pendingSeek).abs() > 2.5) {
-            _client?.command([
+            _client?.commandAsync(0, [
               'seek',
               pendingSeek.toStringAsFixed(1),
               'absolute',
@@ -652,9 +700,10 @@ class EmbeddedMpvSession {
           );
         }
         _syncHwdecCurrent();
-        _emitMediaMetadataSnapshot();
+        _scheduleMediaMetadataSnapshot();
       case MpvVideoReconfigEvent():
         _enforceHwdecSafetyPolicy();
+        _syncDynamicHdrPipeline();
         if (_hasDecodedVideoFrame()) {
           _firstFrameWatchdogTimer?.cancel();
           if (!_hasRestartedFirstFrame && _fileLoadedForCurrentGen) {
@@ -665,9 +714,9 @@ class EmbeddedMpvSession {
           }
         }
         _syncHwdecCurrent();
-        _emitMediaMetadataSnapshot();
+        _scheduleMediaMetadataSnapshot();
       case MpvAudioReconfigEvent():
-        _emitMediaMetadataSnapshot();
+        _scheduleMediaMetadataSnapshot();
       case MpvPropertyChangeEvent():
         _handlePropertyEvent(event);
       case MpvLogMessageEvent():
@@ -689,64 +738,6 @@ class EmbeddedMpvSession {
     }
   }
 
-  /// 解码层精准拦截 AVC Hi10P / 非 4:2:0 与 HEVC Rext / >10-bit 流，在首帧花屏前自动回落多线程 SIMD 软解。
-  void _enforceHwdecSafetyPolicy() {
-    final client = _client;
-    if (_disposed ||
-        client == null ||
-        client.isDisposed ||
-        !_hwdecWasEnabled ||
-        _usingSoftwareFallback) {
-      return;
-    }
-    final codec =
-        client.getPropertyString('current-tracks/video/codec') ??
-        client.getPropertyString('video-format') ??
-        client.getPropertyString('video-codec') ??
-        '';
-    final profile =
-        client.getPropertyString('current-tracks/video/codec-profile') ??
-        client.getPropertyString('video-params/profile');
-    final pixfmt =
-        client.getPropertyString('video-params/pixelformat') ??
-        client.getPropertyString('video-dec-params/pixelformat');
-    final hwPixfmt =
-        client.getPropertyString('video-params/hw-pixelformat') ??
-        client.getPropertyString('video-dec-params/hw-pixelformat');
-    final platform = _useAndroidSurfaceSession
-        ? HwdecPlatformKind.android
-        : (Platform.isWindows
-              ? HwdecPlatformKind.windows
-              : HwdecPlatformKind.other);
-    final decision = HwdecSafetyPolicy.evaluate(
-      platform: platform,
-      videoCodec: codec,
-      videoProfile: profile,
-      pixelFormat: pixfmt,
-      hwPixelFormat: hwPixfmt,
-    );
-    if (decision.allowHardwareDecode) {
-      return;
-    }
-    _hwdecFallbackAttempted = true;
-    _usingSoftwareFallback = true;
-    client.setPropertyString('hwdec', 'no');
-    client.setPropertyString('vd-lavc-threads', '0');
-    if (_useAndroidSurfaceSession) {
-      // 移动端硬件解码器对 HEVC Rext/Main12 等伪支持流可能已卡死首帧，
-      // 主动重载视频轨即可立即销毁硬解实例并无缝切入多线程软解。
-      client.command(['video-reload']);
-    }
-    logStore?.record(
-      'mpv-hwdec-guard',
-      'rule=${decision.matchedRule} codec=$codec profile=$profile pixfmt=$pixfmt hw=$hwPixfmt -> hwdec=no',
-    );
-    onHwdecChanged?.call('no');
-    if (decision.reason != null) {
-      onNotice?.call(decision.reason!);
-    }
-  }
-
   void _handlePropertyEvent(MpvPropertyChangeEvent e) {
     switch (e.replyUserdata) {
       case _propTimePos:
@@ -762,7 +753,7 @@ class EmbeddedMpvSession {
         if (dur != null && dur.isFinite && dur > 0) {
           _totalDurationSeconds = dur;
           onDurationChanged?.call(dur);
-          _emitMediaMetadataSnapshot();
+          _scheduleMediaMetadataSnapshot();
         }
       case _propPause:
         final paused = e.boolValue;
@@ -788,7 +779,7 @@ class EmbeddedMpvSession {
       case _propAid:
       case _propSid:
       case _propTrackListCount:
-        _emitMediaMetadataSnapshot();
+        _scheduleMediaMetadataSnapshot();
       case _propHwdecCurrent:
         onHwdecChanged?.call(e.stringValue ?? '');
       case _propAudioDeviceList:
@@ -893,7 +884,7 @@ class EmbeddedMpvSession {
     onNotice?.call('硬件解码受限，已保留当前进度无缝切回软件解码');
   }
 
-  /// 采集当前实时 40+ 项技术探针快照。
+  /// 采集当前实时 40+ 项技术探针快照（仅在信息探针浮层打开时调用）。
   PlaybackProbeStats collectProbeStats() {
     final client = _client;
     if (_disposed || client == null || client.isDisposed) {
@@ -904,6 +895,21 @@ class EmbeddedMpvSession {
       gpuApiOverride: _renderBackend.value,
       mpvVersionCache: _cachedMpvVersion,
       ffmpegVersionCache: _cachedFfmpegVersion,
+    );
+  }
+
+  /// 轻量采集顶栏角标与画幅比所需的 5 项核心属性（关闭探针面板时消除 92%+ FFI 读取开销）。
+  PlaybackProbeStats collectLightProbeStats({PlaybackProbeStats? previous}) {
+    final client = _client;
+    if (_disposed || client == null || client.isDisposed) {
+      return previous ?? const PlaybackProbeStats();
+    }
+    return probeCollector.collectLight(
+      client,
+      gpuApiOverride: _renderBackend.value,
+      mpvVersionCache: _cachedMpvVersion,
+      ffmpegVersionCache: _cachedFfmpegVersion,
+      previous: previous,
     );
   }
 
@@ -932,6 +938,7 @@ class EmbeddedMpvSession {
     MpvQualityProfile.applyLiveQualityUpdate(
       client,
       config: config,
+      isHdrSource: _lastDynamicHdrActive ?? false,
       desktopDelegate: desktopProfileDelegate,
       verifiedShaderPaths: verifiedShaders,
       onExclusiveFallbackNotice: onNotice,
@@ -971,7 +978,7 @@ class EmbeddedMpvSession {
     } else {
       _suppressBufferingUntil = null;
     }
-    client.command(['seek', target.toStringAsFixed(3), 'absolute', 'exact']);
+    client.commandAsync(0, ['seek', target.toStringAsFixed(3), 'absolute', 'exact']);
     if (!(client.getPropertyFlag('pause') ?? false)) {
       onTriggerMicroFadeIn?.call(
         client,
@@ -983,7 +990,7 @@ class EmbeddedMpvSession {
   }
 
   void seekRelative(double deltaSeconds) {
-    _client?.command(['seek', deltaSeconds.toStringAsFixed(3), 'relative']);
+    _client?.commandAsync(0, ['seek', deltaSeconds.toStringAsFixed(3), 'relative']);
   }
 
   void stepFrameForward() {
@@ -997,7 +1004,19 @@ class EmbeddedMpvSession {
   }
 
   void setSpeed(double speed) {
-    _client?.setPropertyDouble('speed', speed.clamp(0.25, 4.0));
+    final clamped = speed.clamp(0.25, 4.0);
+    _currentSpeed = clamped;
+    final client = _client;
+    if (_disposed || client == null || client.isDisposed) return;
+    client.setPropertyDouble('speed', clamped);
+    if (_currentMediaIsRemote) {
+      final secs = MpvQualityProfile.resolveDemuxerReadaheadSecs(
+        playbackSpeed: clamped,
+        isRemoteStream: true,
+        isAndroid: _useAndroidSurfaceSession,
+      );
+      client.setPropertyInt64('demuxer-readahead-secs', secs);
+    }
   }
 
   void setVolume(double volume) {
@@ -1043,31 +1062,6 @@ class EmbeddedMpvSession {
     _applyAspectModeToClient(client, mode);
   }
 
-  void _applyAspectModeToClient(LibMpvClient client, VideoAspectMode mode) {
-    switch (mode) {
-      case VideoAspectMode.auto:
-        client.setPropertyFlag('keepaspect', true);
-        client.setPropertyDouble('panscan', 0.0);
-        client.setPropertyString('video-aspect-override', '-1');
-      case VideoAspectMode.cover:
-        client.setPropertyFlag('keepaspect', true);
-        client.setPropertyDouble('panscan', 1.0);
-        client.setPropertyString('video-aspect-override', '-1');
-      case VideoAspectMode.stretch:
-        client.setPropertyFlag('keepaspect', false);
-        client.setPropertyDouble('panscan', 0.0);
-        client.setPropertyString('video-aspect-override', '-1');
-      case VideoAspectMode.ratio16x9:
-        client.setPropertyFlag('keepaspect', true);
-        client.setPropertyDouble('panscan', 0.0);
-        client.setPropertyString('video-aspect-override', '16:9');
-      case VideoAspectMode.ratio4x3:
-        client.setPropertyFlag('keepaspect', true);
-        client.setPropertyDouble('panscan', 0.0);
-        client.setPropertyString('video-aspect-override', '4:3');
-    }
-  }
-
   /// 严格按「停止事件订阅 -> 释放 D3D11/Android 渲染句柄 -> 异步 `mpv_terminate_destroy` -> 注销流网桥」串行释放。
   Future<void> dispose() async {
     if (_disposed) return;
@@ -1075,6 +1069,8 @@ class EmbeddedMpvSession {
     ++_loadGeneration;
     _firstFrameWatchdogTimer?.cancel();
     _firstFrameWatchdogTimer = null;
+    _metadataSnapshotTimer?.cancel();
+    _metadataSnapshotTimer = null;
     _pendingRemoteSidecarJob = null;
 
     await _eventSub?.cancel();

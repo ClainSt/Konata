@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/providers/source_actions_provider.dart';
@@ -13,6 +13,7 @@ import '../widgets/design_system/konata_dropdown.dart';
 import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_soft_text_field.dart';
 import '../widgets/design_system/konata_surface_card.dart';
+import '../widgets/design_system/konata_toast.dart';
 import '../widgets/managed_image.dart';
 import '../theme/konata_theme.dart';
 
@@ -78,7 +79,6 @@ class _HybridMatchPanelState extends ConsumerState<HybridMatchPanel> {
   int _selectedSeasonNumber = 0;
   TmdbSeasonDetail? _selectedSeasonDetail;
   int _startEpisodeNumber = 1;
-  String? _errorText;
 
   @override
   void initState() {
@@ -115,10 +115,7 @@ class _HybridMatchPanelState extends ConsumerState<HybridMatchPanel> {
   Future<void> _searchBangumi() async {
     final query = _bgmQueryCtrl.text.trim();
     if (query.isEmpty) return;
-    setState(() {
-      _searchingBgm = true;
-      _errorText = null;
-    });
+    setState(() => _searchingBgm = true);
     try {
       final list = await ref
           .read(konataActionsProvider)
@@ -130,10 +127,8 @@ class _HybridMatchPanelState extends ConsumerState<HybridMatchPanel> {
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _errorText = 'Bangumi 搜索失败: $e';
-        _searchingBgm = false;
-      });
+      setState(() => _searchingBgm = false);
+      showKonataToast(context, 'Bangumi 搜索失败: $e', isError: true);
     }
   }
 
@@ -141,7 +136,6 @@ class _HybridMatchPanelState extends ConsumerState<HybridMatchPanel> {
     setState(() {
       _selectedBgm = item;
       _loadingBgmDetail = true;
-      _errorText = null;
     });
     try {
       final detail = await ref
@@ -161,10 +155,7 @@ class _HybridMatchPanelState extends ConsumerState<HybridMatchPanel> {
   Future<void> _searchTmdb() async {
     final query = _tmdbQueryCtrl.text.trim();
     if (query.isEmpty) return;
-    setState(() {
-      _searchingTmdb = true;
-      _errorText = null;
-    });
+    setState(() => _searchingTmdb = true);
     try {
       final results = await ref
           .read(konataActionsProvider)
@@ -176,28 +167,21 @@ class _HybridMatchPanelState extends ConsumerState<HybridMatchPanel> {
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _errorText = 'TMDB 搜索失败: $e';
-        _searchingTmdb = false;
-      });
+      setState(() => _searchingTmdb = false);
+      showKonataToast(context, 'TMDB 搜索失败: $e', isError: true);
     }
   }
 
   Future<void> _pickTmdb(TmdbSearchResult item) async {
-    setState(() {
-      _loadingTmdbDetail = true;
-      _errorText = null;
-    });
+    setState(() => _loadingTmdbDetail = true);
     try {
       final detail = await ref
           .read(konataActionsProvider)
           .getTmdbWorkDetailInteractive(item.tmdbId, item.mediaType);
       if (!mounted) return;
       if (detail == null) {
-        setState(() {
-          _loadingTmdbDetail = false;
-          _errorText = '未能加载 TMDB 条目 #${item.tmdbId} 详情';
-        });
+        setState(() => _loadingTmdbDetail = false);
+        showKonataToast(context, '未能加载 TMDB 条目 #${item.tmdbId} 详情', isError: true);
         return;
       }
 
@@ -229,10 +213,8 @@ class _HybridMatchPanelState extends ConsumerState<HybridMatchPanel> {
       }
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _loadingTmdbDetail = false;
-        _errorText = '加载 TMDB 母系列失败: $e';
-      });
+      setState(() => _loadingTmdbDetail = false);
+      showKonataToast(context, '加载 TMDB 母系列失败: $e', isError: true);
     }
   }
 
@@ -289,10 +271,6 @@ class _HybridMatchPanelState extends ConsumerState<HybridMatchPanel> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (_errorText != null) ...[
-          Text(_errorText!, style: TextStyle(color: p.danger, fontSize: KonataTheme.fontSizeCaption)),
-          const SizedBox(height: 6),
-        ],
         Expanded(
           child: KonataDraggableScrollbar(
             controller: _outerScrollCtrl,

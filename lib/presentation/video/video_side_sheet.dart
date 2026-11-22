@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:file_picker/file_picker.dart' show FileType;
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
@@ -37,6 +37,7 @@ import '../widgets/design_system/konata_segmented_capsule.dart';
 import '../widgets/design_system/konata_surface_card.dart';
 import '../widgets/design_system/konata_switch.dart';
 import '../widgets/design_system/konata_system_file_picker.dart';
+import '../widgets/design_system/konata_toast.dart';
 import '../widgets/playback/konata_audiophile_unlock_dialog.dart';
 import '../widgets/playback/konata_spec_badge.dart';
 
@@ -186,15 +187,22 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
   }
 
   Future<void> _pickExternalSubtitle(VideoPlaybackController controller) async {
-    final result = await ref.read(konataSystemFilePickerProvider).pickFiles(
-      dialogTitle: '选择外挂字幕文件',
-      type: FileType.custom,
-      allowedExtensions: KonataMediaExtensions.subtitleExtensionsNoDot,
-    );
-    if (!mounted) return;
-    final path = result.isEmpty ? null : result.first.path;
-    if (path != null && path.trim().isNotEmpty) {
-      controller.addExternalSubtitleFile(path.trim());
+    try {
+      final result = await ref.read(konataSystemFilePickerProvider).pickFiles(
+        dialogTitle: '选择外挂字幕文件',
+        type: FileType.custom,
+        allowedExtensions: KonataMediaExtensions.subtitleExtensionsNoDot,
+        allowMultiple: false,
+      );
+      if (!mounted) return;
+      final path = result.isEmpty ? null : result.first.path;
+      if (path != null && path.trim().isNotEmpty) {
+        controller.addExternalSubtitleFile(path.trim());
+      }
+    } catch (e) {
+      if (mounted) {
+        showKonataToast(context, '打开外挂字幕文件失败：$e', isError: true);
+      }
     }
   }
 
@@ -217,6 +225,7 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
           s.subtitleOpenCcMode,
           s.secondarySubtitleTrackId,
           s.activeSubtitleSubsetState,
+          s.isApplyingCloudSubset,
           s.speed,
           s.aspectMode,
           s.audioOnlyMode,
@@ -521,7 +530,13 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
           for (final sub in state.subtitles) ...[
             _SelectableTrackTile(
               primaryTitle: sub.primaryTitle,
-              badgeLabel: sub.sourceFormatBadge,
+              badgeLabel: sub.isCloudSubset ? null : sub.sourceFormatBadge,
+              customTrailingBadge: sub.isCloudSubset
+                  ? KonataSpecBadge(
+                      label: sub.sourceFormatBadge,
+                      highlighted: true,
+                    )
+                  : null,
               tooltipMessage: sub.rawTooltip,
               selected: sub.selected,
               onTap: () => controller.selectSubtitle(sub),
@@ -661,25 +676,60 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
           ],
           if (prefs.cloudSubsetEnabled &&
               controller.hasExternalTextSubtitleSource) ...[
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'FontInAss 已授权源云端字体子集化',
-                    style: TextStyle(color: pPal.textMuted, fontSize: KonataTheme.fontSizeCaptionSm),
+            const SizedBox(height: 10),
+            KonataSurfaceCard(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '字幕子集化',
+                          style: TextStyle(
+                            color: pPal.textPrimary,
+                            fontSize: KonataTheme.fontSizeBodyXs,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '按需提取云端特效字库并新增独立对比轨',
+                          style: TextStyle(
+                            color: pPal.textMuted,
+                            fontSize: KonataTheme.fontSizeCaptionSm,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                KonataPillButton.ghost(
-                  key: const ValueKey('apply_cloud_subset_button'),
-                  label: '云端字库子集',
-                  icon: Icons.cloud_done_outlined,
-                  compact: true,
-                  onPressed: () =>
-                      unawaited(controller.applyCloudSubsetToActiveSubtitle()),
-                ),
-              ],
+                  const SizedBox(width: 10),
+                  KonataPillButton.primary(
+                    key: const ValueKey('apply_cloud_subset_button'),
+                    label: state.isApplyingCloudSubset ? '子集化中...' : '字幕子集化',
+                    icon: state.isApplyingCloudSubset
+                        ? null
+                        : Icons.auto_awesome_rounded,
+                    trailing: state.isApplyingCloudSubset
+                        ? SizedBox(
+                            width: 12,
+                            height: 12,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 1.8,
+                              color: pPal.primaryButtonFg,
+                            ),
+                          )
+                        : null,
+                    compact: true,
+                    onPressed: state.isApplyingCloudSubset
+                        ? null
+                        : () => unawaited(
+                            controller.applyCloudSubsetToActiveSubtitle(),
+                          ),
+                  ),
+                ],
+              ),
             ),
           ],
           const SizedBox(height: 12),
@@ -688,11 +738,12 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
             style: TextStyle(color: pPal.textSecondary, fontSize: KonataTheme.fontSizeBodyXs),
           ),
           Slider(
+            key: const ValueKey('subtitle_font_size_slider'),
             value: prefs.qualityConfig.subFontSize.toDouble().clamp(24, 96),
             min: 24,
             max: 96,
-            divisions: 18,
-            onChanged: (v) => controller.updateLiveQuality(
+            divisions: 72,
+            onChanged: (v) => controller.previewLiveSubtitleStyle(
               (c) => c.copyWith(
                 subFontSize: v.round(),
                 subOverrideMode:
@@ -701,22 +752,25 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
                     : c.subOverrideMode,
               ),
             ),
+            onChangeEnd: (_) => unawaited(controller.commitLiveSubtitleStyle()),
           ),
           Text(
             '底部边距：${prefs.qualityConfig.subBottomMargin}px',
             style: TextStyle(color: pPal.textSecondary, fontSize: KonataTheme.fontSizeBodyXs),
           ),
           Slider(
+            key: const ValueKey('subtitle_bottom_margin_slider'),
             value: prefs.qualityConfig.subBottomMargin.toDouble().clamp(0, 120),
             min: 0,
             max: 120,
-            divisions: 24,
-            onChanged: (v) => controller.updateLiveQuality(
+            divisions: 60,
+            onChanged: (v) => controller.previewLiveSubtitleStyle(
               (c) => c.copyWith(
                 subBottomMargin: v.round(),
                 subOverrideMode: SubtitleAssOverrideMode.forceStyle,
               ),
             ),
+            onChangeEnd: (_) => unawaited(controller.commitLiveSubtitleStyle()),
           ),
           const SizedBox(height: 8),
           Text(
@@ -740,9 +794,12 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
                 label: '统一覆写字体与边距 (Force)',
               ),
             ],
-            onChanged: (mode) => controller.updateLiveQuality(
-              (c) => c.copyWith(subOverrideMode: mode),
-            ),
+            onChanged: (mode) {
+              controller.previewLiveSubtitleStyle(
+                (c) => c.copyWith(subOverrideMode: mode),
+              );
+              unawaited(controller.commitLiveSubtitleStyle());
+            },
           ),
         ],
       ),

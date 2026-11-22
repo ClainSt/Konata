@@ -19,6 +19,8 @@ abstract final class StoragePathConfig {
   static const String cueStageSubdirName = 'konata_cues';
   static const String fontPoolSubdirName = 'konata_fonts';
   static const String cloudSubsetCacheSubdirName = 'konata_cloud_subs';
+  static const String mpvShaderCacheSubdirName = 'mpv_shaders';
+  static const String mpvIccCacheSubdirName = 'mpv_icc';
 }
 
 /// Konata 统一便携根目录解析与工作区路径服务。
@@ -126,17 +128,27 @@ class StorageRootService {
 
   /// 解析并按需创建内置 `libmpv` 隔离配置沙箱 `<Root>/userdata/mpv/`。
   Future<Directory> ensureMpvConfigDir() async {
-    final userdata = await ensureUserdataDir();
-    final dir = Directory(p.join(userdata.path, StoragePathConfig.mpvSubdirName));
+    final root = await resolveAppRoot();
+    final dir = Directory(
+      p.join(
+        root.path,
+        StoragePathConfig.userdataDirName,
+        StoragePathConfig.mpvSubdirName,
+      ),
+    );
     await dir.create(recursive: true);
     return dir;
   }
 
   /// 解析并按需创建自定义 `.glsl` 着色器目录 `<Root>/userdata/shaders/`。
   Future<Directory> ensureShadersDir() async {
-    final userdata = await ensureUserdataDir();
+    final root = await resolveAppRoot();
     final dir = Directory(
-      p.join(userdata.path, StoragePathConfig.shadersSubdirName),
+      p.join(
+        root.path,
+        StoragePathConfig.userdataDirName,
+        StoragePathConfig.shadersSubdirName,
+      ),
     );
     await dir.create(recursive: true);
     return dir;
@@ -226,6 +238,40 @@ class StorageRootService {
     );
     await dir.create(recursive: true);
     return dir;
+  }
+
+  /// 返回便携 `libmpv` GPU 着色器编译缓存目录 `<Root>/cache/mpv_shaders/`（避免冷启动重复编译着色器）。
+  Future<Directory> ensureMpvShaderCacheDir() async {
+    final root = await resolveAppRoot();
+    final dir = Directory(
+      p.join(
+        root.path,
+        StoragePathConfig.cacheDirName,
+        StoragePathConfig.mpvShaderCacheSubdirName,
+      ),
+    );
+    await dir.create(recursive: true);
+    return dir;
+  }
+
+  /// 返回便携 `libmpv` ICC 色彩查找表缓存目录 `<Root>/cache/mpv_icc/`。
+  Future<Directory> ensureMpvIccCacheDir() async {
+    final root = await resolveAppRoot();
+    final dir = Directory(
+      p.join(
+        root.path,
+        StoragePathConfig.cacheDirName,
+        StoragePathConfig.mpvIccCacheSubdirName,
+      ),
+    );
+    await dir.create(recursive: true);
+    return dir;
+  }
+
+  /// 仅解析缓存根目录路径 `<Root>/cache/`（不自动建空目录，供定时清理器只读巡检）。
+  Future<Directory> resolveCacheRootDir() async {
+    final root = await resolveAppRoot();
+    return Directory(p.join(root.path, StoragePathConfig.cacheDirName));
   }
 
   /// 规范化作品名，过滤 Windows 非法路径字符与尾随句点。

@@ -109,17 +109,18 @@ class ShaderDiscoveryState {
 }
 
 /// 异步着色器目录发现与目录路径解析编排器（消除 UI 主线程同步磁盘遍历与 `dart:io` 泄漏）。
-class ShaderDiscoveryNotifier extends StateNotifier<ShaderDiscoveryState> {
-  /// 创建着色器发现编排器并在后台异步完成首次扫描。
-  ShaderDiscoveryNotifier(this._ref) : super(const ShaderDiscoveryState()) {
-    unawaited(refresh());
-  }
-
-  final Ref _ref;
+class ShaderDiscoveryNotifier extends Notifier<ShaderDiscoveryState> {
   bool _pendingRefresh = false;
+
+  @override
+  ShaderDiscoveryState build() {
+    unawaited(Future<void>.microtask(refresh));
+    return const ShaderDiscoveryState();
+  }
 
   /// 异步扫描 `userdata/shaders/` 下的全部可用着色器脚本（若扫描进行中则合并为结束后自动补扫一次）。
   Future<void> refresh() async {
+    if (!ref.mounted) return;
     if (state.isScanning) {
       _pendingRefresh = true;
       return;
@@ -128,9 +129,9 @@ class ShaderDiscoveryNotifier extends StateNotifier<ShaderDiscoveryState> {
       _pendingRefresh = false;
       state = state.copyWith(isScanning: true);
       try {
-        final dir = await _ref.read(storageRootProvider).ensureShadersDir();
+        final dir = await ref.read(storageRootProvider).ensureShadersDir();
         final files = await MpvQualityProfile.discoverShaderFiles(dir);
-        if (!mounted) return;
+        if (!ref.mounted) return;
         state = ShaderDiscoveryState(
           directoryPath: dir.path,
           files: List<ShaderFileEntry>.unmodifiable([
@@ -140,13 +141,15 @@ class ShaderDiscoveryNotifier extends StateNotifier<ShaderDiscoveryState> {
           isScanning: false,
         );
       } catch (e) {
-        _ref
-            .read(diagnosticsLogStoreProvider)
-            .record('SHADER', '异步扫描着色器目录失败：$e', isError: true);
-        if (!mounted) return;
-        state = state.copyWith(isScanning: false);
+        if (ref.mounted) {
+          ref
+              .read(diagnosticsLogStoreProvider)
+              .record('SHADER', '异步扫描着色器目录失败：$e', isError: true);
+          state = state.copyWith(isScanning: false);
+        }
+        return;
       }
-    } while (_pendingRefresh && mounted);
+    } while (_pendingRefresh && ref.mounted);
   }
 
   static final RegExp _unsafeShaderNameChars = RegExp(
@@ -159,8 +162,8 @@ class ShaderDiscoveryNotifier extends StateNotifier<ShaderDiscoveryState> {
     if (existing != null && existing.isNotEmpty) {
       return existing;
     }
-    final dir = await _ref.read(storageRootProvider).ensureShadersDir();
-    if (mounted) {
+    final dir = await ref.read(storageRootProvider).ensureShadersDir();
+    if (ref.mounted) {
       state = state.copyWith(directoryPath: dir.path);
     }
     return dir.path;
@@ -173,7 +176,7 @@ class ShaderDiscoveryNotifier extends StateNotifier<ShaderDiscoveryState> {
     if (sources.isEmpty) {
       return const ShaderImportResult();
     }
-    final dir = await _ref.read(storageRootProvider).ensureShadersDir();
+    final dir = await ref.read(storageRootProvider).ensureShadersDir();
     final imported = <ShaderFileEntry>[];
     var skippedUnsupported = 0;
     var failedCount = 0;
@@ -230,13 +233,17 @@ class ShaderDiscoveryNotifier extends StateNotifier<ShaderDiscoveryState> {
         imported.add(ShaderFileEntry(path: targetPath, name: safeName));
       } catch (e) {
         failedCount++;
-        _ref
-            .read(diagnosticsLogStoreProvider)
-            .record('SHADER', '导入着色器 $rawName 失败：$e', isError: true);
+        if (ref.mounted) {
+          ref
+              .read(diagnosticsLogStoreProvider)
+              .record('SHADER', '导入着色器 $rawName 失败：$e', isError: true);
+        }
       }
     }
 
-    await refresh();
+    if (ref.mounted) {
+      await refresh();
+    }
     return ShaderImportResult(
       imported: List<ShaderFileEntry>.unmodifiable(imported),
       skippedUnsupported: skippedUnsupported,
@@ -249,7 +256,7 @@ class ShaderDiscoveryNotifier extends StateNotifier<ShaderDiscoveryState> {
     final normalizedTarget = path.normalize(shaderPath.trim());
     if (normalizedTarget.isEmpty) return false;
     try {
-      final dir = await _ref.read(storageRootProvider).ensureShadersDir();
+      final dir = await ref.read(storageRootProvider).ensureShadersDir();
       final normalizedDir = path.normalize(dir.path);
       if (!path.isWithin(normalizedDir, normalizedTarget)) {
         return false;
@@ -258,15 +265,19 @@ class ShaderDiscoveryNotifier extends StateNotifier<ShaderDiscoveryState> {
       if (await file.exists()) {
         await file.delete();
       }
-      await _ref
-          .read(playbackPreferencesProvider.notifier)
-          .toggleShaderPath(shaderPath, false);
-      await refresh();
+      if (ref.mounted) {
+        await ref
+            .read(playbackPreferencesProvider.notifier)
+            .toggleShaderPath(shaderPath, false);
+        await refresh();
+      }
       return true;
     } catch (e) {
-      _ref
-          .read(diagnosticsLogStoreProvider)
-          .record('SHADER', '删除着色器失败：$e', isError: true);
+      if (ref.mounted) {
+        ref
+            .read(diagnosticsLogStoreProvider)
+            .record('SHADER', '删除着色器失败：$e', isError: true);
+      }
       return false;
     }
   }
@@ -274,7 +285,7 @@ class ShaderDiscoveryNotifier extends StateNotifier<ShaderDiscoveryState> {
 
 /// 全局按需着色器目录异步发现 Provider（关闭页面自动释放）。
 final shaderDiscoveryProvider =
-    StateNotifierProvider.autoDispose<
+    NotifierProvider.autoDispose<
       ShaderDiscoveryNotifier,
       ShaderDiscoveryState
-    >((ref) => ShaderDiscoveryNotifier(ref));
+    >(ShaderDiscoveryNotifier.new);

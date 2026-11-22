@@ -71,7 +71,7 @@ class D3D11VideoBridge implements KonataVideoTextureBridge {
     final nativeBackend = switch (renderBackend) {
       'comp_10bit' => 'dcomp_10bit',
       'comp_fp16' => 'dcomp_fp16',
-      'texture_fallback' => 'd3d11_fp16',
+      'texture_fallback' => 'd3d11_10bit',
       _ => renderBackend,
     };
     final result = await _channel.invokeMapMethod<String, Object?>(
@@ -170,6 +170,64 @@ class D3D11VideoBridge implements KonataVideoTextureBridge {
       return null;
     } on PlatformException {
       return null;
+    }
+  }
+
+  /// 动态切换共享纹理会话的离屏高色深渲染目标格式（SDR 用 10-bit，HDR 自动升档至 16-bit FP16）。
+  @override
+  Future<bool> setHdrFboEnabled({
+    required int sessionId,
+    required bool enabled,
+  }) async {
+    if (sessionId <= 0) return false;
+    try {
+      final applied = await _channel.invokeMethod<bool>(
+        'setHdrFboEnabled',
+        <String, Object?>{'sessionId': sessionId, 'enabled': enabled},
+      );
+      return applied == true;
+    } on MissingPluginException catch (error) {
+      developer.log(
+        '非桌面宿主环境跳过 HDR FBO 切换',
+        name: 'konata.d3d11_video_bridge',
+        error: error,
+      );
+      return false;
+    } on PlatformException catch (error) {
+      developer.log(
+        '动态切换 HDR FBO 失败，保持当前格式',
+        name: 'konata.d3d11_video_bridge',
+        error: error,
+      );
+      return false;
+    }
+  }
+
+  /// 触发 Windows 原生显存与进程工作集主动回收（释放闲置 D3D11 设备并调用 DXGI Trim）。
+  static Future<void> trimSystemMemory({
+    bool releaseIdleDevice = false,
+    bool trimWorkingSet = true,
+  }) async {
+    try {
+      await const MethodChannel(channelName).invokeMethod<void>(
+        'trimMemory',
+        <String, Object?>{
+          'releaseIdleDevice': releaseIdleDevice,
+          'trimWorkingSet': trimWorkingSet,
+        },
+      );
+    } on MissingPluginException catch (error) {
+      developer.log(
+        '非桌面宿主环境跳过原生内存回收',
+        name: 'konata.d3d11_video_bridge',
+        error: error,
+      );
+    } on PlatformException catch (error) {
+      developer.log(
+        '原生内存回收调用失败',
+        name: 'konata.d3d11_video_bridge',
+        error: error,
+      );
     }
   }
 

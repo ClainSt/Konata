@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:developer' as developer;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -12,19 +13,25 @@ final diagnosticsLogStoreProvider = Provider<DiagnosticsLogStore>((ref) {
 });
 
 /// 详细调试日志开关管理器。
-class VerboseLoggingNotifier extends StateNotifier<bool> {
-  /// 创建调试日志开关管理器。
-  VerboseLoggingNotifier(this._store) : super(false) {
-    _restore();
-  }
+class VerboseLoggingNotifier extends Notifier<bool> {
+  /// 创建调试日志开关管理器（可选传入外部日志存储器以兼容单元测试）。
+  VerboseLoggingNotifier([this._injectedStore]);
 
-  final DiagnosticsLogStore _store;
+  final DiagnosticsLogStore? _injectedStore;
+  late DiagnosticsLogStore _store;
+
+  @override
+  bool build() {
+    _store = _injectedStore ?? ref.watch(diagnosticsLogStoreProvider);
+    unawaited(_restore());
+    return false;
+  }
 
   Future<void> _restore() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final enabled = prefs.getBool(_kVerboseLoggingKey) ?? false;
-      if (!mounted) return;
+      if (!ref.mounted) return;
       state = enabled;
       _store.setVerbose(enabled);
     } catch (error) {
@@ -51,7 +58,6 @@ class VerboseLoggingNotifier extends StateNotifier<bool> {
 }
 
 /// 详细调试日志开关 Provider。
-final verboseLoggingProvider =
-    StateNotifierProvider<VerboseLoggingNotifier, bool>((ref) {
-      return VerboseLoggingNotifier(ref.watch(diagnosticsLogStoreProvider));
-    });
+final verboseLoggingProvider = NotifierProvider<VerboseLoggingNotifier, bool>(
+  VerboseLoggingNotifier.new,
+);

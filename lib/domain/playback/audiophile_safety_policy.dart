@@ -158,7 +158,8 @@ class AudiophileSafetyPolicy {
   /// 规则铁律：
   /// 1. HDMI `audio-spdif` 与任何软件 DSP 严格互斥（直通启用时强制清空 `af`）；
   /// 2. 逐位独占直通模式仅在硬件实证且当次会话显式解锁时允许满幅旁路；否则维持末级 `-12 dBFS` 限幅；
-  /// 3. 非直通路径中，末级 `-12 dBFS` 安全限幅器必须位于一切用户正向增益 DSP 之后。
+  /// 3. 常规共享输出无正向增益用户 DSP 时采用零 `af` 原动态直出（零 `lavfi` CPU 开销），仍保留 150 ms S 型微淡入防爆音；
+  ///    当串联任何用户 DSP 滤镜或请求未解锁的逐位独占直通时，末级 `-12 dBFS` 安全限幅器必须位于链尾。
   static AudioSafetyChainPlan buildPlan({
     required AudioOutputRouteMode requestedMode,
     required AudioDeviceSafetyState safetyState,
@@ -201,19 +202,37 @@ class AudiophileSafetyPolicy {
       );
     }
 
-    // 3. 非直通或未解锁满幅路径：一切正增益用户 DSP 在前，-12 dBFS 安全上限稳居最末级。
     final cleanUpstream = upstreamDspFilters
         .map((f) => f.trim())
         .where((f) => f.isNotEmpty)
         .toList();
+
+    final lockNotice = !safetyState.isBackendMeterVerified
+        ? unverifiedFullScaleLockReason
+        : (isBitPerfectRequested
+              ? '新接入外设默认以 -12 dBFS 安全衰减起步，确认后可解锁本次会话满幅直通'
+              : null);
+
+    // 3. 常规无 DSP 共享模式：系统混音器与软件音量已可安全控幅，免挂 lavfi alimiter 以零额外 CPU 开销直出完整动态，
+    //    同时继续保留 150ms S 型微淡入斜坡消除启播与跳转爆音。
+    if (!isBitPerfectRequested && cleanUpstream.isEmpty) {
+      return AudioSafetyChainPlan(
+        routeMode: requestedMode,
+        gaplessAudioMode: unifiedGaplessMode,
+        prefetchPlaylist: true,
+        audioFilterString: '',
+        audioSpdifCodecs: '',
+        safetyLimiterEngaged: false,
+        microFadeInDurationMs: clampedFadeMs,
+        fullScaleLockNotice: lockNotice,
+      );
+    }
+
+    // 4. 存在用户正向增益 DSP 或请求逐位独占但尚未解锁满幅：一切用户 DSP 在前，-12 dBFS 安全上限稳居最末级。
     final filterChain = <String>[
       ...cleanUpstream,
       postDspSafetyLimiterFilter,
     ].join(',');
-
-    final lockNotice = !safetyState.isBackendMeterVerified
-        ? unverifiedFullScaleLockReason
-        : (isBitPerfectRequested ? '新接入外设默认以 -12 dBFS 安全衰减起步，确认后可解锁本次会话满幅直通' : null);
 
     return AudioSafetyChainPlan(
       routeMode: requestedMode,

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../application/providers/library_providers.dart';
 import '../../application/scraping/scrape_progress.dart';

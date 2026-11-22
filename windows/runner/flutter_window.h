@@ -8,6 +8,7 @@
 
 #include "d3d11_texture_bridge.h"
 #include "win32_window.h"
+#include "windows_file_picker_bridge.h"
 
 // 专门用于承载并托管单一 Flutter 视图的 Win32 顶级窗口包装类。
 class FlutterWindow : public Win32Window {
@@ -32,6 +33,9 @@ class FlutterWindow : public Win32Window {
 
   // 供原生 `libmpv` 视频渲染使用的 D3D11 共享纹理桥接器。
   std::unique_ptr<D3D11TextureBridge> d3d11_bridge_;
+
+  // 在主界面线程同线程安全调起 Win32 系统文件/目录对话框的桥接器。
+  std::unique_ptr<WindowsFilePickerBridge> file_picker_bridge_;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

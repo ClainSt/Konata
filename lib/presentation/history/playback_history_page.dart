@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -197,7 +197,7 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
           .findWorkById(targetId);
       if (!context.mounted) return;
       if (found == null) {
-        showKonataToast(context, '该作品记录已变更或被移出媒体库');
+        showKonataToast(context, '该作品记录已变更或被移出媒体库', isError: true);
         return;
       }
     }
@@ -526,11 +526,11 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
     final imageLoader = ref.watch(tmdbImageLoaderProvider);
     final bottomClearance = KonataBottomClearanceScope.resolve(context, ref);
     final workById = <String, WorkLibraryItem>{
-      for (final item in itemsAsync.valueOrNull ?? const <WorkLibraryItem>[])
+      for (final item in itemsAsync.value ?? const <WorkLibraryItem>[])
         item.work.id: item,
     };
 
-    final allRecords = historyAsync.valueOrNull ?? const <PlaybackRecord>[];
+    final allRecords = historyAsync.value ?? const <PlaybackRecord>[];
     final isAudioTab = _activeTab == PlaybackHistoryCategory.audio;
     final records = allRecords
         .where((r) {

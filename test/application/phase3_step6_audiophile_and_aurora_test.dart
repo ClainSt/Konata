@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -96,7 +96,7 @@ class _RecordingAudioMpvClient implements LibMpvClient {
   int command(List<String> args) => 0;
 
   @override
-  int commandAsync(int replyUserdata, List<String> args) => 0;
+  int commandAsync(int replyUserdata, List<String> args) => command(args);
 
   @override
   Stream<MpvClientEvent> get events => _events.stream;

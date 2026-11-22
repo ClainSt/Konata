@@ -14,7 +14,8 @@ import 'package:ccplayer/infrastructure/network/fanart_service.dart';
 import 'package:ccplayer/presentation/dialogs/work_artwork_picker_dialog.dart';
 import 'package:ccplayer/presentation/library/poster_card.dart';
 import 'package:ccplayer/presentation/theme/konata_theme.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:ccplayer/application/providers/konata_value_notifier.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -246,7 +247,7 @@ void main() {
         ProviderScope(
           overrides: [
             fanartRelayHealthProvider.overrideWith(
-              (ref) => FanartRelayHealthSnapshot.ok,
+              () => KonataValueNotifier.value(FanartRelayHealthSnapshot.ok),
             ),
             workManagementProvider.overrideWith((ref) {
               fakeActions = _FakeWorkManagementActions(ref, fakeOptions);
@@ -343,7 +344,7 @@ void main() {
         ProviderScope(
           overrides: [
             fanartRelayHealthProvider.overrideWith(
-              (ref) => FanartRelayHealthSnapshot.ok,
+              () => KonataValueNotifier.value(FanartRelayHealthSnapshot.ok),
             ),
             workManagementProvider.overrideWith((ref) {
               fakeActions = _FakeWorkManagementActions(ref, fakeOptions);

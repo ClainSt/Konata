@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/providers/library_providers.dart';
@@ -276,7 +276,7 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
     } catch (e) {
       if (mounted) {
         setState(() => _saving = false);
-        showKonataToast(context, '保存系列编组失败: $e');
+        showKonataToast(context, '保存系列编组失败: $e', isError: true);
       }
     }
   }

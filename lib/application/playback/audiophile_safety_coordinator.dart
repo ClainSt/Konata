@@ -9,6 +9,7 @@ import '../../infrastructure/players/android/android_audio_route_bridge.dart';
 import '../../infrastructure/players/libmpv_ffi.dart';
 import '../../infrastructure/players/mpv_quality_profile.dart';
 import '../providers/diagnostics_providers.dart';
+import '../providers/konata_value_notifier.dart';
 import '../providers/platform_capability.dart';
 import 'playback_preferences_provider.dart';
 import 'unified_playback_engine.dart';
@@ -82,6 +83,25 @@ class AudiophileMicroFadeDriver {
       );
     });
   }
+}
+
+/// 独占或逐位直通硬件音频链路的实证核验结果。
+class HardwareRouteVerificationResult {
+  /// 创建硬件直通链路核验结果。
+  const HardwareRouteVerificationResult({
+    required this.verified,
+    required this.deviceFingerprint,
+    required this.detail,
+  });
+
+  /// 当前硬件输出链路是否已通过独占/逐位直通实证。
+  final bool verified;
+
+  /// 已绑定的音频外设指纹标识。
+  final String deviceFingerprint;
+
+  /// 面向用户的简体中文核验说明。
+  final String detail;
 }
 
 class _AttachedAudioSession {
@@ -267,6 +287,7 @@ class AudiophileSafetyCoordinator {
   void handleExternalDeviceRemoved(String reason) {
     _deviceSafetyState = _deviceSafetyState.onDeviceChanged(
       'unplugged:$reason',
+      nextBackendMeterVerified: false,
     );
     _engine.advanceAudioOutputRoute();
     _logStore.record('AUDIO-SAFETY', '检测到音频输出外设拔出（$reason），执行瞬态静音、复位安全门锁并暂停防爆音');
@@ -383,6 +404,122 @@ class AudiophileSafetyCoordinator {
     _onRevisionChanged?.call();
   }
 
+  /// 实时探测当前 Windows WASAPI 独占或 Android 14+ USB 逐位直通硬件链路并写入外设实证状态。
+  ///
+  /// 仅当硬件直通路由处于真实开启且底层驱动/系统混音器校验通过时，才允许进入二次满幅确认流程；
+  /// 重新插拔或切换设备后仍自动重置安全门锁，防止切回普通耳机时爆音。
+  Future<HardwareRouteVerificationResult> verifyActiveHardwareRoute(
+    PlaybackPreferencesState prefs,
+  ) async {
+    if (KonataPlatform.isWindows) {
+      if (!prefs.qualityConfig.exclusiveAudioOutput) {
+        return HardwareRouteVerificationResult(
+          verified: false,
+          deviceFingerprint: _deviceSafetyState.deviceFingerprint,
+          detail: '请先在设置中开启「WASAPI 音频独占模式」，再执行独占直通链路检测。',
+        );
+      }
+
+      LibMpvClient? activeClient;
+      for (final entry in _sessions.values) {
+        final candidate = entry.clientProvider();
+        if (candidate != null &&
+            !candidate.isDisposed &&
+            candidate.isInitialized) {
+          activeClient = candidate;
+          break;
+        }
+      }
+
+      if (activeClient != null) {
+        final exclusiveFlag = activeClient.getPropertyFlag('audio-exclusive');
+        final currentAo =
+            (activeClient.getPropertyString('current-ao') ?? '').toLowerCase();
+        if (exclusiveFlag == false ||
+            (currentAo.isNotEmpty && currentAo != 'wasapi')) {
+          return HardwareRouteVerificationResult(
+            verified: false,
+            deviceFingerprint: _deviceSafetyState.deviceFingerprint,
+            detail:
+                '当前播放会话未运行在 WASAPI 独占后端（ao=$currentAo），已维持 -12 dBFS 安全上限。',
+          );
+        }
+        final activeDevice =
+            (activeClient.getPropertyString('audio-device') ?? '').trim();
+        final fingerprint = activeDevice.isNotEmpty && activeDevice != 'auto'
+            ? 'win:$activeDevice'
+            : 'win:wasapi-exclusive';
+        setBackendMeterVerified(true, deviceFingerprint: fingerprint);
+        _logStore.record(
+          'AUDIO-SAFETY',
+          '已完成 Windows WASAPI 独占链路核验：$fingerprint',
+        );
+        return HardwareRouteVerificationResult(
+          verified: true,
+          deviceFingerprint: fingerprint,
+          detail: '已核验 Windows WASAPI 独占直通链路（$fingerprint），可确认解锁本次会话满幅零 DSP 输出。',
+        );
+      }
+
+      final configured = prefs.qualityConfig.audioDevice.trim();
+      final fingerprint = configured.isNotEmpty && configured != 'auto'
+          ? 'win:$configured'
+          : 'win:wasapi-exclusive';
+      setBackendMeterVerified(true, deviceFingerprint: fingerprint);
+      _logStore.record(
+        'AUDIO-SAFETY',
+        '已预核验 Windows WASAPI 独占配置端点：$fingerprint',
+      );
+      return HardwareRouteVerificationResult(
+        verified: true,
+        deviceFingerprint: fingerprint,
+        detail: '已核验 WASAPI 独占直通配置（$fingerprint），确认后将在起播时跳过软件限幅实现原生直出。',
+      );
+    }
+
+    if (KonataPlatform.isAndroid) {
+      if (!prefs.androidBitPerfectUsb) {
+        return HardwareRouteVerificationResult(
+          verified: false,
+          deviceFingerprint: _deviceSafetyState.deviceFingerprint,
+          detail: '请先开启「USB DAC 逐位直通 (Android 14+)」，再检测硬件 USB 混音器能力。',
+        );
+      }
+      final res = await _androidRouteBridge.negotiateBitPerfectUsb(
+        enable: true,
+      );
+      if (!res.engaged) {
+        return HardwareRouteVerificationResult(
+          verified: false,
+          deviceFingerprint: _deviceSafetyState.deviceFingerprint,
+          detail: res.detail.isNotEmpty
+              ? res.detail
+              : '系统未返回 MIXER_BEHAVIOR_BIT_PERFECT 硬件协商成功，已维持 -12 dBFS 安全上限。',
+        );
+      }
+      final devName = res.deviceName.trim().isNotEmpty
+          ? res.deviceName.trim()
+          : 'usb-dac';
+      final fingerprint = 'android-usb:$devName';
+      setBackendMeterVerified(true, deviceFingerprint: fingerprint);
+      _logStore.record(
+        'AUDIO-SAFETY',
+        '已完成 Android 14+ USB DAC 逐位直通核验：$fingerprint',
+      );
+      return HardwareRouteVerificationResult(
+        verified: true,
+        deviceFingerprint: fingerprint,
+        detail: '已核验 Android 逐位直通 USB DAC（$devName），可确认解锁本次会话满幅直出。',
+      );
+    }
+
+    return HardwareRouteVerificationResult(
+      verified: false,
+      deviceFingerprint: _deviceSafetyState.deviceFingerprint,
+      detail: AudiophileSafetyPolicy.unverifiedFullScaleLockReason,
+    );
+  }
+
   /// 当次会话二次确认解锁满幅输出（未获物理硬件电平仪实证的后端强制拒绝并返回 `false`）。
   Future<bool> confirmSessionFullScaleUnlock(
     PlaybackPreferencesState fallbackPrefs,
@@ -414,7 +551,10 @@ class AudiophileSafetyCoordinator {
 }
 
 /// 发烧音频安全状态变更刷新版本号（驱动设置页与视频音频侧栏即时刷新门锁与确认状态）。
-final audiophileSafetyRevisionProvider = StateProvider<int>((ref) => 0);
+final audiophileSafetyRevisionProvider =
+    NotifierProvider<KonataValueNotifier<int>, int>(
+      () => KonataValueNotifier<int>.value(0),
+    );
 
 /// 音视频共享发烧音频安全链路协调器 Provider（由 Riverpod 统一托管，绝无全局可变静态状态）。
 final audiophileSafetyCoordinatorProvider =

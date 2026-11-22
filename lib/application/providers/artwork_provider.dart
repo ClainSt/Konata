@@ -20,6 +20,10 @@ import 'scraping_providers.dart';
 
 /// 图片尺寸与专辑封面内存 LRU 缓存容器（由 Riverpod 托管，消除顶层可变静态表）。
 class ArtworkMemoryCaches {
+  /// 音频专辑封面内存字节预算上限（16 MiB，避免多张无损内嵌封面无限堆积）。
+  static const int maxAudioCoverMemoryBytes = 16 * 1024 * 1024;
+  static const int _maxSingleAudioCoverBytes = 4 * 1024 * 1024;
+
   final Map<String, (int, int)> originalDimensions = {};
   final Map<String, Uint8List> audioAlbumCovers = {};
   final Map<String, Uint8List> audioDirAlbumCovers = {};
@@ -27,6 +31,37 @@ class ArtworkMemoryCaches {
   final Set<String> missingDirAlbumCoverKeys = {};
   final Map<String, Future<Uint8List?>> _inFlightDirCoverLoads = {};
   Future<void> _remoteCoverSerialTail = Future<void>.value();
+
+  /// 当前专辑封面去重后的内存字节估算值。
+  int get currentAudioCoverBytes {
+    final seen = <int>{};
+    var total = 0;
+    for (final b in audioDirAlbumCovers.values) {
+      if (seen.add(identityHashCode(b))) total += b.length;
+    }
+    for (final b in audioAlbumCovers.values) {
+      if (seen.add(identityHashCode(b))) total += b.length;
+    }
+    return total;
+  }
+
+  void _evictAudioCoversIfOverBudget() {
+    while (currentAudioCoverBytes > maxAudioCoverMemoryBytes) {
+      if (audioAlbumCovers.isNotEmpty) {
+        audioAlbumCovers.remove(audioAlbumCovers.keys.first);
+      } else if (audioDirAlbumCovers.isNotEmpty) {
+        audioDirAlbumCovers.remove(audioDirAlbumCovers.keys.first);
+      } else {
+        break;
+      }
+    }
+  }
+
+  /// 释放非必须的瞬态专辑封面内存缓存（用于停播闲置或窗口最小化降内存）。
+  void trimTransientCaches() {
+    audioAlbumCovers.clear();
+    audioDirAlbumCovers.clear();
+  }
 
   /// 计算音频所属专辑目录的标准化共享缓存键（同目录所有曲目共享单张专辑封面）。
   static String dirKeyOf(String sourceId, String relativePath) {
@@ -72,14 +107,16 @@ class ArtworkMemoryCaches {
     return null;
   }
 
-  /// 缓存音频专辑封面字节（同步写入曲目键与目录共享键），超限时按 FIFO 淘汰最早条目。
+  /// 缓存音频专辑封面字节（同步写入曲目键与目录共享键），受 16 MiB 字节预算与条目数双重约束。
   void putAudioAlbumCover(String key, Uint8List bytes) {
-    if (bytes.isEmpty) return;
-    if (audioAlbumCovers.length >= 64) {
+    if (bytes.isEmpty || bytes.length > _maxSingleAudioCoverBytes) return;
+    if (audioAlbumCovers.length >= 48) {
       audioAlbumCovers.remove(audioAlbumCovers.keys.first);
     }
     missingLocalAlbumCoverKeys.remove(key);
+    audioAlbumCovers.remove(key);
     audioAlbumCovers[key] = bytes;
+    _evictAudioCoversIfOverBudget();
   }
 
   /// 写入专辑目录级共享封面（供详情页 CD 卡片、播放记录与全屏音频页三处互通）。
@@ -89,15 +126,18 @@ class ArtworkMemoryCaches {
     required Uint8List bytes,
     String? variantId,
   }) {
-    if (bytes.isEmpty) return;
+    if (bytes.isEmpty || bytes.length > _maxSingleAudioCoverBytes) return;
     final dirKey = dirKeyOf(sourceId, relativePath);
     missingDirAlbumCoverKeys.remove(dirKey);
-    if (audioDirAlbumCovers.length >= 64) {
+    if (audioDirAlbumCovers.length >= 48) {
       audioDirAlbumCovers.remove(audioDirAlbumCovers.keys.first);
     }
+    audioDirAlbumCovers.remove(dirKey);
     audioDirAlbumCovers[dirKey] = bytes;
     if (variantId != null && variantId.isNotEmpty) {
       putAudioAlbumCover('$dirKey::$variantId', bytes);
+    } else {
+      _evictAudioCoversIfOverBudget();
     }
   }
 
@@ -213,7 +253,7 @@ PhotoSubfolder _mapArtworkToSubfolder(ManagedArtwork? artwork) {
   };
 }
 
-/// 前台 UI 高优先级 TMDB 图片加载器 Provider（UI 层零 HTTP / IO 依赖）。
+/// 前台 UI 高优先级 TMDB 图片加载器 Provider（UI 层零 HTTP / IO 依赖；本地缓存命中零 HTTP 客户端开销，未命中复用 Keep-Alive 连接池）。
 final tmdbImageLoaderProvider = Provider<ManagedImageLoader>((ref) {
   return bindManagedArtworkLoader((
     String pathOrUrl, {
@@ -225,16 +265,33 @@ final tmdbImageLoaderProvider = Provider<ManagedImageLoader>((ref) {
     if (pathOrUrl.isEmpty) {
       return Uint8List(0);
     }
-    final config = await ref.read(tmdbNetworkConfigProvider.future);
-    final cache = await ref.read(artworkCacheProvider.future);
-    final client = createAppTmdbHttpClient(ref, config);
+    final subfolder = _mapArtworkToSubfolder(artwork);
+    final cacheAsync = ref.read(artworkCacheProvider);
+    final cache = cacheAsync.hasValue
+        ? cacheAsync.requireValue
+        : await ref.read(artworkCacheProvider.future);
+    final cachedBytes = await TmdbService.readCachedImageBytes(
+      pathOrUrl,
+      artworkCache: cache,
+      size: imageSize,
+      targetWidth: targetWidth,
+      ownerWorkId: ownerWorkId,
+      subfolder: subfolder,
+    );
+    if (cachedBytes != null) {
+      return cachedBytes;
+    }
+    final clientAsync = ref.read(appTmdbHttpClientProvider);
+    final client = clientAsync.hasValue
+        ? clientAsync.requireValue
+        : await ref.read(appTmdbHttpClientProvider.future);
     final tmdb = TmdbService(httpClient: client, artworkCache: cache);
     return tmdb.fetchImageBytes(
       pathOrUrl,
       size: imageSize,
       targetWidth: targetWidth,
       ownerWorkId: ownerWorkId,
-      subfolder: _mapArtworkToSubfolder(artwork),
+      subfolder: subfolder,
       priority: RequestPriority.interactive,
     );
   });

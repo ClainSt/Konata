@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import 'konata_palette.dart';
 import 'konata_theme.dart';
@@ -290,6 +290,11 @@ abstract final class KonataPlaybackTokens {
   /// 物理弹簧初始归一化速度钳位上限，防止极高速甩动产生过冲。
   static const double springNormalizedVelocityMax = 14.0;
 
+  /// 反向收起弹簧兜底超时上限（防止慢帧或 Ticker 静默导致永远不回调并锁死悬浮小窗移交）。
+  static const Duration stageMorphCollapseFailsafeTimeout = Duration(
+    milliseconds: 650,
+  );
+
   /// Windows 左方向键按住连发快退节流周期（250ms）。
   static const Duration arrowLeftRepeatThrottle = Duration(milliseconds: 250);
 
@@ -462,6 +467,9 @@ abstract final class KonataPlaybackTokens {
 
   /// 音量滑块圆点交互缩放过渡时长。
   static const Duration volumeKnobMotionDuration = Duration(milliseconds: 100);
+
+  /// 悬浮视频小窗稳态缩降渲染目标尺寸前的防抖间隔（避开全屏收起弹簧动画期间的逐帧重分配）。
+  static const Duration miniSurfaceResizeDebounce = Duration(milliseconds: 180);
 
   /// 歌词与当前队列高亮行统一柔光阴影（随明暗主题自动切换对比度）。
   static List<Shadow> lyricGlowShadow(

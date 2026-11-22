@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -97,30 +97,30 @@ int _p99Int(List<int> values) {
 /// 绑定真实 `D3D11VideoBridge` 底层子窗口视口同步的 Windows 悬浮小窗共存验证控制器。
 class _WindowsUnderlayCoexistenceController extends VideoPlaybackController {
   _WindowsUnderlayCoexistenceController(
-    super.ref,
     super.request, {
     required this.bridge,
     required this.sessionId,
-  }) : super(deferBootstrap: true) {
-    state = VideoPlaybackState(
-      isInitializing: false,
-      isBuffering: false,
-      hasFirstFrame: true,
-      isPlaying: true,
-      windowsUnderlayActive: true,
-      renderBackend: 'gpu_next',
-      currentWork: request.work,
-      currentBundle: request.bundle,
-      currentEpisode: request.episode,
-      currentVariant: request.variant,
-      durationSeconds: 120.0,
-      positionSeconds: 12.0,
-      probeStats: const PlaybackProbeStats(
-        videoWidth: 1280,
-        videoHeight: 720,
-      ),
-    );
-  }
+  }) : super(
+         deferBootstrap: true,
+         initialState: VideoPlaybackState(
+           isInitializing: false,
+           isBuffering: false,
+           hasFirstFrame: true,
+           isPlaying: true,
+           windowsUnderlayActive: true,
+           renderBackend: 'gpu_next',
+           currentWork: request.work,
+           currentBundle: request.bundle,
+           currentEpisode: request.episode,
+           currentVariant: request.variant,
+           durationSeconds: 120.0,
+           positionSeconds: 12.0,
+           probeStats: const PlaybackProbeStats(
+             videoWidth: 1280,
+             videoHeight: 720,
+           ),
+         ),
+       );
 
   final D3D11VideoBridge bridge;
   final int sessionId;
@@ -242,7 +242,9 @@ void main() {
                 preset: VideoQualityPreset.highFidelity,
                 outputPipelineMode: requestedBackend == 'dcomp_10bit'
                     ? VideoOutputPipelineMode.layered10Bit
-                    : VideoOutputPipelineMode.legacyTextureFallback,
+                    : (requestedBackend == 'd3d11_fp16'
+                          ? VideoOutputPipelineMode.layeredFp16
+                          : VideoOutputPipelineMode.legacyTextureFallback),
               ),
               mpvConfigDir: tempMpvDir,
               isWindowsOverride: true,
@@ -429,22 +431,28 @@ void main() {
         }
       }
 
-      // 预热三套管线（libplacebo gpu-next / DirectComposition 10-bit / 8-bit 兼容共享纹理）。
-      for (final name in const ['gpu_next', 'dcomp_10bit', 'd3d11_fp16']) {
+      // 预热四套管线（gpu-next / DirectComposition 10-bit / 10-bit 共享纹理 / FP16 共享纹理）。
+      for (final name in const [
+        'gpu_next',
+        'dcomp_10bit',
+        'd3d11_10bit',
+        'd3d11_fp16',
+      ]) {
         await runSingleBackendTrial(
           name,
           sampleDuration: const Duration(milliseconds: 450),
         );
       }
 
-      // 正反交替 5 轮 A/B/C 采样（消除热漂移与顺序偏差）。
+      // 正反交替 5 轮四端对比采样（消除热漂移与顺序偏差）。
       final gpuNextSamples = <Map<String, Object?>>[];
       final dcompSamples = <Map<String, Object?>>[];
-      final d3d11Samples = <Map<String, Object?>>[];
+      final d3d11TenBitSamples = <Map<String, Object?>>[];
+      final d3d11Fp16Samples = <Map<String, Object?>>[];
       for (var round = 0; round < 5; round++) {
         final order = round.isEven
-            ? const ['gpu_next', 'dcomp_10bit', 'd3d11_fp16']
-            : const ['d3d11_fp16', 'dcomp_10bit', 'gpu_next'];
+            ? const ['gpu_next', 'dcomp_10bit', 'd3d11_10bit', 'd3d11_fp16']
+            : const ['d3d11_fp16', 'd3d11_10bit', 'dcomp_10bit', 'gpu_next'];
         for (final backendName in order) {
           final sample = await runSingleBackendTrial(
             backendName,
@@ -454,8 +462,10 @@ void main() {
             gpuNextSamples.add(sample);
           } else if (backendName == 'dcomp_10bit') {
             dcompSamples.add(sample);
+          } else if (backendName == 'd3d11_10bit') {
+            d3d11TenBitSamples.add(sample);
           } else {
-            d3d11Samples.add(sample);
+            d3d11Fp16Samples.add(sample);
           }
         }
       }
@@ -579,9 +589,8 @@ void main() {
           await tester.pumpWidget(
             ProviderScope(
               overrides: [
-                videoPlaybackProvider(req).overrideWith((ref) {
+                videoPlaybackProvider(req).overrideWith(() {
                   coexistenceCtrl = _WindowsUnderlayCoexistenceController(
-                    ref,
                     req,
                     bridge: bridge,
                     sessionId: sessionId,
@@ -636,12 +645,15 @@ void main() {
             findsOneWidget,
           );
 
-          // 确认 Windows 底层子窗口模式下小窗未被 ClipRRect 或外层 RepaintBoundary 阻断挖空。
-          final clipInsideMini = find.descendant(
+          // 确认 Windows 底层子窗口模式下挖空表面未被 ClipRRect 或外层 RepaintBoundary 阻断穿透。
+          final clipWrappingUnderlay = find.descendant(
             of: miniFinder,
-            matching: find.byType(ClipRRect),
+            matching: find.ancestor(
+              of: find.byKey(const ValueKey('windows_underlay_cutout_surface')),
+              matching: find.byType(ClipRRect),
+            ),
           );
-          expect(clipInsideMini, findsNothing);
+          expect(clipWrappingUnderlay, findsNothing);
 
           final repaintAncestorsBetweenMiniAndPlayer = find.descendant(
             of: find.byType(KonataFloatingMiniPlayer),
@@ -759,10 +771,11 @@ void main() {
         'supportsFp16': caps.supportsFp16,
         'supports10Bit': caps.supports10Bit,
         'supportsDcomp10Bit': caps.supportsDcomp10Bit,
-        'selectedDefaultBackend': 'gpu_next',
+        'selectedDefaultBackend': 'd3d11_10bit',
         'gpu_next': summarize(gpuNextSamples),
         'dcomp_10bit': summarize(dcompSamples),
-        'd3d11_fp16': summarize(d3d11Samples),
+        'd3d11_10bit': summarize(d3d11TenBitSamples),
+        'd3d11_fp16': summarize(d3d11Fp16Samples),
         'coexistenceVerification': coexistenceVerification,
       };
 
@@ -783,7 +796,16 @@ void main() {
 
       expect(gpuNextSamples.length, equals(5));
       expect(dcompSamples.length, equals(5));
-      expect(d3d11Samples.length, equals(5));
+      expect(d3d11TenBitSamples.length, equals(5));
+      expect(d3d11Fp16Samples.length, equals(5));
+      expect(
+        (report['d3d11_10bit']! as Map)['colorBitDepth'],
+        equals(10),
+      );
+      expect(
+        (report['d3d11_fp16']! as Map)['colorBitDepth'],
+        equals(16),
+      );
       expect((report['gpu_next']! as Map)['currentVo'], equals('gpu-next'));
       expect(
         (report['gpu_next']! as Map)['colorBitDepth'],

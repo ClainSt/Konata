@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../domain/matching/episode_title_formatter.dart';
 import '../../domain/models/episode.dart';

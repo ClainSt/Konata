@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// 显式绑定独立生命周期 `ScrollController` 的桌面端可拖拽滚动条容器。
 class KonataDraggableScrollbar extends StatefulWidget {

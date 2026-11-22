@@ -103,6 +103,7 @@ class _RegisteredStreamSession {
   int? cachedLength;
   Future<int?>? inflightLengthProbe;
   RemoteWindowReader? windowReader;
+  Future<void> Function()? prewarmCancel;
   String? lastDiagnosticError;
   SourceAccessProblemKind? lastDiagnosticKind;
 }
@@ -287,16 +288,120 @@ class LocalStreamBridge {
     return (token: token, url: url);
   }
 
+  /// 静默预热指定流会话的片头与片尾元数据区间（EBML/Tracks/Cues/moov），
+  /// 写入该会话 `RemoteWindowReader` 的首尾常驻缓存区，不增加额外磁盘落盘；会话注销时即时取消。
+  Future<bool> prewarmSessionMetadata(
+    String token, {
+    int headBytes = 1024 * 1024,
+    int tailBytes = 512 * 1024,
+  }) async {
+    final session = _sessions[token];
+    if (session == null) return false;
+    var canceled = false;
+    StreamSubscription<List<int>>? activeSub;
+    Completer<void>? activeDone;
+    session.prewarmCancel = () async {
+      canceled = true;
+      await activeSub?.cancel();
+      if (activeDone != null && !activeDone!.isCompleted) {
+        activeDone!.complete();
+      }
+    };
+
+    Future<bool> drainRange(
+      RemoteWindowReader reader,
+      int start,
+      int endInclusive,
+    ) async {
+      if (canceled || _sessions[token] != session || endInclusive < start) {
+        return false;
+      }
+      final done = Completer<void>();
+      activeDone = done;
+      activeSub = reader
+          .read(start: start, endInclusive: endInclusive)
+          .listen(
+            (_) {},
+            onError: (_) {
+              if (!done.isCompleted) done.complete();
+            },
+            onDone: () {
+              if (!done.isCompleted) done.complete();
+            },
+            cancelOnError: true,
+          );
+      await done.future;
+      await activeSub?.cancel();
+      activeSub = null;
+      activeDone = null;
+      return !canceled && _sessions[token] == session;
+    }
+
+    try {
+      session.activeStreams += 1;
+      session.lastAccessedAt = DateTime.now();
+      final totalLength = await _resolveTotalLength(session);
+      if (canceled ||
+          _sessions[token] != session ||
+          totalLength == null ||
+          totalLength <= 0) {
+        return false;
+      }
+      final reader = session.windowReader ??= RemoteWindowReader(
+        gateway: session.gateway,
+        relativePath: session.relativePath,
+        totalLength: totalLength,
+      );
+      final headEnd = (headBytes - 1).clamp(0, totalLength - 1);
+      final headOk = await drainRange(reader, 0, headEnd);
+      if (!headOk) return false;
+      if (tailBytes > 0 && totalLength > headEnd + 1) {
+        final tailStart = (totalLength - tailBytes).clamp(
+          headEnd + 1,
+          totalLength - 1,
+        );
+        await drainRange(reader, tailStart, totalLength - 1);
+      }
+      return !canceled && _sessions[token] == session;
+    } catch (error) {
+      developer.log(
+        '静默预热流会话元数据忽略',
+        name: 'konata.local_stream_bridge',
+        error: error,
+      );
+      return false;
+    } finally {
+      session.prewarmCancel = null;
+      session.activeStreams = (session.activeStreams - 1).clamp(0, 100000);
+      session.lastAccessedAt = DateTime.now();
+    }
+  }
+
   /// 注销单个流会话并按需释放关联网关。
   Future<void> unregisterSession(String token) async {
     final session = _sessions.remove(token);
+    if (session?.prewarmCancel != null) {
+      try {
+        await session!.prewarmCancel!();
+      } catch (error) {
+        developer.log(
+          '取消会话预热任务忽略',
+          name: 'konata.local_stream_bridge',
+          error: error,
+        );
+      }
+    }
     session?.windowReader?.clear();
     if (session != null && session.ownsGateway) {
       try {
         await session.gateway.close();
       } catch (error) {
-      developer.log('可恢复异常已记录', name: 'konata.local_stream_bridge', error: error);
-    }
+        developer.log(
+          '可恢复异常已记录',
+          name: 'konata.local_stream_bridge',
+          error: error,
+        );
+      }
     }
   }
 

@@ -1,10 +1,10 @@
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -44,21 +44,22 @@ final Uint8List _sample1x1Png = Uint8List.fromList(const <int>[
 ]);
 
 class _Stage1StubVideoController extends VideoPlaybackController {
-  _Stage1StubVideoController(super.ref, super.request)
-    : super(deferBootstrap: true) {
-    state = VideoPlaybackState(
-      isInitializing: false,
-      isBuffering: false,
-      hasFirstFrame: true,
-      isPlaying: true,
-      currentWork: request.work,
-      currentBundle: request.bundle,
-      currentEpisode: request.episode,
-      currentVariant: request.variant,
-      positionSeconds: 120,
-      durationSeconds: 1420,
-    );
-  }
+  _Stage1StubVideoController(super.request)
+    : super(
+        deferBootstrap: true,
+        initialState: VideoPlaybackState(
+          isInitializing: false,
+          isBuffering: false,
+          hasFirstFrame: true,
+          isPlaying: true,
+          currentWork: request.work,
+          currentBundle: request.bundle,
+          currentEpisode: request.episode,
+          currentVariant: request.variant,
+          positionSeconds: 120,
+          durationSeconds: 1420,
+        ),
+      );
 
   @override
   void togglePlayPause() {
@@ -72,9 +73,8 @@ class _Stage1StubVideoController extends VideoPlaybackController {
 }
 
 class _Stage1StubAudioNotifier extends AudioPlaybackNotifier {
-  _Stage1StubAudioNotifier(super.ref, AudioPlaybackState initial) {
-    state = initial;
-  }
+  _Stage1StubAudioNotifier(AudioPlaybackState initial)
+    : super(initialState: initial);
 
   @override
   Future<void> toggleMute() async {
@@ -465,7 +465,7 @@ void main() {
           ProviderScope(
             overrides: [
               videoPlaybackProvider(req).overrideWith(
-                (ref) => _Stage1StubVideoController(ref, req),
+                () => _Stage1StubVideoController(req),
               ),
             ],
             child: MaterialApp(
@@ -729,8 +729,7 @@ void main() {
             const ImmersiveAudioPage(),
             overrides: [
               audioPlaybackProvider.overrideWith(
-                (ref) => _Stage1StubAudioNotifier(
-                  ref,
+                () => _Stage1StubAudioNotifier(
                   const AudioPlaybackState(
                     isActive: true,
                     isPlaying: true,

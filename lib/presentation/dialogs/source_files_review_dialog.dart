@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/providers/library_providers.dart';
@@ -243,8 +243,8 @@ class _SourceFilesReviewDialogState
     final p = context.palette;
     final bundle = ref
         .watch(workDetailBundleProvider(widget.item.work.id))
-        .valueOrNull;
-    final sources = ref.watch(mediaSourcesProvider).valueOrNull ?? const [];
+        .value;
+    final sources = ref.watch(mediaSourcesProvider).value ?? const [];
     final sourcesById = <String, MediaSource>{
       for (final s in sources) s.id: s,
     };

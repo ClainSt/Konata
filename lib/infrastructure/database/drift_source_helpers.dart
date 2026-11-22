@@ -39,46 +39,51 @@ Future<void> pruneStaleSourceEntriesInDb(
       db.mediaVariants,
     )..where((t) => t.sourceId.equals(sourceId))).get();
 
-    final affectedWorkIds = <String>{};
+    final staleVariantIds = <String>[];
     for (final v in existingVariants) {
       if (!inScope(v.relativePath)) continue;
-      affectedWorkIds.add(v.workId);
       if (!activeVariantIds.contains(v.id)) {
-        await (db.delete(
-          db.mediaVariants,
-        )..where((t) => t.id.equals(v.id))).go();
+        staleVariantIds.add(v.id);
       }
     }
 
-    for (final workId in affectedWorkIds) {
-      if (activeWorkIds.contains(workId)) continue;
-      final remaining = await (db.select(
+    // 分块批量删除失效变体，避免逐行 DELETE 往返。
+    const chunkSize = 400;
+    for (var i = 0; i < staleVariantIds.length; i += chunkSize) {
+      final end = (i + chunkSize) > staleVariantIds.length
+          ? staleVariantIds.length
+          : i + chunkSize;
+      final chunk = staleVariantIds.sublist(i, end);
+      await (db.delete(
         db.mediaVariants,
-      )..where((t) => t.workId.equals(workId))).get();
-      if (remaining.isNotEmpty) continue;
-
-      await (db.delete(
-        db.episodes,
-      )..where((t) => t.workId.equals(workId))).go();
-      await (db.delete(
-        db.works,
-      )..where((t) => t.id.equals(workId))).go();
+      )..where((t) => t.id.isIn(chunk))).go();
     }
 
-    // 清理重扫合并或合集拆簇后已没有任何物理变体关联的遗留空作品（如合集拆簇前旧卡片）。
-    final allWorks = await db.select(db.works).get();
-    for (final w in allWorks) {
-      if (activeWorkIds.contains(w.id)) continue;
-      final remaining = await (db.select(
-        db.mediaVariants,
-      )..where((t) => t.workId.equals(w.id))).get();
-      if (remaining.isNotEmpty) continue;
-      await (db.delete(
-        db.episodes,
-      )..where((t) => t.workId.equals(w.id))).go();
-      await (db.delete(
-        db.works,
-      )..where((t) => t.id.equals(w.id))).go();
+    // 一次索引聚合查询找出仍拥有至少一个物理变体的作品 ID，彻底消除逐作品 N+1 查询。
+    final occupiedRows = await db
+        .customSelect('SELECT DISTINCT work_id FROM media_variants')
+        .get();
+    final occupiedWorkIds = <String>{
+      for (final row in occupiedRows) row.read<String>('work_id'),
+    };
+
+    final allWorkIdRows = await db.customSelect('SELECT id FROM works').get();
+    final emptyWorkIds = <String>[];
+    for (final row in allWorkIdRows) {
+      final workId = row.read<String>('id');
+      if (activeWorkIds.contains(workId) || occupiedWorkIds.contains(workId)) {
+        continue;
+      }
+      emptyWorkIds.add(workId);
+    }
+
+    for (var i = 0; i < emptyWorkIds.length; i += chunkSize) {
+      final end = (i + chunkSize) > emptyWorkIds.length
+          ? emptyWorkIds.length
+          : i + chunkSize;
+      final chunk = emptyWorkIds.sublist(i, end);
+      await (db.delete(db.episodes)..where((t) => t.workId.isIn(chunk))).go();
+      await (db.delete(db.works)..where((t) => t.id.isIn(chunk))).go();
     }
   });
 }
@@ -99,10 +104,18 @@ Future<void> deleteOrphanEpisodesInDb(
     final episodes = await (db.select(
       db.episodes,
     )..where((t) => t.workId.equals(workId))).get();
-    for (final ep in episodes) {
-      if (!referencedEpisodeIds.contains(ep.id)) {
-        await (db.delete(db.episodes)..where((t) => t.id.equals(ep.id))).go();
-      }
+    final orphanIds = <String>[
+      for (final ep in episodes)
+        if (!referencedEpisodeIds.contains(ep.id)) ep.id,
+    ];
+    if (orphanIds.isEmpty) return;
+    const chunkSize = 400;
+    for (var i = 0; i < orphanIds.length; i += chunkSize) {
+      final end = (i + chunkSize) > orphanIds.length
+          ? orphanIds.length
+          : i + chunkSize;
+      final chunk = orphanIds.sublist(i, end);
+      await (db.delete(db.episodes)..where((t) => t.id.isIn(chunk))).go();
     }
   });
 }

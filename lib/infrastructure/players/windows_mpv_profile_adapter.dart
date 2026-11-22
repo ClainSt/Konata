@@ -23,8 +23,10 @@ class WindowsMpvProfileDelegate implements MpvPlatformProfileDelegate {
     return switch (raw) {
       'dcomp_10bit' => VideoOutputPipelineMode.layered10Bit.bridgeKey,
       'dcomp_fp16' => VideoOutputPipelineMode.layeredFp16.bridgeKey,
-      'd3d11_fp16' || 'd3d11Fp16' =>
-        VideoOutputPipelineMode.legacyTextureFallback.bridgeKey,
+      'd3d11_fp16' ||
+      'd3d11Fp16' ||
+      'd3d11_10bit' ||
+      'd3d1110Bit' => VideoOutputPipelineMode.legacyTextureFallback.bridgeKey,
       _ => raw,
     };
   }
@@ -98,7 +100,10 @@ class WindowsMpvProfileDelegate implements MpvPlatformProfileDelegate {
       setter.setOption(client, 'gpu-api', 'd3d11');
       setter.setOption(client, 'target-colorspace-hint', 'auto');
     }
-    setter.setOption(client, 'fbo-format', 'rgba16hf');
+    final useFp16Fbo =
+        useGpuNext ||
+        config.outputPipelineMode == VideoOutputPipelineMode.layeredFp16;
+    setter.setOption(client, 'fbo-format', useFp16Fbo ? 'rgba16hf' : 'rgb10_a2');
   }
 
   @override
@@ -109,6 +114,9 @@ class WindowsMpvProfileDelegate implements MpvPlatformProfileDelegate {
   ) {
     if (config.exclusiveAudioOutput) {
       setter.setOption(client, 'audio-exclusive', 'yes');
+      // 独占模式显式保持源采样率与原生位深直出，杜绝意外强制软件重采样。
+      setter.setOption(client, 'audio-samplerate', '0');
+      setter.setOption(client, 'audio-format', 'no');
     }
   }
 
@@ -139,7 +147,10 @@ class WindowsMpvProfileDelegate implements MpvPlatformProfileDelegate {
       'audio-exclusive',
       config.exclusiveAudioOutput,
     );
-    if (config.exclusiveAudioOutput && !exclusiveOk) {
+    if (config.exclusiveAudioOutput && exclusiveOk) {
+      setter.setInt(client, 'audio-samplerate', 0);
+      setter.setString(client, 'audio-format', 'no');
+    } else if (config.exclusiveAudioOutput && !exclusiveOk) {
       setter.setBool(client, 'audio-exclusive', false);
       onNotice?.call('当前音频设备不支持 WASAPI 独占模式，已自动切回共享模式');
     }

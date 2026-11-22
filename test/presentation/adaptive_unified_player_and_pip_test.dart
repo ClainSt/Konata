@@ -1,9 +1,9 @@
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:ccplayer/application/providers/konata_value_notifier.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -48,9 +48,7 @@ final Uint8List _sample1x1Png = Uint8List.fromList(const <int>[
 ]);
 
 class _StubAudioNotifier extends AudioPlaybackNotifier {
-  _StubAudioNotifier(super.ref, AudioPlaybackState initial) {
-    state = initial;
-  }
+  _StubAudioNotifier(AudioPlaybackState initial) : super(initialState: initial);
 
   void emitPosition(double pos) {
     state = state.copyWith(positionSeconds: pos);
@@ -85,10 +83,10 @@ class _StubAudioNotifier extends AudioPlaybackNotifier {
 
 class _TrackingVideoController extends VideoPlaybackController {
   _TrackingVideoController(
-    super.ref,
     super.request, {
     required this.onConstructed,
     required this.onClosed,
+    super.initialState,
   }) : super(deferBootstrap: true) {
     onConstructed();
   }
@@ -336,14 +334,16 @@ void main() {
         await tester.pumpWidget(
           ProviderScope(
             overrides: [
-              audioPlaybackProvider.overrideWith((ref) {
-                audioNotifier = _StubAudioNotifier(ref, _buildAudioTestState());
+              audioPlaybackProvider.overrideWith(() {
+                audioNotifier = _StubAudioNotifier(_buildAudioTestState());
                 return audioNotifier;
               }),
               tmdbImageLoaderProvider.overrideWithValue(
                 (_, {targetWidth, imageSize}) async => _sample1x1Png,
               ),
-              immersiveAudioExpandedProvider.overrideWith((_) => true),
+              immersiveAudioExpandedProvider.overrideWith(
+                () => KonataValueNotifier.value(true),
+              ),
             ],
             child: MaterialApp(
               locale: const Locale('zh', 'CN'),
@@ -449,7 +449,7 @@ void main() {
         overrides: [
           libraryRepositoryProvider.overrideWithValue(DriftLibraryRepository(db)),
           audioPlaybackProvider.overrideWith(
-            (ref) => _StubAudioNotifier(ref, _buildAudioTestState()),
+            () => _StubAudioNotifier(_buildAudioTestState()),
           ),
           tmdbImageLoaderProvider.overrideWithValue(
             (_, {targetWidth, imageSize}) async => _sample1x1Png,
@@ -506,20 +506,17 @@ void main() {
         overrides: [
           libraryRepositoryProvider.overrideWithValue(DriftLibraryRepository(db)),
           audioPlaybackProvider.overrideWith(
-            (ref) => _StubAudioNotifier(ref, const AudioPlaybackState()),
+            () => _StubAudioNotifier(const AudioPlaybackState()),
           ),
           tmdbImageLoaderProvider.overrideWithValue(
             (_, {targetWidth, imageSize}) async => _sample1x1Png,
           ),
-          videoPlaybackProvider(req).overrideWith((ref) {
+          videoPlaybackProvider(req).overrideWith(() {
             fakeCtrl = _TrackingVideoController(
-              ref,
               req,
               onConstructed: () => constructCount++,
               onClosed: () => closeCount++,
-            );
-            fakeCtrl.forceState(
-              VideoPlaybackState(
+              initialState: VideoPlaybackState(
                 isInitializing: false,
                 isBuffering: false,
                 hasFirstFrame: true,
@@ -632,15 +629,12 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
-            videoPlaybackProvider(req).overrideWith((ref) {
+            videoPlaybackProvider(req).overrideWith(() {
               fakeCtrl = _TrackingVideoController(
-                ref,
                 req,
                 onConstructed: () {},
                 onClosed: () {},
-              );
-              fakeCtrl.forceState(
-                VideoPlaybackState(
+                initialState: VideoPlaybackState(
                   isInitializing: false,
                   isBuffering: false,
                   hasFirstFrame: true,
@@ -752,15 +746,12 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
-            videoPlaybackProvider(req).overrideWith((ref) {
+            videoPlaybackProvider(req).overrideWith(() {
               final c = _TrackingVideoController(
-                ref,
                 req,
                 onConstructed: () {},
                 onClosed: () {},
-              );
-              c.forceState(
-                VideoPlaybackState(
+                initialState: VideoPlaybackState(
                   isInitializing: false,
                   isBuffering: false,
                   hasFirstFrame: true,
@@ -831,15 +822,12 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
-            videoPlaybackProvider(req).overrideWith((ref) {
+            videoPlaybackProvider(req).overrideWith(() {
               final c = _TrackingVideoController(
-                ref,
                 req,
                 onConstructed: () {},
                 onClosed: () {},
-              );
-              c.forceState(
-                VideoPlaybackState(
+                initialState: VideoPlaybackState(
                   isInitializing: false,
                   isBuffering: false,
                   hasFirstFrame: true,
@@ -940,15 +928,12 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
-            videoPlaybackProvider(req).overrideWith((ref) {
+            videoPlaybackProvider(req).overrideWith(() {
               fakeCtrl = _TrackingVideoController(
-                ref,
                 req,
                 onConstructed: () {},
                 onClosed: () {},
-              );
-              fakeCtrl.forceState(
-                VideoPlaybackState(
+                initialState: VideoPlaybackState(
                   isInitializing: false,
                   isBuffering: false,
                   hasFirstFrame: true,
@@ -1081,17 +1066,36 @@ void main() {
   group('5. Android 原生画中画持久化开关、比例钳制、资格门控与纯净态', () {
     test('autoEnterPip 默认开启且持久化生效；宽高比严格钳制于 0.42 ~ 2.39', () async {
       SharedPreferences.setMockInitialValues({});
-      final n1 = PlaybackPreferencesNotifier(enablePersistence: true);
-      expect(n1.state.autoEnterPip, isTrue);
+      final c1 = ProviderContainer(
+        overrides: [
+          playbackPreferencesProvider.overrideWith(
+            () => PlaybackPreferencesNotifier(enablePersistence: true),
+          ),
+        ],
+      );
+      addTearDown(c1.dispose);
+      final n1 = c1.read(playbackPreferencesProvider.notifier);
+      expect(c1.read(playbackPreferencesProvider).autoEnterPip, isTrue);
 
       await n1.setAutoEnterPip(false);
-      expect(n1.state.autoEnterPip, isFalse);
+      expect(c1.read(playbackPreferencesProvider).autoEnterPip, isFalse);
 
-      final n2 = PlaybackPreferencesNotifier(enablePersistence: true);
-      for (var i = 0; i < 20 && n2.state.autoEnterPip; i++) {
+      final c2 = ProviderContainer(
+        overrides: [
+          playbackPreferencesProvider.overrideWith(
+            () => PlaybackPreferencesNotifier(enablePersistence: true),
+          ),
+        ],
+      );
+      addTearDown(c2.dispose);
+      for (
+        var i = 0;
+        i < 20 && c2.read(playbackPreferencesProvider).autoEnterPip;
+        i++
+      ) {
         await Future<void>.delayed(const Duration(milliseconds: 10));
       }
-      expect(n2.state.autoEnterPip, isFalse);
+      expect(c2.read(playbackPreferencesProvider).autoEnterPip, isFalse);
 
       expect(
         PipAspectRatioPolicy.clampRational(360, 1280).ratio,
@@ -1135,21 +1139,18 @@ void main() {
         overrides: [
           libraryRepositoryProvider.overrideWithValue(DriftLibraryRepository(db)),
           audioPlaybackProvider.overrideWith(
-            (ref) => _StubAudioNotifier(ref, const AudioPlaybackState()),
+            () => _StubAudioNotifier(const AudioPlaybackState()),
           ),
           playbackPreferencesProvider.overrideWith(
-            (_) => PlaybackPreferencesNotifier(enablePersistence: false),
+            () => PlaybackPreferencesNotifier(enablePersistence: false),
           ),
           androidPipChannelClientProvider.overrideWithValue(pipClient),
-          videoPlaybackProvider(req).overrideWith((ref) {
+          videoPlaybackProvider(req).overrideWith(() {
             fakeCtrl = _TrackingVideoController(
-              ref,
               req,
               onConstructed: () {},
               onClosed: () {},
-            );
-            fakeCtrl.forceState(
-              VideoPlaybackState(
+              initialState: VideoPlaybackState(
                 isInitializing: false,
                 isBuffering: false,
                 hasFirstFrame: true,
@@ -1302,21 +1303,18 @@ void main() {
         overrides: [
           libraryRepositoryProvider.overrideWithValue(DriftLibraryRepository(db)),
           audioPlaybackProvider.overrideWith(
-            (ref) => _StubAudioNotifier(ref, const AudioPlaybackState()),
+            () => _StubAudioNotifier(const AudioPlaybackState()),
           ),
           playbackPreferencesProvider.overrideWith(
-            (_) => PlaybackPreferencesNotifier(enablePersistence: false),
+            () => PlaybackPreferencesNotifier(enablePersistence: false),
           ),
           androidPipChannelClientProvider.overrideWithValue(pipClient),
-          videoPlaybackProvider(req).overrideWith((ref) {
+          videoPlaybackProvider(req).overrideWith(() {
             fakeCtrl = _TrackingVideoController(
-              ref,
               req,
               onConstructed: () {},
               onClosed: () {},
-            );
-            fakeCtrl.forceState(
-              VideoPlaybackState(
+              initialState: VideoPlaybackState(
                 isInitializing: false,
                 isBuffering: false,
                 hasFirstFrame: true,

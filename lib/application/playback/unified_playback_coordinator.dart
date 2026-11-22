@@ -466,15 +466,16 @@ class ActiveVideoSessionState {
 }
 
 /// 全局视频会话与原生画中画生命周期编排器。
-class ActiveVideoSessionNotifier extends StateNotifier<ActiveVideoSessionState> {
-  /// 创建全局视频会话编排器（Android 端仅在首次开启视频或恢复画中画时惰性绑定原生通道）。
-  ActiveVideoSessionNotifier(this._ref)
-    : super(const ActiveVideoSessionState());
+class ActiveVideoSessionNotifier extends Notifier<ActiveVideoSessionState> {
+  Ref get _ref => ref;
+  bool get mounted => ref.mounted;
 
-  final Ref _ref;
   PipRecoveryMode _lastRecoveryMode = PipRecoveryMode.none;
   bool _coldRestoreAttempted = false;
   bool _pipCallbacksBound = false;
+
+  @override
+  ActiveVideoSessionState build() => const ActiveVideoSessionState();
 
   void _ensureAndroidPipCallbacksBound() {
     if (_pipCallbacksBound || !KonataPlatform.isAndroid) return;
@@ -849,8 +850,8 @@ class ActiveVideoSessionNotifier extends StateNotifier<ActiveVideoSessionState> 
 
 /// 全局保活视频会话 Provider。
 final activeVideoSessionProvider =
-    StateNotifierProvider<ActiveVideoSessionNotifier, ActiveVideoSessionState>(
-      (ref) => ActiveVideoSessionNotifier(ref),
+    NotifierProvider<ActiveVideoSessionNotifier, ActiveVideoSessionState>(
+      ActiveVideoSessionNotifier.new,
     );
 
 /// 计算并实时同步 Android 原生画中画参数（仅订阅低频播放态、尺寸与设置开关，绝不订阅 `positionSeconds`）。

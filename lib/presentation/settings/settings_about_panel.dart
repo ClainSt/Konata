@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -25,17 +25,23 @@ class SettingsAboutPanel extends ConsumerWidget {
   }
 
   Future<void> _exportLogs(BuildContext context, WidgetRef ref) async {
-    final report =
-        ref.read(diagnosticsLogStoreProvider).buildRecentIncidentReport();
-    final targetUri = await ref.read(konataSystemFilePickerProvider).saveFile(
-      dialogTitle: '导出最近异常日志',
-      fileName: 'konata_incident_log.txt',
-      bytes: Uint8List.fromList(utf8.encode(report)),
-    );
-    if (targetUri == null) return;
+    try {
+      final report =
+          ref.read(diagnosticsLogStoreProvider).buildRecentIncidentReport();
+      final targetUri = await ref.read(konataSystemFilePickerProvider).saveFile(
+        dialogTitle: '导出最近异常日志',
+        fileName: 'konata_incident_log.txt',
+        bytes: Uint8List.fromList(utf8.encode(report)),
+      );
+      if (targetUri == null) return;
 
-    if (context.mounted) {
-      showKonataToast(context, '已导出异常日志至 ${targetUri.toFilePath()}');
+      if (context.mounted) {
+        showKonataToast(context, '已导出异常日志至 ${targetUri.toFilePath()}');
+      }
+    } catch (e) {
+      if (context.mounted) {
+        showKonataToast(context, '导出异常日志失败：$e', isError: true);
+      }
     }
   }
 

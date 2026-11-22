@@ -120,6 +120,21 @@ class DriftLibraryRepository implements LibraryRepository {
   }
 
   @override
+  Future<List<Work>> getWorksBySeries(String seriesId) async {
+    final query = _db.select(_db.works)
+      ..where((t) => t.seriesId.equals(seriesId));
+    final rows = await query.get();
+    return [for (final row in rows) _mapWork(row)];
+  }
+
+  @override
+  Future<List<Work>> getHiddenWorks() async {
+    final query = _db.select(_db.works)..where((t) => t.isHidden.equals(true));
+    final rows = await query.get();
+    return [for (final row in rows) _mapWork(row)];
+  }
+
+  @override
   Future<void> upsertEpisode(Episode episode) async {
     await _db
         .into(_db.episodes)
@@ -150,6 +165,19 @@ class DriftLibraryRepository implements LibraryRepository {
     stillPath: Value(episode.stillPath),
   );
 
+  Episode _mapEpisode(EpisodeRow row) => Episode(
+    id: row.id,
+    workId: row.workId,
+    seasonNumber: row.seasonNumber,
+    episodeNumber: row.episodeNumber,
+    episodeNumberEnd: row.episodeNumberEnd,
+    category: row.category,
+    extraType: row.extraType,
+    title: row.title,
+    overview: row.overview,
+    stillPath: row.stillPath,
+  );
+
   @override
   Future<List<Episode>> getEpisodesByWork(String workId) async {
     final query = _db.select(_db.episodes)
@@ -159,21 +187,37 @@ class DriftLibraryRepository implements LibraryRepository {
         (t) => OrderingTerm.asc(t.episodeNumber),
       ]);
     final rows = await query.get();
-    return Episode.sortMainFirst([
-      for (final row in rows)
-        Episode(
-          id: row.id,
-          workId: row.workId,
-          seasonNumber: row.seasonNumber,
-          episodeNumber: row.episodeNumber,
-          episodeNumberEnd: row.episodeNumberEnd,
-          category: row.category,
-          extraType: row.extraType,
-          title: row.title,
-          overview: row.overview,
-          stillPath: row.stillPath,
-        ),
-    ]);
+    return Episode.sortMainFirst([for (final row in rows) _mapEpisode(row)]);
+  }
+
+  @override
+  Future<List<Episode>> getAllEpisodes() async {
+    final rows = await _db.select(_db.episodes).get();
+    return [for (final row in rows) _mapEpisode(row)];
+  }
+
+  @override
+  Future<List<Episode>> getEpisodesByWorkIds(List<String> workIds) async {
+    if (workIds.isEmpty) return const <Episode>[];
+    final result = <Episode>[];
+    const chunkSize = 400;
+    for (var i = 0; i < workIds.length; i += chunkSize) {
+      final end = (i + chunkSize) > workIds.length
+          ? workIds.length
+          : i + chunkSize;
+      final chunk = workIds.sublist(i, end);
+      final query = _db.select(_db.episodes)
+        ..where((t) => t.workId.isIn(chunk))
+        ..orderBy([
+          (t) => OrderingTerm.asc(t.seasonNumber),
+          (t) => OrderingTerm.asc(t.episodeNumber),
+        ]);
+      final rows = await query.get();
+      for (final row in rows) {
+        result.add(_mapEpisode(row));
+      }
+    }
+    return result;
   }
 
   @override
@@ -223,6 +267,26 @@ class DriftLibraryRepository implements LibraryRepository {
       ..where((t) => t.workId.equals(workId));
     final rows = await query.get();
     return [for (final row in rows) _mapVariant(row)];
+  }
+
+  @override
+  Future<List<MediaVariant>> getVariantsByWorkIds(List<String> workIds) async {
+    if (workIds.isEmpty) return const <MediaVariant>[];
+    final result = <MediaVariant>[];
+    const chunkSize = 400;
+    for (var i = 0; i < workIds.length; i += chunkSize) {
+      final end = (i + chunkSize) > workIds.length
+          ? workIds.length
+          : i + chunkSize;
+      final chunk = workIds.sublist(i, end);
+      final query = _db.select(_db.mediaVariants)
+        ..where((t) => t.workId.isIn(chunk));
+      final rows = await query.get();
+      for (final row in rows) {
+        result.add(_mapVariant(row));
+      }
+    }
+    return result;
   }
 
   @override
@@ -419,6 +483,7 @@ class DriftLibraryRepository implements LibraryRepository {
       deleteSeriesGroupInDb(_db, seriesId);
 
   List<String> _decodeSubtitles(String raw) {
+    if (raw.isEmpty || raw == '[]') return const [];
     final decoded = jsonDecode(raw);
     if (decoded is! List) return const [];
     return [for (final item in decoded) item.toString()];

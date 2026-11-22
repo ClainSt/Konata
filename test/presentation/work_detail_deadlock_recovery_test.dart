@@ -17,6 +17,7 @@ import 'package:ccplayer/domain/scraping/bangumi_models.dart';
 import 'package:ccplayer/infrastructure/cache/photos_storage.dart';
 import 'package:ccplayer/infrastructure/database/drift_library_repository.dart';
 import 'package:ccplayer/infrastructure/database/konata_database.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:path/path.dart' as p;
 import 'package:ccplayer/presentation/detail/work_detail_page.dart';
 import 'package:ccplayer/presentation/dialogs/manual_match_dialog.dart';
@@ -24,9 +25,8 @@ import 'package:ccplayer/presentation/history/playback_history_page.dart';
 import 'package:ccplayer/presentation/shell/window_controls.dart';
 import 'package:ccplayer/presentation/theme/konata_theme.dart';
 import 'package:drift/native.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:ccplayer/application/providers/konata_value_notifier.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -78,14 +78,11 @@ class _FakeKonataActionsCoordinator extends KonataActionsCoordinator {
 }
 
 class _FakeMergeScrapeController extends ScrapeController {
-  _FakeMergeScrapeController(
-    super.ref, {
-    required this.onInvalidateWork,
+  _FakeMergeScrapeController({
     required this.repo,
     required this.mergedTargetWork,
   });
 
-  final void Function(String workId) onInvalidateWork;
   final DriftLibraryRepository repo;
   final Work mergedTargetWork;
 
@@ -99,7 +96,7 @@ class _FakeMergeScrapeController extends ScrapeController {
   }) async {
     // 模拟重绑定命中库内同词条作品触发合并并删除旧 temp workId。
     await repo.deleteWork(workId);
-    onInvalidateWork(workId);
+    ref.invalidate(workDetailBundleProvider(workId));
     return mergedTargetWork;
   }
 }
@@ -197,10 +194,7 @@ void main() {
                 (ref) => _FakeKonataActionsCoordinator(ref),
               ),
               scrapeControllerProvider.overrideWith(
-                (ref) => _FakeMergeScrapeController(
-                  ref,
-                  onInvalidateWork: (id) =>
-                      ref.invalidate(workDetailBundleProvider(id)),
+                () => _FakeMergeScrapeController(
                   repo: repo,
                   mergedTargetWork: existing86,
                 ),
@@ -342,7 +336,7 @@ void main() {
                   (_) async => const TmdbNetworkConfig(),
                 ),
                 detailDrawerExpandedProvider.overrideWith(
-                  (_) => presetDrawerExpanded,
+                  () => KonataValueNotifier.value(presetDrawerExpanded),
                 ),
                 ...WindowsCompositionRoot.providerOverrides(),
               ],

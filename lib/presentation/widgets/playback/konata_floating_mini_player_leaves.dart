@@ -318,41 +318,47 @@ class _FloatingVideoProgressLeafState
 
   @override
   Widget build(BuildContext context) {
-    final timing = ref.watch(
-      videoPlaybackProvider(widget.request).select(
-        (s) => (pos: s.positionSeconds, dur: s.durationSeconds),
-      ),
-    );
-    final total = timing.dur > 0 ? timing.dur : 0.0;
-    final liveRatio = total > 0 ? (timing.pos / total).clamp(0.0, 1.0) : 0.0;
-
     if (KonataAdaptiveTokens.isAndroid) {
       return const SizedBox.shrink();
     }
+    final durationSeconds = ref.watch(
+      videoPlaybackProvider(widget.request).select((s) => s.durationSeconds),
+    );
+    final controller = ref.read(videoPlaybackProvider(widget.request).notifier);
+    final total = durationSeconds > 0 ? durationSeconds : 0.0;
 
     return ValueListenableBuilder<bool>(
       valueListenable: widget.chromeVisibleListenable,
       builder: (context, chromeVisible, _) {
-        final interactive =
-            (chromeVisible || _railHovered || _dragRatio != null) && total > 0;
-        final displayRatio = (_dragRatio ?? liveRatio).clamp(0.0, 1.0);
-        final barHeight = interactive
-            ? KonataPlaybackTokens.capsuleProgressHoverHeight
-            : 0.0;
-        final thumbSize = barHeight + 4.0;
-        final previewRatio = _dragRatio ?? (_railHovered ? _hoverRatio : null);
+        return ValueListenableBuilder<double>(
+          valueListenable: controller.positionListenable,
+          builder: (context, posSeconds, _) {
+            final liveRatio = total > 0
+                ? (posSeconds / total).clamp(0.0, 1.0)
+                : 0.0;
+            final interactive =
+                (chromeVisible || _railHovered || _dragRatio != null) &&
+                total > 0;
+            final displayRatio = (_dragRatio ?? liveRatio).clamp(0.0, 1.0);
+            final barHeight = interactive
+                ? KonataPlaybackTokens.capsuleProgressHoverHeight
+                : 0.0;
+            final thumbSize = barHeight + 4.0;
+            final previewRatio = _dragRatio ?? (_railHovered ? _hoverRatio : null);
 
-        return LayoutBuilder(
-          builder: (context, constraints) {
-            final width = constraints.maxWidth > 0 ? constraints.maxWidth : 1.0;
-            final thumbLeft = (displayRatio * width - thumbSize * 0.5)
-                .clamp(2.0, math.max(2.0, width - thumbSize - 2.0))
-                .toDouble();
-            final previewSec = previewRatio != null && total > 0
-                ? previewRatio * total
-                : null;
-            final previewText = previewSec != null
-                ? PlaybackFormatters.formatMediaDuration(
+            return LayoutBuilder(
+              builder: (context, constraints) {
+                final width = constraints.maxWidth > 0
+                    ? constraints.maxWidth
+                    : 1.0;
+                final thumbLeft = (displayRatio * width - thumbSize * 0.5)
+                    .clamp(2.0, math.max(2.0, width - thumbSize - 2.0))
+                    .toDouble();
+                final previewSec = previewRatio != null && total > 0
+                    ? previewRatio * total
+                    : null;
+                final previewText = previewSec != null
+                    ? PlaybackFormatters.formatMediaDuration(
                     previewSec,
                     alwaysShowHours: total >= 3600,
                   )
@@ -514,6 +520,8 @@ class _FloatingVideoProgressLeafState
                 ),
               ),
             );
+              },
+            );
           },
         );
       },
@@ -521,25 +529,55 @@ class _FloatingVideoProgressLeafState
   }
 }
 
-/// 音频悬浮小窗发光进度环 / 顶沿细进度条叶子（高频进度仅重绘此叶子，零外层与壳层重建）。
-class _FloatingAudioProgressLeaf extends ConsumerWidget {
+/// 音频悬浮小窗发光进度环 / 顶沿细进度条叶子（直接订阅独立高频进度信道，零中间包装与零壳层重建）。
+class _FloatingAudioProgressLeaf extends ConsumerStatefulWidget {
   const _FloatingAudioProgressLeaf({this.linear = false});
 
   final bool linear;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_FloatingAudioProgressLeaf> createState() =>
+      _FloatingAudioProgressLeafState();
+}
+
+class _FloatingAudioProgressLeafState
+    extends ConsumerState<_FloatingAudioProgressLeaf> {
+  ValueListenable<double>? _listenable;
+
+  void _onPositionTick() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  void _syncListenable(ValueListenable<double> next) {
+    if (identical(_listenable, next)) return;
+    _listenable?.removeListener(_onPositionTick);
+    _listenable = next;
+    next.addListener(_onPositionTick);
+  }
+
+  @override
+  void dispose() {
+    _listenable?.removeListener(_onPositionTick);
+    _listenable = null;
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final p = context.palette;
-    final timing = ref.watch(
-      audioPlaybackProvider.select(
-        (s) => (pos: s.positionSeconds, dur: s.durationSeconds),
-      ),
+    final durationSeconds = ref.watch(
+      audioPlaybackProvider.select((s) => s.durationSeconds),
     );
-    final ratio = timing.dur > 0
-        ? (timing.pos / timing.dur).clamp(0.0, 1.0)
+    final listenable = ref.read(audioPlaybackProvider.notifier).positionListenable;
+    _syncListenable(listenable);
+    final posSeconds = listenable.value;
+    final ratio = durationSeconds > 0
+        ? (posSeconds / durationSeconds).clamp(0.0, 1.0)
         : 0.0;
 
-    if (linear) {
+    if (widget.linear) {
       return CustomPaint(
         key: const ValueKey('floating_mini_audio_progress'),
         painter: _CapsuleContourAudioProgressPainter(

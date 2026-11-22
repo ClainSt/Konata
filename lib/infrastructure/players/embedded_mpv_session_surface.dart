@@ -43,6 +43,8 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
     required PlaybackQualityConfig qualityConfig,
     required Directory mpvDir,
     required Directory workPhotoDir,
+    Directory? gpuShaderCacheDir,
+    Directory? iccCacheDir,
     required List<String> verifiedShaders,
     required bool isRemote,
     required bool useDesktopSurface,
@@ -102,6 +104,8 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
       config: effectiveConfig,
       mpvConfigDir: mpvDir,
       screenshotDir: workPhotoDir,
+      gpuShaderCacheDir: gpuShaderCacheDir,
+      iccCacheDir: iccCacheDir,
       isRemoteStream: isRemote,
       isWindowsOverride: useDesktopSurface,
       isAndroidOverride: _useAndroidSurfaceSession,
@@ -137,6 +141,8 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
         config: effectiveConfig,
         mpvConfigDir: mpvDir,
         screenshotDir: workPhotoDir,
+        gpuShaderCacheDir: gpuShaderCacheDir,
+        iccCacheDir: iccCacheDir,
         isRemoteStream: isRemote,
         isWindowsOverride: useDesktopSurface,
         isAndroidOverride: _useAndroidSurfaceSession,
@@ -590,6 +596,136 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
     }
     if (!_hwdecFallbackAttempted && _hwdecWasEnabled) {
       _triggerSoftwareDecodeFallback();
+    }
+  }
+
+  void _applyAspectModeToClient(LibMpvClient client, VideoAspectMode mode) {
+    switch (mode) {
+      case VideoAspectMode.auto:
+        client.setPropertyFlag('keepaspect', true);
+        client.setPropertyDouble('panscan', 0.0);
+        client.setPropertyString('video-aspect-override', '-1');
+      case VideoAspectMode.cover:
+        client.setPropertyFlag('keepaspect', true);
+        client.setPropertyDouble('panscan', 1.0);
+        client.setPropertyString('video-aspect-override', '-1');
+      case VideoAspectMode.stretch:
+        client.setPropertyFlag('keepaspect', false);
+        client.setPropertyDouble('panscan', 0.0);
+        client.setPropertyString('video-aspect-override', '-1');
+      case VideoAspectMode.ratio16x9:
+        client.setPropertyFlag('keepaspect', true);
+        client.setPropertyDouble('panscan', 0.0);
+        client.setPropertyString('video-aspect-override', '16:9');
+      case VideoAspectMode.ratio4x3:
+        client.setPropertyFlag('keepaspect', true);
+        client.setPropertyDouble('panscan', 0.0);
+        client.setPropertyString('video-aspect-override', '4:3');
+    }
+  }
+
+  /// 解码层精准拦截 AVC Hi10P / 非 4:2:0 与 HEVC Rext / >10-bit 流，在首帧花屏前自动回落多线程 SIMD 软解。
+  void _enforceHwdecSafetyPolicy() {
+    final client = _client;
+    if (_disposed ||
+        client == null ||
+        client.isDisposed ||
+        !_hwdecWasEnabled ||
+        _usingSoftwareFallback) {
+      return;
+    }
+    final codec =
+        client.getPropertyString('current-tracks/video/codec') ??
+        client.getPropertyString('video-format') ??
+        client.getPropertyString('video-codec') ??
+        '';
+    final profile =
+        client.getPropertyString('current-tracks/video/codec-profile') ??
+        client.getPropertyString('video-params/profile');
+    final pixfmt =
+        client.getPropertyString('video-params/pixelformat') ??
+        client.getPropertyString('video-dec-params/pixelformat');
+    final hwPixfmt =
+        client.getPropertyString('video-params/hw-pixelformat') ??
+        client.getPropertyString('video-dec-params/hw-pixelformat');
+    final platform = _useAndroidSurfaceSession
+        ? HwdecPlatformKind.android
+        : (Platform.isWindows
+              ? HwdecPlatformKind.windows
+              : HwdecPlatformKind.other);
+    final decision = HwdecSafetyPolicy.evaluate(
+      platform: platform,
+      videoCodec: codec,
+      videoProfile: profile,
+      pixelFormat: pixfmt,
+      hwPixelFormat: hwPixfmt,
+    );
+    if (decision.allowHardwareDecode) {
+      return;
+    }
+    _hwdecFallbackAttempted = true;
+    _usingSoftwareFallback = true;
+    client.setPropertyString('hwdec', 'no');
+    client.setPropertyString('vd-lavc-threads', '0');
+    if (_useAndroidSurfaceSession) {
+      // 移动端硬件解码器对 HEVC Rext/Main12 等伪支持流可能已卡死首帧，
+      // 主动重载视频轨即可立即销毁硬解实例并无缝切入多线程软解。
+      client.command(['video-reload']);
+    }
+    logStore?.record(
+      'mpv-hwdec-guard',
+      'rule=${decision.matchedRule} codec=$codec profile=$profile pixfmt=$pixfmt hw=$hwPixfmt -> hwdec=no',
+    );
+    onHwdecChanged?.call('no');
+    if (decision.reason != null) {
+      onNotice?.call(decision.reason!);
+    }
+  }
+
+  /// 按当前视频传输特性动态开关 `hdr-compute-peak` 与共享纹理 FP16 FBO：
+  /// 常规 SDR 番剧保持 10-bit FBO 且关闭逐帧峰值计算，遇真 HDR（PQ/HLG）自动无感升档。
+  void _syncDynamicHdrPipeline() {
+    final client = _client;
+    if (_disposed || client == null || client.isDisposed) {
+      return;
+    }
+    final gamma =
+        client.getPropertyString('video-params/gamma') ??
+        client.getPropertyString('video-out-params/gamma');
+    final sigPeak =
+        client.getPropertyDouble('video-params/sig-peak') ??
+        client.getPropertyDouble('video-out-params/sig-peak');
+    final isHdr = MpvQualityProfile.isHdrTransfer(
+      gamma: gamma,
+      sigPeak: sigPeak,
+    );
+    if (_lastDynamicHdrActive == isHdr) {
+      return;
+    }
+    _lastDynamicHdrActive = isHdr;
+
+    final setter = MpvSafePropertySetter(logStore: logStore);
+    final enablePeak = MpvQualityProfile.shouldEnableHdrComputePeak(
+      _lastQualityConfig.preset,
+      isHdrSource: isHdr,
+    );
+    setter.setBool(client, 'hdr-compute-peak', enablePeak);
+
+    final backend = _renderBackend.value;
+    final sessionId = _desktopSurfaceSessionId;
+    final bridge = desktopSurfaceBridge;
+    final isSharedD3D11 = backend == 'd3d11_10bit' || backend == 'd3d11_fp16';
+    if (isSharedD3D11 && sessionId != null && sessionId > 0 && bridge != null) {
+      setter.setString(client, 'fbo-format', isHdr ? 'rgba16hf' : 'rgb10_a2');
+      unawaited(
+        bridge.setHdrFboEnabled(sessionId: sessionId, enabled: isHdr).then((
+          applied,
+        ) {
+          if (!_disposed && applied) {
+            _renderBackend.value = isHdr ? 'd3d11_fp16' : 'd3d11_10bit';
+          }
+        }),
+      );
     }
   }
 }

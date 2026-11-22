@@ -2,6 +2,81 @@ part of 'video_playback_controller.dart';
 
 /// `VideoPlaybackController` 跨季连播、连续坏文件熔断、章节跳过、缩略图预热与进度落库扩展。
 extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
+  /// 根据信息探针面板显隐按需选择全量 65 项或轻量 5 项属性采集，避免起播期 FFI 锁竞争。
+  PlaybackProbeStats _collectAppropriateProbeStats(EmbeddedMpvSession session) {
+    return _state.probeOverlayVisible
+        ? session.collectProbeStats()
+        : session.collectLightProbeStats(previous: _state.probeStats);
+  }
+
+  /// 在后台并行发现可用 GLSL 着色器并回填侧栏，不阻塞视频首帧起播。
+  Future<void> _discoverAvailableShadersInBackground(
+    StorageRootService storageRoot,
+  ) async {
+    try {
+      final shadersDir = await storageRoot.ensureShadersDir();
+      final shaders = await MpvQualityProfile.discoverShaderFiles(shadersDir);
+      if (mounted && !_state.isClosing && !_closedCleanly) {
+        _state = _state.copyWith(availableShaders: shaders);
+      }
+    } catch (e) {
+      _logStore.record('VIDEO', '后台扫描着色器目录忽略：$e');
+    }
+  }
+
+  void _handleMetadataUpdated({
+    required List<SubtitleChoice> subtitles,
+    required List<AudioTrackChoice> audioTracks,
+    required List<PlaybackChapter> chapters,
+    required List<MpvAudioDevice> audioDevices,
+  }) {
+    if (!mounted) return;
+    final activeSession = _session;
+    final stats = activeSession == null
+        ? _state.probeStats
+        : _collectAppropriateProbeStats(activeSession);
+    final silentHidden =
+        !_hudProgressActive &&
+        !_state.probeOverlayVisible &&
+        !_state.sideSheetOpen;
+    if (silentHidden &&
+        subtitles.length == _state.subtitles.length &&
+        audioTracks.length == _state.audioTracks.length &&
+        chapters.length == _state.chapters.length &&
+        stats.videoWidth == _state.probeStats.videoWidth &&
+        stats.videoHeight == _state.probeStats.videoHeight &&
+        stats.hwdecCurrent == _state.probeStats.hwdecCurrent) {
+      _pendingMetadataUiRefresh = true;
+      return;
+    }
+    _pendingMetadataUiRefresh = false;
+    _state = _state.copyWith(
+      subtitles: subtitles,
+      audioTracks: audioTracks,
+      chapters: chapters,
+      availableAudioDevices: audioDevices,
+      probeStats: stats,
+    );
+    if (KonataPlatform.isAndroid &&
+        !_state.audioOnlyMode &&
+        (stats.videoWidth ?? 0) > 0 &&
+        _ref.read(activeVideoSessionProvider).isExpanded) {
+      unawaited(
+        AndroidPlaybackWindowBridge.applyVideoOrientationAndWindow(
+          landscape: true,
+          hideSystemBars: true,
+        ),
+      );
+    }
+    _recomputeChapterSkipPlan();
+    _thumbnailService?.updateChapters(
+      chapters,
+      durationSeconds: _state.durationSeconds > 0
+          ? _state.durationSeconds
+          : null,
+    );
+  }
+
   /// 读取或按需拉取并缓存同系列其他成员的完整详情包（供选集浏览与跨季连播复用）。
   Future<WorkDetailBundle?> loadSeriesWorkBundle(String workId) async {
     final cached = _bundleCacheByWorkId[workId];
@@ -204,6 +279,25 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
     return true;
   }
 
+  /// 派发全站居中毛玻璃胶囊提示（报错时传 `isError: true` 以红色胶囊区分）。
+  void showTransientBanner(
+    String message, {
+    bool isError = false,
+    Duration duration = const Duration(seconds: 4),
+  }) {
+    if (!mounted) return;
+    final trimmed = message.trim();
+    if (trimmed.isEmpty) return;
+    _state = _state.copyWith(
+      transientNotice: (
+        seq: ++_transientNoticeSeq,
+        message: trimmed,
+        isError: isError,
+        duration: duration,
+      ),
+    );
+  }
+
   void previousChapterOrEpisode() {
     final chapters = _state.chapters;
     final pos =
@@ -247,41 +341,51 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
     unawaited(goToNextEpisode());
   }
 
-  void _scheduleThumbnailWarmup() {
-    _thumbnailWarmupTimer?.cancel();
-    final gen = ++_thumbnailGeneration;
-    _thumbnailWarmupTimer = Timer(MpvThumbnailService.defaultWarmupDelay, () {
-      if (!mounted ||
-          _state.isClosing ||
-          _closedCleanly ||
-          gen != _thumbnailGeneration) {
-        return;
-      }
+  void _requestThumbnailPreviewLazy(double? seconds) {
+    if (!mounted || _state.isClosing || _closedCleanly) return;
+    if (seconds == null || !seconds.isFinite) {
+      _thumbnailService?.requestPreview(null);
+      return;
+    }
+    if (!_state.hasFirstFrame) return;
+
+    var svc = _thumbnailService;
+    if (svc == null) {
+      svc = MpvThumbnailService(
+        streamBridge: _streamBridge,
+        gatewayFactory: _ref.read(mediaSourceGatewayFactoryProvider),
+        logStore: _logStore,
+        clientFactory: () => _engine.createAuxiliaryNativeClient(),
+      );
+      svc.addListener(_onThumbnailUpdated);
+      _thumbnailService = svc;
+    }
+
+    svc.requestPreview(seconds);
+    if (!svc.isWarmedUp && !svc.isWarmingUp) {
       final variant = _state.currentVariant;
       final source =
           activeBundle.sourcesById[variant.sourceId] ?? request.source;
-      var svc = _thumbnailService;
-      if (svc == null) {
-        svc = MpvThumbnailService(
-          streamBridge: _streamBridge,
-          gatewayFactory: _ref.read(mediaSourceGatewayFactoryProvider),
-          logStore: _logStore,
-          clientFactory: () => _engine.createAuxiliaryNativeClient(),
-        );
-        svc.addListener(_onThumbnailUpdated);
-        _thumbnailService = svc;
-      }
-      unawaited(
-        svc.warmUp(
+      final gen = ++_thumbnailGeneration;
+      unawaited(() async {
+        if (!mounted ||
+            _state.isClosing ||
+            _closedCleanly ||
+            gen != _thumbnailGeneration) {
+          return;
+        }
+        await svc!.warmUp(
           variant: variant,
           source: source,
           chapters: _state.chapters,
           durationSeconds: _state.durationSeconds > 0
               ? _state.durationSeconds
               : null,
-        ),
-      );
-    });
+          preserveCache: true,
+          preservePendingUserRequest: true,
+        );
+      }());
+    }
   }
 
   void _onThumbnailUpdated() {
@@ -295,8 +399,6 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
 
   Future<void> _releaseThumbnailService({required bool disposeNotifier}) async {
     ++_thumbnailGeneration;
-    _thumbnailWarmupTimer?.cancel();
-    _thumbnailWarmupTimer = null;
     final svc = _thumbnailService;
     if (svc != null) {
       svc.removeListener(_onThumbnailUpdated);
@@ -560,7 +662,10 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
     }
     final prefs = _ref.read(playbackPreferencesProvider);
     if (prefs.autoNextEpisode && hasNextEpisodeAny) {
-      showTransientBanner('当前分集加载异常（${diag.message}），自动尝试下一话');
+      showTransientBanner(
+        '当前分集加载异常（${diag.message}），自动尝试下一话',
+        isError: true,
+      );
       unawaited(goToNextEpisode(isAutoAdvance: true));
       return;
     }
@@ -631,6 +736,8 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
     _activeExternalSubtitleSourcePath = null;
     _activeOriginalSubtitleTrackId = null;
     _activeExternalSubtitleTitle = null;
+    _prewarmAttemptedForEpisodeId = null;
+    final adoptedPrewarm = _takePrewarmedTargetFor(episode.id, nextVariant.id);
     _state = _state.copyWith(
       currentWork: resolvedBundle.work,
       currentBundle: resolvedBundle,
@@ -672,6 +779,8 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
         variant: nextVariant,
         source: nextSource,
         startSeconds: resumePos,
+        prewarmedStreamToken: adoptedPrewarm?.streamToken,
+        prewarmedMediaTarget: adoptedPrewarm?.mediaTarget,
       ),
       trackMemory: nextTrackMemory,
       trackPreferences: const TrackPreferences(),
@@ -758,6 +867,9 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
         ? currentPositionSeconds
         : (_session?.readCurrentPositionSeconds() ?? currentPositionSeconds);
     _latestPositionSeconds = posDouble;
+    if (!isFinal) {
+      _maybeScheduleNextEpisodePrewarm(posDouble);
+    }
     final durSeconds = durDouble > 0 ? durDouble.round() : 0;
     final persistedPos = _watchedTracker.resolvePersistedPositionSeconds(
       positionSeconds: posDouble,
@@ -875,6 +987,147 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
       if (mounted) {
         _state = _state.copyWith(isFullscreen: next);
       }
+    }
+  }
+
+  /// 当前分集播放进入后段（>= 75% 或剩余 <= 90 秒）时，在后台静默预热下一集远程流首尾元数据与外挂字幕。
+  void _maybeScheduleNextEpisodePrewarm(double posSeconds) {
+    if (!mounted ||
+        _state.isClosing ||
+        _closedCleanly ||
+        !_state.isPlaying ||
+        _state.isBuffering) {
+      return;
+    }
+    final dur = _state.durationSeconds;
+    if (dur <= 60.0) return;
+    final currentEpId = _state.currentEpisode.id;
+    if (_prewarmAttemptedForEpisodeId == currentEpId) return;
+    final remaining = dur - posSeconds;
+    if (posSeconds / dur < 0.75 && remaining > 90.0) return;
+    _prewarmAttemptedForEpisodeId = currentEpId;
+    final gen = ++_prewarmGeneration;
+    unawaited(_prewarmNextEpisodeInBackground(currentEpId, generation: gen));
+  }
+
+  Future<void> _prewarmNextEpisodeInBackground(
+    String sourceEpisodeId, {
+    required int generation,
+  }) async {
+    try {
+      final target = await resolveNextEpisodeTarget();
+      if (target == null ||
+          !mounted ||
+          _state.isClosing ||
+          _closedCleanly ||
+          generation != _prewarmGeneration ||
+          _state.currentEpisode.id != sourceEpisodeId) {
+        return;
+      }
+      final variants = target.bundle.variantsForEpisode(target.episode.id);
+      if (variants.isEmpty) return;
+      final nextVariant = variants.first;
+      final nextSource = target.bundle.sourcesById[nextVariant.sourceId];
+      if (nextSource == null || nextSource.kind == MediaSourceKind.local) {
+        return;
+      }
+      final gw = await _ref
+          .read(mediaSourceGatewayFactoryProvider)
+          .create(nextSource);
+      if (gw is! ByteRangeReadableGateway) {
+        await gw.close();
+        return;
+      }
+      final byteGw = gw as ByteRangeReadableGateway;
+      if (!mounted ||
+          _state.isClosing ||
+          _closedCleanly ||
+          generation != _prewarmGeneration) {
+        await byteGw.close();
+        return;
+      }
+      final reg = await _streamBridge.registerSession(
+        gateway: byteGw,
+        relativePath: nextVariant.relativePath,
+        fileName: nextVariant.fileName,
+        knownLength: nextVariant.fileSize > 0 ? nextVariant.fileSize : null,
+        ownsGateway: true,
+        sourceKind: nextSource.kind,
+      );
+      if (!mounted ||
+          _state.isClosing ||
+          _closedCleanly ||
+          generation != _prewarmGeneration ||
+          _state.currentEpisode.id != sourceEpisodeId) {
+        await _streamBridge.unregisterSession(reg.token);
+        return;
+      }
+      final old = _prewarmedNextEpisode;
+      _prewarmedNextEpisode = (
+        episodeId: target.episode.id,
+        variantId: nextVariant.id,
+        streamToken: reg.token,
+        mediaTarget: reg.url.toString(),
+      );
+      if (old != null && old.streamToken != reg.token) {
+        unawaited(
+          _streamBridge.unregisterSession(old.streamToken).catchError((
+            Object e,
+          ) {
+            _logStore.record('VIDEO', '释放旧预热流会话失败：$e');
+          }),
+        );
+      }
+      await _streamBridge.prewarmSessionMetadata(reg.token);
+      if (!mounted ||
+          _state.isClosing ||
+          _closedCleanly ||
+          generation != _prewarmGeneration) {
+        return;
+      }
+      if (nextVariant.externalSubtitles.isNotEmpty) {
+        await _streamBridge.materializeRemoteSubtitles(
+          gateway: byteGw,
+          workId: target.bundle.work.id,
+          sourceId: nextSource.id,
+          subtitleRelativePaths: nextVariant.externalSubtitles,
+        );
+      }
+    } catch (e) {
+      _logStore.record('VIDEO', '后台静默预热下一集忽略：$e');
+    }
+  }
+
+  ({
+    String episodeId,
+    String variantId,
+    String streamToken,
+    String mediaTarget,
+  })?
+  _takePrewarmedTargetFor(String episodeId, String variantId) {
+    final pending = _prewarmedNextEpisode;
+    if (pending == null) return null;
+    if (pending.episodeId == episodeId && pending.variantId == variantId) {
+      _prewarmedNextEpisode = null;
+      ++_prewarmGeneration;
+      return pending;
+    }
+    _disposePrewarmedNextEpisode();
+    return null;
+  }
+
+  void _disposePrewarmedNextEpisode() {
+    ++_prewarmGeneration;
+    final pending = _prewarmedNextEpisode;
+    _prewarmedNextEpisode = null;
+    if (pending != null) {
+      unawaited(
+        _streamBridge.unregisterSession(pending.streamToken).catchError((
+          Object e,
+        ) {
+          _logStore.record('VIDEO', '释放预热流会话失败：$e');
+        }),
+      );
     }
   }
 }

@@ -369,8 +369,7 @@ void main() {
             storageRootProvider.overrideWithValue(storageRoot),
             localStreamBridgeProvider.overrideWithValue(streamBridge),
             videoPlaybackProvider(request).overrideWith(
-              (ref) => VideoPlaybackController(
-                ref,
+              () => VideoPlaybackController(
                 request,
                 sessionFactory: () => EmbeddedMpvSession(
                   storageRoot: storageRoot,
@@ -541,8 +540,7 @@ void main() {
             storageRootProvider.overrideWithValue(storageRoot),
             localStreamBridgeProvider.overrideWithValue(streamBridge),
             videoPlaybackProvider(request).overrideWith(
-              (ref) => VideoPlaybackController(
-                ref,
+              () => VideoPlaybackController(
                 request,
                 sessionFactory: () => EmbeddedMpvSession(
                   storageRoot: storageRoot,
@@ -569,8 +567,8 @@ void main() {
         // 等待 150ms S 型微淡入斜坡完成并停钟。
         await Future<void>.delayed(const Duration(milliseconds: 240));
 
-        // 1. 默认共享路径：视频引擎必须收到末级 -12 dBFS 安全限幅，且微淡入斜坡单调抬升后停钟。
-        expect(fakeClient.stringProps['af'], contains('alimiter'));
+        // 1. 默认无 DSP 共享路径：零 af 原动态直出，同时保留 150ms S 型微淡入斜坡单调抬升后停钟。
+        expect(fakeClient.stringProps['af'], equals(''));
         expect(fakeClient.volumeHistory.length, greaterThanOrEqualTo(2));
         expect(
           fakeClient.volumeHistory.first,
@@ -694,8 +692,7 @@ void main() {
             libraryRepositoryProvider.overrideWithValue(repo),
             localStreamBridgeProvider.overrideWithValue(streamBridge),
             audioPlaybackProvider.overrideWith(
-              (ref) => AudioPlaybackNotifier(
-                ref,
+              () => AudioPlaybackNotifier(
                 clientFactory: () => fakeClient,
                 gatewayFactory: _FakeGatewayFactory(fakeGateway),
               ),
@@ -867,14 +864,14 @@ void main() {
           ),
         );
 
-        final container = ProviderContainer(
+        late final ProviderContainer container;
+        container = ProviderContainer(
           overrides: [
             storageRootProvider.overrideWithValue(storageRoot),
             localStreamBridgeProvider.overrideWithValue(streamBridge),
             libraryRepositoryProvider.overrideWithValue(repo),
             audioPlaybackProvider.overrideWith(
-              (ref) => AudioPlaybackNotifier(
-                ref,
+              () => AudioPlaybackNotifier(
                 clientFactory: () {
                   final c = _R2FakeMpvClient();
                   createdAudioClients.add(c);
@@ -884,11 +881,10 @@ void main() {
               ),
             ),
             videoPlaybackProvider(videoReq).overrideWith(
-              (ref) => VideoPlaybackController(
-                ref,
+              () => VideoPlaybackController(
                 videoReq,
                 sessionFactory: () {
-                  final eng = ref.read(unifiedPlaybackEngineProvider);
+                  final eng = container.read(unifiedPlaybackEngineProvider);
                   return EmbeddedMpvSession(
                     storageRoot: storageRoot,
                     streamBridge: streamBridge,

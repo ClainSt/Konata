@@ -17,19 +17,24 @@ extension EmbeddedMpvSessionSidecars on EmbeddedMpvSession {
     return lower == 'fonts' || lower == 'font';
   }
 
-  /// 本地媒体字体解析：先尝试同级/父级 `Fonts/` 原位只读直挂，缺失时自动解包同级/父级 `Fonts.zip` 入单级哈希池。
-  Future<String?> _resolveLocalFontPackDir(String localMediaAbsPath) async {
+  /// 本地同级/父级 `Fonts/` 原位只读直挂极速检测（零解压、不阻塞首帧起播）。
+  Future<String?> _resolveLocalInPlaceFontsDir(String localMediaAbsPath) async {
     final inPlace = await _fontPoolManager.resolveInPlaceSiblingFontsDir(
       localMediaAbsPath,
     );
-    if (inPlace != null) {
-      return inPlace.directoryPath;
-    }
+    return inPlace?.directoryPath;
+  }
+
+  /// 后台异步解包本地同级/父级 `Fonts.zip` 入单级哈希池并热更新 `sub-fonts-dir`（与视频首帧并行）。
+  Future<void> _extractLocalFontZipInBackground(
+    String localMediaAbsPath, {
+    required int generation,
+  }) async {
     final trimmed = localMediaAbsPath.trim();
-    if (trimmed.isEmpty || !p.isAbsolute(trimmed)) return null;
+    if (trimmed.isEmpty || !p.isAbsolute(trimmed)) return;
     try {
       final videoDir = Directory(p.dirname(trimmed));
-      if (!await videoDir.exists()) return null;
+      if (!await videoDir.exists()) return;
       final parents = <Directory>[
         videoDir,
         if (videoDir.parent.path != videoDir.path) videoDir.parent,
@@ -41,6 +46,7 @@ extension EmbeddedMpvSessionSidecars on EmbeddedMpvSession {
             File(p.join(parent.path, zipName)),
       ];
       final existsList = await Future.wait(candidates.map((f) => f.exists()));
+      if (_disposed || generation != _loadGeneration) return;
       final seenPaths = <String>{};
       for (var i = 0; i < candidates.length; i++) {
         if (!existsList[i]) continue;
@@ -52,8 +58,11 @@ extension EmbeddedMpvSessionSidecars on EmbeddedMpvSession {
         }
         try {
           final zipBytes = await candidate.readAsBytes();
+          if (_disposed || generation != _loadGeneration) return;
           final ingested = await _fontPoolManager.ingestFontZipBytes(zipBytes);
-          return ingested.directoryPath;
+          if (_disposed || generation != _loadGeneration) return;
+          applySubFontsDir(ingested.directoryPath);
+          return;
         } on Object catch (e) {
           logStore?.record(
             'mpv-fonts',
@@ -64,7 +73,6 @@ extension EmbeddedMpvSessionSidecars on EmbeddedMpvSession {
     } on Object catch (e) {
       logStore?.record('mpv-fonts', '检索本地 Fonts.zip 忽略：$e');
     }
-    return null;
   }
 
   Future<
@@ -115,6 +123,9 @@ extension EmbeddedMpvSessionSidecars on EmbeddedMpvSession {
         logStore?.record('mpv-sidecar', '枚举本地同级目录失败：$e', isError: true);
       }
 
+      // 刚通过 listDirectory 枚举出的本地同级文件天然存在，免去逐个串行 File.exists 磁盘往返；
+      // 仅对仅存于数据库 variant.externalSubtitles 中且不在当前目录快照里的路径执行并行存在性校验。
+      final discoveredSet = candidates.toSet();
       final matchedSubs = SubtitleMatcher.matchForVideo(
         videoRelativePath: variant.relativePath,
         allSubtitleRelativePaths: {
@@ -123,12 +134,25 @@ extension EmbeddedMpvSessionSidecars on EmbeddedMpvSession {
         }.toList(),
       );
       final absSubs = <String>[];
+      final unverifiedSubs = <String>[];
       for (final rel in {
         ...matchedSubs.subtitlePaths,
         ...variant.externalSubtitles,
       }) {
         final abs = gw.resolveAbsolutePath(rel);
-        if (await File(abs).exists()) absSubs.add(abs);
+        if (discoveredSet.contains(rel)) {
+          absSubs.add(abs);
+        } else {
+          unverifiedSubs.add(abs);
+        }
+      }
+      if (unverifiedSubs.isNotEmpty) {
+        final existResults = await Future.wait(
+          unverifiedSubs.map((abs) => File(abs).exists()),
+        );
+        for (var i = 0; i < unverifiedSubs.length; i++) {
+          if (existResults[i]) absSubs.add(unverifiedSubs[i]);
+        }
       }
 
       final matchedAudioRel =
@@ -136,11 +160,9 @@ extension EmbeddedMpvSessionSidecars on EmbeddedMpvSession {
             videoRelativePath: variant.relativePath,
             candidatePaths: candidates,
           );
-      final absAudio = <String>[];
-      for (final rel in matchedAudioRel) {
-        final abs = gw.resolveAbsolutePath(rel);
-        if (await File(abs).exists()) absAudio.add(abs);
-      }
+      final absAudio = <String>[
+        for (final rel in matchedAudioRel) gw.resolveAbsolutePath(rel),
+      ];
 
       return (
         mediaTarget: mediaAbs,
@@ -149,24 +171,40 @@ extension EmbeddedMpvSessionSidecars on EmbeddedMpvSession {
       );
     }
 
-    // WebDAV / SMB 远程流式透传：注册主媒体流并交由统一引擎登记主流租约，秒速调用 loadfile。
-    final mainGw = await gatewayFactory.create(source);
-    if (mainGw is! ByteRangeReadableGateway) {
-      await mainGw.close();
-      throw UnsupportedError('媒体源 ${source.kind.name} 不支持流式透传播放');
+    // WebDAV / SMB 远程流式透传：若上层已静默预热下一集会话则直接接管零建联，否则注册主媒体流秒速 loadfile。
+    final String mainToken;
+    final String mainTarget;
+    final prewarmedToken = request.prewarmedStreamToken;
+    final prewarmedTarget = request.prewarmedMediaTarget;
+    if (prewarmedToken != null &&
+        prewarmedToken.isNotEmpty &&
+        prewarmedTarget != null &&
+        prewarmedTarget.isNotEmpty) {
+      mainToken = prewarmedToken;
+      mainTarget = prewarmedTarget;
+    } else {
+      final mainGw = await gatewayFactory.create(source);
+      if (mainGw is! ByteRangeReadableGateway) {
+        await mainGw.close();
+        throw UnsupportedError('媒体源 ${source.kind.name} 不支持流式透传播放');
+      }
+      final byteGw = mainGw as ByteRangeReadableGateway;
+      final mainReg = await streamBridge.registerSession(
+        gateway: byteGw,
+        relativePath: variant.relativePath,
+        fileName: variant.fileName,
+        knownLength: variant.fileSize > 0 ? variant.fileSize : null,
+        ownsGateway: true,
+        sourceKind: source.kind,
+      );
+      mainToken = mainReg.token;
+      mainTarget = mainReg.url.toString();
     }
-    final byteGw = mainGw as ByteRangeReadableGateway;
-    final mainReg = await streamBridge.registerSession(
-      gateway: byteGw,
-      relativePath: variant.relativePath,
-      fileName: variant.fileName,
-      knownLength: variant.fileSize > 0 ? variant.fileSize : null,
-      ownsGateway: true,
-      sourceKind: source.kind,
-    );
-    _activeStreamTokens.add(mainReg.token);
-    final displacedLease = onBindMainStreamLease?.call(mainReg.token);
-    if (displacedLease != null && displacedLease.isNotEmpty) {
+    _activeStreamTokens.add(mainToken);
+    final displacedLease = onBindMainStreamLease?.call(mainToken);
+    if (displacedLease != null &&
+        displacedLease.isNotEmpty &&
+        displacedLease != mainToken) {
       unawaited(_unregisterTokens(<String>[displacedLease]));
     }
 
@@ -179,7 +217,7 @@ extension EmbeddedMpvSessionSidecars on EmbeddedMpvSession {
       validatorsByPath: cachedSnapshot?.validatorsByPath,
     );
     return (
-      mediaTarget: mainReg.url.toString(),
+      mediaTarget: mainTarget,
       subtitlePaths: cachedSubs,
       audioTargets: const <String>[],
     );
@@ -609,16 +647,35 @@ extension EmbeddedMpvSessionSidecars on EmbeddedMpvSession {
     _emitMediaMetadataSnapshot();
   }
 
+  /// 同事件轮次零延迟合流被动元数据快照派发，待异步广播流的同批微任务排空后仅执行一次，消除起播期 6~8 次重复探针风暴。
+  void _scheduleMediaMetadataSnapshot() {
+    if (_disposed || _metadataSnapshotTimer != null) return;
+    _metadataSnapshotTimer = Timer(Duration.zero, () {
+      _metadataSnapshotTimer = null;
+      if (!_disposed) {
+        _emitMediaMetadataSnapshot();
+      }
+    });
+  }
+
   void _emitMediaMetadataSnapshot() {
     final client = _client;
     if (client == null || client.isDisposed || !client.isInitialized) return;
     final tracks = client.readTrackList();
     final mountedSourcePaths =
         mountedSubtitleSourcePathsReader?.call() ?? const <int, String>{};
+    final cloudSubsetTrackIds =
+        mountedCloudSubsetTrackIdsReader?.call() ?? const <int>{};
+    final rawSid = client.getPropertyString('sid')?.trim().toLowerCase();
+    final authoritativeSid = rawSid == 'no'
+        ? 0
+        : (rawSid != null ? int.tryParse(rawSid) : null);
     final subs = SubtitleAndAudioChoices.mergeSubtitles(
       mpvTracks: tracks,
       discoveredExternalPaths: _pendingExternalSubtitles,
       mountedSourcePathsByTrackId: mountedSourcePaths,
+      cloudSubsetTrackIds: cloudSubsetTrackIds,
+      authoritativeSelectedTrackId: authoritativeSid,
     );
     final audios = SubtitleAndAudioChoices.mergeAudioTracks(
       mpvTracks: tracks,
@@ -649,6 +706,54 @@ extension EmbeddedMpvSessionSidecars on EmbeddedMpvSession {
     if (client.getPropertyFlag('pause') ?? false) {
       client.command(['seek', '0', 'relative', 'exact']);
     }
+  }
+
+  /// 实时更新底层 `libmpv` 的 `sub-fonts-dir` 属性（供 `Fonts.zip`、ASS `[Fonts]` 与远程字库入池联动）。
+  void applySubFontsDir(
+    String dirPath, {
+    bool isCloudSubsetOverride = false,
+    bool reloadSubtitles = false,
+  }) {
+    final trimmed = dirPath.trim();
+    if (trimmed.isEmpty) return;
+    if (!isCloudSubsetOverride) {
+      _baselineSubFontsDir = trimmed;
+    }
+    final client = _client;
+    if (_disposed || client == null || client.isDisposed) return;
+    if (trimmed != _activeSubFontsDir) {
+      client.setPropertyString('sub-fonts-dir', trimmed);
+      _activeSubFontsDir = trimmed;
+    }
+    if (reloadSubtitles) {
+      client.commandAsync(0, ['sub-reload']);
+      if (client.getPropertyFlag('pause') ?? false) {
+        client.commandAsync(0, ['seek', '0', 'relative', 'exact']);
+      }
+    }
+  }
+
+  /// 切回非云端子集化原字幕时恢复基准字体目录，确保与子集化字幕实现真实字体渲染对比。
+  void restoreBaselineSubFontsDir({bool reloadSubtitles = false}) {
+    final target = baselineSubFontsDir;
+    if (target.isEmpty) return;
+    applySubFontsDir(
+      target,
+      isCloudSubsetOverride: false,
+      reloadSubtitles: reloadSubtitles,
+    );
+  }
+
+  /// 同步零延迟热更新字幕字号、底部边距与 ASS 样式覆写模式（拖动滑块时 60fps 即时生效，零解复用 Seek 与磁盘抖动）。
+  void applyLiveSubtitleStyle(PlaybackQualityConfig config) {
+    _lastQualityConfig = config;
+    final client = _client;
+    if (_disposed || client == null || client.isDisposed) return;
+    MpvQualityProfile.applyLiveSubtitleStyleUpdate(
+      client,
+      config: config,
+      logStore: logStore,
+    );
   }
 
   /// 调整音频延迟秒数。

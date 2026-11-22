@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as developer;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -14,6 +14,7 @@ import '../../infrastructure/players/mpv_quality_profile.dart';
 import '../../infrastructure/storage/storage_root_provider.dart';
 import '../../infrastructure/subtitles/fontinass_cloud_client.dart';
 import '../../infrastructure/subtitles/subtitle_font_pool_manager.dart';
+import '../providers/konata_value_notifier.dart';
 import 'cloud_subset_coordinator.dart';
 import 'unified_playback_engine.dart';
 
@@ -33,6 +34,10 @@ enum PreferredPlaybackEngine {
 
 /// 音视频全局播放与音画还原偏好不可变状态模型。
 class PlaybackPreferencesState {
+  /// 默认 FontInAss 云端字幕字体子集化服务端点地址。
+  static const String defaultCloudSubsetEndpoint =
+      FontInAssCloudClient.defaultEndpointUrl;
+
   /// 创建播放偏好状态。
   const PlaybackPreferencesState({
     this.defaultVideoEngine = PreferredPlaybackEngine.builtinLibmpv,
@@ -47,7 +52,7 @@ class PlaybackPreferencesState {
     this.bitstreamPassthrough = false,
     this.androidBitPerfectUsb = false,
     this.cloudSubsetEnabled = false,
-    this.cloudSubsetEndpoint = '',
+    this.cloudSubsetEndpoint = defaultCloudSubsetEndpoint,
     this.foobarBeefwebPort = FoobarBeefwebConfig.defaultPort,
     this.skipFoobarBeefwebPrompt = false,
   });
@@ -177,17 +182,13 @@ class PlaybackPreferencesState {
 }
 
 /// 全局音视频播放与音画还原偏好状态管理器（`SharedPreferences` 本地持久化）。
-class PlaybackPreferencesNotifier
-    extends StateNotifier<PlaybackPreferencesState> {
+class PlaybackPreferencesNotifier extends Notifier<PlaybackPreferencesState> {
   /// 创建播放偏好管理器。
   PlaybackPreferencesNotifier({
     this.enablePersistence = true,
     this.desktopDelegate,
-  }) : super(const PlaybackPreferencesState()) {
-    if (enablePersistence) {
-      unawaited(_loadFromPrefs());
-    }
-  }
+    this.initialState,
+  });
 
   static const String _prefsKey = 'konata.playback.preferences.v1';
 
@@ -197,14 +198,29 @@ class PlaybackPreferencesNotifier
   /// 可选桌面平台参数委托（用于兼容旧桌面配置键迁移，Android 端为 `null`）。
   final MpvPlatformProfileDelegate? desktopDelegate;
 
+  /// 可选初始状态（供单元测试直接注入预置偏好）。
+  final PlaybackPreferencesState? initialState;
+
+  MpvPlatformProfileDelegate? _resolvedDelegate;
+
+  @override
+  PlaybackPreferencesState build() {
+    _resolvedDelegate =
+        desktopDelegate ?? ref.watch(mpvPlatformProfileDelegateProvider);
+    if (enablePersistence) {
+      unawaited(_loadFromPrefs());
+    }
+    return initialState ?? const PlaybackPreferencesState();
+  }
+
   Future<void> _loadFromPrefs() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_prefsKey);
-      if (raw == null || raw.isEmpty || !mounted) return;
+      if (raw == null || raw.isEmpty || !ref.mounted) return;
       final decoded = jsonDecode(raw);
       if (decoded is! Map<Object?, Object?>) return;
-      state = _decodeState(decoded, delegate: desktopDelegate);
+      state = _decodeState(decoded, delegate: _resolvedDelegate);
     } catch (error) {
       // 无插件单测环境下保持默认值安全运行。
       developer.log(
@@ -242,6 +258,16 @@ class PlaybackPreferencesNotifier
     state = state.copyWith(qualityConfig: updater(state.qualityConfig));
     await _persist();
   }
+
+  /// 仅在内存中同步更新画质/字幕配置（供滑块高频拖动 60fps 实时预览，零磁盘写入阻塞）。
+  void updateQualityConfigInMemory(
+    PlaybackQualityConfig Function(PlaybackQualityConfig current) updater,
+  ) {
+    state = state.copyWith(qualityConfig: updater(state.qualityConfig));
+  }
+
+  /// 将当前内存中的播放与字幕配置单次持久化落盘（供滑块松手 `onChangeEnd` 调用）。
+  Future<void> persistCurrentQualityConfig() => _persist();
 
   /// 切换视频画质预设。
   Future<void> setPreset(VideoQualityPreset preset) =>
@@ -500,9 +526,10 @@ class PlaybackPreferencesNotifier
       cloudSubsetEnabled: map['cloudSubsetEnabled'] is bool
           ? map['cloudSubsetEnabled'] as bool
           : false,
-      cloudSubsetEndpoint: map['cloudSubsetEndpoint'] is String
+      cloudSubsetEndpoint: map['cloudSubsetEndpoint'] is String &&
+              (map['cloudSubsetEndpoint'] as String).trim().isNotEmpty
           ? (map['cloudSubsetEndpoint'] as String).trim()
-          : '',
+          : PlaybackPreferencesState.defaultCloudSubsetEndpoint,
       foobarBeefwebPort: parseInt(
         map['foobarBeefwebPort'],
         FoobarBeefwebConfig.defaultPort,
@@ -605,13 +632,8 @@ class PlaybackPreferencesNotifier
 
 /// 全局播放与音画偏好 Provider。
 final playbackPreferencesProvider =
-    StateNotifierProvider<
-      PlaybackPreferencesNotifier,
-      PlaybackPreferencesState
-    >(
-      (ref) => PlaybackPreferencesNotifier(
-        desktopDelegate: ref.watch(mpvPlatformProfileDelegateProvider),
-      ),
+    NotifierProvider<PlaybackPreferencesNotifier, PlaybackPreferencesState>(
+      PlaybackPreferencesNotifier.new,
     );
 
 /// 内嵌 `libmpv` 与 `FFmpeg` 运行时实时探测结果 Provider。
@@ -623,10 +645,16 @@ final mpvRuntimeVersionsProvider = FutureProvider<MpvRuntimeVersions>((ref) {
 });
 
 /// 内置视频页活跃状态标记（`true` 时自动收起全局迷你音频底栏并协调音视频互斥）。
-final videoPlaybackActiveProvider = StateProvider<bool>((ref) => false);
+final videoPlaybackActiveProvider =
+    NotifierProvider<KonataValueNotifier<bool>, bool>(
+      () => KonataValueNotifier<bool>.value(false),
+    );
 
 /// 全屏流光沉浸音频页展开状态标记。
-final immersiveAudioExpandedProvider = StateProvider<bool>((ref) => false);
+final immersiveAudioExpandedProvider =
+    NotifierProvider<KonataValueNotifier<bool>, bool>(
+      () => KonataValueNotifier<bool>.value(false),
+    );
 
 /// 供悬浮在 `MaterialApp.builder` 中的全局音频/组件导航使用的根导航键 Provider。
 final rootNavigatorKeyProvider = Provider<GlobalKey<NavigatorState>>(
@@ -715,7 +743,10 @@ final cloudSubsetCoordinatorProvider = Provider<CloudSubsetCoordinator>(
 );
 
 /// 云端子集化 Origin 授权变更轻量刷新版本号（驱动设置页授权徽章即时同步）。
-final cloudSubsetAuthRevisionProvider = StateProvider<int>((ref) => 0);
+final cloudSubsetAuthRevisionProvider =
+    NotifierProvider<KonataValueNotifier<int>, int>(
+      () => KonataValueNotifier<int>.value(0),
+    );
 
 /// Android 原生音频路由与外设拔出瞬态静音通道桥接 Provider（由 Riverpod 统一托管生命周期）。
 final androidAudioRouteBridgeProvider = Provider<AndroidAudioRouteBridge>((

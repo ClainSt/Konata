@@ -2,17 +2,24 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../application/providers/konata_value_notifier.dart';
 import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_playback_tokens.dart';
 
 /// 二级设置路由进入时隐藏主导航，退出时恢复。
-final capsuleNavigationHiddenProvider = StateProvider<bool>((ref) => false);
+final capsuleNavigationHiddenProvider =
+    NotifierProvider<KonataValueNotifier<bool>, bool>(
+      () => KonataValueNotifier<bool>.value(false),
+    );
 
 /// 根路由栈是否存在推入的二级全屏页面（如作品详情页），存在时隐藏主导航胶囊。
-final subRoutePushedProvider = StateProvider<bool>((ref) => false);
+final subRoutePushedProvider =
+    NotifierProvider<KonataValueNotifier<bool>, bool>(
+      () => KonataValueNotifier<bool>.value(false),
+    );
 
 /// 可拖拽音视频悬浮小窗内容形态枚举。
 enum FloatingMiniPlayerKind {
@@ -48,17 +55,32 @@ enum FloatingMiniEdgeSide {
 }
 
 /// 悬浮小窗松手吸附后的归一化停靠锚点（`null` 表示默认右下角合法锚点；拖拽过程不写此状态以避免整页重建）。
-final floatingMiniWindowAnchorProvider = StateProvider<Offset?>((ref) => null);
+final floatingMiniWindowAnchorProvider =
+    NotifierProvider<KonataValueNotifier<Offset?>, Offset?>(
+      () => KonataValueNotifier<Offset?>.value(null),
+    );
 
 /// 悬浮小窗当前视觉展开形态（收起圆钮 / 展开胶囊 / 贴边耳片）。
-final floatingMiniVisualStateProvider = StateProvider<FloatingMiniVisualState>(
-  (ref) => FloatingMiniVisualState.collapsed,
-);
+final floatingMiniVisualStateProvider =
+    NotifierProvider<
+      KonataValueNotifier<FloatingMiniVisualState>,
+      FloatingMiniVisualState
+    >(
+      () => KonataValueNotifier<FloatingMiniVisualState>.value(
+        FloatingMiniVisualState.collapsed,
+      ),
+    );
 
 /// 悬浮小窗最近停靠或贴边收折的侧边方向。
-final floatingMiniEdgeSideProvider = StateProvider<FloatingMiniEdgeSide>(
-  (ref) => FloatingMiniEdgeSide.right,
-);
+final floatingMiniEdgeSideProvider =
+    NotifierProvider<
+      KonataValueNotifier<FloatingMiniEdgeSide>,
+      FloatingMiniEdgeSide
+    >(
+      () => KonataValueNotifier<FloatingMiniEdgeSide>.value(
+        FloatingMiniEdgeSide.right,
+      ),
+    );
 
 /// 模态路由层级注册表（由 Riverpod 托管生命周期，兼容未显式挂载 `KonataRootRouteObserver` 的组件测试场景）。
 class KonataModalLayerRegistry extends ChangeNotifier {

@@ -555,8 +555,7 @@ void main() {
           storageRootProvider.overrideWithValue(storage),
           libraryRepositoryProvider.overrideWithValue(repo),
           videoPlaybackProvider(request).overrideWith(
-            (ref) => VideoPlaybackController(
-              ref,
+            () => VideoPlaybackController(
               request,
               sessionFactory: () => EmbeddedMpvSession(
                 storageRoot: storage,

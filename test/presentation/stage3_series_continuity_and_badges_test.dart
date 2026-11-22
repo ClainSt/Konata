@@ -3,9 +3,8 @@ import 'dart:io';
 
 import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -585,10 +584,9 @@ void main() {
             overrides: [
               libraryRepositoryProvider.overrideWithValue(repo),
               storageRootProvider.overrideWithValue(testStorage),
-              videoPlaybackProvider(req).overrideWith((ref) {
+              videoPlaybackProvider(req).overrideWith(() {
                 fakeClient = _FakeVideoLibMpvClient();
                 controller = VideoPlaybackController(
-                  ref,
                   req,
                   sessionFactory: () => EmbeddedMpvSession(
                     storageRoot: testStorage,
@@ -699,7 +697,7 @@ void main() {
         expect(s1Records.first.positionSeconds, 1380);
         expect(s1Records.first.isCompleted, isTrue);
 
-        // 验证 3b：热切更新为 S2 第 01 集正片，顶栏与描边 OSD 同步展示且仅再调用 1 次 loadfile
+        // 验证 3b：热切更新为 S2 第 01 集正片，通过全站居中毛玻璃胶囊提示跨季连播且仅再调用 1 次 loadfile
         expect(controller.activeWork.id, 'w-s2');
         expect(controller.state.currentEpisode.id, 's2-ep01');
         expect(
@@ -710,13 +708,38 @@ void main() {
           fakeClient.commands.last[1],
           contains(r'Frieren\S2\01.mkv'),
         );
+        final toastCapsule = find.byKey(const ValueKey('konata_toast_capsule'));
         expect(
-          find.ancestor(
-            of: find.textContaining('已跨季连播').first,
-            matching: find.byType(KonataOsdStrokedText),
+          find.descendant(
+            of: toastCapsule,
+            matching: find.textContaining('已跨季连播'),
           ),
           findsOneWidget,
         );
+        expect(find.byType(KonataOsdStrokedText), findsNothing);
+
+        // 验证 3c：视频页内报错提示同样复用居中红色胶囊（不再使用顶部描边弱提示）
+        controller.showTransientBanner(
+          '当前内封或图形字幕暂不支持内存繁简转换，请选择外挂文本字幕',
+          isError: true,
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 220));
+        expect(
+          find.descendant(
+            of: toastCapsule,
+            matching: find.text('当前内封或图形字幕暂不支持内存繁简转换，请选择外挂文本字幕'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: toastCapsule,
+            matching: find.byIcon(Icons.error_outline_rounded),
+          ),
+          findsOneWidget,
+        );
+        expect(find.byType(KonataOsdStrokedText), findsNothing);
 
         // 4. 在最终季 S2 末集正片：hasNextEpisodeAny 为 false，绝不误跳入 S2 NCED1 特典
         expect(controller.hasNextEpisodeAny, isFalse);

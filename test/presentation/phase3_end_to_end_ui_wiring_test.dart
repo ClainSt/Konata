@@ -1,13 +1,15 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_localizations/flutter_localizations.dart' show GlobalWidgetsLocalizations;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -222,9 +224,8 @@ class _EndToEndFakeMpvClient implements LibMpvClient {
 }
 
 class _StaticAudioNotifier extends AudioPlaybackNotifier {
-  _StaticAudioNotifier(super.ref, AudioPlaybackState initial) {
-    state = initial;
-  }
+  _StaticAudioNotifier(AudioPlaybackState initial)
+    : super(initialState: initial);
 
   void updatePosition(double seconds) {
     state = state.copyWith(positionSeconds: seconds);
@@ -294,11 +295,10 @@ void main() {
             StorageRootService(overrideRoot: tempDir),
           ),
           playbackPreferencesProvider.overrideWith(
-            (_) => PlaybackPreferencesNotifier(enablePersistence: false),
+            () => PlaybackPreferencesNotifier(enablePersistence: false),
           ),
           audioPlaybackProvider.overrideWith(
-            (ref) => AudioPlaybackNotifier(
-              ref,
+            () => AudioPlaybackNotifier(
               clientFactory: () => fakeClient,
               microFadeStepInterval: const Duration(milliseconds: 25),
             ),
@@ -333,11 +333,8 @@ void main() {
       );
       await Future<void>.delayed(const Duration(milliseconds: 10));
 
-      // 刚起播时应施加末级 -12 dBFS 安全限幅并启动有界 150ms S 型微淡入。
-      expect(
-        fakeClient.stringProps['af'],
-        contains('alimiter=limit=0.251'),
-      );
+      // 刚起播时常规无 DSP 共享路径采用零 af 原动态直出，并启动有界 150ms S 型微淡入。
+      expect(fakeClient.stringProps['af'], isEmpty);
       expect(notifier.isMicroFadeActive, isTrue);
       expect(fakeClient.volumeHistory, isNotEmpty);
       expect(fakeClient.volumeHistory.contains(0.0), isTrue);
@@ -349,6 +346,16 @@ void main() {
       expect(
         fakeClient.volumeHistory.any((v) => v > 0.0 && v < 100.0),
         isTrue,
+      );
+
+      // 开启未实证的独占直通时，必须自动挂载末级 -12 dBFS 安全限幅保护外设。
+      await container
+          .read(playbackPreferencesProvider.notifier)
+          .updateQualityConfig((c) => c.copyWith(exclusiveAudioOutput: true));
+      await notifier.reapplyAudiophileSafetyChain();
+      expect(
+        fakeClient.stringProps['af'],
+        contains('alimiter=limit=0.251'),
       );
 
       // 开启 Windows HDMI audio-spdif 直通后必须立即清空所有软件 DSP 与限幅滤镜。
@@ -403,9 +410,8 @@ void main() {
             ],
           ),
           overrides: [
-            audioPlaybackProvider.overrideWith((ref) {
+            audioPlaybackProvider.overrideWith(() {
               audioNotifier = _StaticAudioNotifier(
-                ref,
                 AudioPlaybackState(
                   isActive: true,
                   isPlaying: true,
@@ -582,11 +588,10 @@ void main() {
             libraryRepositoryProvider.overrideWithValue(repo),
             storageRootProvider.overrideWithValue(testStorage),
             playbackPreferencesProvider.overrideWith(
-              (_) => PlaybackPreferencesNotifier(enablePersistence: false),
+              () => PlaybackPreferencesNotifier(enablePersistence: false),
             ),
-            videoPlaybackProvider(req).overrideWith((ref) {
+            videoPlaybackProvider(req).overrideWith(() {
               controller = VideoPlaybackController(
-                ref,
                 req,
                 sessionFactory: () => EmbeddedMpvSession(
                   storageRoot: testStorage,
@@ -750,7 +755,7 @@ void main() {
             ),
             unifiedPlaybackEngineProvider.overrideWithValue(engine),
             playbackPreferencesProvider.overrideWith(
-              (_) => PlaybackPreferencesNotifier(enablePersistence: false),
+              () => PlaybackPreferencesNotifier(enablePersistence: false),
             ),
           ],
         ),
@@ -774,7 +779,8 @@ void main() {
       expect(find.byType(Switch), findsNothing);
       expect(find.byType(KonataSwitch), findsWidgets);
 
-      // 开启 FontInAss 云端子集化开关，输入地址并授权 Origin。
+      // 开启 FontInAss 云端子集化开关，默认预填官方服务端点且不展示冗余说明文案，支持自定义输入并授权 Origin。
+      expect(find.textContaining('默认关闭'), findsNothing);
       final cloudToggle = find.descendant(
         of: find.byKey(const ValueKey('settings_cloud_subset_toggle')),
         matching: find.byType(KonataSwitch),
@@ -783,9 +789,16 @@ void main() {
       await tester.tap(cloudToggle);
       await tester.pumpAndSettle();
 
+      expect(find.textContaining('安全约束'), findsNothing);
+      expect(find.text('未授权 https://font.anibt.net:443'), findsOneWidget);
+
       final endpointField = find.descendant(
         of: find.byKey(const ValueKey('settings_cloud_subset_endpoint_field')),
         matching: find.byType(TextField),
+      );
+      expect(
+        tester.widget<TextField>(endpointField).controller?.text,
+        equals(PlaybackPreferencesState.defaultCloudSubsetEndpoint),
       );
       await tester.enterText(
         endpointField,
@@ -839,7 +852,7 @@ void main() {
               StorageRootService(overrideRoot: tempDir),
             ),
             playbackPreferencesProvider.overrideWith(
-              (_) => PlaybackPreferencesNotifier(enablePersistence: false),
+              () => PlaybackPreferencesNotifier(enablePersistence: false),
             ),
           ],
         ),

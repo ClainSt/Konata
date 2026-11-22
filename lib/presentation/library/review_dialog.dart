@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/providers/library_providers.dart';
@@ -26,8 +26,8 @@ class ReviewDialog extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     ref.listen(needsReviewItemsProvider, (previous, next) {
-      final prevCount = previous?.valueOrNull?.length ?? 0;
-      final nextItems = next.valueOrNull;
+      final prevCount = previous?.value?.length ?? 0;
+      final nextItems = next.value;
       if (prevCount > 0 && nextItems != null && nextItems.isEmpty) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (context.mounted) {
@@ -50,7 +50,7 @@ class ReviewDialog extends ConsumerWidget {
     );
     final dialogMaxHeight = viewport.height * 0.84;
 
-    final pendingCount = reviewAsync.valueOrNull?.length ?? 0;
+    final pendingCount = reviewAsync.value?.length ?? 0;
 
     return KonataGlassDialog(
       title: '待复核',

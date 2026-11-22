@@ -175,6 +175,7 @@ PlaybackRecord mapPlaybackRow(PlaybackRecordRow row) => PlaybackRecord(
 );
 
 List<String> _decodeStringList(String raw) {
+  if (raw.isEmpty || raw == '[]') return const [];
   final decoded = jsonDecode(raw);
   if (decoded is! List) return const [];
   return [for (final item in decoded) item.toString()];

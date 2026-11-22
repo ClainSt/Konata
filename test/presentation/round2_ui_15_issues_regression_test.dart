@@ -3,9 +3,9 @@ import 'dart:ui' as ui;
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -599,12 +599,14 @@ void main() {
               libraryRepositoryProvider.overrideWithValue(repo),
               workDetailBundleProvider('w1').overrideWith((_) async => bundle),
               detailDisplayPreferencesProvider.overrideWith(
-                (_) => DetailDisplayPreferencesNotifier()
-                  ..state = const DetailDisplayPreferences(
+                () => DetailDisplayPreferencesNotifier(
+                  enablePersistence: false,
+                  initialState: const DetailDisplayPreferences(
                     showTitleText: true,
                     showTitleLogo: true,
                     showOverview: true,
                   ),
+                ),
               ),
               tmdbImageLoaderProvider.overrideWithValue((
                 url, {

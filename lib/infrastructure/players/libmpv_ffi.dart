@@ -903,10 +903,12 @@ class FfiLibMpvClient
     });
     if (rc < 0) return null;
 
-    final copy = Uint8List.fromList(
+    // 直接基于原生对齐像素视图编码目标 24-bit BMP，省去冗余整帧中间拷贝。
+    return encodeRgb0ToBmp(
       alignedBuf.asTypedList(safeW * safeH * 4),
+      safeW,
+      safeH,
     );
-    return encodeRgb0ToBmp(copy, safeW, safeH);
   }
 
   @override

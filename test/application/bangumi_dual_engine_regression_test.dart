@@ -24,7 +24,7 @@ import 'package:ccplayer/infrastructure/sources/local_source_gateway.dart';
 import 'package:ccplayer/presentation/dialogs/work_artwork_picker_dialog.dart';
 import 'package:ccplayer/presentation/theme/konata_theme.dart';
 import 'package:drift/native.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;

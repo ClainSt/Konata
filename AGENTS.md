@@ -119,7 +119,7 @@
    - **单一内核双舞台（内置主力 + 桌面外部备选）**：
      - 统一收敛为内置 `libmpv` 单一播放协调内核（`UnifiedPlaybackEngine`，复用经 `manifest.json` SHA-256 校验的运行时，按物理媒体、逻辑曲目、音频输出路由与按域异步任务四维代数隔离），统一驱动「原画视频舞台」、「流光音乐舞台」与三端同构「可拖拽悬浮小窗」，消除音视频双套平行控制器冗余；
      - **零拷贝原画渲染与静默零唤醒**：Android 采用窗口底层 Underlay `SurfaceView` + 上层透明 Flutter 画布视口挖空（消除 `PlatformView` 跨线程合成损耗，使全部弹窗、抽屉与下拉浮层物理天然覆盖视频小窗）；Windows 基于 DirectComposition 10-bit/HDR 交换链子视觉层或升级版 `MPV_RENDER_API_TYPE_D3D11`（`rgba16hf`）零拷贝桥（与窗口透光材质实机 A/B 择优），配合 `vo=gpu-next`（`libplacebo`）高精色彩管线与解码层 Hi10P/`Rext` 自动软解回退；OSD 隐藏稳态期挂起高频进度订阅，保持 Flutter 界面层零重绘；
-     - **无损音频链路与微淡入防爆音**：支持整数扇区单流虚拟 CUE 与分档 `gapless` 多文件无缝预缓冲；Windows 支持 WASAPI 共享（`soxr` 高精重采样）与 WASAPI Exclusive 独占源格式直通，Android 支持 AAudio 与 Android 14+ 原生 `MIXER_BEHAVIOR_BIT_PERFECT` 无损 USB 协商；非逐位直通路径强制施加末级数字安全上限与 `120~200ms` S 型微淡入斜坡；
+     - **无损音频链路与微淡入防爆音**：支持整数扇区单流虚拟 CUE 与分档 `gapless` 多文件无缝预缓冲；Windows 支持 WASAPI 共享（`soxr` 高精重采样）与 WASAPI Exclusive 独占源格式直通，Android 支持 AAudio 与 Android 14+ 原生 `MIXER_BEHAVIOR_BIT_PERFECT` 无损 USB 协商；常规无 DSP 共享输出采用零 `af` 原动态直出并保留 `120~200ms` S 型微淡入斜坡防爆音，存在正向增益用户 DSP 或未解锁逐位独占直通时在链尾施加 `-12 dBFS` 末级数字安全上限；
      - **内存直注无副作用字幕引擎**：外挂字幕原始缓存采用同卷临时文件校验后原子发布；编码归一、OpenCC 双语可逆片段转换与离线分段线性时间轴重映射优先通过 `sub-add memory://... cached` 无副作用直注内存并经单一串行权威意图通道原子选轨；本地同级 `Fonts/` 原位只读直挂，压缩包与远程下载字体包入单级去重池；
      - **详情页静默预热与流式网桥**：进入详情页浏览期静默预热远程 Keep-Alive 连接、WebDAV Digest 质询握手与同级字幕目录内存索引；完整保留桌面端外部播放器（MPV JSON IPC / PotPlayer Win32 消息 / 自定义外部音频程序）带时间戳无缝热接力；远程 WebDAV / SMB 资源经 `LocalStreamBridge`（支持 Digest 握手、强验证器 `206` 一致性续传与凭据隔离）或原生内存流回调透传，原文件零落盘。
    - **Scan 扫图（三级按源调度 + 原图零落盘 + 全端内置灯箱闭环）**：

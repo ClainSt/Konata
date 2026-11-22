@@ -120,17 +120,25 @@ class SeriesAutoLinker {
   );
 
   static final RegExp _cjkCharPattern = RegExp(r'[\u4e00-\u9fff\u3040-\u30ff]');
+  static final RegExp _leadingSlashPattern = RegExp(r'^/+');
+  static final RegExp _whitespaceCollapsePattern = RegExp(r'\s+');
+  static final RegExp _compactStemStripPattern = RegExp(
+    r'[\s\-_:：·・!！?？/／()（）\[\]【】]',
+  );
 
   /// 在全库或局部分析后，对媒体库作品执行自动系列编组与 ClearLogo 交叉纠偏。
   ///
+  /// 支持传入调用方已预载的 [preloadedWorks] 与 [preloadedVariants] 以避免启动期重复全表扫描。
   /// 返回本次是否对作品归属、ClearLogo 或系列编组产生了持久化变更。
   static Future<bool> reconcileAll({
     required LibraryRepository repository,
     BangumiService? bangumiService,
     TmdbService? tmdbService,
     Map<int, int> tmdbCollectionIdByTmdbId = const {},
+    List<Work>? preloadedWorks,
+    List<MediaVariant>? preloadedVariants,
   }) async {
-    final allWorks = await repository.getAllWorks();
+    final allWorks = preloadedWorks ?? await repository.getAllWorks();
     final existingGroups = await repository.getAllSeriesGroups();
     final existingGroupById = {for (final g in existingGroups) g.id: g};
     var mutated = false;
@@ -200,8 +208,8 @@ class SeriesAutoLinker {
       uf.unionAll(group);
     }
 
-    // 5. 物理合集根目录分组（一次性批量载入全库变体，消除逐作品 N+1 SQLite 查询）。
-    final allVariants = await repository.getAllVariants();
+    // 5. 物理合集根目录分组（优先复用预载全库变体，消除逐作品 N+1 与重复全表查询）。
+    final allVariants = preloadedVariants ?? await repository.getAllVariants();
     final variantsByWorkId = <String, List<MediaVariant>>{};
     for (final v in allVariants) {
       variantsByWorkId.putIfAbsent(v.workId, () => <MediaVariant>[]).add(v);
@@ -292,17 +300,43 @@ class SeriesAutoLinker {
     }
 
     // 7. 跨类型主标题归一化前缀聚类（如 TV 正片《加速世界》与剧场版《加速世界：无限超频》）。
-    for (var i = 0; i < eligibleWorks.length; i++) {
-      final tvCandidate = eligibleWorks[i];
-      if (!_isTvLikeWork(tvCandidate)) continue;
-      for (var j = 0; j < eligibleWorks.length; j++) {
-        if (i == j) continue;
-        final spinOffCandidate = eligibleWorks[j];
-        if (!_isSpinOffOrMovieCandidate(tvCandidate, spinOffCandidate)) {
-          continue;
-        }
-        if (_matchesCrossTypeSeriesStem(tvCandidate, spinOffCandidate)) {
-          uf.union(i, j);
+    // 先在 O(N) 内预筛可能为剧场版/番外/OVA 的目标集合并预处理规范化标题，消除 O(N^2) 重复正则扫描。
+    final spinOffEntries = <({int index, Work work, List<String> targets})>[];
+    for (var j = 0; j < eligibleWorks.length; j++) {
+      final candidate = eligibleWorks[j];
+      final isMovieOrSpinOff =
+          candidate.tmdbMediaType == TmdbMediaType.movie ||
+          _spinOffKeywordPattern.hasMatch(
+            '${candidate.title} ${candidate.originalTitle ?? ''}',
+          );
+      if (!isMovieOrSpinOff) continue;
+      final targets = <String>[
+        _normalizeSpace(candidate.title),
+        if (candidate.originalTitle != null &&
+            candidate.originalTitle!.trim().isNotEmpty)
+          _normalizeSpace(candidate.originalTitle!),
+      ];
+      spinOffEntries.add((index: j, work: candidate, targets: targets));
+    }
+
+    if (spinOffEntries.isNotEmpty) {
+      for (var i = 0; i < eligibleWorks.length; i++) {
+        final tvCandidate = eligibleWorks[i];
+        if (!_isTvLikeWork(tvCandidate)) continue;
+        final stems = _extractPreparedStems(tvCandidate);
+        if (stems.isEmpty) continue;
+        for (final entry in spinOffEntries) {
+          final j = entry.index;
+          if (i == j || uf.find(i) == uf.find(j)) continue;
+          final spinOffCandidate = entry.work;
+          if (tvCandidate.tmdbId != null &&
+              spinOffCandidate.tmdbId == tvCandidate.tmdbId &&
+              spinOffCandidate.tmdbMediaType == tvCandidate.tmdbMediaType) {
+            continue;
+          }
+          if (_matchesPreparedCrossTypeStem(stems, entry.targets)) {
+            uf.union(i, j);
+          }
         }
       }
     }
@@ -473,60 +507,46 @@ class SeriesAutoLinker {
         (w.tmdbMediaType == null && w.matchedSeason != null);
   }
 
-  static bool _isSpinOffOrMovieCandidate(Work tvWork, Work candidate) {
-    if (tvWork.tmdbId != null &&
-        candidate.tmdbId == tvWork.tmdbId &&
-        candidate.tmdbMediaType == tvWork.tmdbMediaType) {
-      return false;
+  static String _normalizeSpace(String raw) =>
+      raw.trim().replaceAll(_whitespaceCollapsePattern, ' ');
+
+  static List<({String lower, int length})> _extractPreparedStems(Work tvWork) {
+    final seen = <String>{};
+    final result = <({String lower, int length})>[];
+    for (final raw in [tvWork.title, tvWork.originalTitle]) {
+      if (raw == null || raw.trim().isEmpty) continue;
+      final stripped = raw
+          .trim()
+          .replaceFirst(_trailingSeasonSuffixPattern, '')
+          .trim();
+      final stem = _normalizeSpace(stripped);
+      if (stem.isEmpty) continue;
+      final lower = stem.toLowerCase();
+      if (!seen.add(lower)) continue;
+      final compactStem = stem.replaceAll(_compactStemStripPattern, '');
+      final minLen = _cjkCharPattern.hasMatch(compactStem) ? 2 : 5;
+      if (compactStem.length < minLen) continue;
+      result.add((lower: lower, length: stem.length));
     }
-    if (candidate.tmdbMediaType == TmdbMediaType.movie) {
-      return true;
-    }
-    final combined = '${candidate.title} ${candidate.originalTitle ?? ''}';
-    return _spinOffKeywordPattern.hasMatch(combined);
+    return result;
   }
 
-  static bool _matchesCrossTypeSeriesStem(Work tvWork, Work spinOffWork) {
-    final stems = <String>{
-      for (final raw in [tvWork.title, tvWork.originalTitle])
-        if (raw != null && raw.trim().isNotEmpty)
-          raw.trim().replaceFirst(_trailingSeasonSuffixPattern, '').trim(),
-    };
-    final targets = <String>[
-      spinOffWork.title.trim(),
-      if (spinOffWork.originalTitle != null &&
-          spinOffWork.originalTitle!.trim().isNotEmpty)
-        spinOffWork.originalTitle!.trim(),
-    ];
-    for (final stem in stems) {
-      for (final target in targets) {
-        if (_isPrefixSubtitleMatch(stem, target)) {
+  static bool _matchesPreparedCrossTypeStem(
+    List<({String lower, int length})> stems,
+    List<String> targets,
+  ) {
+    for (final target in targets) {
+      final targetLower = target.toLowerCase();
+      for (final stem in stems) {
+        if (target.length <= stem.length) continue;
+        if (!targetLower.startsWith(stem.lower)) continue;
+        final suffix = target.substring(stem.length);
+        if (_subtitleBoundaryPattern.hasMatch(suffix)) {
           return true;
         }
       }
     }
     return false;
-  }
-
-  static bool _isPrefixSubtitleMatch(String stemRaw, String targetRaw) {
-    final stem = stemRaw.trim().replaceAll(RegExp(r'\s+'), ' ');
-    final target = targetRaw.trim().replaceAll(RegExp(r'\s+'), ' ');
-    if (stem.isEmpty || target.length <= stem.length) {
-      return false;
-    }
-    final compactStem = stem.replaceAll(
-      RegExp(r'[\s\-_:：·・!！?？/／()（）\[\]【】]'),
-      '',
-    );
-    final minLen = _cjkCharPattern.hasMatch(compactStem) ? 2 : 5;
-    if (compactStem.length < minLen) {
-      return false;
-    }
-    if (!target.toLowerCase().startsWith(stem.toLowerCase())) {
-      return false;
-    }
-    final suffix = target.substring(stem.length);
-    return _subtitleBoundaryPattern.hasMatch(suffix);
   }
 
   static Future<({List<Work> healedMembers, Set<String> healedWorkIds})>
@@ -725,7 +745,7 @@ class SeriesAutoLinker {
   }) {
     final dirChainCounts = <String, int>{};
     for (final raw in relativePaths) {
-      final norm = raw.replaceAll('\\', '/').replaceFirst(RegExp(r'^/+'), '');
+      final norm = raw.replaceAll('\\', '/').replaceFirst(_leadingSlashPattern, '');
       final slashIdx = norm.lastIndexOf('/');
       if (slashIdx <= 0) continue;
       final dirPath = norm.substring(0, slashIdx);

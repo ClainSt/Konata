@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../domain/models/media_source.dart';
 import '../../domain/models/network_config.dart';
@@ -9,6 +9,7 @@ import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_segmented_capsule.dart';
 import '../widgets/design_system/konata_soft_text_field.dart';
 import '../widgets/design_system/konata_system_file_picker.dart';
+import '../widgets/design_system/konata_toast.dart';
 import '../theme/konata_theme.dart';
 
 /// 添加或编辑媒体源毛玻璃弹窗（支持本地磁盘、WebDAV、SMB 三类源与连通测试）。
@@ -54,9 +55,6 @@ class _SourceEditorDialogState extends State<SourceEditorDialog> {
   bool _saving = false;
   bool _testing = false;
   bool _clearPassword = false;
-  String? _errorText;
-  String? _testFeedback;
-  bool _testSuccess = false;
 
   @override
   void initState() {
@@ -78,21 +76,27 @@ class _SourceEditorDialogState extends State<SourceEditorDialog> {
   }
 
   Future<void> _pickLocalDirectory() async {
-    final picker = KonataSystemFilePicker.resolve(
-      context,
-      fallback: _fallbackFilePicker,
-    );
-    final selected = await picker.getDirectoryPath(
-      dialogTitle: '选择本地动画媒体目录',
-    );
-    if (!mounted) return;
-    if (selected != null && selected.isNotEmpty) {
-      _locationController.text = selected;
-      if (_labelController.text.trim().isEmpty) {
-        _labelController.text = deriveDefaultSourceLabel(
-          MediaSourceKind.local,
-          selected,
-        );
+    try {
+      final picker = KonataSystemFilePicker.resolve(
+        context,
+        fallback: _fallbackFilePicker,
+      );
+      final selected = await picker.getDirectoryPath(
+        dialogTitle: '选择本地动画媒体目录',
+      );
+      if (!mounted) return;
+      if (selected != null && selected.isNotEmpty) {
+        _locationController.text = selected;
+        if (_labelController.text.trim().isEmpty) {
+          _labelController.text = deriveDefaultSourceLabel(
+            MediaSourceKind.local,
+            selected,
+          );
+        }
+      }
+    } catch (error) {
+      if (mounted) {
+        showKonataToast(context, '打开系统目录选择器失败：$error', isError: true);
       }
     }
   }
@@ -109,7 +113,11 @@ class _SourceEditorDialogState extends State<SourceEditorDialog> {
       _locationController.text,
     );
     if (!validated.isValid) {
-      setState(() => _errorText = validated.errorMessage ?? '媒体源地址格式无效');
+      showKonataToast(
+        context,
+        validated.errorMessage ?? '媒体源地址格式无效',
+        isError: true,
+      );
       return null;
     }
     if (validated.normalizedLocation != _locationController.text.trim()) {
@@ -135,10 +143,6 @@ class _SourceEditorDialogState extends State<SourceEditorDialog> {
 
   Future<void> _handleTest() async {
     if (_saving || _testing || widget.onTestConnection == null) return;
-    setState(() {
-      _errorText = null;
-      _testFeedback = null;
-    });
     final draft = _buildValidatedDraft();
     if (draft == null) return;
 
@@ -152,26 +156,20 @@ class _SourceEditorDialogState extends State<SourceEditorDialog> {
         clearPassword: _clearPassword,
       );
       if (!mounted) return;
-      setState(() {
-        _testing = false;
-        _testSuccess = error == null;
-        _testFeedback = error ?? '连通测试成功，服务器与凭据验证通过';
-      });
+      setState(() => _testing = false);
+      showKonataToast(
+        context,
+        error ?? '连通测试成功，服务器与凭据验证通过',
+        isError: error != null,
+      );
     } catch (error) {
       if (!mounted) return;
-      setState(() {
-        _testing = false;
-        _testSuccess = false;
-        _testFeedback = '测试连通异常: $error';
-      });
+      setState(() => _testing = false);
+      showKonataToast(context, '测试连通异常: $error', isError: true);
     }
   }
 
   Future<void> _submit() async {
-    setState(() {
-      _errorText = null;
-      _testFeedback = null;
-    });
     final source = _buildValidatedDraft();
     if (source == null) return;
 
@@ -188,10 +186,8 @@ class _SourceEditorDialogState extends State<SourceEditorDialog> {
       }
     } catch (error) {
       if (mounted) {
-        setState(() {
-          _errorText = '保存失败: $error';
-          _saving = false;
-        });
+        setState(() => _saving = false);
+        showKonataToast(context, '保存失败: $error', isError: true);
       }
     }
   }
@@ -375,52 +371,6 @@ class _SourceEditorDialogState extends State<SourceEditorDialog> {
               ],
             ),
           ),
-          if (_testFeedback != null) ...[
-            const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              decoration: BoxDecoration(
-                color: (_testSuccess ? p.success : p.danger).withValues(
-                  alpha: 0.12,
-                ),
-                borderRadius: KonataTheme.borderRadiusSm,
-                border: Border.all(
-                  color: (_testSuccess ? p.success : p.danger).withValues(
-                    alpha: 0.4,
-                  ),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    _testSuccess
-                        ? Icons.check_circle_outline_rounded
-                        : Icons.error_outline_rounded,
-                    size: 16,
-                    color: _testSuccess ? p.success : p.danger,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _testFeedback!,
-                      style: TextStyle(
-                        color: _testSuccess ? p.success : p.danger,
-                        fontSize: KonataTheme.fontSizeCaption,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-          if (_errorText != null) ...[
-            const SizedBox(height: 10),
-            Text(
-              _errorText!,
-              style: TextStyle(color: p.danger, fontSize: KonataTheme.fontSizeBodyXs),
-            ),
-          ],
         ],
       ),
     );

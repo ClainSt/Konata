@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:developer' as developer;
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
@@ -12,7 +14,6 @@ import '../../domain/playback/track_preferences.dart';
 import '../../domain/text/multibyte_text_decoder.dart';
 import '../../infrastructure/players/libmpv_ffi.dart';
 import 'unified_playback_engine.dart';
-import 'dart:developer' as developer;
 
 /// 单个字幕槽位（主字幕或副字幕）的权威挂载目标描述。
 class SubtitleSlotRequest {
@@ -235,6 +236,9 @@ class SubtitleMemoryEngine {
   final Map<String, int> _originalTrackIdBySourcePath = {};
   final Map<int, String> _sourcePathByMountedTrackId = {};
   final Set<int> _derivedMemoryTrackIds = {};
+  final Set<int> _cloudSubsetTrackIds = {};
+  final Map<String, int> _cloudSubsetTrackIdBySourcePath = {};
+  final Map<int, String> _cloudSubsetFontsDirByTrackId = {};
 
   /// 当前最新权威意图版本（用于诊断与测试）。
   int get latestIntentVersion => _latestIntentVersion;
@@ -250,13 +254,36 @@ class SubtitleMemoryEngine {
   int? lookupTrackIdForSourcePath(String filePath) =>
       _mountedTrackIdBySourcePath[_normalizePathKey(filePath)];
 
-  /// 根据原始外挂字幕文件路径查询未做繁简/调轴改写的原始“原文”轨道 ID。
+  /// 根据原始外挂字幕文件路径查询未做繁简/调轴/子集化改写的原始“原文”轨道 ID。
   int? lookupOriginalTrackIdForSourcePath(String filePath) =>
       _originalTrackIdBySourcePath[_normalizePathKey(filePath)];
+
+  /// 根据原始外挂字幕文件路径查询当前已挂载的云端子集化轨道 ID。
+  int? lookupCloudSubsetTrackIdForSourcePath(String filePath) =>
+      _cloudSubsetTrackIdBySourcePath[_normalizePathKey(filePath)];
+
+  /// 判断指定轨道 ID 是否属于云端子集化独立对比轨道。
+  bool isCloudSubsetTrackId(int trackId) =>
+      _cloudSubsetTrackIds.contains(trackId);
+
+  /// 登记指定云端子集化轨道对应的独立字体池目录，供原轨与子集轨来回切换时精准隔离字库。
+  void registerCloudSubsetFontsDir(int trackId, String dirPath) {
+    final trimmed = dirPath.trim();
+    if (trimmed.isEmpty) return;
+    _cloudSubsetFontsDirByTrackId[trackId] = trimmed;
+  }
+
+  /// 查询指定云端子集化轨道绑定的字体池目录。
+  String? lookupCloudSubsetFontsDirForTrackId(int trackId) =>
+      _cloudSubsetFontsDirByTrackId[trackId];
 
   /// 返回当前物理周期已挂载内存字幕轨 ID 到真实原始字幕路径的只读快照（供轨道合并去重与组名提炼）。
   Map<int, String> get mountedSourcePathsSnapshot =>
       Map<int, String>.unmodifiable(_sourcePathByMountedTrackId);
+
+  /// 返回当前物理周期已挂载云端子集化轨道 ID 的只读集合快照（供侧栏渲染「子集化」独立对比条目）。
+  Set<int> get cloudSubsetTrackIdsSnapshot =>
+      Set<int>.unmodifiable(_cloudSubsetTrackIds);
 
   /// 推进意图代数，令一切尚未提交的在途异步字幕加载/转换任务立即失效（0 写回）。
   int invalidatePendingIntents() {
@@ -276,6 +303,9 @@ class SubtitleMemoryEngine {
     _originalTrackIdBySourcePath.clear();
     _sourcePathByMountedTrackId.clear();
     _derivedMemoryTrackIds.clear();
+    _cloudSubsetTrackIds.clear();
+    _cloudSubsetTrackIdBySourcePath.clear();
+    _cloudSubsetFontsDirByTrackId.clear();
   }
 
   /// 同步更新瞬时 `sub-delay` 并同步推进权威意图代数，防止在途异步选轨覆盖新延迟。
@@ -593,7 +623,7 @@ class SubtitleMemoryEngine {
         }
       }
 
-      if (hasRemappedTrack && (client.getPropertyFlag('pause') ?? false)) {
+      if (client.getPropertyFlag('pause') ?? false) {
         client.command(['seek', '0', 'relative', 'exact']);
       }
 
@@ -639,6 +669,9 @@ class SubtitleMemoryEngine {
     _originalTrackIdBySourcePath.clear();
     _sourcePathByMountedTrackId.clear();
     _derivedMemoryTrackIds.clear();
+    _cloudSubsetTrackIds.clear();
+    _cloudSubsetTrackIdBySourcePath.clear();
+    _cloudSubsetFontsDirByTrackId.clear();
   }
 
   void _pruneSupersededDerivedTracks(
@@ -680,6 +713,43 @@ class SubtitleMemoryEngine {
   static String _normalizePathKey(String rawPath) =>
       rawPath.trim().replaceAll('\\', '/').toLowerCase();
 
+  /// 大体积外挂特效字幕（>= 64 KiB）转入后台 Worker Isolate 执行解码、OpenCC 转换与离线调轴。
+  static const int _isolateOffloadBytes = 64 * 1024;
+
+  static ({
+    String content,
+    String sha1Hex,
+    SubtitleSubsetState subsetState,
+    String? openCcSkipReason,
+  })
+  _processAndRemapText({
+    required String workingText,
+    required SubtitleOpenCcMode openCcMode,
+    required bool forceOverrideSubsetGuard,
+    required SubtitleTimelineTransform timelineTransform,
+    required SubtitleTextFormat detectedFormat,
+    String? fileName,
+  }) {
+    final processed = SubtitleContentProcessor.process(
+      content: workingText,
+      mode: openCcMode,
+      forceOverrideSubsetGuard: forceOverrideSubsetGuard,
+    );
+    final remapped = SubtitleTimelineRemapper.remap(
+      content: processed.content,
+      transform: timelineTransform,
+      format: detectedFormat,
+      fileName: fileName,
+    );
+    final contentSha1 = sha1.convert(utf8.encode(remapped)).toString();
+    return (
+      content: remapped,
+      sha1Hex: contentSha1,
+      subsetState: processed.subsetState,
+      openCcSkipReason: processed.skipReason,
+    );
+  }
+
   Future<_PreparedMemorySlot> _prepareSlot(SubtitleSlotRequest request) async {
     if (request.existingTrackId != null) {
       return _PreparedMemorySlot(
@@ -698,16 +768,76 @@ class SubtitleMemoryEngine {
       throw StateError('字幕槽位既未指定轨道 ID，也未提供字节加载源');
     }
 
-    final decoded = MultibyteTextDecoder.decodeWithInfo(
-      rawBytes,
-      legacyDecoder: legacyCodePageDecoder,
-    );
+    final useIsolate = rawBytes.length >= _isolateOffloadBytes;
+    final fileNameHint = request.fileName ?? trimmedLocalPath;
+    final needsCloudOrEmbeddedFontHook =
+        cloudSubsetTransform != null || onAssContentPrepared != null;
+
+    // 常规快速路径（大字幕且无云端子集/ASS 内嵌字体钩子，或非 ASS）：单次后台 Isolate 端到端完成
+    // 编码归一 + OpenCC + 离线调轴 + SHA-1，主 UI 线程零阻塞。
+    if (useIsolate &&
+        legacyCodePageDecoder == null &&
+        !needsCloudOrEmbeddedFontHook) {
+      final openCcMode = request.openCcMode;
+      final forceOverride = request.forceOverrideSubsetGuard;
+      final transform = request.timelineTransform;
+      final transferable = TransferableTypedData.fromList([rawBytes]);
+      final result = await Isolate.run(() {
+        final bytes = transferable.materialize().asUint8List();
+        final decoded = MultibyteTextDecoder.decodeWithInfo(bytes);
+        final format = SubtitleTimelineRemapper.detectFormat(
+          decoded.text,
+          fileName: fileNameHint,
+        );
+        final out = _processAndRemapText(
+          workingText: decoded.text,
+          openCcMode: openCcMode,
+          forceOverrideSubsetGuard: forceOverride,
+          timelineTransform: transform,
+          detectedFormat: format,
+          fileName: fileNameHint,
+        );
+        return (
+          charset: decoded.charset,
+          content: out.content,
+          sha1Hex: out.sha1Hex,
+          subsetState: out.subsetState,
+          openCcSkipReason: out.openCcSkipReason,
+        );
+      });
+      return _PreparedMemorySlot(
+        sourceFilePath: trimmedLocalPath,
+        processedContent: result.content,
+        contentSha1: result.sha1Hex,
+        decodedCharset: result.charset,
+        subsetState: result.subsetState,
+        openCcSkipReason: result.openCcSkipReason,
+        displayTitle: request.displayTitle ?? request.fileName,
+        hasTimelineRemap: request.hasTimelineRemap,
+        cloudSubsetApplied: false,
+        isDerivedVariant:
+            request.openCcMode != SubtitleOpenCcMode.none ||
+            request.hasTimelineRemap,
+      );
+    }
+
+    final DecodedTextResult decoded;
+    if (useIsolate && legacyCodePageDecoder == null) {
+      decoded = await Isolate.run(
+        () => MultibyteTextDecoder.decodeWithInfo(rawBytes),
+      );
+    } else {
+      decoded = MultibyteTextDecoder.decodeWithInfo(
+        rawBytes,
+        legacyDecoder: legacyCodePageDecoder,
+      );
+    }
     var workingText = decoded.text;
     var cloudApplied = false;
 
     final detectedFormat = SubtitleTimelineRemapper.detectFormat(
       workingText,
-      fileName: request.fileName ?? trimmedLocalPath,
+      fileName: fileNameHint,
     );
 
     // 若启用云端子集化且目标源已授权，仅对未含 [Fonts] 的 ASS/SSA 正文发起按域云端子集化。
@@ -728,26 +858,37 @@ class SubtitleMemoryEngine {
       await onAssContentPrepared!(workingText);
     }
 
-    final processed = SubtitleContentProcessor.process(
-      content: workingText,
-      mode: request.openCcMode,
-      forceOverrideSubsetGuard: request.forceOverrideSubsetGuard,
-    );
-    final remapped = SubtitleTimelineRemapper.remap(
-      content: processed.content,
-      transform: request.timelineTransform,
-      format: detectedFormat,
-      fileName: request.fileName ?? trimmedLocalPath,
-    );
-    final contentSha1 = sha1.convert(utf8.encode(remapped)).toString();
+    final textForWorker = workingText;
+    final openCcMode = request.openCcMode;
+    final forceOverride = request.forceOverrideSubsetGuard;
+    final transform = request.timelineTransform;
+    final out = useIsolate
+        ? await Isolate.run(
+            () => _processAndRemapText(
+              workingText: textForWorker,
+              openCcMode: openCcMode,
+              forceOverrideSubsetGuard: forceOverride,
+              timelineTransform: transform,
+              detectedFormat: detectedFormat,
+              fileName: fileNameHint,
+            ),
+          )
+        : _processAndRemapText(
+            workingText: textForWorker,
+            openCcMode: openCcMode,
+            forceOverrideSubsetGuard: forceOverride,
+            timelineTransform: transform,
+            detectedFormat: detectedFormat,
+            fileName: fileNameHint,
+          );
 
     return _PreparedMemorySlot(
       sourceFilePath: trimmedLocalPath,
-      processedContent: remapped,
-      contentSha1: contentSha1,
+      processedContent: out.content,
+      contentSha1: out.sha1Hex,
       decodedCharset: decoded.charset,
-      subsetState: processed.subsetState,
-      openCcSkipReason: processed.skipReason,
+      subsetState: out.subsetState,
+      openCcSkipReason: out.openCcSkipReason,
       displayTitle: request.displayTitle ?? request.fileName,
       hasTimelineRemap: request.hasTimelineRemap,
       cloudSubsetApplied: cloudApplied,
@@ -784,7 +925,16 @@ class SubtitleMemoryEngine {
     // 命中当前物理周期已挂载且仍在 track-list 中的同源同内容内存轨，直接去重复用。
     final cachedId = _mountedMemoryTracksBySha1[cacheKey];
     if (cachedId != null && existingSubIds.contains(cachedId)) {
-      if (sourceKey.isNotEmpty) {
+      if (slot.cloudSubsetApplied) {
+        _cloudSubsetTrackIds.add(cachedId);
+        if (sourceKey.isNotEmpty) {
+          _cloudSubsetTrackIdBySourcePath[sourceKey] = cachedId;
+          _sourcePathByMountedTrackId.putIfAbsent(
+            cachedId,
+            () => slot.sourceFilePath!,
+          );
+        }
+      } else if (sourceKey.isNotEmpty) {
         if (!slot.isDerivedVariant) {
           _originalTrackIdBySourcePath[sourceKey] = cachedId;
           _mountedTrackIdBySourcePath[sourceKey] = cachedId;
@@ -831,6 +981,27 @@ class SubtitleMemoryEngine {
     if (mountedId == null) return null;
     final resolvedTrackId = mountedId;
     _mountedMemoryTracksBySha1[cacheKey] = resolvedTrackId;
+    if (slot.cloudSubsetApplied) {
+      // 云端子集化轨与原字幕轨并存，严禁覆盖原轨映射，也不纳入自动回收集合，支持随时来回切换对比。
+      _cloudSubsetTrackIds.add(resolvedTrackId);
+      if (sourceKey.isNotEmpty) {
+        final previousSubsetId = _cloudSubsetTrackIdBySourcePath[sourceKey];
+        if (previousSubsetId != null && previousSubsetId != resolvedTrackId) {
+          final rmRc = client.command(['sub-remove', '$previousSubsetId']);
+          if (rmRc >= 0) {
+            _cloudSubsetTrackIds.remove(previousSubsetId);
+            _cloudSubsetFontsDirByTrackId.remove(previousSubsetId);
+            _sourcePathByMountedTrackId.remove(previousSubsetId);
+            _mountedMemoryTracksBySha1.removeWhere(
+              (_, id) => id == previousSubsetId,
+            );
+          }
+        }
+        _cloudSubsetTrackIdBySourcePath[sourceKey] = resolvedTrackId;
+        _sourcePathByMountedTrackId[resolvedTrackId] = slot.sourceFilePath!;
+      }
+      return (trackId: resolvedTrackId, reused: false);
+    }
     if (slot.isDerivedVariant) {
       _derivedMemoryTrackIds.add(resolvedTrackId);
     }

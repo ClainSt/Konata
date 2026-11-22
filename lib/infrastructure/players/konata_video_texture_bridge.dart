@@ -163,6 +163,12 @@ abstract interface class KonataVideoTextureBridge {
   /// 查询指定会话的原生 GPU 单帧渲染耗时统计（P50 / P99 / 平均微秒及格式位深）。
   Future<NativeSessionMetrics?> getSessionMetrics(int sessionId);
 
+  /// 动态切换共享纹理会话的离屏高色深渲染目标格式（SDR 用 10-bit，HDR 自动升档至 16-bit FP16）。
+  Future<bool> setHdrFboEnabled({
+    required int sessionId,
+    required bool enabled,
+  });
+
   /// 释放原生渲染上下文并注销外部纹理。
   Future<void> disposeSession(int sessionId);
 

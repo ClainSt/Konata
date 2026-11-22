@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// 语义化彩色徽章成套光学 Token（高遮蔽暗腔底 + 高明度冰色浅字 + 1px 同色微光描边）。
 ///

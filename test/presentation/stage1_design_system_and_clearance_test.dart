@@ -1,9 +1,9 @@
 import 'dart:typed_data';
 
 import 'package:drift/native.dart';
-import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:ccplayer/application/playback/audio_playback_notifier.dart';
@@ -44,15 +44,12 @@ final Uint8List _transparentPng = Uint8List.fromList([
 ]);
 
 class _StubScrapeController extends ScrapeController {
-  _StubScrapeController(super.ref, ScrapeProgress initial) {
-    state = initial;
-  }
+  _StubScrapeController(ScrapeProgress initial) : super(initialState: initial);
 }
 
 class _StubAudioPlaybackNotifier extends AudioPlaybackNotifier {
-  _StubAudioPlaybackNotifier(super.ref, AudioPlaybackState initial) {
-    state = initial;
-  }
+  _StubAudioPlaybackNotifier(AudioPlaybackState initial)
+    : super(initialState: initial);
 
   void emit(AudioPlaybackState next) {
     state = next;
@@ -219,8 +216,7 @@ void main() {
           overrides: [
             libraryRepositoryProvider.overrideWithValue(repo),
             scrapeControllerProvider.overrideWith(
-              (ref) => _StubScrapeController(
-                ref,
+              () => _StubScrapeController(
                 const ScrapeProgress(
                   phase: ScrapePhase.scraping,
                   sourceId: 's1',
@@ -285,8 +281,7 @@ void main() {
             mode: mode,
             overrides: [
               audioPlaybackProvider.overrideWith(
-                (ref) => _StubAudioPlaybackNotifier(
-                  ref,
+                () => _StubAudioPlaybackNotifier(
                   const AudioPlaybackState(
                     isActive: true,
                     isPlaying: true,
@@ -523,8 +518,8 @@ void main() {
           const WorkDetailPage(workId: 'w1'),
           overrides: [
             libraryRepositoryProvider.overrideWithValue(repo),
-            audioPlaybackProvider.overrideWith((ref) {
-              audioNotifier = _StubAudioPlaybackNotifier(ref, idleAudio);
+            audioPlaybackProvider.overrideWith(() {
+              audioNotifier = _StubAudioPlaybackNotifier(idleAudio);
               return audioNotifier;
             }),
           ],

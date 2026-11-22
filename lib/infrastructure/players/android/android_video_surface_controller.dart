@@ -382,7 +382,7 @@ class AndroidVideoSurfaceController {
       if (type != FileSystemEntityType.file) return false;
       final file = File(path);
       if (await file.length() <= 12) return false;
-      return SubtitleFontPoolManager.hasVerifiedCjkGlyph(file);
+      return await SubtitleFontPoolManager.hasVerifiedCjkGlyph(file);
     } catch (_) {
       return false;
     }

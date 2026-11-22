@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/providers/artwork_provider.dart';
@@ -155,7 +155,7 @@ class _WorkMergeTargetDialogState extends ConsumerState<WorkMergeTargetDialog> {
     } catch (e) {
       if (mounted) {
         setState(() => _submitting = false);
-        showKonataToast(context, '并入失败: $e');
+        showKonataToast(context, '并入失败: $e', isError: true);
       }
     }
   }
@@ -165,7 +165,7 @@ class _WorkMergeTargetDialogState extends ConsumerState<WorkMergeTargetDialog> {
     final p = context.palette;
     final confirmedAsync = ref.watch(confirmedLibraryItemsProvider);
     final imageLoader = ref.watch(tmdbImageLoaderProvider);
-    final candidates = _filterCandidates(confirmedAsync.valueOrNull ?? const []);
+    final candidates = _filterCandidates(confirmedAsync.value ?? const []);
 
     return KonataGlassDialog(
       width: 640,

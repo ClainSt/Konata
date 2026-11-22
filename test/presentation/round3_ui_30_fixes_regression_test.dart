@@ -4,10 +4,11 @@ import 'dart:io';
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:ccplayer/application/providers/konata_value_notifier.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -147,12 +148,9 @@ class _FakeWebDavGateway implements MediaSourceGateway {
 
 class _StubAudioNotifier extends AudioPlaybackNotifier {
   _StubAudioNotifier(
-    super.ref,
     AudioPlaybackState initial, {
     super.mediaSessionBridge,
-  }) {
-    state = initial;
-  }
+  }) : super(initialState: initial);
 
   double? lastSeekSeconds;
   bool? lastSetPlaying;
@@ -188,21 +186,22 @@ class _StubAudioNotifier extends AudioPlaybackNotifier {
 }
 
 class _StubVideoController extends VideoPlaybackController {
-  _StubVideoController(super.ref, super.request)
-    : super(deferBootstrap: true) {
-    state = VideoPlaybackState(
-      isInitializing: false,
-      isBuffering: false,
-      hasFirstFrame: true,
-      isPlaying: true,
-      currentWork: request.work,
-      currentBundle: request.bundle,
-      currentEpisode: request.episode,
-      currentVariant: request.variant,
-      positionSeconds: 120,
-      durationSeconds: 1420,
-    );
-  }
+  _StubVideoController(super.request)
+    : super(
+        deferBootstrap: true,
+        initialState: VideoPlaybackState(
+          isInitializing: false,
+          isBuffering: false,
+          hasFirstFrame: true,
+          isPlaying: true,
+          currentWork: request.work,
+          currentBundle: request.bundle,
+          currentEpisode: request.episode,
+          currentVariant: request.variant,
+          positionSeconds: 120,
+          durationSeconds: 1420,
+        ),
+      );
 
   @override
   bool get hasPreviousEpisodeAny => true;
@@ -1028,7 +1027,7 @@ void main() {
             overrides: [
               videoPlaybackProvider(
                 req,
-              ).overrideWith((ref) => _StubVideoController(ref, req)),
+              ).overrideWith(() => _StubVideoController(req)),
             ],
             viewPadding: const EdgeInsets.only(left: 36),
           ),
@@ -1117,9 +1116,11 @@ void main() {
           ProviderScope(
             overrides: [
               audioPlaybackProvider.overrideWith(
-                (ref) => _StubAudioNotifier(ref, initialState),
+                () => _StubAudioNotifier(initialState),
               ),
-              immersiveAudioExpandedProvider.overrideWith((_) => true),
+              immersiveAudioExpandedProvider.overrideWith(
+                () => KonataValueNotifier.value(true),
+              ),
               tmdbImageLoaderProvider.overrideWithValue(
                 (_, {targetWidth, imageSize}) async => posterPng,
               ),
@@ -1284,9 +1285,8 @@ void main() {
         late _StubAudioNotifier notifier;
         final container = ProviderContainer(
           overrides: [
-            audioPlaybackProvider.overrideWith((ref) {
+            audioPlaybackProvider.overrideWith(() {
               notifier = _StubAudioNotifier(
-                ref,
                 AudioPlaybackState(
                   isActive: true,
                   isPlaying: true,

@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../theme/konata_adaptive_tokens.dart';
@@ -38,7 +38,7 @@ class KonataToastController {
   final ValueNotifier<KonataToastData?> activeToast =
       ValueNotifier<KonataToastData?>(null);
 
-  /// 悬浮小窗实时屏幕占用矩形通知器（供底部 Toast、详情页与列表统一协同避让）。
+  /// 悬浮小窗实时屏幕占用矩形通知器（供详情页、列表避让与全屏弹簧形变原点共享）。
   final ValueNotifier<Rect?> floatingMiniWindowRect = ValueNotifier<Rect?>(
     null,
   );
@@ -157,7 +157,7 @@ KonataToastController? _maybeResolveToastController(BuildContext context) {
   }
 }
 
-/// 弹出全站唯一底部悬浮毛玻璃胶囊提示（固定于底部安全区上方，4 秒自动淡出，支持 `×` 立即关闭，禁止使用 SnackBar）。
+/// 弹出全站唯一窗口居中毛玻璃胶囊提示（三端统一在窗口正中央弹出，4 秒自动淡出，支持 `×` 立即关闭，报错以红色区分，禁止使用 SnackBar）。
 void showKonataToast(
   BuildContext context,
   String message, {
@@ -200,60 +200,12 @@ void showKonataToast(
   overlay.insert(entry);
 }
 
-/// 计算底部悬浮提示相对视口底边的安全定位距离（统一避让安全区、底部胶囊与悬浮小窗）。
-double resolveKonataToastBottomOffset({
-  required Size viewportSize,
-  required EdgeInsets safePadding,
-  required bool isAndroid,
-  double baseBottomClearance = 0.0,
-  Rect? floatingMiniWindowRect,
-}) {
-  final minSafeBottom =
-      safePadding.bottom +
-      (isAndroid
-          ? KonataAdaptiveTokens.toastSafeBottomGapAndroid
-          : KonataAdaptiveTokens.toastSafeBottomGapDesktop);
-  var bottom = math.max(minSafeBottom, baseBottomClearance);
-
-  if (floatingMiniWindowRect != null &&
-      viewportSize.width > 0 &&
-      viewportSize.height > 0) {
-    final toastMaxW = math.min(
-      viewportSize.width - KonataAdaptiveTokens.toastHorizontalMargin * 2,
-      KonataAdaptiveTokens.toastMaxWidth,
-    );
-    final toastLeft = (viewportSize.width - toastMaxW) / 2.0;
-    final toastRight = toastLeft + toastMaxW;
-    final overlapsHorizontally =
-        floatingMiniWindowRect.right > toastLeft - 8.0 &&
-        floatingMiniWindowRect.left < toastRight + 8.0;
-    final inLowerHalf =
-        floatingMiniWindowRect.bottom >= viewportSize.height * 0.45;
-    if (overlapsHorizontally && inLowerHalf) {
-      final aboveMini =
-          viewportSize.height -
-          floatingMiniWindowRect.top +
-          KonataAdaptiveTokens.toastMiniWindowGap;
-      bottom = math.max(bottom, aboveMini);
-    }
-  }
-
-  final maxAllowedBottom = math.max(
-    minSafeBottom,
-    viewportSize.height - safePadding.top - 72.0,
-  );
-  return bottom.clamp(minSafeBottom, maxAllowedBottom);
-}
-
-/// 根视口底部常驻轻提示挂载层（与页面滚动和路由栈完全解耦，零跳位漂移）。
+/// 根视口正中常驻轻提示挂载层（桌面、平板、手机三端统一于窗口中心弹出，与页面滚动和路由栈解耦）。
 class KonataToastViewport extends StatefulWidget {
   /// 创建根级常驻轻提示视口层。
-  const KonataToastViewport({
-    super.key,
-    this.baseBottomClearance = 0.0,
-    this.controller,
-  }) : _standaloneData = null,
-       _onStandaloneDismissed = null;
+  const KonataToastViewport({super.key, this.controller})
+    : _standaloneData = null,
+      _onStandaloneDismissed = null;
 
   /// 创建独立 Overlay 兜底实例（兼容未包裹根壳层的独立组件测试）。
   const KonataToastViewport.standaloneOverlay({
@@ -261,12 +213,8 @@ class KonataToastViewport extends StatefulWidget {
     required KonataToastData data,
     required VoidCallback onDismissed,
     this.controller,
-  }) : baseBottomClearance = 0.0,
-       _standaloneData = data,
+  }) : _standaloneData = data,
        _onStandaloneDismissed = onDismissed;
-
-  /// 外部壳层提供的底部导航/常驻避让基准高度。
-  final double baseBottomClearance;
 
   /// 可选显式注入的轻提示控制器（缺省时自动从当前 `ProviderScope` 读取）。
   final KonataToastController? controller;
@@ -281,10 +229,11 @@ class _KonataToastViewportState extends State<KonataToastViewport>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   late final Animation<double> _opacity;
-  late final Animation<Offset> _slide;
+  late final Animation<double> _scale;
   Timer? _dismissTimer;
   KonataToastData? _currentData;
   bool _closing = false;
+  bool _standalonePresented = false;
   KonataToastController? _boundToastController;
 
   bool get _isStandalone => widget._standaloneData != null;
@@ -298,14 +247,10 @@ class _KonataToastViewportState extends State<KonataToastViewport>
       reverseDuration: KonataAdaptiveTokens.toastExitDuration,
     );
     _opacity = CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic);
-    _slide = Tween<Offset>(
-      begin: const Offset(0, 0.18),
-      end: Offset.zero,
+    _scale = Tween<double>(
+      begin: 0.94,
+      end: 1.0,
     ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
-
-    if (_isStandalone) {
-      _presentData(widget._standaloneData!);
-    }
   }
 
   @override
@@ -314,6 +259,10 @@ class _KonataToastViewportState extends State<KonataToastViewport>
     if (_isStandalone) {
       _boundToastController ??=
           widget.controller ?? _maybeResolveToastController(context);
+      if (!_standalonePresented) {
+        _standalonePresented = true;
+        _presentData(widget._standaloneData!, notifyState: false);
+      }
       return;
     }
     final resolved = widget.controller ?? _maybeResolveToastController(context);
@@ -330,7 +279,7 @@ class _KonataToastViewportState extends State<KonataToastViewport>
         resolved.activeToast.addListener(_onControllerToastChanged);
         final existing = resolved.activeToast.value;
         if (existing != null) {
-          _presentData(existing);
+          _presentData(existing, notifyState: false);
         }
       }
     }
@@ -361,13 +310,23 @@ class _KonataToastViewportState extends State<KonataToastViewport>
     _presentData(next);
   }
 
-  void _presentData(KonataToastData data) {
+  void _presentData(KonataToastData data, {bool notifyState = true}) {
     _dismissTimer?.cancel();
     _closing = false;
-    setState(() {
+    if (notifyState) {
+      setState(() {
+        _currentData = data;
+      });
+    } else {
       _currentData = data;
-    });
-    _controller.forward(from: 0.0);
+    }
+    final disableAnimations =
+        MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    if (disableAnimations) {
+      _controller.value = 1.0;
+    } else {
+      _controller.forward(from: 0.0);
+    }
     _dismissTimer = Timer(data.duration, () {
       unawaited(_beginClose(clearController: true));
     });
@@ -379,7 +338,8 @@ class _KonataToastViewportState extends State<KonataToastViewport>
     _dismissTimer?.cancel();
     _dismissTimer = null;
     final closingId = _currentData?.id;
-    final disableAnimations = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    final disableAnimations =
+        MediaQuery.maybeDisableAnimationsOf(context) ?? false;
     if (!disableAnimations) {
       await _controller.reverse();
     }
@@ -408,7 +368,6 @@ class _KonataToastViewportState extends State<KonataToastViewport>
     final data = _currentData;
     if (data == null) return const SizedBox.shrink();
 
-    final size = MediaQuery.sizeOf(context);
     final viewPadding = MediaQuery.viewPaddingOf(context);
     final padding = MediaQuery.paddingOf(context);
     final safePadding = EdgeInsets.only(
@@ -418,28 +377,21 @@ class _KonataToastViewportState extends State<KonataToastViewport>
       bottom: math.max(padding.bottom, viewPadding.bottom),
     );
     final isAndroid = KonataAdaptiveTokens.isAndroid;
-    final miniRectListenable = _boundToastController?.floatingMiniWindowRect;
 
-    Widget buildPositioned(Rect? miniRect) {
-      final bottomOffset = resolveKonataToastBottomOffset(
-        viewportSize: size,
-        safePadding: safePadding,
-        isAndroid: isAndroid,
-        baseBottomClearance: widget.baseBottomClearance,
-        floatingMiniWindowRect: miniRect,
-      );
-
-      return Positioned(
-        left: safePadding.left + KonataAdaptiveTokens.toastHorizontalMargin,
-        right: safePadding.right + KonataAdaptiveTokens.toastHorizontalMargin,
-        bottom: bottomOffset,
+    return Positioned.fill(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          safePadding.left + KonataAdaptiveTokens.toastHorizontalMargin,
+          safePadding.top + KonataAdaptiveTokens.toastHorizontalMargin,
+          safePadding.right + KonataAdaptiveTokens.toastHorizontalMargin,
+          safePadding.bottom + KonataAdaptiveTokens.toastHorizontalMargin,
+        ),
         child: Align(
-          alignment: Alignment.bottomCenter,
-          heightFactor: 1.0,
+          alignment: Alignment.center,
           child: FadeTransition(
             opacity: _opacity,
-            child: SlideTransition(
-              position: _slide,
+            child: ScaleTransition(
+              scale: _scale,
               child: _KonataGlassToastCapsule(
                 key: const ValueKey('konata_toast_capsule'),
                 data: data,
@@ -451,16 +403,7 @@ class _KonataToastViewportState extends State<KonataToastViewport>
             ),
           ),
         ),
-      );
-    }
-
-    if (miniRectListenable == null) {
-      return buildPositioned(null);
-    }
-
-    return ValueListenableBuilder<Rect?>(
-      valueListenable: miniRectListenable,
-      builder: (context, miniRect, _) => buildPositioned(miniRect),
+      ),
     );
   }
 }
@@ -489,99 +432,108 @@ class _KonataGlassToastCapsule extends StatelessWidget {
     final fgColor = data.isError
         ? KonataTheme.toastErrorForeground(p)
         : p.textPrimary;
-    final iconColor = data.isError
-        ? KonataTheme.toastErrorForeground(p)
-        : p.accent;
+    final iconColor = data.isError ? p.danger : p.accent;
     final closeHitSize = isAndroid
         ? KonataAdaptiveTokens.touchTarget
         : KonataAdaptiveTokens.desktopToastCloseHitSize;
 
-    return Material(
-      type: MaterialType.transparency,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(KonataAdaptiveTokens.capsuleRadius),
-        child: BackdropFilter(
-          filter: KonataTheme.blurFilterControl,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(
-              maxWidth: KonataAdaptiveTokens.toastMaxWidth,
-            ),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: bgColor,
+    return ConstrainedBox(
+      constraints: const BoxConstraints(
+        maxWidth: KonataAdaptiveTokens.toastMaxWidth,
+      ),
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: IgnorePointer(
+              child: ClipRRect(
                 borderRadius: BorderRadius.circular(
                   KonataAdaptiveTokens.capsuleRadius,
                 ),
-                border: Border.all(
-                  color: borderColor,
-                  width: KonataAdaptiveTokens.borderWidth,
-                ),
-              ),
-              child: Padding(
-                padding: EdgeInsets.only(
-                  left: 16,
-                  right: isAndroid ? 4 : 10,
-                  top: isAndroid ? 2 : 8,
-                  bottom: isAndroid ? 2 : 8,
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      data.isError
-                          ? Icons.error_outline_rounded
-                          : Icons.check_circle_outline_rounded,
-                      size: 18,
-                      color: iconColor,
-                    ),
-                    const SizedBox(width: 10),
-                    Flexible(
-                      child: Padding(
-                        padding: EdgeInsets.symmetric(
-                          vertical: isAndroid ? 8 : 0,
-                        ),
-                        child: Text(
-                          data.message,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontFamily: KonataTheme.uiFontFamily,
-                            fontFamilyFallback:
-                                KonataTheme.uiFontFamilyFallback,
-                            color: fgColor,
-                            fontSize: KonataTheme.fontSizeBodySm,
-                            fontWeight: FontWeight.w600,
-                            decoration: TextDecoration.none,
-                          ),
-                        ),
+                child: BackdropFilter(
+                  filter: KonataTheme.blurFilterControl,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: bgColor,
+                      borderRadius: BorderRadius.circular(
+                        KonataAdaptiveTokens.capsuleRadius,
+                      ),
+                      border: Border.all(
+                        color: borderColor,
+                        width: KonataAdaptiveTokens.borderWidth,
                       ),
                     ),
-                    const SizedBox(width: 4),
-                    Tooltip(
-                      message: '关闭提示',
-                      child: GestureDetector(
-                        key: const ValueKey('konata_toast_close'),
-                        behavior: HitTestBehavior.opaque,
-                        onTap: onCloseTap,
-                        child: SizedBox(
-                          width: closeHitSize,
-                          height: closeHitSize,
-                          child: Center(
-                            child: Icon(
-                              Icons.close_rounded,
-                              size: 16,
-                              color: fgColor.withValues(alpha: 0.86),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),
           ),
-        ),
+          Padding(
+            padding: EdgeInsets.only(
+              left: 16,
+              right: isAndroid ? 4 : 10,
+              top: isAndroid ? 2 : 8,
+              bottom: isAndroid ? 2 : 8,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IgnorePointer(
+                  child: Icon(
+                    data.isError
+                        ? Icons.error_outline_rounded
+                        : Icons.check_circle_outline_rounded,
+                    size: 18,
+                    color: iconColor,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Flexible(
+                  child: IgnorePointer(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(
+                        vertical: isAndroid ? 8 : 0,
+                      ),
+                      child: Text(
+                        data.message,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontFamily: KonataTheme.uiFontFamily,
+                          fontFamilyFallback:
+                              KonataTheme.uiFontFamilyFallback,
+                          color: fgColor,
+                          fontSize: KonataTheme.fontSizeBodySm,
+                          fontWeight: FontWeight.w600,
+                          decoration: TextDecoration.none,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Tooltip(
+                  message: '关闭提示',
+                  child: GestureDetector(
+                    key: const ValueKey('konata_toast_close'),
+                    behavior: HitTestBehavior.opaque,
+                    onTap: onCloseTap,
+                    child: SizedBox(
+                      width: closeHitSize,
+                      height: closeHitSize,
+                      child: Center(
+                        child: Icon(
+                          Icons.close_rounded,
+                          size: 16,
+                          color: fgColor.withValues(alpha: 0.86),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

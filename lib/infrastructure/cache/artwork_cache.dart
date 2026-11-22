@@ -21,15 +21,15 @@ class ArtworkCache implements ArtworkCacheStore {
   /// 使用指定的缓存根目录创建独立图片缓存管理器（兼容纯临时目录单元测试）。
   ArtworkCache(
     this.root, {
-    this.maxMemoryEntries = 64,
-    this.maxMemoryBytes = 64 * 1024 * 1024,
+    this.maxMemoryEntries = 96,
+    this.maxMemoryBytes = 16 * 1024 * 1024,
   }) : _photosStorage = null;
 
   /// 使用统一 `photos/` 分作品目录存储后端创建缓存管理器（主应用唯一图片落盘通道）。
   ArtworkCache.photos(
     PhotosStorage photosStorage, {
-    this.maxMemoryEntries = 64,
-    this.maxMemoryBytes = 64 * 1024 * 1024,
+    this.maxMemoryEntries = 96,
+    this.maxMemoryBytes = 16 * 1024 * 1024,
   }) : _photosStorage = photosStorage,
        root = photosStorage.resolveRootDirectory();
 
@@ -42,7 +42,9 @@ class ArtworkCache implements ArtworkCacheStore {
   /// 内存缓存总字节上限。
   final int maxMemoryBytes;
 
-  static const int _maxSingleMemoryEntryBytes = 16 * 1024 * 1024;
+  static const int _maxSingleMemoryEntryBytes = 8 * 1024 * 1024;
+  // 已落盘至本地 SSD 的作品大图直接交由系统页缓存与 Flutter ImageCache 复用，避免在 Dart 堆中重复囤积多 MB 原图字节。
+  static const int _maxDiskBackedMemoryEntryBytes = 512 * 1024;
   static const Set<String> _knownTiers = <String>{
     'w185',
     'w342',
@@ -86,9 +88,28 @@ class ArtworkCache implements ArtworkCacheStore {
     return db;
   }
 
-  void _putMemory(String key, Uint8List bytes) {
+  /// 当前内存缓存占用字节数。
+  int get currentMemoryBytes => _currentMemoryBytes;
+
+  /// 当前内存缓存条目数。
+  int get memoryEntryCount => _memoryCache.length;
+
+  /// 清空压缩图片字节内存缓存（磁盘 `photos/` 文件完好保留，用于全屏播放或闲置降内存）。
+  void clearMemoryCache() {
+    _memoryCache.clear();
+    _currentMemoryBytes = 0;
+  }
+
+  void _putMemory(
+    String key,
+    Uint8List bytes, {
+    bool backedByLocalDisk = false,
+  }) {
+    final singleLimit = backedByLocalDisk
+        ? _maxDiskBackedMemoryEntryBytes
+        : _maxSingleMemoryEntryBytes;
     if (bytes.isEmpty ||
-        bytes.length > _maxSingleMemoryEntryBytes ||
+        bytes.length > singleLimit ||
         maxMemoryEntries <= 0 ||
         maxMemoryBytes <= 0) {
       return;
@@ -163,8 +184,9 @@ class ArtworkCache implements ArtworkCacheStore {
     if (photos != null) {
       final cleanOwner = owner?.trim();
       final memKey = _memoryKey(key, cleanOwner, subfolder);
-      _putMemory(memKey, bytes);
-      if (cleanOwner == null || cleanOwner.isEmpty) {
+      final hasDiskOwner = cleanOwner != null && cleanOwner.isNotEmpty;
+      _putMemory(memKey, bytes, backedByLocalDisk: hasDiskOwner);
+      if (!hasDiskOwner) {
         // 无归属作品的搜索/匹配候选预览仅驻留内存有界 LRU，严禁落盘建夹。
         return;
       }
@@ -191,7 +213,7 @@ class ArtworkCache implements ArtworkCacheStore {
         [owner, key],
       );
     }
-    _putMemory(key, bytes);
+    _putMemory(key, bytes, backedByLocalDisk: true);
   }
 
   /// 读取满足最低质量分档要求的本地缓存图片字节（优先命中内存 LRU 缓存）。
@@ -218,7 +240,7 @@ class ArtworkCache implements ArtworkCacheStore {
         minimumQuality: minimumQuality,
       );
       if (fromDisk != null) {
-        _putMemory(memKey, fromDisk);
+        _putMemory(memKey, fromDisk, backedByLocalDisk: true);
       }
       return fromDisk;
     }
@@ -247,7 +269,7 @@ class ArtworkCache implements ArtworkCacheStore {
     final file = File(p.join(imagesDir.path, fileName));
     if (!await file.exists()) return null;
     final bytes = await file.readAsBytes();
-    _putMemory(key, bytes);
+    _putMemory(key, bytes, backedByLocalDisk: true);
     return bytes;
   }
 

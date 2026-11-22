@@ -8,6 +8,7 @@ project(runner LANGUAGES CXX)
 # Any new source files that you add to the application should be added here.
 add_executable(${BINARY_NAME} WIN32
   "d3d11_texture_bridge.cpp"
+  "windows_file_picker_bridge.cpp"
   "flutter_window.cpp"
   "main.cpp"
   "utils.cpp"
@@ -49,7 +50,7 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 # Add dependency libraries and include directories. Add any application-specific
 # dependencies here.
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app flutter_wrapper_plugin)
-target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib" "d3d11.lib" "dxgi.lib")
+target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib" "d3d11.lib" "dxgi.lib" "ole32.lib" "shell32.lib")
 # 对齐 konata-native.cmake 的原生目录定位，并在首次检出尚未展开头文件时自动解包。
 if(DEFINED ENV{KONATA_NATIVE_ROOT})
   set(KONATA_RUNNER_NATIVE_ROOT "$ENV{KONATA_NATIVE_ROOT}")

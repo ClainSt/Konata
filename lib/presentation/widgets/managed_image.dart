@@ -1,13 +1,27 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../domain/models/managed_artwork.dart';
 import '../../domain/models/tmdb_models.dart';
 
 export '../../domain/models/managed_artwork.dart';
+
+/// 将物理目标像素宽度向上规整至离散档位，避免窗口拖拽微调宽度导致 `ImageCache` 反复重复解码。
+int quantizeManagedImageWidth(int rawPhysicalWidth, {int maxWidth = 3840}) {
+  const buckets = <int>[192, 320, 480, 640, 960, 1280, 1920, 2560, 3840];
+  final clampedMax = maxWidth.clamp(1, 3840);
+  final desired = rawPhysicalWidth.clamp(1, clampedMax);
+  for (final bucket in buckets) {
+    if (bucket >= desired) {
+      return math.min(bucket, clampedMax);
+    }
+  }
+  return clampedMax;
+}
 
 /// 图片缓存唯一键。
 typedef ManagedImageKey = ({
@@ -17,6 +31,7 @@ typedef ManagedImageKey = ({
   int targetWidth,
   TmdbImageSize? imageSize,
   bool isHeroBackdrop,
+  bool applyDecodeWidthCap,
   ManagedImageLoader loader,
 });
 
@@ -30,6 +45,7 @@ class ManagedImageProvider extends ImageProvider<ManagedImageKey> {
     this.artwork = ManagedArtwork.poster,
     this.imageSize,
     this.isHeroBackdrop = false,
+    this.applyDecodeWidthCap = false,
     this.owner,
   });
 
@@ -51,6 +67,9 @@ class ManagedImageProvider extends ImageProvider<ManagedImageKey> {
   /// 是否作为全屏背景大画布渲染。
   final bool isHeroBackdrop;
 
+  /// 未外包 `ResizeImage` 时是否在自身解码阶段直接施加物理宽度封顶，避免与 `ResizeImage` 重复传 `getTargetSize`。
+  final bool applyDecodeWidthCap;
+
   /// 字节加载回调。
   final ManagedImageLoader loader;
 
@@ -63,6 +82,7 @@ class ManagedImageProvider extends ImageProvider<ManagedImageKey> {
       targetWidth: targetWidth,
       imageSize: imageSize,
       isHeroBackdrop: isHeroBackdrop,
+      applyDecodeWidthCap: applyDecodeWidthCap,
       loader: loader,
     ));
   }
@@ -99,7 +119,21 @@ class ManagedImageProvider extends ImageProvider<ManagedImageKey> {
               imageSize: key.imageSize,
             );
       final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
-      return await decode(buffer);
+      if (!key.applyDecodeWidthCap || key.targetWidth <= 0) {
+        return await decode(buffer);
+      }
+      return await decode(
+        buffer,
+        getTargetSize: (int intrinsicWidth, int intrinsicHeight) {
+          if (intrinsicWidth > key.targetWidth) {
+            return ui.TargetImageSize(width: key.targetWidth);
+          }
+          return ui.TargetImageSize(
+            width: intrinsicWidth,
+            height: intrinsicHeight,
+          );
+        },
+      );
     } catch (_) {
       PaintingBinding.instance.imageCache.evict(key);
       rethrow;
@@ -173,13 +207,13 @@ class ManagedImage extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
+        final dpr = MediaQuery.devicePixelRatioOf(context);
         final logicalWidth =
             width ??
             (constraints.hasBoundedWidth ? constraints.maxWidth : 1280.0);
-        final physicalWidth =
-            (logicalWidth * MediaQuery.devicePixelRatioOf(context))
-                .ceil()
-                .clamp(1, 8192);
+        final rawPhysicalWidth = (logicalWidth * dpr).ceil().clamp(1, 3840);
+        final viewportPhysicalWidth =
+            (MediaQuery.sizeOf(context).width * dpr).ceil().clamp(1, 3840);
 
         final keepFullResolution =
             isHeroBackdrop ||
@@ -189,9 +223,28 @@ class ManagedImage extends StatelessWidget {
         final effectiveSize =
             imageSize ??
             (keepFullResolution ? TmdbImageSize.original : null);
-        final target = artwork == ManagedArtwork.poster && !keepFullResolution
-            ? physicalWidth.clamp(1, decodeWidth)
-            : physicalWidth;
+        final int target;
+        if (artwork == ManagedArtwork.logo) {
+          target = quantizeManagedImageWidth(
+            math.min(rawPhysicalWidth, 1280),
+            maxWidth: 1280,
+          );
+        } else if (keepFullResolution) {
+          // 保持下载 original 高清原图落盘，但解码位图按显示物理像素封顶以防 4K 背景图浪费 33MB+ 内存。
+          final displayMax = math.max(viewportPhysicalWidth, 1920).clamp(
+            1,
+            3840,
+          );
+          target = quantizeManagedImageWidth(
+            math.min(rawPhysicalWidth, displayMax),
+            maxWidth: displayMax,
+          );
+        } else {
+          target = quantizeManagedImageWidth(
+            rawPhysicalWidth.clamp(1, decodeWidth),
+            maxWidth: decodeWidth,
+          );
+        }
 
         final ImageProvider baseProvider = ManagedImageProvider(
           url,
@@ -200,6 +253,7 @@ class ManagedImage extends StatelessWidget {
           artwork: artwork,
           imageSize: effectiveSize,
           isHeroBackdrop: isHeroBackdrop,
+          applyDecodeWidthCap: keepFullResolution,
           owner: owner,
         );
 

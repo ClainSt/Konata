@@ -11,14 +11,12 @@ import 'package:ccplayer/presentation/theme/konata_theme.dart';
 import 'package:ccplayer/presentation/widgets/design_system/adaptive_action_header.dart';
 import 'package:ccplayer/presentation/widgets/playback/konata_playback_capsule.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _Audio extends AudioPlaybackNotifier {
-  _Audio(super.ref) {
-    state = _initial;
-  }
+  _Audio() : super(initialState: _initial);
 
   void emit(AudioPlaybackState next) => state = next;
   int previousCalls = 0;
@@ -181,7 +179,7 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
-            audioPlaybackProvider.overrideWith((ref) => audio = _Audio(ref)),
+            audioPlaybackProvider.overrideWith(() => audio = _Audio()),
           ],
           child: MaterialApp(
             theme: KonataTheme.darkTheme(),

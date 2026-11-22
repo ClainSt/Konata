@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,6 +9,8 @@ import '../../application/playback/audio_playback_notifier.dart';
 import '../../application/playback/playback_preferences_provider.dart';
 import '../../application/playback/unified_playback_coordinator.dart';
 import '../../application/playback/video_playback_controller.dart';
+import '../../application/providers/konata_value_notifier.dart';
+import '../../application/providers/memory_coordinator.dart';
 import '../shell/adaptive_capsule_layout.dart';
 import '../shell/android_scroll_capture_bridge.dart';
 import '../theme/konata_adaptive_tokens.dart';
@@ -36,9 +38,13 @@ export '../widgets/playback/konata_stage_morph_frame.dart'
         KonataStageMorphFrame,
         KonataStageMorphFrameState,
         captureStageMorphOriginRect,
+        clearStageMorphOrigin,
+        stageMorphOriginKindProvider,
         stageMorphOriginRectProvider,
         stageMorphReleaseVelocityProvider,
         stageMorphReverseVideoActiveProvider;
+
+part 'mini_audio_bar_interceptors.dart';
 
 final _immersiveAudioNavigatorKeyProvider = Provider<GlobalKey<NavigatorState>>(
   (ref) => GlobalKey<NavigatorState>(debugLabel: 'immersive_audio_nav'),
@@ -179,6 +185,7 @@ class _MiniAudioOverlayHostState extends ConsumerState<MiniAudioOverlayHost> {
   bool _useInlineFallback = false;
   bool _syncScheduled = false;
   bool _isElementActive = true;
+  bool _fullscreenEntryOpaque = false;
 
   @override
   void initState() {
@@ -321,7 +328,9 @@ class _MiniAudioOverlayHostState extends ConsumerState<MiniAudioOverlayHost> {
     );
     _fullscreenPlayerEntry ??= OverlayEntry(
       maintainState: true,
-      builder: (_) => const _FullscreenPlayerOverlaySlot(),
+      builder: (_) => _FullscreenPlayerOverlaySlot(
+        onOpaqueChanged: _setFullscreenEntryOpaque,
+      ),
     );
     _toastEntry ??= OverlayEntry(
       maintainState: true,
@@ -329,11 +338,51 @@ class _MiniAudioOverlayHostState extends ConsumerState<MiniAudioOverlayHost> {
     );
   }
 
+  /// 全屏舞台稳态切入 `opaque = true`，跳过底层页面重绘合成；收起/退出前立即还原为 `false`。
+  void _setFullscreenEntryOpaque(bool opaque) {
+    final entry = _fullscreenPlayerEntry;
+    if (_fullscreenEntryOpaque == opaque &&
+        (entry == null || entry.opaque == opaque)) {
+      return;
+    }
+    _fullscreenEntryOpaque = opaque;
+    if (entry == null || !_mediaEntriesInserted) return;
+    void apply() {
+      final overlayMounted = _attachedNavigator?.overlay?.mounted ?? false;
+      if (mounted &&
+          _isElementActive &&
+          _mediaEntriesInserted &&
+          overlayMounted &&
+          entry.mounted &&
+          entry.opaque != _fullscreenEntryOpaque) {
+        entry.opaque = _fullscreenEntryOpaque;
+      }
+    }
+    if (SchedulerBinding.instance.schedulerPhase == SchedulerPhase.persistentCallbacks) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => apply());
+    } else {
+      apply();
+    }
+  }
+
   void _removeMediaEntries() {
+    _fullscreenEntryOpaque = false;
+    final entry = _fullscreenPlayerEntry;
     if (_mediaEntriesInserted) {
       _floatingMiniEntry?.remove();
-      _fullscreenPlayerEntry?.remove();
+      entry?.remove();
       _mediaEntriesInserted = false;
+    }
+    if (entry != null && entry.opaque) {
+      if (!entry.mounted) {
+        entry.opaque = false;
+      } else {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!entry.mounted && entry.opaque) {
+            entry.opaque = false;
+          }
+        });
+      }
     }
   }
 
@@ -415,6 +464,9 @@ class _MiniAudioOverlayHostState extends ConsumerState<MiniAudioOverlayHost> {
     final miniEntry = _floatingMiniEntry!;
     final fullEntry = _fullscreenPlayerEntry!;
     final toastEntry = _toastEntry!;
+    if (!_fullscreenEntryOpaque && fullEntry.opaque && !fullEntry.mounted) {
+      fullEntry.opaque = false;
+    }
 
     final observer = _boundObserver;
     final observerAttached =
@@ -523,72 +575,6 @@ class _MiniAudioOverlayHostState extends ConsumerState<MiniAudioOverlayHost> {
   }
 }
 
-/// 路由栈全局共享导航与悬浮小窗安全避让作用域，静息桌面态零 `MediaQuery` 订阅。
-class _AudioContentClearance extends ConsumerWidget {
-  const _AudioContentClearance({required this.child});
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final miniKind = ref.watch(activeFloatingMiniPlayerKindProvider);
-    final android = KonataAdaptiveTokens.isAndroid;
-    if (!android) {
-      final desktopClearance = miniKind == FloatingMiniPlayerKind.none
-          ? 0.0
-          : ref.watch(miniAudioBottomClearanceProvider);
-      return KonataBottomClearanceScope(
-        bottomClearance: desktopClearance,
-        child: child,
-      );
-    }
-
-    final miniAnchor = miniKind != FloatingMiniPlayerKind.none
-        ? ref.watch(floatingMiniWindowAnchorProvider)
-        : null;
-    final visualState = miniKind != FloatingMiniPlayerKind.none
-        ? ref.watch(floatingMiniVisualStateProvider)
-        : FloatingMiniVisualState.collapsed;
-    final edgeSide = miniKind != FloatingMiniPlayerKind.none
-        ? ref.watch(floatingMiniEdgeSideProvider)
-        : FloatingMiniEdgeSide.right;
-    double? videoAspectRatio;
-    if (miniKind == FloatingMiniPlayerKind.video) {
-      final videoReq = ref.watch(activeVideoSessionProvider).request;
-      if (videoReq != null) {
-        videoAspectRatio = ref.watch(
-          videoPlaybackProvider(videoReq).select((s) {
-            final w = s.probeStats.videoWidth;
-            final h = s.probeStats.videoHeight;
-            return (w != null && h != null && w > 0 && h > 0) ? w / h : null;
-          }),
-        );
-      }
-    }
-    final hidden = ref.watch(capsuleNavigationHiddenProvider);
-    final subRoutePushed = ref.watch(subRoutePushedProvider);
-    final geometry = AdaptiveCapsuleLayout(
-      size: MediaQuery.sizeOf(context),
-      safe: AdaptiveCapsuleLayout.effectiveSafeInsetsOf(context),
-      android: true,
-      navigationVisible: !hidden && !subRoutePushed,
-      miniKind: miniKind,
-      normalizedMiniAnchor: miniAnchor,
-      visualState: visualState,
-      edgeSide: edgeSide,
-      videoAspectRatio: videoAspectRatio,
-    );
-    final resolvedClearance = geometry.bottomClearance;
-    return KonataBottomClearanceScope(
-      bottomClearance: resolvedClearance,
-      child: ScrollCaptureExclusionInsets(
-        bottomInset: resolvedClearance,
-        child: child,
-      ),
-    );
-  }
-}
-
 /// 全局音频错误捕获、视频会话保活、Android 画中画同步与系统返回拦截协调器。
 class _PlaybackSessionCoordinator extends ConsumerWidget {
   const _PlaybackSessionCoordinator({required this.child});
@@ -619,9 +605,25 @@ class _PlaybackSessionCoordinator extends ConsumerWidget {
       },
     );
 
-    // 保活当前活跃视频控制器，确保在全屏与悬浮小窗切换时绝不触发 autoDispose 重建会话
+    // 保活当前活跃视频控制器，确保在全屏与悬浮小窗切换时绝不触发 autoDispose 重建会话；
+    // 悬浮小窗态同步转发视频瞬态提示至全站居中毛玻璃胶囊（全屏态由 EmbeddedVideoPage 直接承接）。
     if (videoReq != null) {
       ref.watch(videoPlaybackProvider(videoReq).select((s) => s.isClosing));
+      ref.listen<VideoTransientNotice?>(
+        videoPlaybackProvider(videoReq).select((s) => s.transientNotice),
+        (prev, next) {
+          if (next == null || next.seq == prev?.seq) return;
+          final currentSession = ref.read(activeVideoSessionProvider);
+          if (currentSession.isExpanded) return;
+          ref
+              .read(konataToastControllerProvider)
+              .show(
+                next.message,
+                isError: next.isError,
+                duration: next.duration,
+              );
+        },
+      );
     }
 
     final audioExpanded = ref.watch(immersiveAudioExpandedProvider);
@@ -633,12 +635,46 @@ class _PlaybackSessionCoordinator extends ConsumerWidget {
         audioExpanded ||
         subRoutePushed;
 
+    void syncForegroundAudioObservation() {
+      if (!ref.read(audioPlaybackProvider).isActive) return;
+      final expanded = ref.read(immersiveAudioExpandedProvider);
+      final visual = ref.read(floatingMiniVisualStateProvider);
+      final mode = expanded
+          ? AudioProgressObservationMode.highFrequency
+          : (visual == FloatingMiniVisualState.tucked
+                ? AudioProgressObservationMode.suspended
+                : AudioProgressObservationMode.lowFrequency);
+      ref.read(audioPlaybackProvider.notifier).setProgressObservationMode(mode);
+    }
+
+    ref.listen<bool>(immersiveAudioExpandedProvider, (_, _) {
+      syncForegroundAudioObservation();
+    });
+    ref.listen<FloatingMiniVisualState>(floatingMiniVisualStateProvider, (_, _) {
+      syncForegroundAudioObservation();
+    });
+
     return _OverlayBackInterceptor(
       handlesSystemBack: shouldHandleSystemBack,
-      onBackgrounded: () =>
-          ref.read(activeVideoSessionProvider.notifier).handleAppBackgrounded(),
-      onForegrounded: () =>
-          ref.read(activeVideoSessionProvider.notifier).handleAppForegrounded(),
+      onBackgrounded: () async {
+        if (ref.read(audioPlaybackProvider).isActive) {
+          ref
+              .read(audioPlaybackProvider.notifier)
+              .setProgressObservationMode(
+                AudioProgressObservationMode.suspended,
+              );
+        }
+        await ref
+            .read(activeVideoSessionProvider.notifier)
+            .handleAppBackgrounded();
+        unawaited(
+          ref.read(konataMemoryCoordinatorProvider).onAppHiddenOrMinimized(),
+        );
+      },
+      onForegrounded: () {
+        syncForegroundAudioObservation();
+        ref.read(activeVideoSessionProvider.notifier).handleAppForegrounded();
+      },
       onInterceptBack: () async {
         if (videoSession.isActive &&
             videoSession.isExpanded &&
@@ -750,7 +786,9 @@ class _FloatingMiniOverlaySlot extends ConsumerWidget {
 
 /// 全屏沉浸音频页与全屏内置视频页挂载槽位（双向 `SpringSimulation` 形变过渡 + `GlobalObjectKey` 原子无损移交）。
 class _FullscreenPlayerOverlaySlot extends ConsumerStatefulWidget {
-  const _FullscreenPlayerOverlaySlot();
+  const _FullscreenPlayerOverlaySlot({this.onOpaqueChanged});
+
+  final ValueChanged<bool>? onOpaqueChanged;
 
   @override
   ConsumerState<_FullscreenPlayerOverlaySlot> createState() =>
@@ -761,6 +799,7 @@ class _FullscreenPlayerOverlaySlotState
     extends ConsumerState<_FullscreenPlayerOverlaySlot> {
   ProviderSubscription<ActiveVideoSessionState>? _videoSub;
   ProviderSubscription<bool>? _audioSub;
+  KonataValueNotifier<bool>? _reverseVideoActiveNotifier;
 
   bool _collapsingAudio = false;
   Rect? _collapsingAudioTargetRect;
@@ -773,10 +812,34 @@ class _FullscreenPlayerOverlaySlotState
   @override
   void initState() {
     super.initState();
+    _reverseVideoActiveNotifier = ref.read(
+      stageMorphReverseVideoActiveProvider.notifier,
+    );
+    if (ref.read(activeVideoSessionProvider).isExpanded) {
+      ref.read(konataMemoryCoordinatorProvider).onEnterFullscreenVideo();
+      if (ref.read(floatingMiniVisualStateProvider) !=
+          FloatingMiniVisualState.collapsed) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted &&
+              ref.read(floatingMiniVisualStateProvider) !=
+                  FloatingMiniVisualState.collapsed) {
+            ref.read(floatingMiniVisualStateProvider.notifier).state =
+                FloatingMiniVisualState.collapsed;
+          }
+        });
+      }
+    }
     _videoSub = ref.listenManual<ActiveVideoSessionState>(
       activeVideoSessionProvider,
       (prev, next) {
         if (!mounted) return;
+        // 仅画中画 sourceRect 坐标刷新时绝不触发全屏/小窗状态流转，避免中途误清反向形变标记。
+        if (prev != null &&
+            prev.request == next.request &&
+            prev.isExpanded == next.isExpanded &&
+            prev.isInPipMode == next.isInPipMode) {
+          return;
+        }
         final wasExpanded =
             prev != null &&
             prev.isActive &&
@@ -790,7 +853,21 @@ class _FullscreenPlayerOverlaySlotState
             next.request != null;
         final disableAnim = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
 
+        if (next.isActive && next.isExpanded && !(prev?.isExpanded ?? false)) {
+          ref.read(konataMemoryCoordinatorProvider).onEnterFullscreenVideo();
+          if (ref.read(floatingMiniVisualStateProvider) !=
+              FloatingMiniVisualState.collapsed) {
+            ref.read(floatingMiniVisualStateProvider.notifier).state =
+                FloatingMiniVisualState.collapsed;
+          }
+        }
         if (wasExpanded && nowMinimized && !disableAnim) {
+          widget.onOpaqueChanged?.call(false);
+          if (ref.read(floatingMiniVisualStateProvider) !=
+              FloatingMiniVisualState.collapsed) {
+            ref.read(floatingMiniVisualStateProvider.notifier).state =
+                FloatingMiniVisualState.collapsed;
+          }
           final targetRect = _computeTargetMiniRect(FloatingMiniPlayerKind.video);
           final releaseVel = ref.read(stageMorphReleaseVelocityProvider);
           ref.read(stageMorphReleaseVelocityProvider.notifier).state = 0.0;
@@ -801,6 +878,9 @@ class _FullscreenPlayerOverlaySlotState
             _collapsingVideoVelocityPx = releaseVel;
           });
         } else if (next.isExpanded || !next.isActive || next.isInPipMode) {
+          if (!next.isActive || !next.isExpanded || next.isInPipMode) {
+            widget.onOpaqueChanged?.call(false);
+          }
           if (_collapsingVideoReq != null ||
               ref.read(stageMorphReverseVideoActiveProvider)) {
             ref.read(stageMorphReverseVideoActiveProvider.notifier).state = false;
@@ -809,6 +889,17 @@ class _FullscreenPlayerOverlaySlotState
               _collapsingVideoTargetRect = null;
               _collapsingVideoVelocityPx = 0.0;
             });
+          }
+        } else if (nowMinimized) {
+          widget.onOpaqueChanged?.call(false);
+          if (ref.read(floatingMiniVisualStateProvider) !=
+              FloatingMiniVisualState.collapsed) {
+            ref.read(floatingMiniVisualStateProvider.notifier).state =
+                FloatingMiniVisualState.collapsed;
+          }
+          if (_collapsingVideoReq == null &&
+              ref.read(stageMorphReverseVideoActiveProvider)) {
+            ref.read(stageMorphReverseVideoActiveProvider.notifier).state = false;
           }
         }
       },
@@ -823,6 +914,7 @@ class _FullscreenPlayerOverlaySlotState
         final disableAnim = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
 
         if (prev == true && !next && audioActive && !videoActive && !disableAnim) {
+          widget.onOpaqueChanged?.call(false);
           final targetRect = _computeTargetMiniRect(FloatingMiniPlayerKind.audio);
           final releaseVel = ref.read(stageMorphReleaseVelocityProvider);
           ref.read(stageMorphReleaseVelocityProvider.notifier).state = 0.0;
@@ -832,6 +924,9 @@ class _FullscreenPlayerOverlaySlotState
             _collapsingAudioVelocityPx = releaseVel;
           });
         } else if (next || !audioActive || videoActive) {
+          if (!next || !audioActive) {
+            widget.onOpaqueChanged?.call(false);
+          }
           if (_collapsingAudio) {
             setState(() {
               _collapsingAudio = false;
@@ -839,23 +934,20 @@ class _FullscreenPlayerOverlaySlotState
               _collapsingAudioVelocityPx = 0.0;
             });
           }
+        } else if (!next) {
+          widget.onOpaqueChanged?.call(false);
         }
       },
     );
   }
 
   Rect _computeTargetMiniRect(FloatingMiniPlayerKind kind) {
-    final cached = ref
-        .read(konataToastControllerProvider)
-        .floatingMiniWindowRect
-        .value;
-    if (cached != null && cached.width > 0 && cached.height > 0) {
-      return cached;
-    }
     final size = MediaQuery.maybeSizeOf(context) ?? const Size(1280, 720);
     final safe = AdaptiveCapsuleLayout.effectiveSafeInsetsOf(context);
     final anchor = ref.read(floatingMiniWindowAnchorProvider);
-    final visualState = ref.read(floatingMiniVisualStateProvider);
+    final visualState = kind == FloatingMiniPlayerKind.video
+        ? FloatingMiniVisualState.collapsed
+        : ref.read(floatingMiniVisualStateProvider);
     final edgeSide = ref.read(floatingMiniEdgeSideProvider);
     final hidden = ref.read(capsuleNavigationHiddenProvider);
     final subRoutePushed = ref.read(subRoutePushedProvider);
@@ -892,6 +984,23 @@ class _FullscreenPlayerOverlaySlotState
         );
   }
 
+  Rect? _resolveStageOriginRect(FloatingMiniPlayerKind targetKind) {
+    final liveMiniRect = ref
+        .read(konataToastControllerProvider)
+        .floatingMiniWindowRect
+        .value;
+    if (liveMiniRect != null &&
+        liveMiniRect.width > 0 &&
+        liveMiniRect.height > 0) {
+      return liveMiniRect;
+    }
+    final capturedKind = ref.read(stageMorphOriginKindProvider);
+    if (capturedKind != null && capturedKind != targetKind) {
+      return null;
+    }
+    return ref.read(stageMorphOriginRectProvider);
+  }
+
   void _finishAudioCollapseMorph() {
     if (!mounted) return;
     setState(() {
@@ -914,6 +1023,15 @@ class _FullscreenPlayerOverlaySlotState
 
   @override
   void dispose() {
+    final reverseNotifier = _reverseVideoActiveNotifier;
+    _reverseVideoActiveNotifier = null;
+    if (_collapsingVideoReq != null && reverseNotifier != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (reverseNotifier.isMounted && reverseNotifier.state) {
+          reverseNotifier.state = false;
+        }
+      });
+    }
     _videoSub?.close();
     _audioSub?.close();
     super.dispose();
@@ -937,13 +1055,25 @@ class _FullscreenPlayerOverlaySlotState
         !showAudioCollapsing &&
         !showExpandedVideo &&
         !showVideoCollapsing) {
+      widget.onOpaqueChanged?.call(false);
+      if (ref.read(stageMorphReverseVideoActiveProvider)) {
+        final reverseNotifier = _reverseVideoActiveNotifier;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted &&
+              _collapsingVideoReq == null &&
+              reverseNotifier != null &&
+              reverseNotifier.isMounted &&
+              reverseNotifier.state) {
+            reverseNotifier.state = false;
+          }
+        });
+      }
       return const SizedBox.shrink();
     }
 
     final immersiveAudioNavKey = ref.watch(_immersiveAudioNavigatorKeyProvider);
-    final originRect =
-        ref.read(konataToastControllerProvider).floatingMiniWindowRect.value ??
-        ref.read(stageMorphOriginRectProvider);
+    final audioOriginRect = _resolveStageOriginRect(FloatingMiniPlayerKind.audio);
+    final videoOriginRect = _resolveStageOriginRect(FloatingMiniPlayerKind.video);
     final effectiveVideoReq = showExpandedVideo
         ? videoReq
         : activeCollapseVideoReq;
@@ -966,11 +1096,15 @@ class _FullscreenPlayerOverlaySlotState
             key: const ValueKey('spring_morph_audio_fullscreen'),
             originRect: showAudioCollapsing
                 ? _collapsingAudioTargetRect
-                : originRect,
+                : audioOriginRect,
             isCollapsing: showAudioCollapsing,
             releaseVelocityPxPerSec: showAudioCollapsing
                 ? _collapsingAudioVelocityPx
                 : 0.0,
+            onExpandCompleted: () {
+              clearStageMorphOrigin(ref);
+              widget.onOpaqueChanged?.call(true);
+            },
             onCollapseCompleted: _finishAudioCollapseMorph,
             allowClipRadius: true,
             child: IgnorePointer(
@@ -996,11 +1130,17 @@ class _FullscreenPlayerOverlaySlotState
                 ? null
                 : (showVideoCollapsing
                       ? _collapsingVideoTargetRect
-                      : originRect),
+                      : videoOriginRect),
             isCollapsing: showVideoCollapsing,
             releaseVelocityPxPerSec: showVideoCollapsing
                 ? _collapsingVideoVelocityPx
                 : 0.0,
+            onExpandCompleted: videoSession.isInPipMode
+                ? null
+                : () {
+                    clearStageMorphOrigin(ref);
+                    widget.onOpaqueChanged?.call(true);
+                  },
             onCollapseCompleted: _finishVideoCollapseMorph,
             allowClipRadius: !usesVideoCanvasHolePunch,
             child: IgnorePointer(
@@ -1029,112 +1169,4 @@ class _FullscreenPlayerOverlaySlotState
       ],
     );
   }
-}
-
-/// 根视口最顶层轻提示挂载槽位（固定于安全区上方并自动避让底部导航胶囊与悬浮小窗）。
-class _ToastOverlaySlot extends ConsumerWidget {
-  const _ToastOverlaySlot();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final videoSession = ref.watch(activeVideoSessionProvider);
-    final audioExpanded = ref.watch(immersiveAudioExpandedProvider);
-    final fullscreenCovering =
-        audioExpanded || (videoSession.isActive && videoSession.isExpanded);
-
-    var baseBottomClearance = 0.0;
-    if (!fullscreenCovering && KonataAdaptiveTokens.isAndroid) {
-      final hidden = ref.watch(capsuleNavigationHiddenProvider);
-      final subRoutePushed = ref.watch(subRoutePushedProvider);
-      final navLayout = AdaptiveCapsuleLayout(
-        size: MediaQuery.sizeOf(context),
-        safe: AdaptiveCapsuleLayout.effectiveSafeInsetsOf(context),
-        android: true,
-        navigationVisible: !hidden && !subRoutePushed,
-      );
-      baseBottomClearance = navLayout.bottomClearance;
-    }
-
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        KonataToastViewport(baseBottomClearance: baseBottomClearance),
-      ],
-    );
-  }
-}
-
-/// 不依赖 `Router` 祖先的根级全屏播放层返回键与前后台生命周期拦截器。
-class _OverlayBackInterceptor extends StatefulWidget {
-  const _OverlayBackInterceptor({
-    required this.handlesSystemBack,
-    required this.onInterceptBack,
-    required this.onBackgrounded,
-    required this.onForegrounded,
-    required this.child,
-  });
-
-  final bool handlesSystemBack;
-  final Future<bool> Function() onInterceptBack;
-  final Future<void> Function() onBackgrounded;
-  final VoidCallback onForegrounded;
-  final Widget child;
-
-  @override
-  State<_OverlayBackInterceptor> createState() =>
-      _OverlayBackInterceptorState();
-}
-
-class _OverlayBackInterceptorState extends State<_OverlayBackInterceptor>
-    with WidgetsBindingObserver {
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    if (widget.handlesSystemBack) {
-      _syncAndroidBackRegistration();
-    }
-  }
-
-  @override
-  void didUpdateWidget(covariant _OverlayBackInterceptor oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.handlesSystemBack != widget.handlesSystemBack) {
-      _syncAndroidBackRegistration();
-    }
-  }
-
-  void _syncAndroidBackRegistration() {
-    if (!KonataAdaptiveTokens.isAndroid) return;
-    unawaited(
-      SystemNavigator.setFrameworkHandlesBack(widget.handlesSystemBack),
-    );
-  }
-
-  @override
-  void dispose() {
-    if (KonataAdaptiveTokens.isAndroid && widget.handlesSystemBack) {
-      unawaited(SystemNavigator.setFrameworkHandlesBack(false));
-    }
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.hidden) {
-      unawaited(widget.onBackgrounded());
-    } else if (state == AppLifecycleState.resumed) {
-      widget.onForegrounded();
-    }
-  }
-
-  @override
-  Future<bool> didPopRoute() {
-    return widget.onInterceptBack();
-  }
-
-  @override
-  Widget build(BuildContext context) => widget.child;
 }

@@ -114,10 +114,19 @@ class _DetailLockedClearLogoState extends ConsumerState<DetailLockedClearLogo> {
     }
   }
 
+  bool _isSameResolvedProvider(ImageProvider? current, ImageProvider incoming) {
+    if (current == null) return false;
+    if (current == incoming) return true;
+    if (current is ManagedImageProvider && incoming is ManagedImageProvider) {
+      return current.hasSameCacheIdentity(incoming);
+    }
+    return false;
+  }
+
   void _handleImageResolved(ui.Image image, ImageProvider provider) {
     final key = _cacheKey;
     final cached = ref.read(clearLogoLegibilityCacheProvider).get(key);
-    if (_resolvedProvider != provider) {
+    if (!_isSameResolvedProvider(_resolvedProvider, provider)) {
       _scheduleStateUpdate(() {
         _resolvedProvider = provider;
         if (cached != null) {
@@ -240,15 +249,20 @@ class _DetailLockedClearLogoState extends ConsumerState<DetailLockedClearLogo> {
     final physicalWidth =
         (widget.maxWidth * MediaQuery.devicePixelRatioOf(context))
             .ceil()
-            .clamp(1, 8192);
+            .clamp(1, 3840);
+    final quantizedWidth = quantizeManagedImageWidth(
+      math.min(physicalWidth, 1280),
+      maxWidth: 1280,
+    );
     final provider =
         _resolvedProvider ??
         ManagedImageProvider(
           path,
           loader: widget.imageLoader,
-          targetWidth: physicalWidth,
+          targetWidth: quantizedWidth,
           artwork: ManagedArtwork.logo,
           imageSize: TmdbImageSize.original,
+          applyDecodeWidthCap: true,
           owner: widget.work.id,
         );
 

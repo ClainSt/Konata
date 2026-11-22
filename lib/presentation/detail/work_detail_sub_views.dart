@@ -705,9 +705,10 @@ class DetailWideBackdropStage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      fit: StackFit.expand,
-      children: [
+    return RepaintBoundary(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
         if (bgPath.isNotEmpty)
           ManagedImage(
             bgPath,
@@ -768,6 +769,7 @@ class DetailWideBackdropStage extends StatelessWidget {
           ),
         ),
       ],
+      ),
     );
   }
 }

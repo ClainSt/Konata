@@ -139,6 +139,37 @@ class ManagedImageProvider extends ImageProvider<ManagedImageKey> {
       rethrow;
     }
   }
+
+  /// 判断两个 [ManagedImageProvider] 是否指向同一图片缓存项（忽略临时闭包实例差异）。
+  bool hasSameCacheIdentity(ManagedImageProvider other) {
+    return other.url == url &&
+        other.owner == owner &&
+        other.artwork == artwork &&
+        other.targetWidth == targetWidth &&
+        other.imageSize == imageSize &&
+        other.isHeroBackdrop == isHeroBackdrop &&
+        other.applyDecodeWidthCap == applyDecodeWidthCap;
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is ManagedImageProvider &&
+        hasSameCacheIdentity(other) &&
+        other.loader == loader;
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    url,
+    owner,
+    artwork,
+    targetWidth,
+    imageSize,
+    isHeroBackdrop,
+    applyDecodeWidthCap,
+    loader,
+  );
 }
 
 /// 自适应物理分辨率的受管图片展示组件。
@@ -212,8 +243,6 @@ class ManagedImage extends StatelessWidget {
             width ??
             (constraints.hasBoundedWidth ? constraints.maxWidth : 1280.0);
         final rawPhysicalWidth = (logicalWidth * dpr).ceil().clamp(1, 3840);
-        final viewportPhysicalWidth =
-            (MediaQuery.sizeOf(context).width * dpr).ceil().clamp(1, 3840);
 
         final keepFullResolution =
             isHeroBackdrop ||
@@ -230,7 +259,10 @@ class ManagedImage extends StatelessWidget {
             maxWidth: 1280,
           );
         } else if (keepFullResolution) {
-          // 保持下载 original 高清原图落盘，但解码位图按显示物理像素封顶以防 4K 背景图浪费 33MB+ 内存。
+          // 保持下载 original 高清原图落盘，但解码位图按显示物理像素封顶以防 4K 背景图浪费 33MB+ 内存；
+          // 仅全幅背景订阅视口宽度，避免普通海报卡片在窗口缩放时产生无谓 MediaQuery 依赖重建。
+          final viewportPhysicalWidth =
+              (MediaQuery.sizeOf(context).width * dpr).ceil().clamp(1, 3840);
           final displayMax = math.max(viewportPhysicalWidth, 1920).clamp(
             1,
             3840,

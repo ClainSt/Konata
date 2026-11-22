@@ -17,6 +17,7 @@ import 'package:konata/domain/formatting/clear_logo_legibility.dart';
 import 'package:konata/domain/models/episode.dart';
 import 'package:konata/domain/models/media_source.dart';
 import 'package:konata/domain/models/media_variant.dart';
+import 'package:konata/domain/models/tmdb_models.dart';
 import 'package:konata/domain/models/work.dart';
 import 'package:konata/infrastructure/cache/photos_storage.dart';
 import 'package:konata/infrastructure/cache/scan_thumbnail_scheduler.dart';
@@ -566,6 +567,103 @@ void main() {
 
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.runAsync(db.close);
+      },
+    );
+
+    testWidgets(
+      'ManagedImageProvider 值相等保持缩放同档零重解，且真实解码后 DetailLockedClearLogo 收敛至零待调度帧',
+      (tester) async {
+        tester.view.physicalSize = const Size(1280, 720);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.reset);
+
+        Future<Uint8List> stableLoader(
+          String url, {
+          int? targetWidth,
+          TmdbImageSize? imageSize,
+        }) async => _sample1x1Png;
+
+        // 1. 验证 ManagedImageProvider 及 ResizeImage 包装具备值相等性，消除缩放同档重建流。
+        final p1 = ManagedImageProvider(
+          '/poster.jpg',
+          loader: stableLoader,
+          targetWidth: 320,
+          artwork: ManagedArtwork.poster,
+          owner: 'w_eq',
+        );
+        final p2 = ManagedImageProvider(
+          '/poster.jpg',
+          loader: stableLoader,
+          targetWidth: 320,
+          artwork: ManagedArtwork.poster,
+          owner: 'w_eq',
+        );
+        final pDiffWidth = ManagedImageProvider(
+          '/poster.jpg',
+          loader: stableLoader,
+          targetWidth: 480,
+          artwork: ManagedArtwork.poster,
+          owner: 'w_eq',
+        );
+        expect(p1, equals(p2));
+        expect(p1.hashCode, equals(p2.hashCode));
+        expect(p1, isNot(equals(pDiffWidth)));
+        expect(
+          ResizeImage.resizeIfNeeded(320, null, p1),
+          equals(ResizeImage.resizeIfNeeded(320, null, p2)),
+        );
+
+        // 2. 验证真实解码进入 ImageCache 后，DetailLockedClearLogo 不进入每帧 setState 死循环。
+        const work = Work(
+          id: 'w_idle_logo',
+          title: '静置零帧循环作品',
+          logoPath: '/logo_idle.png',
+        );
+        final cache = ClearLogoLegibilityCache();
+        final rebuildTick = ValueNotifier<int>(0);
+        addTearDown(rebuildTick.dispose);
+
+        await tester.pumpWidget(
+          _wrapApp(
+            ValueListenableBuilder<int>(
+              valueListenable: rebuildTick,
+              builder: (_, tick, _) => Center(
+                child: DetailLockedClearLogo(
+                  work: work,
+                  imageLoader: tick == 0
+                      ? stableLoader
+                      : (url, {targetWidth, imageSize}) async => _sample1x1Png,
+                  maxHeight: 80,
+                  maxWidth: 340,
+                ),
+              ),
+            ),
+            overrides: [
+              clearLogoLegibilityCacheProvider.overrideWithValue(cache),
+            ],
+          ),
+        );
+
+        // 让原生图像编解码器真实解码并写入 ImageCache，复现实机同步缓存命中与亮度采样路径。
+        await tester.runAsync(() async {
+          await Future<void>.delayed(const Duration(milliseconds: 120));
+        });
+        await tester.pumpAndSettle();
+
+        expect(tester.binding.hasScheduledFrame, isFalse);
+        expect(tester.binding.transientCallbackCount, equals(0));
+        expect(cache.get('${work.id}|${work.logoPath}'), isNotNull);
+
+        // 即使外层父级重建并传入新的临时闭包 loader，也必须在有限帧内收敛至零待调度帧。
+        rebuildTick.value = 1;
+        await tester.pump();
+        await tester.runAsync(() async {
+          await Future<void>.delayed(const Duration(milliseconds: 120));
+        });
+        await tester.pumpAndSettle();
+
+        expect(tester.binding.hasScheduledFrame, isFalse);
+        expect(tester.binding.transientCallbackCount, equals(0));
       },
     );
   });

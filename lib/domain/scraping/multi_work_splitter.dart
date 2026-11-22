@@ -585,33 +585,49 @@ abstract final class MultiWorkSplitter {
         expandedBuckets.map((g) => g.first.partIndex).toSet().containsAll(
           const {1, 2},
         );
-    // 同目录内即使与 TV 正片混放，只要同一剧场版主干恰好拆出 `01`/`02` 两部共享完全相同主干名且无独立副标题的剧场版
-    // （如 `DDDD The Movie - 01/02`、`地球外少年少女 [Movie 01]/[Movie 02]`），按上下/前后篇成对标注；
+    // 同目录内即使与 TV 正片混放，只要同一剧场版主干恰好拆出 `01`/`02`（或 `Movie.1`/`Movie.2`）
+    // 两部共享完全相同剥离序号后主干名且无独立副标题的剧场版，按上下/前后篇成对标注；
     // 自带独立章节副标题的双部剧场版（如 `薄樱鬼 第一章 京都乱舞 / 第二章 士魂苍穹`）保持原副标题不覆盖。
-    final movieIndicesByStem = <String, Set<int>>{};
-    final movieBucketsByStem = <String, int>{};
-    final movieCleanStemsByStem = <String, Set<String>>{};
+    String stripMovieBaseStem(String cleanStem, int? partIndex) {
+      var base = cleanStem
+          .replaceAll(_reHot14, ' ')
+          .replaceAll(_reHot3, ' ')
+          .trim();
+      if (partIndex != null) {
+        base = base
+            .replaceFirst(
+              RegExp(
+                '(?:\\s+(?:part|chapter|film|vol(?:ume)?|act))?[\\s._-]*0?$partIndex\\s*\$',
+                caseSensitive: false,
+              ),
+              '',
+            )
+            .trim();
+      }
+      return base;
+    }
+
+    final movieIndicesByBaseKey = <String, Set<int>>{};
+    final movieBucketsByBaseKey = <String, int>{};
+    final movieBaseStemsByBaseKey = <String, Set<String>>{};
     for (final g in expandedBuckets) {
       final rep = g.first;
       if (rep.kind == 'movie' &&
           rep.partKey == null &&
           rep.quote == null &&
           rep.partIndex != null) {
-        movieBucketsByStem.update(
-          rep.normStem,
-          (n) => n + 1,
-          ifAbsent: () => 1,
-        );
-        (movieIndicesByStem[rep.normStem] ??= <int>{}).add(rep.partIndex!);
-        (movieCleanStemsByStem[rep.normStem] ??= <String>{}).add(
-          DirectoryAnalyzer.normalize(rep.cleanStem),
-        );
+        final baseStem = stripMovieBaseStem(rep.cleanStem, rep.partIndex);
+        final baseKey = DirectoryAnalyzer.normalize(baseStem);
+        if (baseKey.isEmpty) continue;
+        movieBucketsByBaseKey.update(baseKey, (n) => n + 1, ifAbsent: () => 1);
+        (movieIndicesByBaseKey[baseKey] ??= <int>{}).add(rep.partIndex!);
+        (movieBaseStemsByBaseKey[baseKey] ??= <String>{}).add(baseKey);
       }
     }
-    final twoPartMovieStems = <String>{
-      for (final e in movieIndicesByStem.entries)
-        if (movieBucketsByStem[e.key] == 2 &&
-            (movieCleanStemsByStem[e.key]?.length ?? 0) == 1 &&
+    final twoPartMovieBaseKeys = <String>{
+      for (final e in movieIndicesByBaseKey.entries)
+        if (movieBucketsByBaseKey[e.key] == 2 &&
+            (movieBaseStemsByBaseKey[e.key]?.length ?? 0) == 1 &&
             e.value.length == 2 &&
             e.value.containsAll(const {1, 2}))
           e.key,
@@ -635,17 +651,25 @@ abstract final class MultiWorkSplitter {
       final extras = clusterExtras[i]!;
       final explicitTitle = assignedSegment[i];
       final keepTmdb = folderTmdbId != null && clusterIsMainTv[i];
+      final movieBaseKey = group.first.kind == 'movie'
+          ? DirectoryAnalyzer.normalize(
+              stripMovieBaseStem(group.first.cleanStem, group.first.partIndex),
+            )
+          : '';
       final isTwoPartCluster =
           (twoPartIndices &&
               expandedBuckets
                       .map(
-                        (g) => DirectoryAnalyzer.normalize(g.first.cleanStem),
+                        (g) => DirectoryAnalyzer.normalize(
+                          stripMovieBaseStem(g.first.cleanStem, g.first.partIndex),
+                        ),
                       )
                       .toSet()
                       .length ==
                   1) ||
           (group.first.kind == 'movie' &&
-              twoPartMovieStems.contains(group.first.normStem));
+              movieBaseKey.isNotEmpty &&
+              twoPartMovieBaseKeys.contains(movieBaseKey));
       final clusterInfo = _buildClusterMetadata(
         index: i,
         group: group,
@@ -1104,20 +1128,31 @@ abstract final class MultiWorkSplitter {
           first.quote!.isNotEmpty &&
           !first.isHashZeroOva;
       if (twoPartPair && localizedPart != null && first.partKey == null) {
-        final stemNoMovie = cleanStem
+        var stemNoMovie = cleanStem
             .replaceAll(_reHot14, ' ')
             .replaceAll(_reHot3, ' ')
             .trim();
+        if (first.partIndex != null) {
+          stemNoMovie = stemNoMovie
+              .replaceFirst(
+                RegExp(
+                  '(?:\\s+(?:part|chapter|film|vol(?:ume)?|act))?[\\s._-]*0?${first.partIndex}\\s*\$',
+                  caseSensitive: false,
+                ),
+                '',
+              )
+              .trim();
+        }
         if (stemNoMovie.isNotEmpty) {
           addHint('$stemNoMovie $localizedPart');
           addHint('$stemNoMovie Part ${first.partIndex}');
         }
       }
-      // 已携带专属方括号/引号副标题的独立剧场版（如 `The Movie - 02 [ Tachiagare!! Avan no Shito ]`）
-      // 不再把剥离副标题后的裸主干注入标题提示，避免与同系列第 1 部无副标题剧场版打平。
+      // 已携带专属方括号/引号副标题或成对上下篇标记的独立剧场版，
+      // 不再把剥离副标题/部序号后的裸主干注入标题提示，避免与同名母剧 TV 或第 1 部剧场版打平误绑。
       if (!movieHasOwnQuote) {
         addHint(cleanStem);
-        if (first.kind == 'movie') {
+        if (first.kind == 'movie' && !(twoPartPair && localizedPart != null)) {
           final strippedMovie = cleanStem
               .replaceAll(_reHot14, ' ')
               .replaceAll(_reHot3, ' ')

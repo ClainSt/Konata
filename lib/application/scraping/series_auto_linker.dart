@@ -850,6 +850,12 @@ class SeriesAutoLinker {
     final upperTitle = '${w.title} ${w.originalTitle ?? ''}'.toUpperCase();
     if (upperTitle.contains('OAD')) return 'OAD';
     if (upperTitle.contains('OVA')) return 'OVA';
+    if (w.tmdbMediaType == null &&
+        (upperTitle.contains('剧场版') ||
+            upperTitle.contains('劇場版') ||
+            RegExp(r'\b(?:THE\s+)?MOVIE\b').hasMatch(upperTitle))) {
+      return '剧场版';
+    }
     if (w.matchedSeason == 0) return '特别篇';
     return SeriesLabelPresets.seasonLabel(fallbackIndex);
   }

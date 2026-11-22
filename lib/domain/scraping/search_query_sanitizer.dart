@@ -23,6 +23,18 @@ abstract final class SearchQuerySanitizer {
     r')\s*$',
     caseSensitive: false,
   );
+  static final RegExp _leadingMediaPrefix = RegExp(
+    r'^(?:(?:剧场版|劇場版|映画|电影|动画|動畫|ova|oad|tv|the\s+movie|movie)[\s:：・·\-–—]+)+',
+    caseSensitive: false,
+  );
+  static final RegExp _genericMediaTypeToken = RegExp(
+    r'^(?:剧场版|劇場版|映画|电影|动画|動畫|ova|oad|tv|movie|film|the)$',
+    caseSensitive: false,
+  );
+  static final RegExp _midPartOrSubtitle = RegExp(
+    r'\s+(?:前[篇編]|後[篇編]|后[篇編]|中[篇編]|上[篇部]|下[篇部]|第\s*[0-9一二三四五六七八九十]+\s*[部篇章幕]|part\s*[0-9iv]+)(?:\s+.*)?$',
+    caseSensitive: false,
+  );
   static final RegExp _leadingAsciiWithCjkTail = RegExp(
     r'^([0-9]{2,4}|[A-Za-z][A-Za-z0-9\s]{1,24}?)\s+([\u3040-\u9fff].+)$',
   );
@@ -74,17 +86,36 @@ abstract final class SearchQuerySanitizer {
     if (level1.isEmpty) return const [];
     addTerm(level1);
 
-    final level2 = stripPartAndSeasonSuffix(level1);
+    // 剥离「剧场版 / 劇場版 / 映画 / OVA」等常见前缀，避免 TMDB 中文条目不带前缀时 0 命中。
+    final strippedPrefix = level1.replaceFirst(_leadingMediaPrefix, '').trim();
+    if (strippedPrefix.isNotEmpty && strippedPrefix != level1) {
+      addTerm(strippedPrefix);
+    }
+
+    final level2 = stripPartAndSeasonSuffix(
+      strippedPrefix.isNotEmpty ? strippedPrefix : level1,
+    );
     if (level2.isNotEmpty && level2 != level1) {
       addTerm(level2);
     }
 
-    final stemSource = level2.isNotEmpty ? level2 : level1;
+    final stemSource = level2.isNotEmpty
+        ? level2
+        : (strippedPrefix.isNotEmpty ? strippedPrefix : level1);
+    final strippedMidPart = stemSource
+        .replaceFirst(_midPartOrSubtitle, '')
+        .trim();
+    if (strippedMidPart.isNotEmpty &&
+        strippedMidPart != stemSource &&
+        !_genericMediaTypeToken.hasMatch(strippedMidPart)) {
+      addTerm(strippedMidPart);
+    }
+
     final splitMatch = _leadingAsciiWithCjkTail.firstMatch(stemSource);
     if (splitMatch != null) {
       final lead = splitMatch.group(1)!.trim();
       final tail = splitMatch.group(2)!.trim();
-      if (lead.length >= 2) {
+      if (lead.length >= 2 && !_genericMediaTypeToken.hasMatch(lead)) {
         addTerm(lead);
       }
       if (_cjkChar.allMatches(tail).length >= 3) {
@@ -96,12 +127,15 @@ abstract final class SearchQuerySanitizer {
           .where((t) => t.isNotEmpty)
           .toList(growable: false);
       if (tokens.length >= 2) {
-        final first = tokens.first;
-        if (first.length >= 2 &&
-            (RegExp(r'^\d+$').hasMatch(first) ||
-                _cjkChar.hasMatch(first) ||
-                first.length >= 3)) {
-          addTerm(first);
+        final meaningful = tokens.firstWhere(
+          (t) => !_genericMediaTypeToken.hasMatch(t),
+          orElse: () => '',
+        );
+        if (meaningful.length >= 2 &&
+            (RegExp(r'^\d+$').hasMatch(meaningful) ||
+                _cjkChar.hasMatch(meaningful) ||
+                meaningful.length >= 3)) {
+          addTerm(meaningful);
         }
       }
     }

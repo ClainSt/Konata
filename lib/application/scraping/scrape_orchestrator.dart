@@ -466,19 +466,31 @@ class ScrapeOrchestrator {
         );
       }
 
-      // 自动归并同一作品父目录下多个压制组子目录洗版产出的同身份重复卡片（保留多版本、特典、CD、Scan 与播放进度）。
+      // 方案 A：自动归并同一媒体源下匹配至完全相同强身份（TMDB 或 Bangumi）的多版本作品卡片
+      // （涵盖多压制组洗版目录、不同兄弟目录及合集拆簇，完整保留多版本正片、特典、CD、Scan 与播放进度）。
       var mergedAnyWork = false;
-      if (workIdByFolderPath.length >= 2) {
-        final absorbedIds =
-            await ReleaseGroupWorkMerger.mergeSameParentReleaseGroupWorks(
+      if (activeWorkIds.isNotEmpty) {
+        final mergeRes =
+            await ReleaseGroupWorkMerger.mergeSameSourceIdentityWorks(
               repository: _repository,
-              groupedWorks: groupedWorks,
-              workIdByFolderPath: workIdByFolderPath,
+              sourceId: source.id,
+              focusWorkIds: activeWorkIds,
               photosStorage: _photosStorage,
             );
-        if (absorbedIds.isNotEmpty) {
+        if (mergeRes.absorbedIds.isNotEmpty) {
           mergedAnyWork = true;
-          activeWorkIds.removeAll(absorbedIds);
+          activeWorkIds.removeAll(mergeRes.absorbedIds);
+          identityMutatedWorkIds.removeAll(mergeRes.absorbedIds);
+          for (final id in mergeRes.absorbedIds) {
+            scanContext.worksById.remove(id);
+          }
+          for (final targetId in mergeRes.survivingTargetIds) {
+            identityMutatedWorkIds.add(targetId);
+            final refreshed = await _repository.findWorkById(targetId);
+            if (refreshed != null) {
+              scanContext.worksById[targetId] = refreshed;
+            }
+          }
         }
       }
 

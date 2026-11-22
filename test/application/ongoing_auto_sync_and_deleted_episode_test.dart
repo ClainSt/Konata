@@ -710,5 +710,123 @@ void main() {
       final bocchiVars = await repo.getVariantsByWork(bocchi.id);
       expect(bocchiVars.map((v) => v.fileName).toList(), ['孤独摇滚 - 01.mkv']);
     });
+
+    test('多作拆簇共享目录同步严格按拆簇边界隔离，绝不把兄弟剧场版未认领特典串吸入本作品', () async {
+      await touchFile(
+        '窈窕淑女系列/剧场版 窈窕淑女/[Nekomoe kissaten][Haikara-san ga Toru the movie zenpen - Benio Hana no 17-sai][BDRip][1080p].mkv',
+      );
+      await touchFile(
+        '窈窕淑女系列/剧场版 窈窕淑女/[Nekomoe kissaten][Haikara-san ga Toru the movie kouhen - Hana no Tokyo Dai Roman][BDRip][1080p].mkv',
+      );
+      await touchFile(
+        '窈窕淑女系列/剧场版 窈窕淑女/SPs/[Nekomoe kissaten][Haikara-san ga Toru the movie zenpen - Benio Hana no 17-sai][CM01][BDRip][1080p].mkv',
+      );
+      await touchFile(
+        '窈窕淑女系列/剧场版 窈窕淑女/SPs/[Nekomoe kissaten][Haikara-san ga Toru the movie kouhen - Hana no Tokyo Dai Roman][CM01][BDRip][1080p].mkv',
+      );
+
+      final source = MediaSource(
+        id: 'local-r12-haikara-shared',
+        kind: MediaSourceKind.local,
+        label: '拆簇共享盘',
+        location: tempRoot.path,
+      );
+      await repo.upsertMediaSource(source);
+
+      const zenpenWork = Work(
+        id: 'work_haikara_zenpen',
+        title: '剧场版 窈窕淑女 前篇 ~红绪，花样的17岁~',
+        originalTitle: '劇場版 はいからさんが通る 前編',
+        bangumiId: 184021,
+        year: 2017,
+        scrapeStatus: ScrapeStatus.matched,
+      );
+      const kouhenWork = Work(
+        id: 'work_haikara_kouhen',
+        title: '剧场版 窈窕淑女 后篇 ~花之东京大浪漫~',
+        originalTitle: '劇場版 はいからさんが通る 後編',
+        bangumiId: 197654,
+        year: 2018,
+        scrapeStatus: ScrapeStatus.matched,
+      );
+      await repo.upsertWork(zenpenWork);
+      await repo.upsertWork(kouhenWork);
+      await repo.upsertEpisode(
+        const Episode(
+          id: 'ep_zenpen_main',
+          workId: 'work_haikara_zenpen',
+          seasonNumber: 1,
+          episodeNumber: null,
+          title: '前篇',
+        ),
+      );
+      await repo.upsertEpisode(
+        const Episode(
+          id: 'ep_kouhen_main',
+          workId: 'work_haikara_kouhen',
+          seasonNumber: 1,
+          episodeNumber: null,
+          title: '后篇',
+        ),
+      );
+      await repo.upsertMediaVariant(
+        const MediaVariant(
+          id: 'var_zenpen_main',
+          workId: 'work_haikara_zenpen',
+          episodeId: 'ep_zenpen_main',
+          sourceId: 'local-r12-haikara-shared',
+          relativePath:
+              '窈窕淑女系列/剧场版 窈窕淑女/[Nekomoe kissaten][Haikara-san ga Toru the movie zenpen - Benio Hana no 17-sai][BDRip][1080p].mkv',
+          fileName:
+              '[Nekomoe kissaten][Haikara-san ga Toru the movie zenpen - Benio Hana no 17-sai][BDRip][1080p].mkv',
+          fileSize: 0,
+          assetKind: AssetKind.video,
+        ),
+      );
+      await repo.upsertMediaVariant(
+        const MediaVariant(
+          id: 'var_kouhen_main',
+          workId: 'work_haikara_kouhen',
+          episodeId: 'ep_kouhen_main',
+          sourceId: 'local-r12-haikara-shared',
+          relativePath:
+              '窈窕淑女系列/剧场版 窈窕淑女/[Nekomoe kissaten][Haikara-san ga Toru the movie kouhen - Hana no Tokyo Dai Roman][BDRip][1080p].mkv',
+          fileName:
+              '[Nekomoe kissaten][Haikara-san ga Toru the movie kouhen - Hana no Tokyo Dai Roman][BDRip][1080p].mkv',
+          fileSize: 0,
+          assetKind: AssetKind.video,
+        ),
+      );
+
+      final httpClient = TmdbHttpClient(
+        config: const TmdbNetworkConfig(credential: 'dummy_v3_key'),
+        scheduler: PriorityHttpScheduler(),
+        httpClient: buildMockApi(<String>[]),
+      );
+      final orchestrator = ScrapeOrchestrator(
+        repository: repo,
+        tmdbService: TmdbService(httpClient: httpClient),
+        gatewayBuilder: (s) async => LocalSourceGateway(rootPath: s.location),
+        computeWorker: const ScrapeComputeWorker(useIsolate: false),
+      );
+
+      // 同步后篇目录时，仅应接纳归属 kouhen 子簇的 CM01，绝不把未认领的 zenpen CM01 误吸入后篇。
+      final syncRes = await orchestrator.syncSingleWorkDirectory(kouhenWork.id);
+      expect(syncRes.changed, isTrue);
+      expect(syncRes.addedFileCount, 1);
+
+      final kouhenVars = await repo.getVariantsByWork(kouhenWork.id);
+      expect(
+        kouhenVars.map((v) => v.fileName).toSet(),
+        equals({
+          '[Nekomoe kissaten][Haikara-san ga Toru the movie kouhen - Hana no Tokyo Dai Roman][BDRip][1080p].mkv',
+          '[Nekomoe kissaten][Haikara-san ga Toru the movie kouhen - Hana no Tokyo Dai Roman][CM01][BDRip][1080p].mkv',
+        }),
+      );
+      expect(
+        kouhenVars.any((v) => v.fileName.toLowerCase().contains('zenpen')),
+        isFalse,
+      );
+    });
   });
 }

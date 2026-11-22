@@ -458,7 +458,7 @@ class WorkDirectorySyncService {
           candidateFiles.add(f);
         }
       } else {
-        // 共享混放目录：绝不窃取其他作品文件，仅接纳同归组且归属当前作品的新增文件。
+        // 共享混放目录：绝不窃取其他作品或兄弟拆簇的文件，优先按完整目录实时拆簇边界筛选本作品归属文件。
         final unownedFiles = [
           for (final f in liveFiles)
             if (!otherWorkPaths.contains(_normalizePath(f.relativePath))) f,
@@ -466,8 +466,10 @@ class WorkDirectorySyncService {
         final picked = await _pickOwnedFilesInSharedScope(
           work: work,
           sourceId: source.id,
+          liveFiles: liveFiles,
           unownedFiles: unownedFiles,
           survivingNormPaths: survivingNormPaths,
+          otherWorkPaths: otherWorkPaths,
         );
         candidateFiles.addAll(picked);
       }
@@ -733,13 +735,49 @@ class WorkDirectorySyncService {
   Future<List<ScannedFileInput>> _pickOwnedFilesInSharedScope({
     required Work work,
     required String sourceId,
+    required List<ScannedFileInput> liveFiles,
     required List<ScannedFileInput> unownedFiles,
     required Set<String> survivingNormPaths,
+    required Set<String> otherWorkPaths,
   }) async {
     if (unownedFiles.isEmpty) return const [];
 
-    // 收集当前作品的规范化片名指纹（作品中文名、原名及现有文件解析出的标题词干），
-    // 在共享混放目录中对每个新增文件逐条核验片名归属，严防把同目录里无关新番误吸进本作品。
+    // 优先使用与全量扫描同源的确定性拆簇引擎划定共享目录内各子作品边界
+    // （如 `TV + Movie 1 + Movie 2` 或 `剧场版前篇 + 后篇` 混放目录），
+    // 严格只接纳落入当前作品所属子簇的新增文件，彻底杜绝兄弟子簇特典/CD/Scan 串吸。
+    if (survivingNormPaths.isNotEmpty && liveFiles.length >= 2) {
+      final grouped = await _computeWorker.groupFiles(
+        sourceId: sourceId,
+        files: liveFiles,
+      );
+      if (grouped.length >= 2) {
+        final allowedClusterPaths = <String>{};
+        for (final cluster in grouped) {
+          final clusterPaths = <String>{
+            for (final v in cluster.variants) _normalizePath(v.relativePath),
+          };
+          var ownHits = 0;
+          var otherHits = 0;
+          for (final path in clusterPaths) {
+            if (survivingNormPaths.contains(path)) ownHits++;
+            if (otherWorkPaths.contains(path)) otherHits++;
+          }
+          if (ownHits > 0 && ownHits >= otherHits) {
+            allowedClusterPaths.addAll(clusterPaths);
+          }
+        }
+        if (allowedClusterPaths.isNotEmpty) {
+          return [
+            for (final f in unownedFiles)
+              if (survivingNormPaths.contains(_normalizePath(f.relativePath)) ||
+                  allowedClusterPaths.contains(_normalizePath(f.relativePath)))
+                f,
+          ];
+        }
+      }
+    }
+
+    // 非多作拆簇的扁平共享目录回落至片名词干归属核验，同时剔除明显指向兄弟篇章/年份的新文件。
     final workStems = <String>{
       _normalizeTitleKey(work.title),
       if (work.originalTitle != null) _normalizeTitleKey(work.originalTitle!),

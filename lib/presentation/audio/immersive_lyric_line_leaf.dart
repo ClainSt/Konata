@@ -1,12 +1,15 @@
 import 'dart:math' as math;
 
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../application/playback/audio_playback_notifier.dart';
 import '../../application/playback/playback_preferences_provider.dart';
 import '../../domain/playback/cue_and_lrc_parser.dart';
+import '../../domain/playback/karaoke_clock_extrapolator.dart';
 import '../../domain/playback/lyric_version_matcher.dart';
+import '../../domain/playback/mora_pace_estimator.dart';
 import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
@@ -26,7 +29,9 @@ class ImmersiveLyricLineLeaf extends ConsumerWidget {
     this.centerAligned = false,
     this.activeSpanLine,
     this.nextLineStartSeconds,
-    this.estimatedSecondsPerChar = 0.24,
+    this.estimatedSecondsPerChar = LrcDocument.defaultSecondsPerChar,
+    this.secondsPerMora,
+    this.isJapaneseSong,
   });
 
   final int index;
@@ -40,14 +45,20 @@ class ImmersiveLyricLineLeaf extends ConsumerWidget {
   /// 是否居中排版（手机竖屏对齐经典歌词布局，左右预留时间轴与小播放键空间）。
   final bool centerAligned;
 
-  /// 可选主唱/和声并行逐字扫光片段行（仅高亮当前行挂载局部进度叶子，非当前行零订阅）。
+  /// 可选外部独立解析的主唱/和声片段行（仅当 [line] 未自带原生 `words` 时兜底兼容）。
   final ActiveSpanLyricLine? activeSpanLine;
 
-  /// 下一行歌词起点秒数（供标准整行时间戳 LRC 计算精准匀速扫光时长）。
+  /// 下一行歌词起点秒数（供整行 LRC 估算演唱时长与换气余量）。
   final double? nextLineStartSeconds;
 
-  /// 根据当前曲目中位语速估算的每字演唱秒数（避免间奏行按固定慢速滞后未走完）。
+  /// 传统每字估算秒数（兼容外部测试与未传 `secondsPerMora` 时的兜底参考）。
   final double estimatedSecondsPerChar;
+
+  /// 曲目预计算音拍曲速（秒/音拍，由 `LrcDocument.secondsPerMora` 直接传入）。
+  final double? secondsPerMora;
+
+  /// 曲目是否属于日文语境（由 `LrcDocument.isJapaneseSong` 直接传入）。
+  final bool? isJapaneseSong;
 
   static int _distanceBucket(int lineIdx, int activeIdx) {
     final d = (lineIdx - activeIdx).abs();
@@ -109,13 +120,25 @@ class ImmersiveLyricLineLeaf extends ConsumerWidget {
     final columnAlign = centerAligned
         ? CrossAxisAlignment.center
         : CrossAxisAlignment.start;
-    final spanLine = activeSpanLine;
-    final leadSpans = spanLine == null
-        ? const <TimedLyricSpan>[]
-        : spanLine.spans.where((s) => !s.isHarmony).toList(growable: false);
-    final harmonySpans = spanLine == null
-        ? const <TimedLyricSpan>[]
-        : spanLine.spans.where((s) => s.isHarmony).toList(growable: false);
+
+    // 优先直接使用解析期绑定于 LrcCueLine 的原生逐字/和声片段，零构建期过滤与线性查找。
+    final List<TimedLyricSpan> leadSpans;
+    final List<TimedLyricSpan> harmonySpans;
+    if (line.hasWordTiming) {
+      leadSpans = line.words;
+      harmonySpans = line.harmonyWords;
+    } else if (activeSpanLine != null) {
+      leadSpans = activeSpanLine!.spans
+          .where((s) => !s.isHarmony)
+          .toList(growable: false);
+      harmonySpans = activeSpanLine!.spans
+          .where((s) => s.isHarmony)
+          .toList(growable: false);
+    } else {
+      leadSpans = const <TimedLyricSpan>[];
+      harmonySpans = const <TimedLyricSpan>[];
+    }
+
     final hasSpanData = leadSpans.isNotEmpty || harmonySpans.isNotEmpty;
     final effectiveLeadText = leadSpans.isNotEmpty
         ? leadSpans.map((s) => s.text).join()
@@ -135,12 +158,22 @@ class ImmersiveLyricLineLeaf extends ConsumerWidget {
 
     final Widget primaryBody;
     if (isActive) {
+      final docSnap = (secondsPerMora == null || isJapaneseSong == null)
+          ? ref.read(audioPlaybackProvider).lrcDocument
+          : null;
+      final resolvedMoraPace =
+          secondsPerMora ??
+          docSnap?.secondsPerMora ??
+          (estimatedSecondsPerChar * 0.78).clamp(0.10, 0.36);
+      final resolvedIsJa = isJapaneseSong ?? docSnap?.isJapaneseSong;
       primaryBody = _ActiveKaraokeSweepLeaf(
         leadText: effectiveLeadText,
+        romajiText: line.romajiText,
         lineStartSeconds: line.startSeconds,
         lineEndSeconds: line.endSeconds,
         nextLineStartSeconds: nextLineStartSeconds,
-        estimatedSecondsPerChar: estimatedSecondsPerChar,
+        secondsPerMora: resolvedMoraPace,
+        isJapaneseSong: resolvedIsJa,
         leadSpans: leadSpans,
         harmonySpans: harmonySpans,
         activeFontSize: activeSize,
@@ -317,14 +350,17 @@ class ImmersiveLyricLineLeaf extends ConsumerWidget {
   }
 }
 
-/// 仅挂载于当前激活歌词行的实时卡拉 OK 扫白叶子（支持逐字片段与整行匀速双模式，零父级重建）。
+/// 仅挂载于当前激活歌词行的实时卡拉 OK 扫白叶子：
+/// 使用单调时钟外推 `Ticker` + `<60ms` 柔性漂移纠偏驱动扫白，暂停、行结束或不可见时立即停钟。
 class _ActiveKaraokeSweepLeaf extends ConsumerStatefulWidget {
   const _ActiveKaraokeSweepLeaf({
     required this.leadText,
+    required this.romajiText,
     required this.lineStartSeconds,
     required this.lineEndSeconds,
     required this.nextLineStartSeconds,
-    required this.estimatedSecondsPerChar,
+    required this.secondsPerMora,
+    required this.isJapaneseSong,
     required this.leadSpans,
     required this.harmonySpans,
     required this.activeFontSize,
@@ -333,10 +369,12 @@ class _ActiveKaraokeSweepLeaf extends ConsumerStatefulWidget {
   });
 
   final String leadText;
+  final String romajiText;
   final double lineStartSeconds;
   final double? lineEndSeconds;
   final double? nextLineStartSeconds;
-  final double estimatedSecondsPerChar;
+  final double secondsPerMora;
+  final bool? isJapaneseSong;
   final List<TimedLyricSpan> leadSpans;
   final List<TimedLyricSpan> harmonySpans;
   final double activeFontSize;
@@ -351,44 +389,166 @@ class _ActiveKaraokeSweepLeaf extends ConsumerStatefulWidget {
 class _ActiveKaraokeSweepLeafState
     extends ConsumerState<_ActiveKaraokeSweepLeaf>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _sweepController;
+  late final Ticker _ticker;
+  late final ValueNotifier<double> _progressNotifier;
+  final KaraokeClockExtrapolator _extrapolator = KaraokeClockExtrapolator();
+
   late double _windowStart;
   late double _windowEnd;
+  double _lastTickClockSeconds = 0.0;
+  double? _pendingMediaPosSeconds;
+  bool _tickerVisible = true;
   AudioPlaybackNotifier? _boundNotifier;
+
+  double _progressForPosition(double posSeconds) {
+    final durSec = math.max(0.10, _windowEnd - _windowStart);
+    return ((posSeconds - _windowStart) / durSec).clamp(0.0, 1.0);
+  }
+
+  void _startTickerIfNeeded(double posSeconds, bool isPlaying) {
+    final shouldRun = isPlaying && _tickerVisible && posSeconds < _windowEnd;
+    if (!shouldRun) {
+      if (_ticker.isActive) _ticker.stop();
+      return;
+    }
+    if (!_ticker.isActive) {
+      _lastTickClockSeconds = 0.0;
+      _extrapolator.snapTo(posSeconds, clockSeconds: 0.0);
+      _ticker.start();
+    }
+  }
+
+  void _onTickerFrame(Duration elapsed) {
+    if (!mounted) return;
+    final clockSec = elapsed.inMicroseconds / 1000000.0;
+    _lastTickClockSeconds = clockSec;
+
+    final pendingMedia = _pendingMediaPosSeconds;
+    _pendingMediaPosSeconds = null;
+    final double pos;
+    if (pendingMedia != null) {
+      pos = _extrapolator.reconcileFromMediaClock(
+        pendingMedia,
+        clockSeconds: clockSec,
+        isPlaying: true,
+      );
+    } else {
+      pos = _extrapolator.advanceTo(clockSec);
+    }
+
+    final nextProgress = _progressForPosition(pos);
+    if ((nextProgress - _progressNotifier.value).abs() > 1e-5) {
+      _progressNotifier.value = nextProgress;
+    }
+    // 唱完本行立即停钟，严禁行结束后仍保持常驻空闲 Ticker。
+    if (nextProgress >= 1.0 && _ticker.isActive) {
+      _ticker.stop();
+    }
+  }
 
   void _onPositionTick() {
     if (!mounted) return;
     final pos = _boundNotifier?.currentPositionSeconds ?? 0.0;
     final isPlaying = ref.read(audioPlaybackProvider.select((s) => s.isPlaying));
-    _syncAnimation(pos, isPlaying);
+    _syncFromMediaClock(pos, isPlaying);
+  }
+
+  void _syncFromMediaClock(
+    double posSeconds,
+    bool isPlaying, {
+    bool forceSnap = false,
+  }) {
+    if (!isPlaying || !_tickerVisible) {
+      _pendingMediaPosSeconds = null;
+      if (_ticker.isActive) _ticker.stop();
+      _extrapolator.snapTo(posSeconds, clockSeconds: _lastTickClockSeconds);
+      final target = _progressForPosition(posSeconds);
+      if ((_progressNotifier.value - target).abs() > 1e-5) {
+        _progressNotifier.value = target;
+      }
+      return;
+    }
+
+    if (posSeconds >= _windowEnd) {
+      _pendingMediaPosSeconds = null;
+      if (_ticker.isActive) _ticker.stop();
+      _extrapolator.snapTo(posSeconds, clockSeconds: _lastTickClockSeconds);
+      if (_progressNotifier.value < 1.0) {
+        _progressNotifier.value = 1.0;
+      }
+      return;
+    }
+
+    if (_ticker.isActive && !forceSnap) {
+      // 在途 VSync 帧内以同一单调时钟消费底层回报，小于 60ms 自动柔性收敛。
+      _pendingMediaPosSeconds = posSeconds;
+      return;
+    }
+
+    _pendingMediaPosSeconds = null;
+    if (_ticker.isActive) _ticker.stop();
+    _lastTickClockSeconds = 0.0;
+    _extrapolator.snapTo(posSeconds, clockSeconds: 0.0);
+    final target = _progressForPosition(posSeconds);
+    if ((_progressNotifier.value - target).abs() > 1e-5) {
+      _progressNotifier.value = target;
+    }
+    _startTickerIfNeeded(posSeconds, true);
   }
 
   @override
   void initState() {
     super.initState();
-    _sweepController = AnimationController(vsync: this);
+    _progressNotifier = ValueNotifier<double>(0.0);
+    _ticker = createTicker(_onTickerFrame);
     _recomputeWindow();
     final notifier = ref.read(audioPlaybackProvider.notifier);
     _boundNotifier = notifier;
     notifier.positionListenable.addListener(_onPositionTick);
     final snap = ref.read(audioPlaybackProvider);
-    _syncAnimation(notifier.currentPositionSeconds, snap.isPlaying);
+    _syncFromMediaClock(
+      notifier.currentPositionSeconds,
+      snap.isPlaying,
+      forceSnap: true,
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final visible = TickerMode.valuesOf(context).enabled;
+    if (visible != _tickerVisible) {
+      _tickerVisible = visible;
+      final pos =
+          _boundNotifier?.currentPositionSeconds ??
+          ref.read(audioPlaybackProvider.notifier).currentPositionSeconds;
+      final isPlaying = ref.read(
+        audioPlaybackProvider.select((s) => s.isPlaying),
+      );
+      _syncFromMediaClock(pos, isPlaying, forceSnap: true);
+    }
   }
 
   @override
   void didUpdateWidget(covariant _ActiveKaraokeSweepLeaf oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.leadText != widget.leadText ||
+        oldWidget.romajiText != widget.romajiText ||
         oldWidget.lineStartSeconds != widget.lineStartSeconds ||
         oldWidget.lineEndSeconds != widget.lineEndSeconds ||
         oldWidget.nextLineStartSeconds != widget.nextLineStartSeconds ||
-        oldWidget.estimatedSecondsPerChar != widget.estimatedSecondsPerChar ||
+        oldWidget.secondsPerMora != widget.secondsPerMora ||
+        oldWidget.isJapaneseSong != widget.isJapaneseSong ||
         oldWidget.leadSpans != widget.leadSpans ||
         oldWidget.harmonySpans != widget.harmonySpans) {
       _recomputeWindow();
       final notifier = ref.read(audioPlaybackProvider.notifier);
       final snap = ref.read(audioPlaybackProvider);
-      _syncAnimation(notifier.currentPositionSeconds, snap.isPlaying);
+      _syncFromMediaClock(
+        notifier.currentPositionSeconds,
+        snap.isPlaying,
+        forceSnap: true,
+      );
     }
   }
 
@@ -396,7 +556,8 @@ class _ActiveKaraokeSweepLeafState
   void dispose() {
     _boundNotifier?.positionListenable.removeListener(_onPositionTick);
     _boundNotifier = null;
-    _sweepController.dispose();
+    _ticker.dispose();
+    _progressNotifier.dispose();
     super.dispose();
   }
 
@@ -413,68 +574,31 @@ class _ActiveKaraokeSweepLeafState
         if (s.endSeconds > maxEnd) maxEnd = s.endSeconds;
       }
       _windowStart = minStart;
-      _windowEnd = math.max(minStart + 0.25, maxEnd);
+      _windowEnd = math.max(minStart + 0.10, maxEnd);
       return;
     }
 
     _windowStart = widget.lineStartSeconds;
-    final rawEnd = widget.lineEndSeconds ?? widget.nextLineStartSeconds;
-    final compactCharCount = widget.leadText
-        .replaceAll(RegExp(r'\s+'), '')
-        .runes
-        .length;
-    final estVocal =
-        (math.max(1, compactCharCount) * widget.estimatedSecondsPerChar)
-            .clamp(1.6, 8.5);
-    if (rawEnd == null || rawEnd <= _windowStart) {
-      _windowEnd = _windowStart + estVocal;
-      return;
-    }
-    final gap = rawEnd - _windowStart;
-    if (gap <= 0.35) {
-      _windowEnd = _windowStart + 0.35;
-    } else if (gap > estVocal * 1.38) {
-      // 句后接纯音乐间奏或长停顿：按当前曲目自身中位语速精确封顶，确保歌声停时纯白恰好铺满末字。
-      _windowEnd = _windowStart + estVocal;
-    } else {
-      // 常规连续句预留 0.22s 句尾换气余量，防止最后一字在切句瞬间仍停留在半亮态。
-      final effectiveDur = math.min(
-        math.max(0.35, gap - 0.22),
-        estVocal * 1.25,
-      );
-      _windowEnd = _windowStart + effectiveDur;
-    }
-  }
-
-  void _syncAnimation(double posSeconds, bool isPlaying) {
-    final durSec = math.max(0.25, _windowEnd - _windowStart);
-    final target = ((posSeconds - _windowStart) / durSec).clamp(0.0, 1.0);
-    if (!isPlaying || target >= 1.0) {
-      _sweepController.stop();
-      if ((_sweepController.value - target).abs() > 0.001) {
-        _sweepController.value = target;
-      }
-      return;
-    }
-    final targetDuration = KonataPlaybackTokens.lyricKaraokeWindowDuration(
-      durSec,
+    final rawNext = widget.nextLineStartSeconds ?? widget.lineEndSeconds;
+    final vocalDur = MoraPaceEstimator.estimateVocalDurationSeconds(
+      lineStartSeconds: _windowStart,
+      nextLineStartSeconds: rawNext,
+      text: widget.leadText,
+      romajiText: widget.romajiText,
+      secondsPerMora: widget.secondsPerMora,
+      isJapaneseSong: widget.isJapaneseSong,
     );
-    final currentEstPos = _windowStart + _sweepController.value * durSec;
-    if (!_sweepController.isAnimating ||
-        _sweepController.duration != targetDuration ||
-        (currentEstPos - posSeconds).abs() > 0.14) {
-      _sweepController.duration = targetDuration;
-      _sweepController.forward(from: target);
-    }
+    _windowEnd = _windowStart + vocalDur;
   }
 
   @override
   Widget build(BuildContext context) {
     ref.listen<bool>(
       audioPlaybackProvider.select((s) => s.isPlaying),
-      (_, isPlaying) => _syncAnimation(
+      (_, isPlaying) => _syncFromMediaClock(
         ref.read(audioPlaybackProvider.notifier).currentPositionSeconds,
         isPlaying,
+        forceSnap: true,
       ),
     );
 
@@ -522,10 +646,12 @@ class _ActiveKaraokeSweepLeafState
             text: widget.leadText,
             baseStyle: leadBaseStyle,
             litStyle: leadLitStyle,
-            progress: _sweepController,
+            progress: _progressNotifier,
             windowStartSeconds: _windowStart,
             windowEndSeconds: _windowEnd,
             spans: widget.leadSpans,
+            romajiText: widget.romajiText,
+            isJapaneseSong: widget.isJapaneseSong,
             textAlign: widget.centerAligned ? TextAlign.center : TextAlign.start,
           ),
         if (harmonyText.isNotEmpty) ...[
@@ -535,7 +661,7 @@ class _ActiveKaraokeSweepLeafState
             text: harmonyText,
             baseStyle: harmonyBaseStyle,
             litStyle: harmonyLitStyle,
-            progress: _sweepController,
+            progress: _progressNotifier,
             windowStartSeconds: _windowStart,
             windowEndSeconds: _windowEnd,
             spans: widget.harmonySpans,

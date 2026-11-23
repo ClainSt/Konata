@@ -327,6 +327,9 @@ class AudioPlaybackNotifier extends Notifier<AudioPlaybackState> {
   /// 已由本地外挂歌词上屏的加载代数（同代数在线歌词结果直接丢弃，保证本地优先）。
   int _localLyricGeneration = -1;
 
+  /// 等待在下一句行边界（或暂停/前奏期）静默热替换的渐进升级在线歌词结果。
+  ({int generation, LyricResolveOutcome outcome})? _pendingLyricUpgrade;
+
   /// 判断文件名是否为受支持的音频物理轨。
   static bool isPlayableAudioFile(String fileName) =>
       CueVariantResolver.isPlayableAudioFile(fileName);
@@ -581,9 +584,13 @@ class AudioPlaybackNotifier extends Notifier<AudioPlaybackState> {
       _rebindAudioSessionIfSuperseded(c);
     }
     c.setPropertyFlag('pause', !playing);
-    state = state.copyWith(
-      isPlaying: playing,
-      isBuffering: playing ? state.isBuffering : false,
+    state = _mergePendingLyricUpgrade(
+      state.copyWith(
+        isPlaying: playing,
+        isBuffering: playing ? state.isBuffering : false,
+      ),
+      positionSeconds: currentPositionSeconds,
+      forceImmediate: !playing,
     );
     if (playing && !wasPlaying) {
       _startMicroFadeInRamp(c);
@@ -719,10 +726,14 @@ class AudioPlaybackNotifier extends Notifier<AudioPlaybackState> {
       _startMicroFadeInRamp(c);
     }
     final lyricIdx = state.lrcDocument?.activeIndexAt(clamped) ?? -1;
-    state = state.copyWith(
+    state = _mergePendingLyricUpgrade(
+      state.copyWith(
+        positionSeconds: clamped,
+        activeLyricIndex: lyricIdx,
+        isBuffering: cachedHit ? false : state.isBuffering,
+      ),
       positionSeconds: clamped,
-      activeLyricIndex: lyricIdx,
-      isBuffering: cachedHit ? false : state.isBuffering,
+      forceImmediate: true,
     );
     _syncAudioBackgroundTimers();
     _syncAndroidMediaSession(forcePositionSync: true);
@@ -838,6 +849,7 @@ class AudioPlaybackNotifier extends Notifier<AudioPlaybackState> {
     _pendingSeekRawTargetSeconds = null;
     _pendingSeekGuardUntil = null;
     _pendingRemoteAuxJob = null;
+    _pendingLyricUpgrade = null;
     _sessionAllCdVariants = const [];
     _sessionSourcesById = const {};
     _unexpandedMasterByCueId.clear();
@@ -1117,37 +1129,6 @@ class AudioPlaybackNotifier extends Notifier<AudioPlaybackState> {
         _scheduleCueBoundaryTimer();
       }
     });
-  }
-
-  void _scheduleEffectiveProgressCheckIfNeeded() {
-    _effectiveProgressCheckTimer?.cancel();
-    _effectiveProgressCheckTimer = null;
-    if (_progressObservationMode ==
-            AudioProgressObservationMode.highFrequency ||
-        _engine.effectiveProgressConfirmed) {
-      return;
-    }
-    _effectiveProgressCheckTimer = Timer(
-      const Duration(milliseconds: 650),
-      () {
-        _effectiveProgressCheckTimer = null;
-        if (!mounted || !state.isActive || !state.isPlaying) return;
-        final c = _client;
-        final item = state.currentItem;
-        if (c == null || c.isDisposed || item == null) return;
-        final rawPos = c.getPropertyDouble('time-pos');
-        if (rawPos == null || !rawPos.isFinite) return;
-        final relPos = math.max(0.0, rawPos - (item.cueStartSeconds ?? 0.0));
-        final advancedMs = ((relPos - _trackProgressBaselineSeconds) * 1000)
-            .round();
-        if (_engine.fileLoadedInCurrentEpoch &&
-            !_engine.effectiveProgressConfirmed &&
-            advancedMs >=
-                UnifiedPlaybackEngine.effectiveAudioProgressThresholdMs) {
-          _engine.recordEffectiveProgress(audioAdvancedMs: advancedMs);
-        }
-      },
-    );
   }
 
   void _disposeResources() {

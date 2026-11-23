@@ -1,3 +1,4 @@
+import '../playback/lyric_version_matcher.dart';
 import 'ttml_lyric_converter.dart';
 
 /// 单条带时间轴的歌词行（供清洗、对齐、跨源合并与时间轴校验复用）。
@@ -68,9 +69,6 @@ abstract final class LyricCleaner {
   static final RegExp _offsetTagRegex = RegExp(
     r'^\[offset\s*:\s*([+-]?\d+)\s*\]$',
     caseSensitive: false,
-  );
-  static final RegExp _inlineWordTagRegex = RegExp(
-    r'<\d{1,2}:\d{2}(?:[.:]\d{1,3})?>',
   );
   static final RegExp _htmlNumericEntityRegex = RegExp(r'&#(x?[0-9a-fA-F]+);');
 
@@ -166,7 +164,7 @@ abstract final class LyricCleaner {
       }
       final body = line.replaceAll(_timeTagRegex, '').trim();
       if (body.isEmpty) continue;
-      final plain = body.replaceAll(_inlineWordTagRegex, '').trim();
+      final plain = LyricVersionMatcher.stripInlineWordTags(body).trim();
       for (final match in matches) {
         final hours = int.tryParse(match.group(1) ?? '0') ?? 0;
         final mins = int.tryParse(match.group(2) ?? '0') ?? 0;
@@ -199,7 +197,10 @@ abstract final class LyricCleaner {
               ? 0.0
               : (e.timeSeconds - offsetSec),
           text: e.text,
-          rawBody: e.rawBody,
+          rawBody: LyricVersionMatcher.shiftInlineWordTags(
+            e.rawBody,
+            offsetSec,
+          ),
         ),
     ];
   }

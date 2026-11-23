@@ -144,11 +144,18 @@ void main() {
       final result = TtmlLyricConverter.convert(ttml);
       expect(result.hasWordTiming, isTrue);
       expect(result.hasTranslation, isTrue);
+      expect(result.hasRomaji, isTrue);
       final lines = result.lrc.trim().split('\n');
-      expect(lines[0], equals('[00:10.00]<00:10.00>Hello <00:10.60>world'));
+      expect(
+        lines[0],
+        equals('[00:10.00]<00:10.000-00:10.500>Hello <00:10.600-00:11.000>world'),
+      );
       expect(lines[1], equals('[00:10.00]你好世界'));
-      expect(lines[2], equals('[00:10.00]bg:<00:10.20>(ah<00:10.80>ha)'));
-      expect(result.lrc.contains('harō'), isFalse);
+      expect(lines[2], equals('[00:10.00]roma:harō'));
+      expect(
+        lines[3],
+        equals('[00:10.00]bg:<00:10.200-00:10.800>(ah<00:10.800-00:11.200>ha)'),
+      );
     });
 
     test('非法 XML 返回空结果', () {

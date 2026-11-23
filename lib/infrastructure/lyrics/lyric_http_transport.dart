@@ -2,8 +2,8 @@ import 'package:http/http.dart' as http;
 
 /// 在线歌词检索集中配置（端点、镜像、超时、竞速预算与缓存有效期）。
 abstract final class LyricLookupConfig {
-  /// 歌词引擎版本（缓存条目版本不一致时自动重新检索，确保 S2 清洗与合并规则生效）。
-  static const int engineVersion = 2;
+  /// 歌词引擎版本（缓存条目版本不一致时自动重新检索，确保逐字结束时间与 YRC/QRC 规则生效）。
+  static const int engineVersion = 3;
 
   /// LRCLIB 精确时长匹配端点。
   static const String lrclibGetEndpoint = 'https://lrclib.net/api/get';

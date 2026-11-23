@@ -1,5 +1,7 @@
 import 'package:xml/xml.dart';
 
+import '../playback/lyric_version_matcher.dart';
+
 /// TTML 逐字歌词转换结果。
 class TtmlConversion {
   /// 创建转换结果。
@@ -7,9 +9,10 @@ class TtmlConversion {
     required this.lrc,
     required this.hasTranslation,
     required this.hasWordTiming,
+    this.hasRomaji = false,
   });
 
-  /// 增强 LRC 正文（主唱逐字行、同时间戳译文行与 `bg:` 和声行）。
+  /// 增强 LRC 正文（主唱带精确结束时间逐字行、同时间戳译文行、`roma:` 罗马音行与 `bg:` 和声行）。
   final String lrc;
 
   /// 是否包含 `x-translation` 译文。
@@ -17,14 +20,18 @@ class TtmlConversion {
 
   /// 是否包含逐字时间。
   final bool hasWordTiming;
+
+  /// 是否包含 `x-roman` 罗马音注音。
+  final bool hasRomaji;
 }
 
-/// AMLL / Apple 风格 TTML 逐字歌词转换器（基于 XML 解析，正确处理嵌套和声与词间空格）。
+/// AMLL / Apple 风格 TTML 逐字歌词转换器（基于 XML 解析，保留逐字结束时间、翻译、罗马音与嵌套和声）。
 abstract final class TtmlLyricConverter {
   static const TtmlConversion _empty = TtmlConversion(
     lrc: '',
     hasTranslation: false,
     hasWordTiming: false,
+    hasRomaji: false,
   );
 
   /// 将 TTML 文本转换为增强 LRC；解析失败或无有效行时返回空结果。
@@ -39,15 +46,18 @@ abstract final class TtmlLyricConverter {
     final out = StringBuffer();
     var hasTranslation = false;
     var hasWordTiming = false;
+    var hasRomaji = false;
 
     for (final p in doc.descendantElements.where((e) => e.name.local == 'p')) {
       final lineBegin = parseTimestamp(_attr(p, 'begin'));
       if (lineBegin == null) continue;
+      final lineEnd = parseTimestamp(_attr(p, 'end'));
       final lineTag = formatLrcTag(lineBegin);
 
       final main = StringBuffer();
       final bg = StringBuffer();
       final translation = StringBuffer();
+      final roman = StringBuffer();
       var mainHasWords = false;
 
       for (final node in p.children) {
@@ -59,14 +69,22 @@ abstract final class TtmlLyricConverter {
         final role = (_attr(node, 'role') ?? '').toLowerCase();
         switch (role) {
           case 'x-translation':
-            translation.write(node.innerText.trim());
+            final t = node.innerText.trim();
+            if (t.isNotEmpty) {
+              if (translation.isNotEmpty) translation.write(' ');
+              translation.write(t);
+            }
           case 'x-roman':
-            break;
+            final r = node.innerText.trim();
+            if (r.isNotEmpty) {
+              if (roman.isNotEmpty) roman.write(' ');
+              roman.write(r);
+            }
           case 'x-bg':
-            final bgHasWords = _writeWordSpans(node, bg);
+            final bgHasWords = _writeWordSpans(node, bg, fallbackEnd: lineEnd);
             hasWordTiming = hasWordTiming || bgHasWords;
           default:
-            if (_writeWordSpan(node, main)) {
+            if (_writeWordSpan(node, main, fallbackEnd: lineEnd)) {
               mainHasWords = true;
             }
         }
@@ -81,6 +99,11 @@ abstract final class TtmlLyricConverter {
         hasTranslation = true;
         out.writeln('[$lineTag]$translationText');
       }
+      final romanText = roman.toString().trim();
+      if (romanText.isNotEmpty) {
+        hasRomaji = true;
+        out.writeln('[$lineTag]roma:$romanText');
+      }
       final bgText = bg.toString().trim();
       if (bgText.isNotEmpty) {
         out.writeln('[$lineTag]bg:$bgText');
@@ -94,11 +117,16 @@ abstract final class TtmlLyricConverter {
       lrc: lrc,
       hasTranslation: hasTranslation,
       hasWordTiming: hasWordTiming,
+      hasRomaji: hasRomaji,
     );
   }
 
-  /// 写入单个逐字片段；返回是否带有效起始时间。
-  static bool _writeWordSpan(XmlElement span, StringBuffer target) {
+  /// 写入单个逐字片段（保留精确 `end` 结束时间以停顿词间空隙）；返回是否带有效起始时间。
+  static bool _writeWordSpan(
+    XmlElement span,
+    StringBuffer target, {
+    double? fallbackEnd,
+  }) {
     final text = span.innerText;
     if (text.isEmpty) return false;
     final begin = parseTimestamp(_attr(span, 'begin'));
@@ -106,22 +134,34 @@ abstract final class TtmlLyricConverter {
       target.write(text);
       return false;
     }
-    target.write('<${formatLrcTag(begin)}>$text');
+    final end = parseTimestamp(_attr(span, 'end')) ?? fallbackEnd;
+    target.write(LyricVersionMatcher.formatWordSpanTag(begin, end));
+    target.write(text);
     return true;
   }
 
-  /// 写入和声容器内的全部逐字片段；容器无子片段时按单片段处理。
-  static bool _writeWordSpans(XmlElement container, StringBuffer target) {
+  /// 写入和声容器内的全部逐字片段（自动过滤嵌套在和声容器中的译文与罗马音标签）。
+  static bool _writeWordSpans(
+    XmlElement container,
+    StringBuffer target, {
+    double? fallbackEnd,
+  }) {
+    final containerEnd = parseTimestamp(_attr(container, 'end')) ?? fallbackEnd;
     final childSpans = container.childElements
         .where((e) => e.name.local == 'span')
         .toList(growable: false);
-    if (childSpans.isEmpty) return _writeWordSpan(container, target);
+    if (childSpans.isEmpty) {
+      return _writeWordSpan(container, target, fallbackEnd: containerEnd);
+    }
     var any = false;
     for (final node in container.children) {
       if (node is XmlText) {
         _appendSeparator(target, node.value);
       } else if (node is XmlElement && node.name.local == 'span') {
-        any = _writeWordSpan(node, target) || any;
+        final role = (_attr(node, 'role') ?? '').toLowerCase();
+        if (role == 'x-translation' || role == 'x-roman') continue;
+        any =
+            _writeWordSpan(node, target, fallbackEnd: containerEnd) || any;
       }
     }
     return any;
@@ -170,7 +210,7 @@ abstract final class TtmlLyricConverter {
     return double.tryParse(trimmed);
   }
 
-  /// 将秒数格式化为 `mm:ss.xx` LRC 时间标签正文。
+  /// 将秒数格式化为 `mm:ss.xx` LRC 行时间标签正文。
   static String formatLrcTag(double seconds) {
     final totalCs = (seconds < 0 ? 0.0 : seconds * 100.0).round();
     final cs = totalCs % 100;

@@ -4,7 +4,9 @@ import '../../domain/lyrics/lyric_candidate.dart';
 import '../../domain/lyrics/lyric_cleaner.dart';
 import '../../domain/lyrics/lyric_merger.dart';
 import '../../domain/lyrics/lyric_search_query.dart';
+import '../../domain/lyrics/qrc_lyric_parser.dart';
 import 'lyric_http_transport.dart';
+import 'qrc_decryptor.dart';
 
 /// QQ 音乐搜索命中的歌曲元数据。
 class QqMusicSongHit {
@@ -134,7 +136,7 @@ class QqMusicLyricProvider {
     return hits;
   }
 
-  /// 拉取单曲 LRC 原文与中文译文，经 Base64 解码、HTML 实体还原、清洗与 DP 对齐后返回候选。
+  /// 拉取单曲 QRC 逐字或明文 LRC 与中文译文；有加密 QRC 时优先解密解析，失败自动无感回退明文 LRC。
   Future<LyricCandidate?> fetchLyric(QqMusicSongHit hit) async {
     final payload = jsonEncode({
       'comm': {'ct': 19, 'cv': 1859, 'uin': 0},
@@ -146,8 +148,10 @@ class QqMusicLyricProvider {
           'songID': hit.id,
           'trans': 1,
           'roma': 0,
+          'qrc': 1,
           'crypt': 0,
           'lrc_t': 0,
+          'qrc_t': 0,
         },
       },
     });
@@ -168,9 +172,46 @@ class QqMusicLyricProvider {
     final data = req['data'];
     if (data is! Map) return null;
 
-    final rawLrc = _decodeBase64Text(data['lyric']);
-    if (rawLrc.trim().isEmpty) return null;
     final rawTrans = _decodeBase64Text(data['trans']);
+    final rawLyricField = (data['lyric'] as String? ?? '').trim();
+    if (rawLyricField.isEmpty) return null;
+
+    final qrcFlag = data['qrc'] == 1 || data['qrc'] == true;
+    if (qrcFlag && QrcDecryptor.isValidCipherHex(rawLyricField)) {
+      final decrypted = QrcDecryptor.decryptHex(rawLyricField);
+      if (decrypted != null && decrypted.trim().isNotEmpty) {
+        final parsedQrc = QrcLyricParser.parse(decrypted);
+        if (parsedQrc.hasWordTiming && parsedQrc.lrcContent.isNotEmpty) {
+          final mergedQrc = LyricMerger.mergeSameSource(
+            mainLrc: parsedQrc.lrcContent,
+            translationLrc: rawTrans,
+          );
+          if (mergedQrc.lrcContent.isNotEmpty) {
+            final mergedCredits = <String>[
+              ...parsedQrc.credits,
+              for (final c in mergedQrc.credits)
+                if (!parsedQrc.credits.contains(c)) c,
+            ];
+            return LyricCandidate(
+              source: LyricSource.qq,
+              sourceId: hit.mid,
+              title: hit.title,
+              artist: hit.artist,
+              album: hit.album,
+              durationSeconds: hit.durationSeconds,
+              lrcContent: mergedQrc.lrcContent,
+              hasTranslation: mergedQrc.hasTranslation,
+              hasWordTiming: true,
+              translationLrc: rawTrans,
+              credits: mergedCredits,
+            );
+          }
+        }
+      }
+    }
+
+    final rawLrc = _decodeBase64Text(rawLyricField);
+    if (rawLrc.trim().isEmpty) return null;
 
     final merged = LyricMerger.mergeSameSource(
       mainLrc: rawLrc,

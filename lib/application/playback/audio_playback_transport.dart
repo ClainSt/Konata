@@ -32,6 +32,7 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
   }) async {
     if (index < 0 || index >= _state.queue.length || !mounted) return;
     _clearPendingGaplessAppendTransition();
+    _pendingLyricUpgrade = null;
     _ref.read(lyricsResolverProvider).cancelPendingLookups();
     if (!isRetryAttempt) {
       _trackRetryCount = 0;
@@ -715,15 +716,21 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
       _engine.recordEffectiveProgress(audioAdvancedMs: advancedMs);
     }
     final lyricIdx = _state.lrcDocument?.activeIndexAt(relPos) ?? -1;
+    final lineChanged = lyricIdx != _state.activeLyricIndex;
+    final hasReadyUpgrade =
+        _pendingLyricUpgrade != null &&
+        (lineChanged || !_state.isPlaying || _state.activeLyricIndex < 0);
     // 始终通过轻量 ValueNotifier 以原始高频推送至进度条/扫白叶子；
-    // 主 Riverpod 状态仅在切行或跨整秒边界时同步，彻底消除 60Hz × 100 行歌词的无效选择器扇出。
+    // 主 Riverpod 状态仅在切行、渐进歌词热替换或跨整秒边界时同步，彻底消除无效选择器扇出。
     _positionListenable.value = relPos;
-    if (lyricIdx != _state.activeLyricIndex ||
+    if (hasReadyUpgrade ||
+        lineChanged ||
         relPos.floor() != _state.positionSeconds.floor() ||
         (relPos - _state.positionSeconds).abs() >= 1.0) {
-      _state = _state.copyWith(
+      _state = _mergePendingLyricUpgrade(
+        _state.copyWith(positionSeconds: relPos, activeLyricIndex: lyricIdx),
         positionSeconds: relPos,
-        activeLyricIndex: lyricIdx,
+        forceImmediate: lineChanged,
       );
     }
     final lastPersist = _lastAudioPersistAt;
@@ -758,6 +765,7 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
     );
     final nextItem = _state.queue[nextIndex];
     final nextGen = ++_loadGeneration;
+    _pendingLyricUpgrade = null;
     _activeCommandedGeneration = nextGen;
     _isTransitioningCueBoundary = false;
     _trackProgressBaselineSeconds = 0.0;

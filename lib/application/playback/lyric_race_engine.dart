@@ -204,7 +204,7 @@ class LyricRaceSession {
     if (best != null && !_firstPaint.isCompleted) _firstPaint.complete(best);
   }
 
-  /// 得分更高者胜；得分持平时按能力（逐字 > 译文 > 罗马音）择优，保证高分候选间仍偏好更丰富的歌词。
+  /// 得分更高者胜；得分持平时按能力（逐字 > 译文 > 罗马音）与逐字源优先级（AMLL > QQ/网易云 > 其他）择优。
   static bool _isBetter(
     double score,
     LyricCandidate candidate,
@@ -213,13 +213,25 @@ class LyricRaceSession {
     const epsilon = 1e-6;
     if (score > current.score + epsilon) return true;
     if (score < current.score - epsilon) return false;
-    return _capabilityRank(candidate) > _capabilityRank(current.candidate);
+    final capDiff = _capabilityRank(candidate) - _capabilityRank(current.candidate);
+    if (capDiff != 0) return capDiff > 0;
+    return _sourceWordPriority(candidate) > _sourceWordPriority(current.candidate);
   }
 
   static int _capabilityRank(LyricCandidate c) =>
       (c.hasWordTiming ? 4 : 0) +
       (c.hasTranslation ? 2 : 0) +
       (c.hasRomaji ? 1 : 0);
+
+  /// 同能力逐字来源优先级：社区精校 AMLL TTML > 官方 QRC / YRC > 其他来源。
+  static int _sourceWordPriority(LyricCandidate c) {
+    if (!c.hasWordTiming) return 0;
+    return switch (c.source) {
+      LyricSource.amll => 3,
+      LyricSource.qq || LyricSource.netease => 2,
+      LyricSource.local || LyricSource.lrclib => 1,
+    };
+  }
 
   void _settle({bool cancelled = false}) {
     if (_settled.isCompleted) return;

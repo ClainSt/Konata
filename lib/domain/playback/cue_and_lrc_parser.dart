@@ -3,6 +3,8 @@ import 'dart:typed_data';
 import '../lyrics/lyric_cleaner.dart';
 import '../lyrics/lyric_merger.dart';
 import '../text/multibyte_text_decoder.dart';
+import 'lyric_version_matcher.dart';
+import 'mora_pace_estimator.dart';
 
 export '../text/multibyte_text_decoder.dart'
     show
@@ -135,7 +137,7 @@ class CueSheet {
   final int rejectedUnsafeFileCount;
 }
 
-/// 同时间戳聚合的多行歌词条目（支持日文原文 + 中文翻译 + 独立罗马音注音同步展示）。
+/// 同时间戳聚合的多行歌词条目（支持日文原文 + 中文翻译 + 独立罗马音注音 + 原生逐字/和声时间片段）。
 class LrcCueLine {
   /// 创建聚合歌词行。
   const LrcCueLine({
@@ -144,6 +146,8 @@ class LrcCueLine {
     required this.primaryText,
     this.secondaryLines = const [],
     this.romajiText = '',
+    this.words = const [],
+    this.harmonyWords = const [],
   });
 
   /// 触发起始时间（秒，已按 `[offset:]` 校正并钳制 >= 0）。
@@ -155,30 +159,47 @@ class LrcCueLine {
   /// 主行文本（同时间戳首行原文）。
   final String primaryText;
 
-  /// 附加翻译行文本列表（不包含独立罗马音注音）。
+  /// 附加翻译行文本列表（不包含独立罗马音注音与 `bg:` 和声层）。
   final List<String> secondaryLines;
 
   /// 独立罗马音注音文本（由设置开关控制显隐，避免与译文混排）。
   final String romajiText;
 
-  /// 复制并补充结束时间或注音文本。
+  /// 主唱逐字时间片段列表（携带精确起止时间；普通行级 LRC 为空）。
+  final List<TimedLyricSpan> words;
+
+  /// 和声 / 背景人声逐字片段列表（来自 `bg:` 行；无和声时为空）。
+  final List<TimedLyricSpan> harmonyWords;
+
+  /// 是否携带主唱或和声逐字时间数据。
+  bool get hasWordTiming => words.isNotEmpty || harmonyWords.isNotEmpty;
+
+  /// 复制并补充结束时间、译文、注音或逐字片段。
   LrcCueLine copyWith({
     double? endSeconds,
+    String? primaryText,
     List<String>? secondaryLines,
     String? romajiText,
+    List<TimedLyricSpan>? words,
+    List<TimedLyricSpan>? harmonyWords,
   }) {
     return LrcCueLine(
       startSeconds: startSeconds,
       endSeconds: endSeconds ?? this.endSeconds,
-      primaryText: primaryText,
+      primaryText: primaryText ?? this.primaryText,
       secondaryLines: secondaryLines ?? this.secondaryLines,
       romajiText: romajiText ?? this.romajiText,
+      words: words ?? this.words,
+      harmonyWords: harmonyWords ?? this.harmonyWords,
     );
   }
 }
 
-/// 解析后的 LRC 同步歌词文档。
+/// 解析后的 LRC 同步歌词文档（曲速与语境在解析期一次性预计算，视口构建期零重复计算）。
 class LrcDocument {
+  /// 样本不足时的默认每字演唱秒数。
+  static const double defaultSecondsPerChar = 0.24;
+
   /// 创建 LRC 文档对象。
   const LrcDocument({
     this.title = '',
@@ -186,6 +207,9 @@ class LrcDocument {
     this.album = '',
     this.offsetMillis = 0,
     required this.lines,
+    this.estimatedSecondsPerChar = defaultSecondsPerChar,
+    this.secondsPerMora = MoraPaceEstimator.defaultSecondsPerMora,
+    this.isJapaneseSong = false,
   });
 
   /// 曲目名称 `[ti:]`。
@@ -202,6 +226,18 @@ class LrcDocument {
 
   /// 按时间升序排列且同时间戳已分组的多行歌词列表。
   final List<LrcCueLine> lines;
+
+  /// 解析期预计算的每字中位演唱秒数（兼容外部测试与传统语速参考）。
+  final double estimatedSecondsPerChar;
+
+  /// 解析期预计算的曲速（秒/音拍，供音拍加权扫白与演唱时长估算 O(1) 读取）。
+  final double secondsPerMora;
+
+  /// 当前歌词集合是否属于日文语境（供全汉字行仍按日文 1.7 音拍准确估算）。
+  final bool isJapaneseSong;
+
+  /// 文档内任意行是否携带逐字时间数据。
+  bool get hasWordTiming => lines.any((l) => l.hasWordTiming);
 
   /// 使用二分查找定位指定播放时间点（秒）对应的当前歌词行索引；尚未开唱或无歌词返回 `-1`。
   int activeIndexAt(double positionSeconds) {
@@ -223,10 +259,9 @@ class LrcDocument {
     return best;
   }
 
-  /// 基于当前曲目正常相邻句的中位语速估算每字平均演唱秒数（剔除极短句与间奏长停顿）。
-  ///
-  /// 用于行级 LRC 遇到副歌后长间奏或末句时自动适配快慢歌节奏，避免扫白滞后或提前卡住。
-  double get estimatedSecondsPerChar {
+  /// 基于相邻正常句的中位语速一次性计算每字平均演唱秒数（解析期调用，避免渲染热路径重算）。
+  static double computeEstimatedSecondsPerChar(List<LrcCueLine> lines) {
+    final whitespaceRegex = RegExp(r'\s+');
     final samples = <double>[];
     for (var i = 0; i + 1 < lines.length; i++) {
       final cur = lines[i];
@@ -234,7 +269,7 @@ class LrcDocument {
       final gap = next.startSeconds - cur.startSeconds;
       if (gap < 0.8 || gap > 8.0) continue;
       final charCount = cur.primaryText
-          .replaceAll(RegExp(r'\s+'), '')
+          .replaceAll(whitespaceRegex, '')
           .runes
           .length;
       if (charCount < 3) continue;
@@ -244,7 +279,7 @@ class LrcDocument {
       }
     }
     if (samples.length < 2) {
-      return 0.24;
+      return defaultSecondsPerChar;
     }
     samples.sort();
     final mid = samples.length >> 1;
@@ -489,9 +524,6 @@ class LrcParser {
   static final RegExp _timeTagRegex = RegExp(
     r'\[(?:(\d{1,2}):)?(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]',
   );
-  static final RegExp _inlineWordTagRegex = RegExp(
-    r'<\d{1,2}:\d{2}(?:[.:]\d{1,3})?>',
-  );
   static final RegExp _kanaRegex = RegExp(r'[\u3040-\u309F\u30A0-\u30FF]');
   static final RegExp _cjkHanRegex = RegExp(r'[\u4E00-\u9FFF]');
   static final RegExp _metaTagRegex = RegExp(
@@ -528,7 +560,7 @@ class LrcParser {
     return parseText(text);
   }
 
-  /// 从文本解析 LRC 文档：分离 `roma:` 独立注音，采用同槽聚合与 DP 单调对齐合并原文与译文。
+  /// 从文本解析 LRC 文档：分离 `roma:` 独立注音与 `bg:` 和声，绑定逐字片段并预计算曲速。
   static LrcDocument parseText(String content) {
     final decoded = LyricCleaner.decodeHtmlEntities(content);
     var title = '';
@@ -536,7 +568,8 @@ class LrcParser {
     var album = '';
     var offsetMillis = 0;
 
-    final rawEntries = <({double timeSeconds, String text, bool isRomaji})>[];
+    final rawEntries =
+        <({double timeSeconds, String text, String rawBody, bool isRomaji, bool isHarmony})>[];
 
     for (final rawLine in decoded.split(RegExp(r'\r?\n'))) {
       final line = rawLine.trim();
@@ -562,17 +595,18 @@ class LrcParser {
         continue;
       }
 
-      var lyricText = line
-          .replaceAll(_timeTagRegex, '')
-          .replaceAll(_inlineWordTagRegex, '')
-          .trim();
-      if (lyricText.isEmpty) continue;
+      var rawBody = line.replaceAll(_timeTagRegex, '').trim();
+      if (rawBody.isEmpty) continue;
 
-      final isRomaji = lyricText.startsWith('roma:');
+      final isRomaji = rawBody.startsWith('roma:');
+      final isHarmony = !isRomaji && rawBody.startsWith('bg:');
       if (isRomaji) {
-        lyricText = lyricText.substring(5).trim();
-        if (lyricText.isEmpty) continue;
+        rawBody = rawBody.substring(5).trim();
+      } else if (isHarmony) {
+        rawBody = rawBody.substring(3).trim();
       }
+      final lyricText = LyricVersionMatcher.stripInlineWordTags(rawBody).trim();
+      if (lyricText.isEmpty) continue;
 
       for (final match in timeMatches) {
         final hours = int.tryParse(match.group(1) ?? '0') ?? 0;
@@ -590,7 +624,9 @@ class LrcParser {
         rawEntries.add((
           timeSeconds: baseTime,
           text: lyricText,
+          rawBody: rawBody,
           isRomaji: isRomaji,
+          isHarmony: isHarmony,
         ));
       }
     }
@@ -607,20 +643,30 @@ class LrcParser {
 
     final offsetSeconds = offsetMillis / 1000.0;
     final romajiEntries = <TimedLyricEntry>[];
+    final harmonyEntries = <({double timeSeconds, List<TimedLyricSpan> spans})>[];
     final bodyEntries = <TimedLyricEntry>[];
     for (final e in rawEntries) {
       final t = (e.timeSeconds - offsetSeconds) < 0
           ? 0.0
           : (e.timeSeconds - offsetSeconds);
-      final entry = TimedLyricEntry(timeSeconds: t, text: e.text);
       if (e.isRomaji) {
-        romajiEntries.add(entry);
+        romajiEntries.add(TimedLyricEntry(timeSeconds: t, text: e.text));
+      } else if (e.isHarmony) {
+        final spans = LyricVersionMatcher.parseInlineWordSpans(
+          e.rawBody,
+          lineStart: t,
+          isHarmony: true,
+          offsetSeconds: offsetSeconds,
+        );
+        harmonyEntries.add((timeSeconds: t, spans: spans));
       } else {
-        bodyEntries.add(entry);
+        bodyEntries.add(
+          TimedLyricEntry(timeSeconds: t, text: e.text, rawBody: e.rawBody),
+        );
       }
     }
 
-    if (bodyEntries.isEmpty) {
+    if (bodyEntries.isEmpty && harmonyEntries.isEmpty) {
       return LrcDocument(
         title: title,
         artist: artist,
@@ -640,6 +686,10 @@ class LrcParser {
       grouped = <LrcCueLine>[];
       for (var i = 0; i < firstTrack.length; i++) {
         final primary = firstTrack[i];
+        final primaryWords = _extractLeadWords(
+          primary,
+          offsetSeconds: offsetSeconds,
+        );
         final paired = aligned[i]?.trim();
         final sameAsPrimary =
             paired == null ||
@@ -650,12 +700,11 @@ class LrcParser {
             LrcCueLine(
               startSeconds: primary.timeSeconds,
               primaryText: primary.text,
+              words: primaryWords,
             ),
           );
-        } else if (_isLikelyOriginalOverChineseTranslation(
-          paired,
-          primary.text,
-        )) {
+        } else if (primaryWords.isEmpty &&
+            _isLikelyOriginalOverChineseTranslation(paired, primary.text)) {
           grouped.add(
             LrcCueLine(
               startSeconds: primary.timeSeconds,
@@ -669,12 +718,51 @@ class LrcParser {
               startSeconds: primary.timeSeconds,
               primaryText: primary.text,
               secondaryLines: [paired],
+              words: primaryWords,
             ),
           );
         }
       }
     } else {
-      grouped = _groupInterleavedLines(bodyEntries);
+      grouped = _groupInterleavedLines(
+        bodyEntries,
+        offsetSeconds: offsetSeconds,
+      );
+    }
+
+    // 挂载 `bg:` 和声片段至对应时间槽的主唱行；若该槽仅存在和声则独立成行。
+    if (harmonyEntries.isNotEmpty) {
+      harmonyEntries.sort((a, b) => a.timeSeconds.compareTo(b.timeSeconds));
+      for (final h in harmonyEntries) {
+        var bestIdx = -1;
+        var bestDelta = LyricMerger.tightMatchToleranceSeconds;
+        for (var i = 0; i < grouped.length; i++) {
+          final dt = (grouped[i].startSeconds - h.timeSeconds).abs();
+          if (dt <= bestDelta) {
+            bestDelta = dt;
+            bestIdx = i;
+          }
+        }
+        if (bestIdx >= 0) {
+          final target = grouped[bestIdx];
+          grouped[bestIdx] = target.copyWith(
+            harmonyWords: List<TimedLyricSpan>.unmodifiable([
+              ...target.harmonyWords,
+              ...h.spans,
+            ]),
+          );
+        } else {
+          final plain = h.spans.map((s) => s.text).join().trim();
+          grouped.add(
+            LrcCueLine(
+              startSeconds: h.timeSeconds,
+              primaryText: plain,
+              harmonyWords: List<TimedLyricSpan>.unmodifiable(h.spans),
+            ),
+          );
+        }
+      }
+      grouped.sort((a, b) => a.startSeconds.compareTo(b.startSeconds));
     }
 
     // 通过 DP 将独立 `roma:` 罗马音行对齐挂载到对应行的 `romajiText` 字段。
@@ -706,12 +794,47 @@ class LrcParser {
       finalized.add(grouped[i].copyWith(endSeconds: nextStart));
     }
 
+    final isJapaneseSong = MoraPaceEstimator.detectJapaneseSong(
+      finalized.map((l) => l.primaryText),
+    );
+    final secondsPerMora = MoraPaceEstimator.estimateSongSecondsPerMora([
+      for (final l in finalized)
+        (
+          startSeconds: l.startSeconds,
+          primaryText: l.primaryText,
+          romajiText: l.romajiText,
+        ),
+    ], isJapaneseSong: isJapaneseSong);
+    final estimatedSecondsPerChar = LrcDocument.computeEstimatedSecondsPerChar(
+      finalized,
+    );
+
     return LrcDocument(
       title: title,
       artist: artist,
       album: album,
       offsetMillis: offsetMillis,
       lines: finalized,
+      estimatedSecondsPerChar: estimatedSecondsPerChar,
+      secondsPerMora: secondsPerMora,
+      isJapaneseSong: isJapaneseSong,
+    );
+  }
+
+  static List<TimedLyricSpan> _extractLeadWords(
+    TimedLyricEntry entry, {
+    required double offsetSeconds,
+  }) {
+    if (!LyricVersionMatcher.hasInlineWordTags(entry.rawBody)) {
+      return const <TimedLyricSpan>[];
+    }
+    return List<TimedLyricSpan>.unmodifiable(
+      LyricVersionMatcher.parseInlineWordSpans(
+        entry.rawBody,
+        lineStart: entry.timeSeconds,
+        isHarmony: false,
+        offsetSeconds: offsetSeconds,
+      ),
     );
   }
 
@@ -760,10 +883,11 @@ class LrcParser {
     return out;
   }
 
-  /// 归并交错排列的双语行：同时间戳（<=50ms）直接聚合；<=150ms 且属于不同语种（原文+译文）或 `bg:` 和声时同步聚合。
+  /// 归并交错排列的双语行：同时间戳（<=50ms）直接聚合；<=150ms 且属于不同语种（原文+译文）时同步聚合，保留逐字片段。
   static List<LrcCueLine> _groupInterleavedLines(
-    List<TimedLyricEntry> rawBody,
-  ) {
+    List<TimedLyricEntry> rawBody, {
+    required double offsetSeconds,
+  }) {
     final adjusted = [...rawBody]
       ..sort((a, b) => a.timeSeconds.compareTo(b.timeSeconds));
 
@@ -772,34 +896,43 @@ class LrcParser {
     final grouped = <LrcCueLine>[];
 
     for (final entry in adjusted) {
+      final entryWords = _extractLeadWords(
+        entry,
+        offsetSeconds: offsetSeconds,
+      );
       if (grouped.isNotEmpty) {
         final prev = grouped.last;
         final dt = (entry.timeSeconds - prev.startSeconds).abs();
         final shouldMerge =
             dt <= exactTolerance ||
             (dt <= crossLangTolerance &&
-                (entry.text.startsWith('bg:') ||
-                    _isCrossLanguagePair(entry.text, prev.primaryText)));
+                _isCrossLanguagePair(entry.text, prev.primaryText));
         if (shouldMerge) {
           final entryKey = _normalizeDupKey(entry.text);
           final prevPrimaryKey = _normalizeDupKey(prev.primaryText);
           final alreadyInSecondary = prev.secondaryLines.any(
             (s) => _normalizeDupKey(s) == entryKey,
           );
-          if (entryKey != prevPrimaryKey && !alreadyInSecondary) {
-            if (_isLikelyOriginalOverChineseTranslation(
-              entry.text,
-              prev.primaryText,
-            )) {
-              grouped[grouped.length - 1] = LrcCueLine(
-                startSeconds: prev.startSeconds,
+          if (entryKey == prevPrimaryKey) {
+            if (prev.words.isEmpty && entryWords.isNotEmpty) {
+              grouped[grouped.length - 1] = prev.copyWith(words: entryWords);
+            }
+          } else if (!alreadyInSecondary) {
+            final upgradeAsLead =
+                (entryWords.isNotEmpty && prev.words.isEmpty) ||
+                (prev.words.isEmpty &&
+                    _isLikelyOriginalOverChineseTranslation(
+                      entry.text,
+                      prev.primaryText,
+                    ));
+            if (upgradeAsLead) {
+              grouped[grouped.length - 1] = prev.copyWith(
                 primaryText: entry.text,
                 secondaryLines: [prev.primaryText, ...prev.secondaryLines],
+                words: entryWords.isNotEmpty ? entryWords : prev.words,
               );
             } else {
-              grouped[grouped.length - 1] = LrcCueLine(
-                startSeconds: prev.startSeconds,
-                primaryText: prev.primaryText,
+              grouped[grouped.length - 1] = prev.copyWith(
                 secondaryLines: [...prev.secondaryLines, entry.text],
               );
             }
@@ -811,6 +944,7 @@ class LrcParser {
         LrcCueLine(
           startSeconds: entry.timeSeconds,
           primaryText: entry.text,
+          words: entryWords,
         ),
       );
     }

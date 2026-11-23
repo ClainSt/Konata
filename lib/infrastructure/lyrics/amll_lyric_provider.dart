@@ -41,6 +41,7 @@ class AmllLyricProvider {
       lrcContent: converted.lrc,
       hasTranslation: converted.hasTranslation,
       hasWordTiming: converted.hasWordTiming,
+      hasRomaji: converted.hasRomaji,
     );
   }
 

@@ -8,7 +8,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/playback/audio_playback_notifier.dart';
 import '../../domain/playback/cue_and_lrc_parser.dart';
-import '../../domain/playback/lyric_version_matcher.dart';
 import '../../domain/playback/playback_formatters.dart';
 import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
@@ -91,7 +90,7 @@ class _ImmersiveLyricsViewportState
     if (lrcChanged) {
       _syncLineKeys(widget.lrc);
     }
-    if (itemChanged || lrcChanged) {
+    if (itemChanged || (lrcChanged && oldWidget.lrc == null)) {
       _scrollResetTimer?.cancel();
       _scrollIdleTimer?.cancel();
       _isUserScrolling = false;
@@ -99,6 +98,12 @@ class _ImmersiveLyricsViewportState
       _scrubTargetIndex = null;
       _lastActiveLyricIndex = ref.read(audioPlaybackProvider).activeLyricIndex;
       _scheduleCenterActiveLyric(animated: false, refineAttemptsLeft: 3);
+    } else if (lrcChanged) {
+      // 同曲目渐进升级热替换：保留用户当前拖拽态，非拖拽时平滑衔接居中，避免画面突变。
+      _lastActiveLyricIndex = ref.read(audioPlaybackProvider).activeLyricIndex;
+      if (!_isUserScrolling) {
+        _scheduleCenterActiveLyric(animated: true, refineAttemptsLeft: 2);
+      }
     }
   }
 
@@ -644,24 +649,16 @@ class _ImmersiveLyricsViewportState
                               final nextStart = index + 1 < lrc.lines.length
                                   ? lrc.lines[index + 1].startSeconds
                                   : null;
-                              final songPaceSecPerChar =
-                                  lrc.estimatedSecondsPerChar;
-                              final spanLines = ref
-                                  .read(audioPlaybackProvider)
-                                  .activeSpanLines;
-                              final activeSpanLine =
-                                  LyricVersionMatcher.matchLineForTimestamp(
-                                    spanLines,
-                                    line.startSeconds,
-                                  );
                               return KeyedSubtree(
                                 key: _lineKeys[index],
                                 child: ImmersiveLyricLineLeaf(
                                   index: index,
                                   line: line,
-                                  activeSpanLine: activeSpanLine,
                                   nextLineStartSeconds: nextStart,
-                                  estimatedSecondsPerChar: songPaceSecPerChar,
+                                  estimatedSecondsPerChar:
+                                      lrc.estimatedSecondsPerChar,
+                                  secondsPerMora: lrc.secondsPerMora,
+                                  isJapaneseSong: lrc.isJapaneseSong,
                                   compact: widget.compact,
                                   centerAligned: widget.centerAligned,
                                   userScrolling: _isUserScrolling,

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/lyrics/lyric_candidate.dart';
+import '../../domain/lyrics/lyric_merger.dart';
 import '../../domain/lyrics/lyric_search_query.dart';
 import '../../domain/playback/cue_and_lrc_parser.dart';
 import '../../domain/playback/lyric_version_matcher.dart';
@@ -121,10 +122,50 @@ class LyricsResolver {
     _activeSession = null;
   }
 
-  /// 解析单曲歌词；[onNetworkLookupStarted] 在缓存未命中、即将发起网络竞速时回调。
+  /// 渐进升级热替换所需的最低原文按行对齐比例。
+  static const double progressiveUpgradeMinMatchRatio = 0.90;
+
+  /// 渐进升级热替换允许的最大时间差中位数（秒），防止切换导致正在唱的句段错位。
+  static const double progressiveUpgradeMaxMedianShiftSeconds = 0.25;
+
+  /// 判定收束后的最终候选 [settled] 是否相对首屏候选 [first] 具备有效能力升级且时间轴高度一致。
+  static bool shouldApplyProgressiveUpgrade(
+    ScoredLyricCandidate first,
+    ScoredLyricCandidate settled,
+  ) {
+    final a = first.candidate;
+    final b = settled.candidate;
+    if (a.lrcContent == b.lrcContent) return false;
+
+    final addsWord = !a.hasWordTiming && b.hasWordTiming;
+    final addsTranslation = !a.hasTranslation && b.hasTranslation;
+    final addsRomaji = !a.hasRomaji && b.hasRomaji;
+    final upgradesToAmll =
+        a.hasWordTiming &&
+        b.hasWordTiming &&
+        a.source != LyricSource.amll &&
+        b.source == LyricSource.amll &&
+        settled.score >= first.score - 0.02;
+    if (!addsWord && !addsTranslation && !addsRomaji && !upgradesToAmll) {
+      return false;
+    }
+
+    final firstRows = LyricMerger.extractPrimaryRows(a.lrcContent);
+    final settledRows = LyricMerger.extractPrimaryRows(b.lrcContent);
+    if (firstRows.isEmpty || settledRows.isEmpty) return false;
+
+    final alignment = LyricMerger.crossSourceAlign(firstRows, settledRows);
+    return alignment.matchRatio >= progressiveUpgradeMinMatchRatio &&
+        alignment.medianShiftSeconds.abs() <=
+            progressiveUpgradeMaxMedianShiftSeconds;
+  }
+
+  /// 解析单曲歌词；[onNetworkLookupStarted] 在缓存未命中、即将发起网络竞速时回调；
+  /// [onProgressiveUpgrade] 在首屏上屏后若更优逐字/译文/罗马音候选安全对齐到达时回调，供播放器在行边界热替换。
   Future<LyricResolveOutcome> resolve(
     LyricResolveRequest request, {
     void Function()? onNetworkLookupStarted,
+    void Function(LyricResolveOutcome upgraded)? onProgressiveUpgrade,
   }) async {
     final token = playbackEngine.acquireTaskToken(
       PlaybackTaskDomain.lyricLookup,
@@ -167,13 +208,30 @@ class LyricsResolver {
     onNetworkLookupStarted?.call();
     final session = raceEngine.start(query, sources);
     _activeSession = session;
-    unawaited(
-      session.settled.then(
-        (settlement) => _persistSettlement(request, settlement),
-      ),
-    );
 
     final first = await session.firstPaint;
+    unawaited(
+      session.settled.then((settlement) async {
+        await _persistSettlement(request, settlement);
+        if (onProgressiveUpgrade == null ||
+            first == null ||
+            settlement.cancelled ||
+            !playbackEngine.isTaskAlive(token)) {
+          return;
+        }
+        final settledBest = settlement.best;
+        if (settledBest == null) return;
+        if (!shouldApplyProgressiveUpgrade(first, settledBest)) return;
+        final upgraded = _buildOutcome(
+          settledBest.candidate.lrcContent,
+          settledBest.candidate.source,
+        );
+        if (upgraded != null && playbackEngine.isTaskAlive(token)) {
+          onProgressiveUpgrade(upgraded);
+        }
+      }),
+    );
+
     if (!playbackEngine.isTaskAlive(token)) {
       return const LyricResolveOutcome(staleAborted: true);
     }

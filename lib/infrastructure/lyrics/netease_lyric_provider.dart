@@ -3,6 +3,7 @@ import 'dart:convert';
 import '../../domain/lyrics/lyric_candidate.dart';
 import '../../domain/lyrics/lyric_merger.dart';
 import '../../domain/lyrics/lyric_search_query.dart';
+import '../../domain/lyrics/yrc_lyric_parser.dart';
 import 'lyric_http_transport.dart';
 
 /// 网易云搜索命中的歌曲元数据。
@@ -96,10 +97,16 @@ class NeteaseLyricProvider {
     return hits;
   }
 
-  /// 拉取原文、中文译文与罗马音（`lv=1&tv=1&rv=1`），经清洗与 DP 对齐合并后输出候选；占位或无原文返回 `null`。
+  /// 拉取原文、逐字 YRC、中文译文与罗马音（`lv=1&tv=1&rv=1&yv=1`），优先产出保留精确结束时间的逐字候选。
   Future<LyricCandidate?> fetchLyric(NeteaseSongHit hit) async {
     final uri = Uri.parse(LyricLookupConfig.neteaseLyricEndpoint).replace(
-      queryParameters: {'id': hit.id, 'lv': '1', 'tv': '1', 'rv': '1'},
+      queryParameters: {
+        'id': hit.id,
+        'lv': '1',
+        'tv': '1',
+        'rv': '1',
+        'yv': '1',
+      },
     );
     final resp = await _transport.get(
       uri,
@@ -110,10 +117,50 @@ class NeteaseLyricProvider {
       utf8.decode(resp.bodyBytes, allowMalformed: true),
     );
     if (decoded is! Map) return null;
-    final main = _lyricText(decoded['lrc']);
-    if (main.trim().isEmpty) return null;
+
+    final rawYrc = _lyricText(decoded['yrc']);
+    final ytlrc = _lyricText(decoded['ytlrc']);
+    final yromalrc = _lyricText(decoded['yromalrc']);
     final translation = _lyricText(decoded['tlyric']);
     final romaji = _lyricText(decoded['romalrc']);
+
+    if (rawYrc.trim().isNotEmpty) {
+      final parsedYrc = YrcLyricParser.parse(rawYrc);
+      if (parsedYrc.hasWordTiming && parsedYrc.lrcContent.isNotEmpty) {
+        final effectiveTrans = ytlrc.trim().isNotEmpty ? ytlrc : translation;
+        final effectiveRoma = yromalrc.trim().isNotEmpty ? yromalrc : romaji;
+        final mergedYrc = LyricMerger.mergeSameSource(
+          mainLrc: parsedYrc.lrcContent,
+          translationLrc: effectiveTrans,
+          romajiLrc: effectiveRoma,
+        );
+        if (mergedYrc.lrcContent.isNotEmpty) {
+          final mergedCredits = <String>[
+            ...parsedYrc.credits,
+            for (final c in mergedYrc.credits)
+              if (!parsedYrc.credits.contains(c)) c,
+          ];
+          return LyricCandidate(
+            source: LyricSource.netease,
+            sourceId: hit.id,
+            title: hit.title,
+            artist: hit.artist,
+            album: hit.album,
+            durationSeconds: hit.durationSeconds,
+            lrcContent: mergedYrc.lrcContent,
+            hasTranslation: mergedYrc.hasTranslation,
+            hasWordTiming: true,
+            hasRomaji: mergedYrc.hasRomaji,
+            translationLrc: effectiveTrans,
+            romajiLrc: effectiveRoma,
+            credits: mergedCredits,
+          );
+        }
+      }
+    }
+
+    final main = _lyricText(decoded['lrc']);
+    if (main.trim().isEmpty) return null;
 
     final merged = LyricMerger.mergeSameSource(
       mainLrc: main,

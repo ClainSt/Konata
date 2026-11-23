@@ -2,6 +2,38 @@ part of 'audio_playback_notifier.dart';
 
 /// `AudioPlaybackNotifier` 专辑封面三级回退、歌词附属加载、Android 媒体会话与进度持久化扩展。
 extension AudioPlaybackAssets on AudioPlaybackNotifier {
+  /// 低频观察模式下延迟核验有效音频推进，确认解码器正常推进播放。
+  void _scheduleEffectiveProgressCheckIfNeeded() {
+    _effectiveProgressCheckTimer?.cancel();
+    _effectiveProgressCheckTimer = null;
+    if (_progressObservationMode ==
+            AudioProgressObservationMode.highFrequency ||
+        _engine.effectiveProgressConfirmed) {
+      return;
+    }
+    _effectiveProgressCheckTimer = Timer(
+      const Duration(milliseconds: 650),
+      () {
+        _effectiveProgressCheckTimer = null;
+        if (!mounted || !_state.isActive || !_state.isPlaying) return;
+        final c = _client;
+        final item = _state.currentItem;
+        if (c == null || c.isDisposed || item == null) return;
+        final rawPos = c.getPropertyDouble('time-pos');
+        if (rawPos == null || !rawPos.isFinite) return;
+        final relPos = math.max(0.0, rawPos - (item.cueStartSeconds ?? 0.0));
+        final advancedMs = ((relPos - _trackProgressBaselineSeconds) * 1000)
+            .round();
+        if (_engine.fileLoadedInCurrentEpoch &&
+            !_engine.effectiveProgressConfirmed &&
+            advancedMs >=
+                UnifiedPlaybackEngine.effectiveAudioProgressThresholdMs) {
+          _engine.recordEffectiveProgress(audioAdvancedMs: advancedMs);
+        }
+      },
+    );
+  }
+
   void _bindAndroidMediaSessionCallbacks() {
     _mediaSessionBridge.bindCallbacks(
       onPlay: () {
@@ -314,6 +346,9 @@ extension AudioPlaybackAssets on AudioPlaybackNotifier {
             _state = _state.copyWith(isLyricLookupInFlight: true);
           }
         },
+        onProgressiveUpgrade: (upgraded) {
+          _handleProgressiveLyricUpgrade(upgraded, generation: generation);
+        },
       );
     } on Object catch (e) {
       _logStore.record('AUDIO-LYRIC', '在线歌词解析异常已忽略：$e');
@@ -339,6 +374,62 @@ extension AudioPlaybackAssets on AudioPlaybackNotifier {
       activeSpanLines: outcome.activeSpanLines,
       activeLyricIndex: activeIdx,
       activeLyricSource: outcome.source,
+      isLyricLookupInFlight: false,
+    );
+  }
+
+  /// 接收首屏之后延迟到达的更优逐字/译文歌词：暂停或前奏期立即应用，演唱中暂存待行边界热替换。
+  void _handleProgressiveLyricUpgrade(
+    LyricResolveOutcome upgraded, {
+    required int generation,
+  }) {
+    if (generation != _loadGeneration ||
+        !mounted ||
+        _localLyricGeneration == generation) {
+      return;
+    }
+    final upgradedDoc = upgraded.lrcDocument;
+    if (upgradedDoc == null || upgradedDoc.lines.isEmpty) return;
+    if (!_state.isPlaying || _state.activeLyricIndex < 0) {
+      _pendingLyricUpgrade = null;
+      _state = _state.copyWith(
+        lrcDocument: upgradedDoc,
+        activeSpanLines: upgraded.activeSpanLines,
+        activeLyricIndex: upgradedDoc.activeIndexAt(currentPositionSeconds),
+        activeLyricSource: upgraded.source,
+        isLyricLookupInFlight: false,
+      );
+      return;
+    }
+    _pendingLyricUpgrade = (generation: generation, outcome: upgraded);
+  }
+
+  /// 校验并按需将待热替换的渐进升级歌词合并到目标状态（切句边界、跳转或暂停态原子生效）。
+  AudioPlaybackState _mergePendingLyricUpgrade(
+    AudioPlaybackState targetState, {
+    required double positionSeconds,
+    bool forceImmediate = false,
+  }) {
+    final pending = _pendingLyricUpgrade;
+    if (pending == null) return targetState;
+    if (pending.generation != _loadGeneration ||
+        _localLyricGeneration == _loadGeneration) {
+      _pendingLyricUpgrade = null;
+      return targetState;
+    }
+    if (!forceImmediate &&
+        targetState.isPlaying &&
+        targetState.activeLyricIndex >= 0) {
+      return targetState;
+    }
+    final upgradedDoc = pending.outcome.lrcDocument;
+    _pendingLyricUpgrade = null;
+    if (upgradedDoc == null || upgradedDoc.lines.isEmpty) return targetState;
+    return targetState.copyWith(
+      lrcDocument: upgradedDoc,
+      activeSpanLines: pending.outcome.activeSpanLines,
+      activeLyricIndex: upgradedDoc.activeIndexAt(positionSeconds),
+      activeLyricSource: pending.outcome.source,
       isLyricLookupInFlight: false,
     );
   }
@@ -468,6 +559,7 @@ extension AudioPlaybackAssets on AudioPlaybackNotifier {
       final hasLocalLrc = lrc != null && lrc.lines.isNotEmpty;
       if (hasLocalLrc) {
         _localLyricGeneration = generation;
+        _pendingLyricUpgrade = null;
         _state = _state.copyWith(
           cover: resolvedCover,
           lrcDocument: lrc,

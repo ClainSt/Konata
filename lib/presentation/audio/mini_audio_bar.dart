@@ -209,6 +209,7 @@ class _MiniAudioOverlayHostState extends ConsumerState<MiniAudioOverlayHost> {
   GlobalKey<NavigatorState>? _cachedNavKey;
   KonataToastController? _toastController;
   KonataModalLayerRegistry? _modalRegistry;
+  ProviderSubscription<bool>? _desktopMiniSub;
   Timer? _toastDetachTimer;
   bool _mediaEntriesInserted = false;
   bool _toastEntryInserted = false;
@@ -230,6 +231,32 @@ class _MiniAudioOverlayHostState extends ConsumerState<MiniAudioOverlayHost> {
     final modalRegistry = ref.read(konataModalLayerRegistryProvider);
     _modalRegistry = modalRegistry;
     modalRegistry.addListener(_handleRouteOrModalChanged);
+    // 进入桌面置顶迷你窗时在原生窗口收缩前同步提交 opaque=true，防止底层主壳在窄窗下闪现 1 帧布局溢出。
+    _desktopMiniSub = ref.listenManual<bool>(
+      desktopAlwaysOnTopMiniModeProvider.select((s) => s.isActive),
+      (prev, next) {
+        if (!mounted || !_isElementActive || !next) return;
+        _wantMediaEntries = true;
+        _fullscreenEntryOpaque = true;
+        if (SchedulerBinding.instance.schedulerPhase !=
+            SchedulerPhase.persistentCallbacks) {
+          if (!_mediaEntriesInserted) {
+            _syncOverlayEntries();
+          }
+          final entry = _fullscreenPlayerEntry;
+          final overlayMounted = _attachedNavigator?.overlay?.mounted ?? false;
+          if (_mediaEntriesInserted &&
+              overlayMounted &&
+              entry != null &&
+              entry.mounted &&
+              !entry.opaque) {
+            entry.opaque = true;
+          }
+        } else {
+          _syncOrSchedule();
+        }
+      },
+    );
     if (_wantToastEntry) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _syncOverlayEntries();
@@ -273,6 +300,8 @@ class _MiniAudioOverlayHostState extends ConsumerState<MiniAudioOverlayHost> {
   @override
   void dispose() {
     _toastDetachTimer?.cancel();
+    _desktopMiniSub?.close();
+    _desktopMiniSub = null;
     _boundObserver?.removeStackListener(_handleRouteOrModalChanged);
     _modalRegistry?.removeListener(_handleRouteOrModalChanged);
     _modalRegistry = null;
@@ -496,8 +525,8 @@ class _MiniAudioOverlayHostState extends ConsumerState<MiniAudioOverlayHost> {
     final miniEntry = _floatingMiniEntry!;
     final fullEntry = _fullscreenPlayerEntry!;
     final toastEntry = _toastEntry!;
-    if (!_fullscreenEntryOpaque && fullEntry.opaque && !fullEntry.mounted) {
-      fullEntry.opaque = false;
+    if (!fullEntry.mounted && fullEntry.opaque != _fullscreenEntryOpaque) {
+      fullEntry.opaque = _fullscreenEntryOpaque;
     }
 
     final observer = _boundObserver;

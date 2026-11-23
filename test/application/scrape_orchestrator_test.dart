@@ -11,6 +11,7 @@ import 'package:konata/domain/models/episode.dart';
 import 'package:konata/domain/models/media_source.dart';
 import 'package:konata/domain/models/media_variant.dart';
 import 'package:konata/domain/models/network_config.dart';
+import 'package:konata/domain/models/series_group.dart';
 import 'package:konata/domain/models/work.dart';
 import 'package:konata/infrastructure/database/drift_library_repository.dart';
 import 'package:konata/infrastructure/database/konata_database.dart';
@@ -238,5 +239,139 @@ void main() {
       expect(lockedWork?.tmdbId, 5001);
       expect(lockedWork?.isManualLocked, isTrue);
     });
+
+    test('局部 scanRoots 重扫无变更时仅检查目标目录前缀，绝不将范围外老变体误判失联', () async {
+      await touchFile('Frieren (2023)/[VCB-Studio] Frieren S01E01.mkv');
+      await touchFile('OtherAnime (2022)/[VCB-Studio] OtherAnime S01E01.mkv');
+
+      final actualSource = MediaSource(
+        id: 'local-scoped-1',
+        kind: MediaSourceKind.local,
+        label: '本地局部测试',
+        location: tempRoot.path,
+      );
+      await repo.upsertMediaSource(actualSource);
+
+      var tmdbHits = 0;
+      final mockClient = MockClient((request) async {
+        tmdbHits++;
+        final path = request.url.path;
+        final query = (request.url.queryParameters['query'] ?? '').toLowerCase();
+        if (path.endsWith('/search/tv')) {
+          if (query.contains('frieren')) {
+            return _jsonResponse({
+              'results': [
+                {
+                  'id': 209867,
+                  'name': '葬送的芙莉莲',
+                  'first_air_date': '2023-09-29',
+                },
+              ],
+            });
+          }
+          return _jsonResponse({
+            'results': [
+              {
+                'id': 300001,
+                'name': 'OtherAnime',
+                'first_air_date': '2022-04-01',
+              },
+            ],
+          });
+        }
+        if (path.endsWith('/search/movie')) {
+          return _jsonResponse({'results': []});
+        }
+        if (path.endsWith('/tv/209867')) {
+          return _jsonResponse({
+            'id': 209867,
+            'name': '葬送的芙莉莲',
+            'original_name': '葬送のフリーレン',
+            'first_air_date': '2023-09-29',
+            'alternative_titles': {
+              'results': [
+                {'title': 'Frieren'},
+              ],
+            },
+            'seasons': [
+              {'season_number': 1, 'name': 'Season 1', 'episode_count': 1},
+            ],
+          });
+        }
+        if (path.endsWith('/tv/209867/season/1')) {
+          return _jsonResponse({
+            'episodes': [
+              {'episode_number': 1, 'name': '第一话'},
+            ],
+          });
+        }
+        if (path.endsWith('/tv/300001')) {
+          return _jsonResponse({
+            'id': 300001,
+            'name': 'OtherAnime',
+            'first_air_date': '2022-04-01',
+            'seasons': [
+              {'season_number': 1, 'name': 'Season 1', 'episode_count': 1},
+            ],
+          });
+        }
+        if (path.endsWith('/tv/300001/season/1')) {
+          return _jsonResponse({
+            'episodes': [
+              {'episode_number': 1, 'name': 'EP 1'},
+            ],
+          });
+        }
+        return http.Response('{}', 404);
+      });
+
+      final countingRepo = _CountingSeriesRepo(repo);
+      final orchestrator = ScrapeOrchestrator(
+        repository: countingRepo,
+        tmdbService: TmdbService(
+          httpClient: TmdbHttpClient(
+            config: const TmdbNetworkConfig(credential: 'v3_test'),
+            scheduler: PriorityHttpScheduler(),
+            httpClient: mockClient,
+          ),
+        ),
+        gatewayBuilder: (s) async => LocalSourceGateway(rootPath: s.location),
+        computeWorker: const ScrapeComputeWorker(useIsolate: false),
+      );
+
+      await orchestrator.scanAndScrapeSource(actualSource);
+      final initialWorks = await repo.getAllWorks();
+      expect(initialWorks.length, 2);
+      expect(
+        initialWorks.every((w) => w.scrapeStatus == ScrapeStatus.matched),
+        isTrue,
+      );
+
+      tmdbHits = 0;
+      countingRepo.getAllSeriesGroupsCalls = 0;
+      await orchestrator.scanAndScrapeSource(
+        actualSource,
+        scanRootsOverride: const ['Frieren (2023)'],
+      );
+      expect(tmdbHits, 0, reason: '未变更局部重扫必须零在线请求快跳');
+      expect(
+        countingRepo.getAllSeriesGroupsCalls,
+        0,
+        reason: '范围外 WorkB 老变体绝不可触发多余的全库 SeriesAutoLinker.reconcileAll',
+      );
+      expect((await repo.getAllWorks()).length, 2);
+    });
   });
+}
+
+class _CountingSeriesRepo extends DriftLibraryRepository {
+  _CountingSeriesRepo(DriftLibraryRepository inner) : super(inner.database);
+
+  int getAllSeriesGroupsCalls = 0;
+
+  @override
+  Future<List<SeriesGroup>> getAllSeriesGroups() {
+    getAllSeriesGroupsCalls++;
+    return super.getAllSeriesGroups();
+  }
 }

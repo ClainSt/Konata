@@ -58,11 +58,13 @@ class TopNavBar extends StatefulWidget {
 
 class _TopNavBarState extends State<TopNavBar> {
   late final TextEditingController _controller;
+  late final FocusNode _searchEscapeFocusNode;
 
   @override
   void initState() {
     super.initState();
     _controller = TextEditingController(text: widget.searchQuery);
+    _searchEscapeFocusNode = FocusNode(skipTraversal: true);
     widget.searchFocusNode.addListener(_handleFocusChange);
   }
 
@@ -77,6 +79,7 @@ class _TopNavBarState extends State<TopNavBar> {
   @override
   void dispose() {
     widget.searchFocusNode.removeListener(_handleFocusChange);
+    _searchEscapeFocusNode.dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -104,45 +107,72 @@ class _TopNavBarState extends State<TopNavBar> {
     final barContent = ClipRect(
       child: SizedBox(
         height: KonataTheme.topNavHeight,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: KonataTheme.topNavOuterHorizontalPadding,
-          ),
-          child: Row(
-            children: [
-              _TopNavTabStrip(
-                activeSection: widget.activeSection,
-                onSectionChanged: widget.onSectionChanged,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compactOuter = constraints.maxWidth < 360;
+            final outerPad = compactOuter
+                ? 8.0
+                : KonataTheme.topNavOuterHorizontalPadding;
+            final innerWidth = (constraints.maxWidth - outerPad * 2).clamp(
+              0.0,
+              double.infinity,
+            );
+            // 右侧固定控件（搜索间隙 4 + 主题键 32 + 间隙 8 + 窗口三键 108 = 152）与最小安全余量。
+            final rightFixedWidth = 152.0 + (innerWidth >= 240 ? 8.0 : 0.0);
+            final searchExpandedWidth = (innerWidth - rightFixedWidth).clamp(
+              32.0,
+              236.0,
+            );
+            return Padding(
+              padding: EdgeInsets.symmetric(horizontal: outerPad),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        physics: const ClampingScrollPhysics(),
+                        child: _TopNavTabStrip(
+                          activeSection: widget.activeSection,
+                          onSectionChanged: widget.onSectionChanged,
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (innerWidth >= 240) const SizedBox(width: 8),
+                  if (isLibrary) ...[
+                    _ExpandableSearchBox(
+                      expanded: widget.searchExpanded,
+                      expandedWidth: searchExpandedWidth,
+                      controller: _controller,
+                      focusNode: widget.searchFocusNode,
+                      escapeFocusNode: _searchEscapeFocusNode,
+                      onExpand: () {
+                        widget.onSearchExpandedChanged(true);
+                        widget.searchFocusNode.requestFocus();
+                      },
+                      onChanged: widget.onSearchChanged,
+                      onCollapse: _collapseSearch,
+                    ),
+                    const SizedBox(width: 4),
+                  ],
+                  _TopNavIconButton(
+                    tooltip: p.isDark ? '切换亮色模式' : '切换暗色模式',
+                    icon: p.isDark
+                        ? Icons.light_mode_outlined
+                        : Icons.dark_mode_outlined,
+                    color: p.textSecondary,
+                    hoverBg: p.secondaryButtonBg,
+                    hoverColor: p.textPrimary,
+                    onPressed: widget.onToggleTheme,
+                  ),
+                  const SizedBox(width: 8),
+                  const WindowControls(),
+                ],
               ),
-              const Spacer(),
-              if (isLibrary) ...[
-                _ExpandableSearchBox(
-                  expanded: widget.searchExpanded,
-                  controller: _controller,
-                  focusNode: widget.searchFocusNode,
-                  onExpand: () {
-                    widget.onSearchExpandedChanged(true);
-                    widget.searchFocusNode.requestFocus();
-                  },
-                  onChanged: widget.onSearchChanged,
-                  onCollapse: _collapseSearch,
-                ),
-                const SizedBox(width: 4),
-              ],
-              _TopNavIconButton(
-                tooltip: p.isDark ? '切换亮色模式' : '切换暗色模式',
-                icon: p.isDark
-                    ? Icons.light_mode_outlined
-                    : Icons.dark_mode_outlined,
-                color: p.textSecondary,
-                hoverBg: p.secondaryButtonBg,
-                hoverColor: p.textPrimary,
-                onPressed: widget.onToggleTheme,
-              ),
-              const SizedBox(width: 8),
-              const WindowControls(),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );
@@ -546,16 +576,20 @@ class _TextNavTabState extends State<_TextNavTab> {
 class _ExpandableSearchBox extends StatelessWidget {
   const _ExpandableSearchBox({
     required this.expanded,
+    required this.expandedWidth,
     required this.controller,
     required this.focusNode,
+    required this.escapeFocusNode,
     required this.onExpand,
     required this.onChanged,
     required this.onCollapse,
   });
 
   final bool expanded;
+  final double expandedWidth;
   final TextEditingController controller;
   final FocusNode focusNode;
+  final FocusNode escapeFocusNode;
   final VoidCallback onExpand;
   final ValueChanged<String> onChanged;
   final VoidCallback onCollapse;
@@ -563,83 +597,88 @@ class _ExpandableSearchBox extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
+    final showExpanded = expanded && expandedWidth >= 96.0;
+    final targetWidth = showExpanded ? expandedWidth : 32.0;
 
-    return AnimatedContainer(
-      duration: KonataTheme.navSliderDuration,
-      curve: Curves.easeOutCubic,
-      width: expanded ? 236 : 32,
-      height: 32,
-      decoration: BoxDecoration(
-        color: expanded ? p.softFill : Colors.transparent,
-        borderRadius: KonataTheme.borderRadiusSheet,
-      ),
-      child: expanded
-          ? ClipRect(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                physics: const NeverScrollableScrollPhysics(),
-                child: SizedBox(
-                  width: 236,
-                  height: 32,
-                  child: KeyboardListener(
-                    focusNode: FocusNode(skipTraversal: true),
-                    onKeyEvent: (event) {
-                      if (event is KeyDownEvent &&
-                          event.logicalKey == LogicalKeyboardKey.escape) {
-                        onCollapse();
-                      }
-                    },
-                    child: Row(
-                      children: [
-                        const SizedBox(width: 10),
-                        Icon(
-                          Icons.search_rounded,
-                          size: 15,
-                          color: p.textSecondary,
-                        ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: TextField(
-                            controller: controller,
-                            focusNode: focusNode,
-                            onChanged: onChanged,
-                            style: TextStyle(
-                              color: p.textPrimary,
-                              fontSize: KonataTheme.fontSizeBodyXs,
-                            ),
-                            decoration: const InputDecoration(
-                              border: InputBorder.none,
-                              enabledBorder: InputBorder.none,
-                              focusedBorder: InputBorder.none,
-                              isDense: true,
-                              contentPadding: EdgeInsets.zero,
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: expandedWidth),
+      child: AnimatedContainer(
+        duration: KonataTheme.navSliderDuration,
+        curve: Curves.easeOutCubic,
+        width: targetWidth,
+        height: 32,
+        decoration: BoxDecoration(
+          color: showExpanded ? p.softFill : Colors.transparent,
+          borderRadius: KonataTheme.borderRadiusSheet,
+        ),
+        child: showExpanded
+            ? ClipRect(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  physics: const NeverScrollableScrollPhysics(),
+                  child: SizedBox(
+                    width: expandedWidth,
+                    height: 32,
+                    child: KeyboardListener(
+                      focusNode: escapeFocusNode,
+                      onKeyEvent: (event) {
+                        if (event is KeyDownEvent &&
+                            event.logicalKey == LogicalKeyboardKey.escape) {
+                          onCollapse();
+                        }
+                      },
+                      child: Row(
+                        children: [
+                          const SizedBox(width: 10),
+                          Icon(
+                            Icons.search_rounded,
+                            size: 15,
+                            color: p.textSecondary,
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: TextField(
+                              controller: controller,
+                              focusNode: focusNode,
+                              onChanged: onChanged,
+                              style: TextStyle(
+                                color: p.textPrimary,
+                                fontSize: KonataTheme.fontSizeBodyXs,
+                              ),
+                              decoration: const InputDecoration(
+                                border: InputBorder.none,
+                                enabledBorder: InputBorder.none,
+                                focusedBorder: InputBorder.none,
+                                isDense: true,
+                                contentPadding: EdgeInsets.zero,
+                              ),
                             ),
                           ),
-                        ),
-                        _TopNavIconButton(
-                          tooltip: '清空并收起',
-                          icon: Icons.close_rounded,
-                          iconSize: 14,
-                          size: 28,
-                          color: p.textSecondary,
-                          hoverBg: Colors.transparent,
-                          hoverColor: p.textPrimary,
-                          onPressed: onCollapse,
-                        ),
-                      ],
+                          _TopNavIconButton(
+                            tooltip: '清空并收起',
+                            icon: Icons.close_rounded,
+                            iconSize: 14,
+                            size: 28,
+                            color: p.textSecondary,
+                            hoverBg: Colors.transparent,
+                            hoverColor: p.textPrimary,
+                            onPressed: onCollapse,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
+              )
+            : _TopNavIconButton(
+                tooltip: '搜索媒体库 (Ctrl + K)',
+                icon: Icons.search_rounded,
+                color: p.textSecondary,
+                hoverBg: p.secondaryButtonBg,
+                hoverColor: p.textPrimary,
+                onPressed: onExpand,
               ),
-            )
-          : _TopNavIconButton(
-              tooltip: '搜索媒体库 (Ctrl + K)',
-              icon: Icons.search_rounded,
-              color: p.textSecondary,
-              hoverBg: p.secondaryButtonBg,
-              hoverColor: p.textPrimary,
-              onPressed: onExpand,
-            ),
+      ),
     );
   }
 }

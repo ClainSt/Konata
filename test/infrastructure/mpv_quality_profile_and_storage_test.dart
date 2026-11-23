@@ -294,7 +294,7 @@ void main() {
       expect(client.options['vo'], equals('libmpv'));
       expect(client.options['hwdec'], equals('d3d11va,d3d11va-copy,auto-safe'));
       expect(client.options['scale'], equals('ewa_lanczossharp'));
-      expect(client.options['cscale'], equals('ewa_lanczossoft'));
+      expect(client.options['cscale'], equals('ewa_lanczos'));
       expect(client.options['fbo-format'], equals('rgb10_a2'));
       expect(client.options['hdr-compute-peak'], equals('no'));
       expect(client.options['cache-pause'], equals('no'));

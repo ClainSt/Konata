@@ -577,6 +577,23 @@ void main() {
       expect(mpv.options['gpu-shader-cache-dir'], equals(shaderDir.path));
       expect(mpv.options['icc-cache'], equals('yes'));
       expect(mpv.options['icc-cache-dir'], equals(iccDir.path));
+
+      final androidMpv = _LowOverheadFakeMpvClient();
+      MpvQualityProfile.applyPreInitVideoOptions(
+        androidMpv,
+        config: const PlaybackQualityConfig(
+          preset: VideoQualityPreset.highFidelity,
+        ),
+        mpvConfigDir: cfgDir,
+        gpuShaderCacheDir: shaderDir,
+        iccCacheDir: iccDir,
+        isRemoteStream: true,
+        isWindowsOverride: false,
+        isAndroidOverride: true,
+      );
+      expect(androidMpv.options['cscale'], equals('ewa_lanczos'));
+      expect(androidMpv.options['icc-cache'], equals('no'));
+      expect(androidMpv.options.containsKey('icc-cache-dir'), isFalse);
       expect(mpv.options['hdr-compute-peak'], equals('no'));
       expect(mpv.options['demuxer-max-bytes'], equals('48MiB'));
       expect(mpv.options['demuxer-max-back-bytes'], equals('16MiB'));

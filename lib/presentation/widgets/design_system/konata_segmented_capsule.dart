@@ -500,10 +500,11 @@ class _SegmentChip<T> extends StatelessWidget {
   }
 }
 
-/// 与 [KonataSegmentedCapsule] 联动的通用平滑面板过渡包装器（`AnimatedSize` + `AnimatedSwitcher`）。
+/// 与 [KonataSegmentedCapsule] 联动的通用平滑面板过渡包装器（`AnimatedSize` + 单实例淡入轻滑）。
 ///
-/// 用于消除弹窗/设置区切换子面板时的高度瞬跳与硬切闪烁。
-class KonataSmoothSectionSwitcher extends StatelessWidget {
+/// 始终只挂载当前唯一激活子面板，彻底杜绝高频往返切换时因新旧子面板短暂重叠导致的
+/// `Duplicate GlobalKey` 与共享 `ScrollController` 双挂载崩溃，同时消除高度瞬跳与硬切闪烁。
+class KonataSmoothSectionSwitcher extends StatefulWidget {
   /// 创建平滑面板过渡器。
   const KonataSmoothSectionSwitcher({
     super.key,
@@ -522,31 +523,63 @@ class KonataSmoothSectionSwitcher extends StatelessWidget {
   final Alignment alignment;
 
   @override
+  State<KonataSmoothSectionSwitcher> createState() =>
+      _KonataSmoothSectionSwitcherState();
+}
+
+class _KonataSmoothSectionSwitcherState
+    extends State<KonataSmoothSectionSwitcher>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _opacity;
+  late final Animation<Offset> _offset;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: KonataTheme.panelSwitchDuration,
+      value: 1.0,
+    );
+    final curved = CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic);
+    _opacity = curved;
+    _offset = Tween<Offset>(
+      begin: const Offset(0, 0.018),
+      end: Offset.zero,
+    ).animate(curved);
+  }
+
+  @override
+  void didUpdateWidget(covariant KonataSmoothSectionSwitcher oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.switchKey != oldWidget.switchKey) {
+      _ctrl.forward(from: 0.0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return AnimatedSize(
       duration: KonataTheme.capsuleSlideDuration,
       curve: Curves.easeOutCubic,
-      alignment: alignment,
+      alignment: widget.alignment,
       clipBehavior: Clip.hardEdge,
-      child: AnimatedSwitcher(
-        duration: KonataTheme.panelSwitchDuration,
-        switchInCurve: Curves.easeOutCubic,
-        switchOutCurve: Curves.easeInCubic,
-        layoutBuilder: (currentChild, previousChildren) => Stack(
-          alignment: alignment,
-          children: <Widget>[...previousChildren, ?currentChild],
-        ),
-        transitionBuilder: (child, anim) => FadeTransition(
-          opacity: anim,
-          child: SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(0, 0.018),
-              end: Offset.zero,
-            ).animate(anim),
-            child: child,
+      child: FadeTransition(
+        opacity: _opacity,
+        child: SlideTransition(
+          position: _offset,
+          child: KeyedSubtree(
+            key: ValueKey<Object>(widget.switchKey),
+            child: widget.child,
           ),
         ),
-        child: KeyedSubtree(key: ValueKey<Object>(switchKey), child: child),
       ),
     );
   }

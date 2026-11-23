@@ -41,6 +41,7 @@ import 'package:konata/presentation/settings/settings_network_panel.dart';
 import 'package:konata/presentation/shell/top_nav_bar.dart';
 import 'package:konata/presentation/theme/konata_theme.dart';
 import 'package:konata/presentation/widgets/design_system/konata_dropdown.dart';
+import 'package:konata/presentation/widgets/design_system/konata_segmented_capsule.dart';
 import 'package:konata/presentation/widgets/design_system/konata_surface_card.dart';
 
 final Uint8List _tinyPng = Uint8List.fromList([
@@ -826,6 +827,95 @@ void main() {
         );
       }
     });
+
+    testWidgets('2b. TopNavBar 在极窄宽度与搜索展开态下零布局溢出且无焦点节点泄漏', (
+      tester,
+    ) async {
+      final searchFocus = FocusNode();
+      addTearDown(searchFocus.dispose);
+      addTearDown(tester.view.resetPhysicalSize);
+      tester.view.devicePixelRatio = 1.0;
+
+      for (final width in const [480.0, 360.0, 300.0, 240.0]) {
+        for (final expanded in const [false, true]) {
+          tester.view.physicalSize = Size(width, 120);
+          await tester.pumpWidget(
+            _wrapTestApp(
+              TopNavBar(
+                activeSection: KonataNavSection.library,
+                onSectionChanged: (_) {},
+                searchQuery: expanded ? 'test' : '',
+                onSearchChanged: (_) {},
+                searchFocusNode: searchFocus,
+                searchExpanded: expanded,
+                onSearchExpandedChanged: (_) {},
+                onToggleTheme: () {},
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+          expect(tester.takeException(), isNull);
+        }
+      }
+    });
+
+    testWidgets(
+      '2c. KonataSmoothSectionSwitcher 高频往返切换共享 GlobalKey 与 ScrollController 零冲突',
+      (tester) async {
+        final scrollCtrl = ScrollController();
+        final sharedKey = GlobalKey();
+        addTearDown(scrollCtrl.dispose);
+
+        var pane = 'queue';
+        late StateSetter setPane;
+        await tester.pumpWidget(
+          _wrapTestApp(
+            StatefulBuilder(
+              builder: (context, setState) {
+                setPane = setState;
+                return SizedBox(
+                  width: 400,
+                  height: 300,
+                  child: KonataSmoothSectionSwitcher(
+                    switchKey: pane,
+                    child: pane == 'queue'
+                        ? Scrollbar(
+                            controller: scrollCtrl,
+                            thumbVisibility: true,
+                            child: ListView(
+                              controller: scrollCtrl,
+                              children: [
+                                SizedBox(
+                                  key: sharedKey,
+                                  height: 48,
+                                  child: const Text('当前播放曲目'),
+                                ),
+                                for (var i = 0; i < 12; i++)
+                                  SizedBox(
+                                    height: 48,
+                                    child: Text('曲目 $i'),
+                                  ),
+                              ],
+                            ),
+                          )
+                        : const Center(child: Text('歌词面板')),
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        for (final next in const ['lyrics', 'queue', 'lyrics', 'queue', 'lyrics', 'queue']) {
+          setPane(() => pane = next);
+          await tester.pump(const Duration(milliseconds: 30));
+          expect(tester.takeException(), isNull);
+        }
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      },
+    );
 
     testWidgets('3. KonataDropdown 单一互斥悬停、右侧滚动留白与系列特别篇消歧标题', (
       tester,

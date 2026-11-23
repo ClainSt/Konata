@@ -235,14 +235,14 @@ class MpvQualityProfile {
     return 'resampler=swr,filter_size=32,phase_shift=10,cutoff=0.97';
   }
 
-  /// 解析当前画质预设对应的上下采样滤波器三元组。
+  /// 解析当前画质预设对应的上下采样滤波器三元组（全面兼容 `vo=gpu-next` / `libplacebo`）。
   static ({String scale, String cscale, String dscale}) resolveScalers(
     VideoQualityPreset preset,
   ) {
     return switch (preset) {
       VideoQualityPreset.highFidelity => (
         scale: 'ewa_lanczossharp',
-        cscale: 'ewa_lanczossoft',
+        cscale: 'ewa_lanczos',
         dscale: 'mitchell',
       ),
       VideoQualityPreset.standard => (
@@ -363,7 +363,10 @@ class MpvQualityProfile {
       setter.setOption(client, 'gpu-shader-cache', 'yes');
       setter.setOption(client, 'gpu-shader-cache-dir', gpuShaderCacheDir.path);
     }
-    if (iccCacheDir != null) {
+    // Android 内置 libplacebo 未编入 LittleCMS 2，显式关闭 icc-cache 避免每次起播触发无害报错日志。
+    if (isAndroid) {
+      setter.setOption(client, 'icc-cache', 'no');
+    } else if (iccCacheDir != null) {
       setter.setOption(client, 'icc-cache', 'yes');
       setter.setOption(client, 'icc-cache-dir', iccCacheDir.path);
     }

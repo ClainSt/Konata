@@ -71,15 +71,25 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
     });
   }
 
-  void _scheduleQueueCentering({required bool animated}) {
+  void _scheduleQueueCentering({
+    required bool animated,
+    ScrollController? controllerOverride,
+  }) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      _scrollToActiveQueueItem(animated: animated);
+      _scrollToActiveQueueItem(
+        animated: animated,
+        controllerOverride: controllerOverride,
+      );
     });
   }
 
-  void _scrollToActiveQueueItem({required bool animated}) {
-    if (_queueScrollCtrl.positions.length != 1) return;
+  void _scrollToActiveQueueItem({
+    required bool animated,
+    ScrollController? controllerOverride,
+  }) {
+    final ctrl = controllerOverride ?? _queueScrollCtrl;
+    if (ctrl.positions.length != 1) return;
     final state = ref.read(audioPlaybackProvider);
     final rows = state.buildDisplayRows();
     if (rows.isEmpty) return;
@@ -89,7 +99,7 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
     }
     if (rowIdx < 0) return;
 
-    final pos = _queueScrollCtrl.position;
+    final pos = ctrl.position;
     if (pos.maxScrollExtent <= 1.0) return;
 
     final targetRow = rows[rowIdx];
@@ -111,17 +121,17 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
 
     if ((pos.pixels - targetOffset).abs() > 2.0) {
       if (animated) {
-        _queueScrollCtrl.animateTo(
+        ctrl.animateTo(
           targetOffset,
           duration: KonataTheme.navSliderDuration,
           curve: Curves.easeOutCubic,
         );
       } else {
-        _queueScrollCtrl.jumpTo(targetOffset);
+        ctrl.jumpTo(targetOffset);
       }
     }
 
-    if (!animated) {
+    if (!animated && controllerOverride == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || _queueScrollCtrl.positions.length != 1) return;
         final ctx = _activeQueueItemKey.currentContext;
@@ -220,7 +230,11 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
   void _openPortraitQueueSheet() {
     if (_activeQueueSheetContext != null) return;
     ref.read(immersivePortraitQueueSheetOpenProvider.notifier).state = true;
-    _scheduleQueueCentering(animated: false);
+    final sheetScrollCtrl = ScrollController();
+    _scheduleQueueCentering(
+      animated: false,
+      controllerOverride: sheetScrollCtrl,
+    );
     final notifier = ref.read(audioPlaybackProvider.notifier);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -287,6 +301,8 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
                   child: _buildQueueViewport(
                     liveState,
                     notifier,
+                    scrollController: sheetScrollCtrl,
+                    useActiveItemGlobalKey: false,
                     onPicked: () => Navigator.of(sheetCtx).maybePop(),
                   ),
                 ),
@@ -296,6 +312,7 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
         );
       },
     ).whenComplete(() {
+      sheetScrollCtrl.dispose();
       _activeQueueSheetContext = null;
       if (mounted && ref.read(immersivePortraitQueueSheetOpenProvider)) {
         ref.read(immersivePortraitQueueSheetOpenProvider.notifier).state =

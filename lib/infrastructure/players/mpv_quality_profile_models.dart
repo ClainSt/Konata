@@ -2,7 +2,7 @@ part of 'mpv_quality_profile.dart';
 
 /// 内置 `libmpv` 画质与缩放滤镜预设档位。
 enum VideoQualityPreset {
-  /// 高保真动漫原盘档：`ewa_lanczossharp` + `ewa_lanczossoft` + `rgba16f` + `fruit` 抖动。
+  /// 高保真动漫原盘档：`ewa_lanczossharp` + `ewa_lanczos` + `rgba16f` + `fruit` 抖动。
   highFidelity('高保真 · EWA Lanczos'),
 
   /// 标准均衡档：`spline36` 锐化平衡性能与清晰度。

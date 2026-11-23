@@ -452,11 +452,13 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
   Widget _buildQueueViewport(
     AudioPlaybackState state,
     AudioPlaybackNotifier notifier, {
+    ScrollController? scrollController,
+    bool useActiveItemGlobalKey = true,
     VoidCallback? onPicked,
   }) {
     final displayRows = state.buildDisplayRows();
     return KonataDraggableScrollbar(
-      controller: _queueScrollCtrl,
+      controller: scrollController ?? _queueScrollCtrl,
       trackInsets: const EdgeInsets.only(top: 24, bottom: 32, right: 4),
       builder: (_, ctrl) => ShaderMask(
         shaderCallback: (bounds) => const LinearGradient(
@@ -479,7 +481,7 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
           itemBuilder: (context, index) {
             final row = displayRows[index];
             return ImmersiveBorderlessQueueRow(
-              key: row.isActiveTrack
+              key: (useActiveItemGlobalKey && row.isActiveTrack)
                   ? _activeQueueItemKey
                   : ValueKey('q_row_${row.id}'),
               row: row,

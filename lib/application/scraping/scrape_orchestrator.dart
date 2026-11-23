@@ -454,9 +454,25 @@ class ScrapeOrchestrator {
       // 支持全量与局部 scanRoots 范围修剪：非空 scopedRoots 仅清理对应目录前缀下的失联条目，绝不误删未选目录作品。
       // 断点续扫期间已完成目录可能被单作品自动同步更新，留待后续校验确认缺失项。
       final canPruneStale = !scanResult.resumedFromCheckpoint;
+      final normalizedScopedRoots = effectiveRoots
+          .map(_normalizeSourceRelPath)
+          .where((r) => r.isNotEmpty)
+          .toList(growable: false);
+      bool withinScopedRoots(String rawRelPath) {
+        if (normalizedScopedRoots.isEmpty) return true;
+        final norm = _normalizeSourceRelPath(rawRelPath);
+        return normalizedScopedRoots.any(
+          (root) => norm == root || norm.startsWith('$root/'),
+        );
+      }
+
       final hadStaleSourceVariant =
           canPruneStale &&
-          existingSourceVariants.any((v) => !activeVariantIds.contains(v.id));
+          existingSourceVariants.any(
+            (v) =>
+                withinScopedRoots(v.relativePath) &&
+                !activeVariantIds.contains(v.id),
+          );
       if (canPruneStale) {
         await _repository.pruneStaleSourceEntries(
           sourceId: source.id,

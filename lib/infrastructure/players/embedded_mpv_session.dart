@@ -799,10 +799,15 @@ class EmbeddedMpvSession {
   void _inspectLogForHwdecFailure(MpvLogMessageEvent event) {
     final level = event.level.toLowerCase();
     if (level != 'error' && level != 'fatal') return;
+    final trimmedText = event.text.trim();
+    // Android 预编译 libplacebo 未启用 LittleCMS 2 时会在起播期打印能力提示，保留为信息日志而非误报播放故障。
+    final isBenignCapabilityNotice = trimmedText.toLowerCase().contains(
+      'compiled without littlecms 2 support',
+    );
     logStore?.record(
       'mpv-video',
-      '[${event.prefix}] ${event.text.trim()}',
-      isError: true,
+      '[${event.prefix}] $trimmedText',
+      isError: !isBenignCapabilityNotice,
     );
 
     if (!_hwdecWasEnabled || _hwdecFallbackAttempted) return;

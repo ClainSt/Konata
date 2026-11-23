@@ -848,14 +848,14 @@ void main() {
       expect(longTitleText.maxLines, equals(2));
       expect(longTitleText.overflow, equals(TextOverflow.ellipsis));
 
-      // 验证同一日期时间轴下两张作品聚合卡垂直排列且左/右边缘齐平
+      // 验证同一日期时间轴下两张作品聚合卡在桌面宽屏双列并排左对齐且等宽齐顶
       final cards = find.byType(KonataSurfaceCard);
       expect(cards, findsNWidgets(2));
-      final topCardRect = tester.getRect(cards.at(0));
-      final bottomCardRect = tester.getRect(cards.at(1));
-      expect((topCardRect.left - bottomCardRect.left).abs(), lessThanOrEqualTo(1.0));
-      expect((topCardRect.width - bottomCardRect.width).abs(), lessThanOrEqualTo(1.0));
-      expect(bottomCardRect.top, greaterThan(topCardRect.bottom));
+      final leftCardRect = tester.getRect(cards.at(0));
+      final rightCardRect = tester.getRect(cards.at(1));
+      expect((leftCardRect.top - rightCardRect.top).abs(), lessThanOrEqualTo(1.0));
+      expect((leftCardRect.width - rightCardRect.width).abs(), lessThanOrEqualTo(1.0));
+      expect(rightCardRect.left, greaterThan(leftCardRect.right));
 
       // 批量「标记为已看」：选中第一张并二次确认
       await tester.tap(find.text('标记为已看'));

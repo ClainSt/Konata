@@ -111,79 +111,31 @@ extension LocalStreamBridgeAlbumExtension on LocalStreamBridge {
     required List<VirtualAlbumAudioEntry> audioEntries,
     bool ownsGateway = true,
     MediaSourceKind sourceKind = MediaSourceKind.webdav,
-  }) async {
-    final server = await ensureStarted();
-    _tokenCounter += 1;
-    final rawSeed =
-        '${DateTime.now().microsecondsSinceEpoch}_${_tokenCounter}_m3u8';
-    final albumToken = sha1
-        .convert(utf8.encode(rawSeed))
-        .toString()
-        .substring(0, 16);
-
-    final m3uItems = <ExtendedM3uTrackEntry>[];
-    final audioByLower = <String, _RegisteredStreamSession>{};
-    final audioUrls = <Uri>[];
-
-    for (var i = 0; i < audioEntries.length; i++) {
-      final entry = audioEntries[i];
-      final uniqueEntryName =
-          '${(i + 1).toString().padLeft(2, '0')}_${entry.entryFileName}';
-      final subSession = _createSubStreamSession(
-        albumToken: albumToken,
-        index: i,
-        gateway: gateway,
-        entry: entry,
-        exposedFileName: uniqueEntryName,
-        sourceKind: sourceKind,
+  }) => _registerVirtualAlbumInternal(
+    gateway: gateway,
+    manifestName: 'album.m3u8',
+    manifestMimeType: 'audio/x-mpegurl; charset=utf-8',
+    audioEntries: audioEntries,
+    ownsGateway: ownsGateway,
+    sourceKind: sourceKind,
+    prefixTrackIndex: true,
+    buildManifestBytes: (audioUrls) {
+      final m3uItems = <ExtendedM3uTrackEntry>[
+        for (var i = 0; i < audioEntries.length; i++)
+          ExtendedM3uTrackEntry(
+            targetUriOrPath: audioUrls[i].toString(),
+            title: audioEntries[i].title.isNotEmpty
+                ? audioEntries[i].title
+                : audioEntries[i].entryFileName,
+            performer: audioEntries[i].performer,
+            durationSeconds: audioEntries[i].durationSeconds,
+          ),
+      ];
+      return Uint8List.fromList(
+        utf8.encode(CueSheetSerializer.buildExtendedM3u8Text(m3uItems)),
       );
-      audioByLower[uniqueEntryName.toLowerCase()] = subSession;
-      final itemUrl = Uri(
-        scheme: 'http',
-        host: '127.0.0.1',
-        port: server.port,
-        pathSegments: ['album', albumToken, uniqueEntryName],
-      );
-      audioUrls.add(itemUrl);
-      m3uItems.add(
-        ExtendedM3uTrackEntry(
-          targetUriOrPath: itemUrl.toString(),
-          title: entry.title.isNotEmpty ? entry.title : entry.entryFileName,
-          performer: entry.performer,
-          durationSeconds: entry.durationSeconds,
-        ),
-      );
-    }
-
-    final m3uText = CueSheetSerializer.buildExtendedM3u8Text(m3uItems);
-    final manifestBytes = Uint8List.fromList(utf8.encode(m3uText));
-    final manifestEtag =
-        '"${sha1.convert(manifestBytes).toString().substring(0, 12)}"';
-
-    _albumSessions[albumToken] = _VirtualAlbumDirectorySession(
-      albumToken: albumToken,
-      gateway: gateway,
-      ownsGateway: ownsGateway,
-      manifestName: 'album.m3u8',
-      manifestBytes: manifestBytes,
-      manifestMimeType: 'audio/x-mpegurl; charset=utf-8',
-      manifestEtag: manifestEtag,
-      audioSessionsByLowerName: audioByLower,
-    );
-
-    final manifestUrl = Uri(
-      scheme: 'http',
-      host: '127.0.0.1',
-      port: server.port,
-      pathSegments: ['album', albumToken, 'album.m3u8'],
-    );
-    return VirtualAlbumRegistration(
-      albumToken: albumToken,
-      manifestUrl: manifestUrl,
-      primaryAudioUrl: audioUrls.first,
-      audioUrls: audioUrls,
-    );
-  }
+    },
+  );
 
   /// 在应用便携缓存目录 `<Root>/cache/tmp/konata_cues/` 原子写入带 UTF-8 BOM 的本地影子 `.cue` 文件。
   Future<String> writeLocalShadowCue({
@@ -246,11 +198,13 @@ extension LocalStreamBridgeAlbumExtension on LocalStreamBridge {
   Future<VirtualAlbumRegistration> _registerVirtualAlbumInternal({
     required ByteRangeReadableGateway gateway,
     required String manifestName,
-    required Uint8List manifestBytes,
+    Uint8List? manifestBytes,
+    Uint8List Function(List<Uri> audioUrls)? buildManifestBytes,
     required String manifestMimeType,
     required List<VirtualAlbumAudioEntry> audioEntries,
     required bool ownsGateway,
     required MediaSourceKind sourceKind,
+    bool prefixTrackIndex = false,
   }) async {
     if (audioEntries.isEmpty) {
       throw ArgumentError('虚拟专辑至少需要包含一个音频文件条目');
@@ -268,35 +222,40 @@ extension LocalStreamBridgeAlbumExtension on LocalStreamBridge {
     final audioUrls = <Uri>[];
     for (var i = 0; i < audioEntries.length; i++) {
       final entry = audioEntries[i];
-      final key = entry.entryFileName.toLowerCase();
-      if (!audioByLower.containsKey(key)) {
-        audioByLower[key] = _createSubStreamSession(
+      final exposedName = prefixTrackIndex
+          ? '${(i + 1).toString().padLeft(2, '0')}_${entry.entryFileName}'
+          : entry.entryFileName;
+      final key = exposedName.toLowerCase();
+      audioByLower.putIfAbsent(
+        key,
+        () => _createSubStreamSession(
           albumToken: albumToken,
           index: i,
           gateway: gateway,
           entry: entry,
-          exposedFileName: entry.entryFileName,
+          exposedFileName: exposedName,
           sourceKind: sourceKind,
-        );
-      }
+        ),
+      );
       audioUrls.add(
         Uri(
           scheme: 'http',
           host: '127.0.0.1',
           port: server.port,
-          pathSegments: ['album', albumToken, entry.entryFileName],
+          pathSegments: ['album', albumToken, exposedName],
         ),
       );
     }
 
+    final resolvedBytes = manifestBytes ?? buildManifestBytes!(audioUrls);
     final manifestEtag =
-        '"${sha1.convert(manifestBytes).toString().substring(0, 12)}"';
+        '"${sha1.convert(resolvedBytes).toString().substring(0, 12)}"';
     _albumSessions[albumToken] = _VirtualAlbumDirectorySession(
       albumToken: albumToken,
       gateway: gateway,
       ownsGateway: ownsGateway,
       manifestName: manifestName,
-      manifestBytes: manifestBytes,
+      manifestBytes: resolvedBytes,
       manifestMimeType: manifestMimeType,
       manifestEtag: manifestEtag,
       audioSessionsByLowerName: audioByLower,

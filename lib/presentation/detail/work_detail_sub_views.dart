@@ -7,8 +7,6 @@ import '../../application/providers/detail_display_preferences_provider.dart';
 import '../../application/providers/library_providers.dart';
 import '../../composition/platform_composition.dart';
 import '../../domain/formatting/detail_title_typography.dart';
-import '../../domain/matching/playback_resume_resolver.dart';
-import '../../domain/models/episode.dart';
 import '../../domain/models/tmdb_models.dart';
 import '../../domain/models/work.dart';
 import '../audio/smart_cover_framing.dart';
@@ -125,33 +123,11 @@ class DetailPortraitHeroHeader extends StatelessWidget {
               alignment: Alignment.center,
             )
           else if (hasPoster)
-            ClipRect(
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  SmartManagedImageAlignmentBuilder(
-                    url: posterPath,
-                    loader: imageLoader,
-                    owner: work.id,
-                    artwork: ManagedArtwork.poster,
-                    targetAspectRatio: 16 / 9,
-                    builder: (_, alignment) => ManagedImage(
-                      posterPath,
-                      loader: imageLoader,
-                      owner: work.id,
-                      artwork: ManagedArtwork.poster,
-                      fit: BoxFit.cover,
-                      alignment: alignment,
-                    ),
-                  ),
-                  BackdropFilter(
-                    filter: KonataTheme.blurFilterMedium,
-                    child: ColoredBox(
-                      color: KonataTheme.scrimBlackLight,
-                    ),
-                  ),
-                ],
-              ),
+            _BlurredPosterBackdrop(
+              posterPath: posterPath,
+              workId: work.id,
+              imageLoader: imageLoader,
+              scrimColor: KonataTheme.scrimBlackLight,
             )
           else
             const ColoredBox(color: KonataTheme.cinemaObsidian),
@@ -261,23 +237,9 @@ class DetailLandscapeHeroBanner extends StatelessWidget {
         ? DetailTitlePresentationMode.companionText
         : DetailTitlePresentationMode.heroEmblem;
 
-    final mainEpisodes = bundle.episodes
-        .where((e) => e.category == EpisodeCategory.main)
-        .toList();
-    final metaParts = <String>[
-      if (work.year != null) '${work.year}',
-      if (mainEpisodes.isNotEmpty) '${mainEpisodes.length} 话',
-      if (work.bangumiScore != null && work.bangumiScore! > 0)
-        'Bangumi ${work.bangumiScore!.toStringAsFixed(1)}',
-    ];
-    final resumePlan = PlaybackResumeResolver.resolve(
-      episodes: bundle.episodes,
-      latestPlayback: bundle.latestPlayback,
-      playbackByEpisodeId: bundle.playbackByEpisodeId,
-      workTitle: work.title,
-      workMediaType: work.tmdbMediaType,
-    );
-    final buttonLabel = resumePlan?.buttonLabel ?? '开始播放';
+    final summary = DetailHeroInfo.buildSummary(bundle);
+    final metaParts = summary.metaParts;
+    final buttonLabel = summary.buttonLabel;
 
     final topSafe = safe.top;
     final heroH =
@@ -343,33 +305,11 @@ class DetailLandscapeHeroBanner extends StatelessWidget {
             )
           else if (posterPath.isNotEmpty)
             Positioned.fill(
-              child: ClipRect(
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    SmartManagedImageAlignmentBuilder(
-                      url: posterPath,
-                      loader: imageLoader,
-                      owner: work.id,
-                      artwork: ManagedArtwork.poster,
-                      targetAspectRatio: 16 / 9,
-                      builder: (_, alignment) => ManagedImage(
-                        posterPath,
-                        loader: imageLoader,
-                        owner: work.id,
-                        artwork: ManagedArtwork.poster,
-                        fit: BoxFit.cover,
-                        alignment: alignment,
-                      ),
-                    ),
-                    BackdropFilter(
-                      filter: KonataTheme.blurFilterMedium,
-                      child: ColoredBox(
-                        color: KonataTheme.scrimBlackMedium,
-                      ),
-                    ),
-                  ],
-                ),
+              child: _BlurredPosterBackdrop(
+                posterPath: posterPath,
+                workId: work.id,
+                imageLoader: imageLoader,
+                scrimColor: KonataTheme.scrimBlackMedium,
               ),
             ),
           // 左下角定向柔晕承托文字可读性，保留左上原画通透色彩
@@ -796,6 +736,51 @@ class DetailWideBackdropStage extends StatelessWidget {
           ),
         ),
       ],
+      ),
+    );
+  }
+}
+
+/// 无横版背景图时用于柔化海报填充宽屏画布的共用背景层。
+class _BlurredPosterBackdrop extends StatelessWidget {
+  const _BlurredPosterBackdrop({
+    required this.posterPath,
+    required this.workId,
+    required this.imageLoader,
+    required this.scrimColor,
+  });
+
+  final String posterPath;
+  final String workId;
+  final ManagedImageLoader imageLoader;
+  final Color scrimColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRect(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          SmartManagedImageAlignmentBuilder(
+            url: posterPath,
+            loader: imageLoader,
+            owner: workId,
+            artwork: ManagedArtwork.poster,
+            targetAspectRatio: 16 / 9,
+            builder: (_, alignment) => ManagedImage(
+              posterPath,
+              loader: imageLoader,
+              owner: workId,
+              artwork: ManagedArtwork.poster,
+              fit: BoxFit.cover,
+              alignment: alignment,
+            ),
+          ),
+          BackdropFilter(
+            filter: KonataTheme.blurFilterMedium,
+            child: ColoredBox(color: scrimColor),
+          ),
+        ],
       ),
     );
   }

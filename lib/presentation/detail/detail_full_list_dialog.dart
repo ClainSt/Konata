@@ -349,20 +349,15 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
             820.0,
           )).toDouble();
 
-    final mainEps = widget.bundle.episodes
-        .where((e) => e.category == EpisodeCategory.main)
-        .toList(growable: false);
-    final extraEps = widget.bundle.episodes
-        .where((e) => e.category == EpisodeCategory.extra)
-        .toList(growable: false);
-    final cdList = widget.showCdTab
-        ? widget.bundle.cdVariants
-              .where((v) => !CueVariantResolver.isCueSheetFile(v.fileName))
-              .toList(growable: false)
-        : const <MediaVariant>[];
-    final scanList = widget.showScanTab
-        ? widget.bundle.scanVariants
-        : const <MediaVariant>[];
+    final viewData = DetailSupplementaryViewData.fromBundle(
+      bundle: widget.bundle,
+      showCdTab: widget.showCdTab,
+      showScanTab: widget.showScanTab,
+    );
+    final mainEps = viewData.mainEpisodes;
+    final extraEps = viewData.extraEpisodes;
+    final cdList = viewData.cdList;
+    final scanList = viewData.scanList;
     final showSharedBadge = widget.bundle.seriesMembers.length >= 2;
     final queryTokens = _query
         .trim()
@@ -371,71 +366,10 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
         .where((s) => s.isNotEmpty)
         .toList(growable: false);
 
-    final extraKindByEpId = <String, ExtraKind>{};
-    final extraCountByKind = <ExtraKind, int>{};
-    final extraDisplayTitleByEpId = <String, String>{};
-    for (final ep in extraEps) {
-      final variants = widget.bundle.variantsForEpisode(ep.id);
-      final firstVar = variants.isNotEmpty ? variants.first : null;
-      final kind = firstVar != null
-          ? SupplementarySubclassifier.classifyExtraVideo(
-              fileName: firstVar.fileName,
-              relativePath: firstVar.relativePath,
-              fallbackExtraType: ep.extraType,
-            )
-          : (ep.extraType ?? ExtraKind.sp);
-      extraKindByEpId[ep.id] = kind;
-      extraCountByKind[kind] = (extraCountByKind[kind] ?? 0) + 1;
-      final defaultTitle = EpisodeTitleFormatter.formatCardTitle(
-        episode: ep,
-        workTitle: widget.bundle.work.title,
-        workMediaType: widget.bundle.work.tmdbMediaType,
-        mainEpisodeCount: mainEps.length,
-      );
-      extraDisplayTitleByEpId[ep.id] =
-          SupplementarySubclassifier.formatExtraDisplayTitle(
-            episode: ep,
-            episodeVariants: variants,
-            allWorkVariants: widget.bundle.variants,
-            defaultFormattedTitle: defaultTitle,
-          );
-    }
-
-    final cdSummary = SupplementarySubclassifier.groupCdVariants(cdList);
-    final scanSummary = SupplementarySubclassifier.groupScanVariants(scanList);
-
     final secondaryItems = switch (_activeTab) {
-      DetailDrawerTab.extra =>
-        SupplementarySubclassifier.extraKindDisplayOrder
-            .where((k) => (extraCountByKind[k] ?? 0) > 0)
-            .map(
-              (k) => DetailSecondaryFilterItem(
-                key: k.name,
-                label: SupplementarySubclassifier.extraKindLabel(k),
-                count: extraCountByKind[k] ?? 0,
-              ),
-            )
-            .toList(growable: false),
-      DetailDrawerTab.cd =>
-        cdSummary.chips
-            .map(
-              (c) => DetailSecondaryFilterItem(
-                key: c.key,
-                label: c.label,
-                count: c.count,
-              ),
-            )
-            .toList(growable: false),
-      DetailDrawerTab.scan =>
-        scanSummary.chips
-            .map(
-              (c) => DetailSecondaryFilterItem(
-                key: c.key,
-                label: c.label,
-                count: c.count,
-              ),
-            )
-            .toList(growable: false),
+      DetailDrawerTab.extra => viewData.extraSecondaryItems,
+      DetailDrawerTab.cd => viewData.cdSecondaryItems,
+      DetailDrawerTab.scan => viewData.scanSecondaryItems,
       DetailDrawerTab.main => const <DetailSecondaryFilterItem>[],
     };
 
@@ -617,14 +551,7 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
                   const SizedBox(height: 12),
                   Expanded(
                     child: _buildFilteredGrid(
-                      mainEps: mainEps,
-                      extraEps: extraEps,
-                      cdList: cdList,
-                      scanList: scanList,
-                      extraKindByEpId: extraKindByEpId,
-                      extraDisplayTitleByEpId: extraDisplayTitleByEpId,
-                      cdSummary: cdSummary,
-                      scanSummary: scanSummary,
+                      viewData: viewData,
                       showSharedBadge: showSharedBadge,
                       queryTokens: queryTokens,
                     ),
@@ -639,17 +566,18 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
   }
 
   Widget _buildFilteredGrid({
-    required List<Episode> mainEps,
-    required List<Episode> extraEps,
-    required List<MediaVariant> cdList,
-    required List<MediaVariant> scanList,
-    required Map<String, ExtraKind> extraKindByEpId,
-    required Map<String, String> extraDisplayTitleByEpId,
-    required CdAlbumGroupSummary cdSummary,
-    required ScanVolumeGroupSummary scanSummary,
+    required DetailSupplementaryViewData viewData,
     required bool showSharedBadge,
     required List<String> queryTokens,
   }) {
+    final mainEps = viewData.mainEpisodes;
+    final extraEps = viewData.extraEpisodes;
+    final cdList = viewData.cdList;
+    final scanList = viewData.scanList;
+    final extraKindByEpId = viewData.extraKindByEpId;
+    final extraDisplayTitleByEpId = viewData.extraDisplayTitleByEpId;
+    final cdSummary = viewData.cdSummary;
+    final scanSummary = viewData.scanSummary;
     if (_activeTab == DetailDrawerTab.main ||
         _activeTab == DetailDrawerTab.extra) {
       var list = _activeTab == DetailDrawerTab.main ? mainEps : extraEps;
@@ -769,15 +697,6 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
         maxExtent: 176.0,
         itemBuilder: (v) {
           final group = cdSummary.byVariantId[v.id];
-          final dot = v.fileName.lastIndexOf('.');
-          final stem = dot > 0 ? v.fileName.substring(0, dot) : v.fileName;
-          final titleOverride =
-              (CueVariantResolver.isGenericDiscImageStem(stem) &&
-                  group != null &&
-                  group.chipLabel.isNotEmpty &&
-                  group.chipLabel != 'CD')
-              ? group.chipLabel
-              : null;
           return CdDrawerCard(
             key: ValueKey('full_list_cd_${v.id}'),
             variant: v,
@@ -789,7 +708,7 @@ class _DetailFullListDialogState extends ConsumerState<DetailFullListDialog> {
             imageLoader: widget.imageLoader,
             cardWidth: double.infinity,
             showSeriesSharedBadge: showSharedBadge,
-            displayTitleOverride: titleOverride,
+            displayTitleOverride: viewData.cdTitleOverrideFor(v),
             showRawFileName: widget.showRawVideoFilename,
             directSubdirLabel: showDirectSubdir
                 ? group?.directSubdirShort

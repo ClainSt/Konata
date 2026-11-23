@@ -184,21 +184,17 @@ class TmdbHttpClient {
     String? bucketKey,
     bool retryOnRateLimit = true,
     Duration? timeoutOverride,
-  }) {
-    return _scheduler.schedule<http.Response>(
-      priority,
-      () => _executeWithFallback(
-        method: 'GET',
-        primaryUri: primaryUri,
-        backupUri: backupUri,
-        headers: headers,
-        timeoutOverride: timeoutOverride,
-      ),
-      dedupeKey: dedupeKey ?? primaryUri.toString(),
-      bucketKey: bucketKey,
-      retryOnRateLimit: retryOnRateLimit,
-    );
-  }
+  }) => sendWithFallback(
+    method: 'GET',
+    primaryUri: primaryUri,
+    backupUri: backupUri,
+    headers: headers,
+    priority: priority,
+    dedupeKey: dedupeKey ?? primaryUri.toString(),
+    bucketKey: bucketKey,
+    retryOnRateLimit: retryOnRateLimit,
+    timeoutOverride: timeoutOverride,
+  );
 
   /// 发起 POST 请求（单链路版本）。
   Future<http.Response> post(
@@ -208,16 +204,14 @@ class TmdbHttpClient {
     RequestPriority priority = RequestPriority.background,
     String? dedupeKey,
     String? bucketKey,
-  }) {
-    return postWithFallback(
-      uri,
-      headers: headers,
-      body: body,
-      priority: priority,
-      dedupeKey: dedupeKey,
-      bucketKey: bucketKey,
-    );
-  }
+  }) => postWithFallback(
+    uri,
+    headers: headers,
+    body: body,
+    priority: priority,
+    dedupeKey: dedupeKey,
+    bucketKey: bucketKey,
+  );
 
   /// 发起支持官方主备自动回退与自定义动词（GET/POST/PUT/PATCH/DELETE）的请求。
   Future<http.Response> sendWithFallback({
@@ -259,22 +253,18 @@ class TmdbHttpClient {
     String? bucketKey,
     bool retryOnRateLimit = true,
     Duration? timeoutOverride,
-  }) {
-    return _scheduler.schedule<http.Response>(
-      priority,
-      () => _executeWithFallback(
-        method: 'POST',
-        primaryUri: primaryUri,
-        backupUri: backupUri,
-        headers: headers,
-        body: body,
-        timeoutOverride: timeoutOverride,
-      ),
-      dedupeKey: dedupeKey,
-      bucketKey: bucketKey,
-      retryOnRateLimit: retryOnRateLimit,
-    );
-  }
+  }) => sendWithFallback(
+    method: 'POST',
+    primaryUri: primaryUri,
+    backupUri: backupUri,
+    headers: headers,
+    body: body,
+    priority: priority,
+    dedupeKey: dedupeKey,
+    bucketKey: bucketKey,
+    retryOnRateLimit: retryOnRateLimit,
+    timeoutOverride: timeoutOverride,
+  );
 
   Future<http.Response> _executeWithFallback({
     required String method,
@@ -587,53 +577,31 @@ class TmdbHttpClient {
   }
 
   /// 探测 TMDB 图片服务器（官方优先，受阻自动回退备用图片地址）。
-  Future<ConnectivityReport> testTmdbImageConnectivity() {
-    const probePath = '/w92/wwemzKWzjKYJFfCeiB57q3r4Bcm.png';
-    final primary = Uri.parse('${TmdbNetworkConfig.defaultImageBase}$probePath');
-    final backupRaw = _config.normalizedTmdbBackupImageBase;
-    final backup = backupRaw.isNotEmpty
-        ? Uri.tryParse('$backupRaw$probePath')
-        : null;
-    return _probeEndpointPair(
-      primaryUri: primary,
-      backupUri: backup,
-      headers: const {'Accept': 'image/*,*/*'},
-    );
-  }
+  Future<ConnectivityReport> testTmdbImageConnectivity() => _probeSimplePair(
+    primaryBase: TmdbNetworkConfig.defaultImageBase,
+    backupBase: _config.normalizedTmdbBackupImageBase,
+    probePath: '/w92/wwemzKWzjKYJFfCeiB57q3r4Bcm.png',
+    headers: const {'Accept': 'image/*,*/*'},
+  );
 
   /// 探测 Bangumi API（官方优先，受阻自动回退社区镜像）。
-  Future<ConnectivityReport> testBangumiApiConnectivity() {
-    final primary = Uri.parse('${TmdbNetworkConfig.defaultBangumiApiBase}/subjects/1');
-    final backupRaw = _config.normalizedBangumiBackupApiBase;
-    final backup = backupRaw.isNotEmpty
-        ? Uri.tryParse('$backupRaw/subjects/1')
-        : null;
-    return _probeEndpointPair(
-      primaryUri: primary,
-      backupUri: backup,
-      headers: const {
-        'User-Agent': 'ClainSt/Konata (+https://github.com/ClainSt/Konata)',
-        'Accept': 'application/json',
-      },
-    );
-  }
+  Future<ConnectivityReport> testBangumiApiConnectivity() => _probeSimplePair(
+    primaryBase: TmdbNetworkConfig.defaultBangumiApiBase,
+    backupBase: _config.normalizedBangumiBackupApiBase,
+    probePath: '/subjects/1',
+    headers: const {
+      'User-Agent': 'ClainSt/Konata (+https://github.com/ClainSt/Konata)',
+      'Accept': 'application/json',
+    },
+  );
 
   /// 探测 Bangumi 图片服务器（官方优先，受阻自动回退备用图片镜像）。
-  Future<ConnectivityReport> testBangumiImageConnectivity() {
-    const probePath = '/pic/cover/c/7f/ce/1_3581p.jpg';
-    final primary = Uri.parse(
-      '${TmdbNetworkConfig.defaultBangumiImageBase}$probePath',
-    );
-    final backupRaw = _config.normalizedBangumiBackupImageBase;
-    final backup = backupRaw.isNotEmpty
-        ? Uri.tryParse('$backupRaw$probePath')
-        : null;
-    return _probeEndpointPair(
-      primaryUri: primary,
-      backupUri: backup,
-      headers: const {'Accept': 'image/*,*/*'},
-    );
-  }
+  Future<ConnectivityReport> testBangumiImageConnectivity() => _probeSimplePair(
+    primaryBase: TmdbNetworkConfig.defaultBangumiImageBase,
+    backupBase: _config.normalizedBangumiBackupImageBase,
+    probePath: '/pic/cover/c/7f/ce/1_3581p.jpg',
+    headers: const {'Accept': 'image/*,*/*'},
+  );
 
   /// 探测 Fanart.tv 透明徽标 API（自定义 `api-key` 时走官方优先+备用回退，否则探测无状态中继）。
   Future<ConnectivityReport> testFanartApiConnectivity() async {
@@ -743,22 +711,23 @@ class TmdbHttpClient {
   }
 
   /// 探测 Fanart.tv 图片服务器（官方 `assets.fanart.tv` 优先，受阻自动回退备用图片反代）。
-  Future<ConnectivityReport> testFanartImageConnectivity() {
-    const probePath =
-        '/fanart/movies/129/hdmovielogo/spirited-away-5215d8259099b.png';
-    final primary = Uri.parse(
-      '${TmdbNetworkConfig.defaultFanartImageBase}$probePath',
-    );
-    final backupRaw = _config.normalizedFanartBackupImageBase;
-    final backup = backupRaw.isNotEmpty
-        ? Uri.tryParse('$backupRaw$probePath')
-        : null;
-    return _probeEndpointPair(
-      primaryUri: primary,
-      backupUri: backup,
-      headers: const {'Accept': 'image/*,*/*'},
-    );
-  }
+  Future<ConnectivityReport> testFanartImageConnectivity() => _probeSimplePair(
+    primaryBase: TmdbNetworkConfig.defaultFanartImageBase,
+    backupBase: _config.normalizedFanartBackupImageBase,
+    probePath: '/fanart/movies/129/hdmovielogo/spirited-away-5215d8259099b.png',
+    headers: const {'Accept': 'image/*,*/*'},
+  );
+
+  Future<ConnectivityReport> _probeSimplePair({
+    required String primaryBase,
+    required String backupBase,
+    required String probePath,
+    Map<String, String> headers = const {},
+  }) => _probeEndpointPair(
+    primaryUri: Uri.parse('$primaryBase$probePath'),
+    backupUri: backupBase.isNotEmpty ? Uri.tryParse('$backupBase$probePath') : null,
+    headers: headers,
+  );
 
   /// 兼容旧调用的连通测试入口（等同 `testTmdbApiConnectivity`）。
   Future<ConnectivityReport> testConnectivity() => testTmdbApiConnectivity();

@@ -143,7 +143,12 @@ class WebDavSyncTransport {
     if (resp.statusCode != 200) {
       throw StateError('读取远端同步清单失败（HTTP ${resp.statusCode}）');
     }
-    final decoded = jsonDecode(utf8.decode(resp.bodyBytes));
+    final dynamic decoded;
+    try {
+      decoded = jsonDecode(utf8.decode(resp.bodyBytes));
+    } catch (_) {
+      throw const FormatException('远端 manifest.json 不是有效的 JSON 文本');
+    }
     if (decoded is! Map) {
       throw const FormatException('远端 manifest.json 格式无效');
     }

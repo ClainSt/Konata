@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../application/providers/bangumi_sync_providers.dart';
 import '../../domain/formatting/network_error_sanitizer.dart';
@@ -15,6 +14,7 @@ import '../widgets/design_system/konata_soft_text_field.dart';
 import '../widgets/design_system/konata_surface_card.dart';
 import '../widgets/design_system/konata_switch.dart';
 import '../widgets/design_system/konata_toast.dart';
+import 'settings_shared_widgets.dart';
 
 /// Bangumi PAT 观看进度双向同步设置卡片（全端共用，嵌入「备份与同步」设置页）。
 class SettingsBangumiSyncCard extends ConsumerStatefulWidget {
@@ -31,16 +31,25 @@ class _SettingsBangumiSyncCardState
   final TextEditingController _patController = TextEditingController();
   bool _initialized = false;
   bool _obscureToken = true;
+  bool _hasPendingSave = false;
   Timer? _autoSaveTimer;
+  BangumiSyncController? _controller;
+  BangumiSyncConfig _lastKnownConfig = const BangumiSyncConfig();
 
   @override
   void dispose() {
     _autoSaveTimer?.cancel();
+    if (_hasPendingSave && _controller != null) {
+      _hasPendingSave = false;
+      unawaited(_controller!.saveConfig(_draftConfig(_lastKnownConfig)));
+    }
     _patController.dispose();
     super.dispose();
   }
 
   void _syncControllerIfNeeded(BangumiSyncUiState syncState) {
+    _controller = ref.read(bangumiSyncControllerProvider.notifier);
+    _lastKnownConfig = syncState.config;
     if (_initialized || !syncState.loaded) return;
     _initialized = true;
     _patController.text = syncState.config.personalAccessToken;
@@ -51,9 +60,11 @@ class _SettingsBangumiSyncCardState
   }
 
   void _scheduleAutoSave() {
+    _hasPendingSave = true;
     _autoSaveTimer?.cancel();
     _autoSaveTimer = Timer(KonataTheme.settingsAutoSaveDebounce, () {
       if (!mounted) return;
+      _hasPendingSave = false;
       final current = ref.read(bangumiSyncControllerProvider).config;
       unawaited(
         ref
@@ -61,17 +72,6 @@ class _SettingsBangumiSyncCardState
             .saveConfig(_draftConfig(current)),
       );
     });
-  }
-
-  String _formatDateTime(DateTime dt) {
-    String two(int v) => v.toString().padLeft(2, '0');
-    return '${dt.year}.${two(dt.month)}.${two(dt.day)} '
-        '${two(dt.hour)}:${two(dt.minute)}';
-  }
-
-  Future<void> _openTokenPortal() async {
-    final uri = Uri.parse(BangumiSyncConfig.tokenPortalUrl);
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
   Future<void> _handleVerifyToken() async {
@@ -150,7 +150,7 @@ class _SettingsBangumiSyncCardState
         : KonataTheme.bangumiPinkLightTheme;
     final lastSyncText = syncState.lastSyncAt == null
         ? '尚未同步'
-        : '上次同步：${_formatDateTime(syncState.lastSyncAt!)}'
+        : '上次同步：${formatKonataShortDateTime(syncState.lastSyncAt!)}'
               '${syncState.lastSummary != null ? ' · ${syncState.lastSummary}' : ''}';
 
     return KonataSurfaceCard(
@@ -159,28 +159,16 @@ class _SettingsBangumiSyncCardState
         children: [
           Row(
             children: [
-              SizedBox(
-                width: 38,
-                height: 38,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: accentPink.withValues(alpha: 0.14),
-                    borderRadius: KonataTheme.borderRadiusControl,
-                    border: Border.all(
-                      color: accentPink.withValues(alpha: 0.35),
-                      width: 1,
-                    ),
-                  ),
-                  child: Center(
-                    child: Text(
-                      'bgm',
-                      style: TextStyle(
-                        color: accentPink,
-                        fontSize: KonataTheme.fontSizeBadge,
-                        fontWeight: FontWeight.w800,
-                        fontStyle: FontStyle.italic,
-                      ),
-                    ),
+              KonataSettingsLeadingBox(
+                backgroundColor: accentPink.withValues(alpha: 0.14),
+                borderColor: accentPink.withValues(alpha: 0.35),
+                child: Text(
+                  'bgm',
+                  style: TextStyle(
+                    color: accentPink,
+                    fontSize: KonataTheme.fontSizeBadge,
+                    fontWeight: FontWeight.w800,
+                    fontStyle: FontStyle.italic,
                   ),
                 ),
               ),
@@ -253,7 +241,8 @@ class _SettingsBangumiSyncCardState
               label: '前往 Bangumi 获取个人访问令牌',
               icon: Icons.open_in_new_rounded,
               compact: true,
-              onPressed: _openTokenPortal,
+              onPressed: () =>
+                  openKonataExternalUrl(BangumiSyncConfig.tokenPortalUrl),
             ),
           ),
           const SizedBox(height: 12),
@@ -285,52 +274,34 @@ class _SettingsBangumiSyncCardState
                 ),
           ),
           const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '看完一集后自动上报 Bangumi（离线自动入队重试）',
-                  style: TextStyle(
-                    color: p.textPrimary,
-                    fontSize: KonataTheme.fontSizeBodySm,
-                  ),
-                ),
-              ),
-              KonataSwitch(
-                value: syncState.config.autoPushOnComplete,
-                onChanged: (value) => ref
-                    .read(bangumiSyncControllerProvider.notifier)
-                    .saveConfig(
-                      _draftConfig(
-                        syncState.config,
-                      ).copyWith(autoPushOnComplete: value),
-                    ),
-              ),
-            ],
+          KonataSettingsSwitchRow(
+            label: '看完一集后自动上报 Bangumi（离线自动入队重试）',
+            value: syncState.config.autoPushOnComplete,
+            onChanged: (value) {
+              _hasPendingSave = false;
+              ref
+                  .read(bangumiSyncControllerProvider.notifier)
+                  .saveConfig(
+                    _draftConfig(
+                      syncState.config,
+                    ).copyWith(autoPushOnComplete: value),
+                  );
+            },
           ),
           const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '本篇全集看完后自动将条目标记为「看过」',
-                  style: TextStyle(
-                    color: p.textPrimary,
-                    fontSize: KonataTheme.fontSizeBodySm,
-                  ),
-                ),
-              ),
-              KonataSwitch(
-                value: syncState.config.autoMarkSubjectCompleted,
-                onChanged: (value) => ref
-                    .read(bangumiSyncControllerProvider.notifier)
-                    .saveConfig(
-                      _draftConfig(
-                        syncState.config,
-                      ).copyWith(autoMarkSubjectCompleted: value),
-                    ),
-              ),
-            ],
+          KonataSettingsSwitchRow(
+            label: '本篇全集看完后自动将条目标记为「看过」',
+            value: syncState.config.autoMarkSubjectCompleted,
+            onChanged: (value) {
+              _hasPendingSave = false;
+              ref
+                  .read(bangumiSyncControllerProvider.notifier)
+                  .saveConfig(
+                    _draftConfig(
+                      syncState.config,
+                    ).copyWith(autoMarkSubjectCompleted: value),
+                  );
+            },
           ),
           const SizedBox(height: 16),
           Wrap(

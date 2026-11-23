@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../application/providers/diagnostics_providers.dart';
 import '../../domain/models/network_config.dart';
@@ -13,22 +12,12 @@ import '../widgets/design_system/konata_surface_card.dart';
 import '../widgets/design_system/konata_switch.dart';
 import '../widgets/design_system/konata_system_file_picker.dart';
 import '../widgets/design_system/konata_toast.dart';
+import 'settings_shared_widgets.dart';
 
 /// 关于页面板（真实 Konata 头像、版本信息、Agent 结构化诊断日志导出与复制摘要、GitHub 与 TMDB 声明）。
 class SettingsAboutPanel extends ConsumerWidget {
   /// 创建关于面板。
   const SettingsAboutPanel({super.key});
-
-  Future<void> _openUrl(String url) async {
-    final uri = Uri.parse(url);
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
-  }
-
-  String _timestampSuffix() {
-    final now = DateTime.now();
-    String two(int v) => v.toString().padLeft(2, '0');
-    return '${now.year}${two(now.month)}${two(now.day)}_${two(now.hour)}${two(now.minute)}${two(now.second)}';
-  }
 
   Future<void> _exportReport(
     BuildContext context,
@@ -41,7 +30,8 @@ class SettingsAboutPanel extends ConsumerWidget {
           ? await store.buildJsonDiagnosticBundleAsync()
           : await store.buildAgentDiagnosticReportAsync();
       final ext = asJson ? 'json' : 'txt';
-      final fileName = 'konata_diagnostics_${_timestampSuffix()}.$ext';
+      final fileName =
+          'konata_diagnostics_${buildKonataFileTimestampSuffix()}.$ext';
       final targetUri = await ref.read(konataSystemFilePickerProvider).saveFile(
         dialogTitle: asJson ? '导出结构化诊断包 (JSON)' : '导出 Agent 诊断报告 (TXT)',
         fileName: fileName,
@@ -82,20 +72,10 @@ class SettingsAboutPanel extends ConsumerWidget {
     KonataPalette p,
     Widget child, {
     Color? backgroundColor,
-  }) {
-    return SizedBox(
-      width: 38,
-      height: 38,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: backgroundColor ?? p.softFill,
-          borderRadius: KonataTheme.borderRadiusControl,
-          border: Border.all(color: p.hairline, width: 1),
-        ),
-        child: Center(child: child),
-      ),
-    );
-  }
+  }) => KonataSettingsLeadingBox(
+    backgroundColor: backgroundColor,
+    child: child,
+  );
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -282,7 +262,7 @@ class SettingsAboutPanel extends ConsumerWidget {
                   size: 20,
                   color: p.textMuted,
                 ),
-                onTap: () => _openUrl(TmdbNetworkConfig.githubRepoUrl),
+                onTap: () => openKonataExternalUrl(TmdbNetworkConfig.githubRepoUrl),
               ),
               Divider(height: 1, color: p.hairline, indent: 18, endIndent: 18),
               KonataListTile(
@@ -309,7 +289,7 @@ class SettingsAboutPanel extends ConsumerWidget {
                   size: 20,
                   color: p.textMuted,
                 ),
-                onTap: () => _openUrl(TmdbNetworkConfig.tmdbHomeUrl),
+                onTap: () => openKonataExternalUrl(TmdbNetworkConfig.tmdbHomeUrl),
               ),
             ],
           ),

@@ -329,6 +329,23 @@ class SubtitleMemoryEngine {
     onTrackStateChanged?.call();
   }
 
+  SubtitleMemoryApplyResult _staleResult(Stopwatch stopwatch) =>
+      SubtitleMemoryApplyResult(
+        applied: false,
+        staleAborted: true,
+        elapsedMicros: stopwatch.elapsedMicroseconds,
+      );
+
+  bool _isIntentAlive({
+    required int targetVersion,
+    required int targetEpoch,
+    required ScopedTaskToken? taskToken,
+  }) =>
+      !_disposed &&
+      targetVersion == _latestIntentVersion &&
+      targetEpoch == _currentPhysicalEpoch() &&
+      (taskToken == null || (_playbackEngine?.isTaskAlive(taskToken) ?? false));
+
   /// 经单一串行权威通道静默批量挂载起播发现的外挂文本字幕（`cached`），并按偏好原子选轨。
   Future<SubtitleMemoryApplyResult> mountDiscoveredExternalSubtitles({
     required List<String> textSubtitlePaths,
@@ -337,41 +354,23 @@ class SubtitleMemoryEngine {
     bool enableCloudSubsetForSelected = false,
   }) async {
     final stopwatch = Stopwatch()..start();
-    if (_disposed) {
-      return SubtitleMemoryApplyResult(
-        applied: false,
-        staleAborted: true,
-        elapsedMicros: stopwatch.elapsedMicroseconds,
-      );
-    }
+    if (_disposed) return _staleResult(stopwatch);
 
     final targetVersion = ++_latestIntentVersion;
     final targetEpoch = _currentPhysicalEpoch();
     final taskToken = _playbackEngine?.acquireTaskToken(
       PlaybackTaskDomain.rawSubtitleFetch,
     );
-
-    bool isStillCurrent() {
-      if (_disposed) return false;
-      if (targetVersion != _latestIntentVersion) return false;
-      if (targetEpoch != _currentPhysicalEpoch()) return false;
-      if (taskToken != null &&
-          !(_playbackEngine?.isTaskAlive(taskToken) ?? false)) {
-        return false;
-      }
-      return true;
-    }
+    bool isStillCurrent() => _isIntentAlive(
+      targetVersion: targetVersion,
+      targetEpoch: targetEpoch,
+      taskToken: taskToken,
+    );
 
     // 1. 异步解码所有外挂文本字幕至 UTF-8（彻底杜绝 GBK/Big5/Shift-JIS 裸路径直传乱码）。
     final preparedSlots = <_PreparedMemorySlot>[];
     for (final rawPath in textSubtitlePaths) {
-      if (!isStillCurrent()) {
-        return SubtitleMemoryApplyResult(
-          applied: false,
-          staleAborted: true,
-          elapsedMicros: stopwatch.elapsedMicroseconds,
-        );
-      }
+      if (!isStillCurrent()) return _staleResult(stopwatch);
       final trimmed = rawPath.trim();
       if (trimmed.isEmpty) continue;
       try {
@@ -385,56 +384,31 @@ class SubtitleMemoryEngine {
         );
         preparedSlots.add(slot);
       } on Object catch (error) {
-  // 单个外挂字幕读取失败不影响其余可用字幕挂载。
-  developer.log('可恢复异常已记录', name: 'konata.subtitle_memory_engine', error: error);
-}
+        // 单个外挂字幕读取失败不影响其余可用字幕挂载。
+        developer.log(
+          '可恢复异常已记录',
+          name: 'konata.subtitle_memory_engine',
+          error: error,
+        );
+      }
     }
 
-    if (!isStillCurrent()) {
-      return SubtitleMemoryApplyResult(
-        applied: false,
-        staleAborted: true,
-        elapsedMicros: stopwatch.elapsedMicroseconds,
-      );
-    }
+    if (!isStillCurrent()) return _staleResult(stopwatch);
 
     // 2. 入串行权威提交锁：静默 `cached` 挂载全部文本轨并显式解析写入最终 `sid`。
     final completer = Completer<SubtitleMemoryApplyResult>();
     final op = _serialCommitChain.then((_) {
-      if (!isStillCurrent()) {
-        completer.complete(
-          SubtitleMemoryApplyResult(
-            applied: false,
-            staleAborted: true,
-            elapsedMicros: stopwatch.elapsedMicroseconds,
-          ),
-        );
-        return;
-      }
-      final client = _activeUsableClient();
+      final client = isStillCurrent() ? _activeUsableClient() : null;
       if (client == null) {
-        completer.complete(
-          SubtitleMemoryApplyResult(
-            applied: false,
-            staleAborted: true,
-            elapsedMicros: stopwatch.elapsedMicroseconds,
-          ),
-        );
+        completer.complete(_staleResult(stopwatch));
         return;
       }
 
       for (final slot in preparedSlots) {
         _ensureMountedTrack(client, slot);
       }
-
       if (!isStillCurrent()) {
-        completer.complete(
-          SubtitleMemoryApplyResult(
-            applied: false,
-            staleAborted: true,
-            elapsedMicros: stopwatch.elapsedMicroseconds,
-          ),
-        );
+        completer.complete(_staleResult(stopwatch));
         return;
       }
 
@@ -478,30 +452,18 @@ class SubtitleMemoryEngine {
     AuthoritativeSubtitleIntent intent,
   ) async {
     final stopwatch = Stopwatch()..start();
-    if (_disposed) {
-      return SubtitleMemoryApplyResult(
-        applied: false,
-        staleAborted: true,
-        elapsedMicros: stopwatch.elapsedMicroseconds,
-      );
-    }
+    if (_disposed) return _staleResult(stopwatch);
 
     final targetVersion = ++_latestIntentVersion;
     final targetEpoch = _currentPhysicalEpoch();
     final taskToken = _playbackEngine?.acquireTaskToken(
       PlaybackTaskDomain.rawSubtitleFetch,
     );
-
-    bool isStillCurrent() {
-      if (_disposed) return false;
-      if (targetVersion != _latestIntentVersion) return false;
-      if (targetEpoch != _currentPhysicalEpoch()) return false;
-      if (taskToken != null &&
-          !(_playbackEngine?.isTaskAlive(taskToken) ?? false)) {
-        return false;
-      }
-      return true;
-    }
+    bool isStillCurrent() => _isIntentAlive(
+      targetVersion: targetVersion,
+      targetEpoch: targetEpoch,
+      taskToken: taskToken,
+    );
 
     // 1. 异步阶段在串行提交锁外并发准备字节解码、云端子集化、OpenCC 片段转换与离线调轴，避免阻塞较新意图抢占代数。
     _PreparedMemorySlot? preparedPrimary;
@@ -510,23 +472,11 @@ class SubtitleMemoryEngine {
       if (intent.primary != null) {
         preparedPrimary = await _prepareSlot(intent.primary!);
       }
-      if (!isStillCurrent()) {
-        return SubtitleMemoryApplyResult(
-          applied: false,
-          staleAborted: true,
-          elapsedMicros: stopwatch.elapsedMicroseconds,
-        );
-      }
+      if (!isStillCurrent()) return _staleResult(stopwatch);
       if (intent.updateSecondary && intent.secondary != null) {
         preparedSecondary = await _prepareSlot(intent.secondary!);
       }
-      if (!isStillCurrent()) {
-        return SubtitleMemoryApplyResult(
-          applied: false,
-          staleAborted: true,
-          elapsedMicros: stopwatch.elapsedMicroseconds,
-        );
-      }
+      if (!isStillCurrent()) return _staleResult(stopwatch);
     } on Object {
       return SubtitleMemoryApplyResult(
         applied: false,
@@ -538,25 +488,9 @@ class SubtitleMemoryEngine {
     // 2. 串行原子提交安全空窗：入队后再次校验意图版本与物理代数，过时任务直接 0 写回退出。
     final completer = Completer<SubtitleMemoryApplyResult>();
     final op = _serialCommitChain.then((_) {
-      if (!isStillCurrent()) {
-        completer.complete(
-          SubtitleMemoryApplyResult(
-            applied: false,
-            staleAborted: true,
-            elapsedMicros: stopwatch.elapsedMicroseconds,
-          ),
-        );
-        return;
-      }
-      final client = _activeUsableClient();
+      final client = isStillCurrent() ? _activeUsableClient() : null;
       if (client == null) {
-        completer.complete(
-          SubtitleMemoryApplyResult(
-            applied: false,
-            staleAborted: true,
-            elapsedMicros: stopwatch.elapsedMicroseconds,
-          ),
-        );
+        completer.complete(_staleResult(stopwatch));
         return;
       }
 
@@ -589,13 +523,7 @@ class SubtitleMemoryEngine {
 
       // 再次核验安全空窗后执行原子选轨与延迟同步归零。
       if (!isStillCurrent()) {
-        completer.complete(
-          SubtitleMemoryApplyResult(
-            applied: false,
-            staleAborted: true,
-            elapsedMicros: stopwatch.elapsedMicroseconds,
-          ),
-        );
+        completer.complete(_staleResult(stopwatch));
         return;
       }
 

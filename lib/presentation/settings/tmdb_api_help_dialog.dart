@@ -1,6 +1,5 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../domain/models/network_config.dart';
 import '../theme/konata_palette.dart';
@@ -10,6 +9,7 @@ import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_surface_card.dart';
 import '../widgets/design_system/konata_toast.dart';
 import '../theme/konata_theme.dart';
+import 'settings_shared_widgets.dart';
 
 /// TMDB API 获取分步中文教程毛玻璃弹窗。
 ///
@@ -23,11 +23,6 @@ class TmdbApiHelpDialog extends StatelessWidget {
       'Personal non-commercial anime media library desktop application (Konata) '
       'for matching local video files, fetching localized titles, synopses, '
       'posters, and episode metadata for personal organization only.';
-
-  Future<void> _openUrl(String url) async {
-    final uri = Uri.parse(url);
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -68,14 +63,16 @@ class TmdbApiHelpDialog extends StatelessWidget {
                   label: '打开 TMDB 注册页',
                   icon: Icons.open_in_new_rounded,
                   compact: true,
-                  onPressed: () => _openUrl(TmdbNetworkConfig.tmdbSignupUrl),
+                  onPressed: () =>
+                      openKonataExternalUrl(TmdbNetworkConfig.tmdbSignupUrl),
                 ),
                 KonataPillButton.secondary(
                   label: '打开 API 申请页面',
                   icon: Icons.key_rounded,
                   compact: true,
-                  onPressed: () =>
-                      _openUrl(TmdbNetworkConfig.tmdbApiSettingsUrl),
+                  onPressed: () => openKonataExternalUrl(
+                    TmdbNetworkConfig.tmdbApiSettingsUrl,
+                  ),
                 ),
               ],
             ),

@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:http/http.dart' as http;
+
 import '../../domain/logging/diagnostic_event.dart';
 import '../../domain/models/network_config.dart';
 import '../../domain/sync/bangumi_sync_models.dart';
@@ -40,10 +42,8 @@ class BangumiSubjectEpisodeCollectionResult {
 /// 绝不向任何第三方社区镜像转发用户个人访问令牌。
 class BangumiSyncClient {
   /// 创建 Bangumi 进度同步客户端。
-  BangumiSyncClient({
-    required TmdbHttpClient httpClient,
-    this._logStore,
-  }) : _http = httpClient;
+  BangumiSyncClient({required TmdbHttpClient httpClient, this._logStore})
+    : _http = httpClient;
 
   static const String _userAgent =
       'ClainSt/Konata (+https://github.com/ClainSt/Konata)';
@@ -57,52 +57,84 @@ class BangumiSyncClient {
     return query == null ? base : base.replace(queryParameters: query);
   }
 
-  Map<String, String> _authHeaders(String pat) {
-    return <String, String>{
-      'User-Agent': _userAgent,
-      'Accept': 'application/json',
-      'Authorization': 'Bearer ${pat.trim()}',
-    };
-  }
-
-  /// 校验个人访问令牌有效性并返回当前 Bangumi 账号公开资料（`GET /v0/me`）。
-  Future<BangumiUserProfile> verifyToken(String personalAccessToken) async {
+  /// 统一发送携带 PAT 的官方请求并校验 401/403 与非预期状态码。
+  Future<http.Response> _sendAuthed({
+    required String method,
+    required String subPath,
+    required String personalAccessToken,
+    required String actionLabel,
+    Map<String, String>? query,
+    Object? jsonBody,
+    RequestPriority priority = RequestPriority.background,
+    bool allow404 = false,
+    bool logAuthFailure = false,
+  }) async {
     final pat = personalAccessToken.trim();
     if (pat.isEmpty) {
       throw const BangumiAuthException('请先填写 Bangumi 个人访问令牌（PAT）');
     }
     final resp = await _http.sendWithFallback(
-      method: 'GET',
-      primaryUri: _officialUri('/me'),
-      headers: _authHeaders(pat),
-      priority: RequestPriority.interactive,
+      method: method,
+      primaryUri: _officialUri(subPath, query),
+      headers: <String, String>{
+        'User-Agent': _userAgent,
+        'Accept': 'application/json',
+        'Authorization': 'Bearer $pat',
+      },
+      body: jsonBody == null ? null : jsonEncode(jsonBody),
+      priority: priority,
       bucketKey: _bucketKey,
     );
     if (resp.statusCode == 401 || resp.statusCode == 403) {
-      _logStore?.logEvent(
-        subsystem: DiagnosticSubsystem.bangumi,
-        severity: DiagnosticSeverity.warn,
-        code: 'BGM_AUTH_401',
-        message: 'Bangumi PAT 校验被拒绝（HTTP ${resp.statusCode}）',
-        source:
-            'lib/infrastructure/network/bangumi_sync_client.dart:verifyToken',
-        context: <String, Object?>{'httpStatus': resp.statusCode},
-      );
+      if (logAuthFailure) {
+        _logStore?.logEvent(
+          subsystem: DiagnosticSubsystem.bangumi,
+          severity: DiagnosticSeverity.warn,
+          code: 'BGM_AUTH_401',
+          message: 'Bangumi PAT 校验被拒绝（HTTP ${resp.statusCode}）',
+          source:
+              'lib/infrastructure/network/bangumi_sync_client.dart:_sendAuthed',
+          context: <String, Object?>{'httpStatus': resp.statusCode},
+        );
+      }
       throw BangumiAuthException(
         'Bangumi 令牌无效或已过期（HTTP ${resp.statusCode}），请重新生成后填写',
         statusCode: resp.statusCode,
       );
     }
-    if (resp.statusCode != 200) {
-      throw StateError('Bangumi 账号验证失败（HTTP ${resp.statusCode}）');
+    if (allow404 && resp.statusCode == 404) {
+      return resp;
     }
-    final decoded = jsonDecode(utf8.decode(resp.bodyBytes));
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw StateError('$actionLabel失败（HTTP ${resp.statusCode}）');
+    }
+    return resp;
+  }
+
+  Map<String, Object?> _decodeJsonObject(http.Response resp, String label) {
+    final dynamic decoded;
+    try {
+      decoded = jsonDecode(utf8.decode(resp.bodyBytes));
+    } catch (_) {
+      throw FormatException('$label返回了非 JSON 响应内容');
+    }
     if (decoded is! Map) {
-      throw const FormatException('Bangumi /v0/me 返回格式异常');
+      throw FormatException('$label返回格式异常');
     }
-    return BangumiUserProfile.fromJson(
-      decoded.map((k, v) => MapEntry(k.toString(), v)),
+    return decoded.map((k, v) => MapEntry(k.toString(), v));
+  }
+
+  /// 校验个人访问令牌有效性并返回当前 Bangumi 账号公开资料（`GET /v0/me`）。
+  Future<BangumiUserProfile> verifyToken(String personalAccessToken) async {
+    final resp = await _sendAuthed(
+      method: 'GET',
+      subPath: '/me',
+      personalAccessToken: personalAccessToken,
+      actionLabel: 'Bangumi 账号验证',
+      priority: RequestPriority.interactive,
+      logAuthFailure: true,
     );
+    return BangumiUserProfile.fromJson(_decodeJsonObject(resp, 'Bangumi /v0/me'));
   }
 
   /// 分页拉取当前用户在指定 Bangumi 条目下的全部分集观看状态（`GET /v0/users/-/collections/{id}/episodes`）。
@@ -111,28 +143,22 @@ class BangumiSyncClient {
     required String personalAccessToken,
     RequestPriority priority = RequestPriority.background,
   }) async {
-    final pat = personalAccessToken.trim();
-    if (pat.isEmpty) {
-      throw const BangumiAuthException('尚未配置 Bangumi PAT 令牌');
-    }
     const pageSize = 100;
     var offset = 0;
-    var total = 0;
     final all = <BangumiRemoteEpisodeProgress>[];
 
     while (true) {
-      final resp = await _http.sendWithFallback(
+      final resp = await _sendAuthed(
         method: 'GET',
-        primaryUri: _officialUri(
-          '/users/-/collections/$subjectId/episodes',
-          <String, String>{
-            'limit': pageSize.toString(),
-            'offset': offset.toString(),
-          },
-        ),
-        headers: _authHeaders(pat),
+        subPath: '/users/-/collections/$subjectId/episodes',
+        query: <String, String>{
+          'limit': pageSize.toString(),
+          'offset': offset.toString(),
+        },
+        personalAccessToken: personalAccessToken,
+        actionLabel: '拉取 Bangumi 条目 #$subjectId 分集进度',
         priority: priority,
-        bucketKey: _bucketKey,
+        allow404: true,
       );
       if (resp.statusCode == 404) {
         return const BangumiSubjectEpisodeCollectionResult(
@@ -140,27 +166,13 @@ class BangumiSyncClient {
           episodes: <BangumiRemoteEpisodeProgress>[],
         );
       }
-      if (resp.statusCode == 401 || resp.statusCode == 403) {
-        throw BangumiAuthException(
-          'Bangumi 令牌无效或已过期（HTTP ${resp.statusCode}）',
-          statusCode: resp.statusCode,
-        );
-      }
-      if (resp.statusCode != 200) {
-        throw StateError(
-          '拉取 Bangumi 条目 #$subjectId 分集进度失败（HTTP ${resp.statusCode}）',
-        );
-      }
-
-      final decoded = jsonDecode(utf8.decode(resp.bodyBytes));
-      if (decoded is! Map) break;
-      total = (decoded['total'] as num?)?.toInt() ?? 0;
+      final decoded = _decodeJsonObject(resp, 'Bangumi 分集进度');
+      final total = (decoded['total'] as num?)?.toInt() ?? 0;
       final data = decoded['data'];
       if (data is! List || data.isEmpty) break;
 
       for (final item in data) {
         if (item is! Map) continue;
-        final watchStatus = (item['type'] as num?)?.toInt() ?? 0;
         final epRaw = item['episode'];
         if (epRaw is! Map) continue;
         final epId = (epRaw['id'] as num?)?.toInt() ?? 0;
@@ -173,15 +185,13 @@ class BangumiSyncClient {
             ep: (epRaw['ep'] as num?)?.toDouble(),
             name: (epRaw['name'] ?? '').toString(),
             nameCn: (epRaw['name_cn'] ?? '').toString(),
-            watchStatus: watchStatus,
+            watchStatus: (item['type'] as num?)?.toInt() ?? 0,
           ),
         );
       }
 
       offset += data.length;
-      if (offset >= total || data.length < pageSize || offset >= 1000) {
-        break;
-      }
+      if (offset >= total || data.length < pageSize || offset >= 1000) break;
     }
 
     return BangumiSubjectEpisodeCollectionResult(
@@ -197,29 +207,14 @@ class BangumiSyncClient {
     required String personalAccessToken,
     RequestPriority priority = RequestPriority.background,
   }) async {
-    final pat = personalAccessToken.trim();
-    if (pat.isEmpty) {
-      throw const BangumiAuthException('尚未配置 Bangumi PAT 令牌');
-    }
-    final resp = await _http.sendWithFallback(
+    await _sendAuthed(
       method: 'POST',
-      primaryUri: _officialUri('/users/-/collections/$subjectId'),
-      headers: _authHeaders(pat),
-      body: jsonEncode(<String, Object?>{'type': collectionType}),
+      subPath: '/users/-/collections/$subjectId',
+      personalAccessToken: personalAccessToken,
+      jsonBody: <String, Object?>{'type': collectionType},
+      actionLabel: '更新 Bangumi 条目 #$subjectId 收藏状态',
       priority: priority,
-      bucketKey: _bucketKey,
     );
-    if (resp.statusCode == 401 || resp.statusCode == 403) {
-      throw BangumiAuthException(
-        'Bangumi 令牌无效或已过期（HTTP ${resp.statusCode}）',
-        statusCode: resp.statusCode,
-      );
-    }
-    if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      throw StateError(
-        '更新 Bangumi 条目 #$subjectId 收藏状态失败（HTTP ${resp.statusCode}）',
-      );
-    }
   }
 
   /// 批量更新指定条目下多个章节的观看状态（单次 `PATCH`，避免逐集请求触发限流）。
@@ -231,32 +226,17 @@ class BangumiSyncClient {
     RequestPriority priority = RequestPriority.background,
   }) async {
     if (episodeIds.isEmpty) return;
-    final pat = personalAccessToken.trim();
-    if (pat.isEmpty) {
-      throw const BangumiAuthException('尚未配置 Bangumi PAT 令牌');
-    }
-    final resp = await _http.sendWithFallback(
+    await _sendAuthed(
       method: 'PATCH',
-      primaryUri: _officialUri('/users/-/collections/$subjectId/episodes'),
-      headers: _authHeaders(pat),
-      body: jsonEncode(<String, Object?>{
+      subPath: '/users/-/collections/$subjectId/episodes',
+      personalAccessToken: personalAccessToken,
+      jsonBody: <String, Object?>{
         'episode_id': episodeIds,
         'type': watchStatus,
-      }),
+      },
+      actionLabel: '批量上报 Bangumi 条目 #$subjectId 章节进度',
       priority: priority,
-      bucketKey: _bucketKey,
     );
-    if (resp.statusCode == 401 || resp.statusCode == 403) {
-      throw BangumiAuthException(
-        'Bangumi 令牌无效或已过期（HTTP ${resp.statusCode}）',
-        statusCode: resp.statusCode,
-      );
-    }
-    if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      throw StateError(
-        '批量上报 Bangumi 条目 #$subjectId 章节进度失败（HTTP ${resp.statusCode}）',
-      );
-    }
   }
 
   /// 更新单个章节的观看状态（`PUT /v0/users/-/collections/-/episodes/{episode_id}`）。
@@ -266,28 +246,13 @@ class BangumiSyncClient {
     required String personalAccessToken,
     RequestPriority priority = RequestPriority.background,
   }) async {
-    final pat = personalAccessToken.trim();
-    if (pat.isEmpty) {
-      throw const BangumiAuthException('尚未配置 Bangumi PAT 令牌');
-    }
-    final resp = await _http.sendWithFallback(
+    await _sendAuthed(
       method: 'PUT',
-      primaryUri: _officialUri('/users/-/collections/-/episodes/$episodeId'),
-      headers: _authHeaders(pat),
-      body: jsonEncode(<String, Object?>{'type': watchStatus}),
+      subPath: '/users/-/collections/-/episodes/$episodeId',
+      personalAccessToken: personalAccessToken,
+      jsonBody: <String, Object?>{'type': watchStatus},
+      actionLabel: '上报 Bangumi 单集 #$episodeId 进度',
       priority: priority,
-      bucketKey: _bucketKey,
     );
-    if (resp.statusCode == 401 || resp.statusCode == 403) {
-      throw BangumiAuthException(
-        'Bangumi 令牌无效或已过期（HTTP ${resp.statusCode}）',
-        statusCode: resp.statusCode,
-      );
-    }
-    if (resp.statusCode < 200 || resp.statusCode >= 300) {
-      throw StateError(
-        '上报 Bangumi 单集 #$episodeId 进度失败（HTTP ${resp.statusCode}）',
-      );
-    }
   }
 }

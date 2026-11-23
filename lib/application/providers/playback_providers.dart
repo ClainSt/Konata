@@ -115,20 +115,12 @@ class PlaybackCoordinator {
     final initialCompleted = prevRecord?.isCompleted ?? false;
     final recordId = prevRecord?.id ?? '${work.id}::${episode.id}';
 
-    MediaSource? resolvedSource = source;
-    if (resolvedSource == null) {
-      final allSources = await repo.getMediaSources();
-      for (final s in allSources) {
-        if (s.id == variant.sourceId) {
-          resolvedSource = s;
-          break;
-        }
-      }
-    }
+    final resolvedSource = await _resolveSource(source, variant.sourceId);
 
     final preferredKindKey = _ref
         .read(playbackPreferencesProvider)
         .preferredRelayKindKey;
+    final episodeTitle = _resolveEpisodeTitle(work, episode);
     final launchRes = await gateway.launchVideo(
       work: work,
       episode: episode,
@@ -144,7 +136,7 @@ class PlaybackCoordinator {
               positionSeconds: posSeconds,
               durationSeconds: durSeconds,
             );
-            await repo.recordPlayback(
+            await _recordAndRefresh(
               PlaybackRecord(
                 id: recordId,
                 workId: work.id,
@@ -152,13 +144,7 @@ class PlaybackCoordinator {
                 variantId: variant.id,
                 seasonNumber: episode.seasonNumber,
                 episodeNumber: episode.episodeNumber,
-                episodeTitle:
-                    episode.title ??
-                    (episode.episodeNumber != null
-                        ? '第 ${episode.episodeNumber} 话'
-                        : (episode.category == EpisodeCategory.extra
-                              ? (episode.extraType?.name.toUpperCase() ?? '特典')
-                              : work.title)),
+                episodeTitle: episodeTitle,
                 sourceType: sourceType,
                 playedAt: DateTime.now(),
                 positionSeconds: posSeconds,
@@ -173,12 +159,11 @@ class PlaybackCoordinator {
                     .notifyEpisodeCompleted(work: work, episode: episode),
               );
             }
-            _invalidateWorkAndHistory(work.id);
           },
     );
 
     if (launchRes.launched) {
-      await repo.recordPlayback(
+      await _recordAndRefresh(
         PlaybackRecord(
           id: recordId,
           workId: work.id,
@@ -186,13 +171,7 @@ class PlaybackCoordinator {
           variantId: variant.id,
           seasonNumber: episode.seasonNumber,
           episodeNumber: episode.episodeNumber,
-          episodeTitle:
-              episode.title ??
-              (episode.episodeNumber != null
-                  ? '第 ${episode.episodeNumber} 话'
-                  : (episode.category == EpisodeCategory.extra
-                        ? (episode.extraType?.name.toUpperCase() ?? '特典')
-                        : work.title)),
+          episodeTitle: episodeTitle,
           sourceType: sourceType,
           playedAt: DateTime.now(),
           positionSeconds: initialPosition,
@@ -200,7 +179,6 @@ class PlaybackCoordinator {
           isCompleted: initialCompleted,
         ),
       );
-      _invalidateWorkAndHistory(work.id);
     }
     return launchRes;
   }
@@ -226,23 +204,16 @@ class PlaybackCoordinator {
         : (existing != null && existing.positionSeconds > 0
               ? existing.positionSeconds
               : 1);
-    final recordId = existing?.id ?? '${work.id}::${episode.id}';
 
-    await repo.recordPlayback(
+    await _recordAndRefresh(
       PlaybackRecord(
-        id: recordId,
+        id: existing?.id ?? '${work.id}::${episode.id}',
         workId: work.id,
         episodeId: episode.id,
         variantId: variant?.id ?? existing?.variantId ?? '',
         seasonNumber: episode.seasonNumber,
         episodeNumber: episode.episodeNumber,
-        episodeTitle:
-            episode.title ??
-            (episode.episodeNumber != null
-                ? '第 ${episode.episodeNumber} 话'
-                : (episode.category == EpisodeCategory.extra
-                      ? (episode.extraType?.name.toUpperCase() ?? '特典')
-                      : work.title)),
+        episodeTitle: _resolveEpisodeTitle(work, episode),
         sourceType: existing?.sourceType ?? sourceType,
         playedAt: DateTime.now(),
         positionSeconds: dur,
@@ -255,7 +226,6 @@ class PlaybackCoordinator {
           .read(bangumiSyncControllerProvider.notifier)
           .notifyEpisodeCompleted(work: work, episode: episode),
     );
-    _invalidateWorkAndHistory(work.id);
   }
 
   /// 直接将一条既有播放历史记录标记为「已看完」。
@@ -406,16 +376,7 @@ class PlaybackCoordinator {
         ? prevRecord!.episodeTitle
         : variant.fileName;
 
-    MediaSource? resolvedSource = source;
-    if (resolvedSource == null) {
-      final allSources = await repo.getMediaSources();
-      for (final s in allSources) {
-        if (s.id == variant.sourceId) {
-          resolvedSource = s;
-          break;
-        }
-      }
-    }
+    final resolvedSource = await _resolveSource(source, variant.sourceId);
     final sourceType = resolvedSource?.kind ?? MediaSourceKind.local;
 
     final tempEpisode = Episode(
@@ -441,7 +402,7 @@ class PlaybackCoordinator {
               durationSeconds: durSeconds,
               isAudio: true,
             );
-            await repo.recordPlayback(
+            await _recordAndRefresh(
               PlaybackRecord(
                 id: recordId,
                 workId: work.id,
@@ -459,12 +420,11 @@ class PlaybackCoordinator {
                 isCompleted: completed,
               ),
             );
-            _invalidateWorkAndHistory(work.id);
           },
     );
 
     if (launchRes.launched) {
-      await repo.recordPlayback(
+      await _recordAndRefresh(
         PlaybackRecord(
           id: recordId,
           workId: work.id,
@@ -480,7 +440,6 @@ class PlaybackCoordinator {
           isCompleted: initialCompleted,
         ),
       );
-      _invalidateWorkAndHistory(work.id);
     }
     return launchRes;
   }
@@ -498,17 +457,10 @@ class PlaybackCoordinator {
     }
 
     final repo = _ref.read(libraryRepositoryProvider);
-    MediaSource? resolvedSource = request.source;
-    if (resolvedSource == null) {
-      final targetSourceId = request.initialTrack.variant.sourceId;
-      final allSources = await repo.getMediaSources();
-      for (final s in allSources) {
-        if (s.id == targetSourceId) {
-          resolvedSource = s;
-          break;
-        }
-      }
-    }
+    final resolvedSource = await _resolveSource(
+      request.source,
+      request.initialTrack.variant.sourceId,
+    );
     final sourceType = resolvedSource?.kind ?? MediaSourceKind.local;
 
     final existingRecords = await repo.getPlaybacksByWork(request.work.id);
@@ -547,7 +499,7 @@ class PlaybackCoordinator {
               durationSeconds: durSeconds,
               isAudio: true,
             );
-        await repo.recordPlayback(
+        await _recordAndRefresh(
           PlaybackRecord(
             id: track.recordId,
             workId: request.work.id,
@@ -565,7 +517,6 @@ class PlaybackCoordinator {
             isCompleted: completed,
           ),
         );
-        _invalidateWorkAndHistory(request.work.id);
       },
     );
 
@@ -578,7 +529,7 @@ class PlaybackCoordinator {
       final initDur = initTrack.resolvedDurationSeconds > 0
           ? initTrack.resolvedDurationSeconds
           : (prev?.durationSeconds ?? 0);
-      await repo.recordPlayback(
+      await _recordAndRefresh(
         PlaybackRecord(
           id: initTrack.recordId,
           workId: request.work.id,
@@ -594,14 +545,36 @@ class PlaybackCoordinator {
           isCompleted: false,
         ),
       );
-      _invalidateWorkAndHistory(request.work.id);
     }
     return launchRes;
   }
 
-  void _invalidateWorkAndHistory(String workId) {
+  Future<MediaSource?> _resolveSource(
+    MediaSource? source,
+    String sourceId,
+  ) async {
+    if (source != null) return source;
+    final allSources = await _ref
+        .read(libraryRepositoryProvider)
+        .getMediaSources();
+    for (final s in allSources) {
+      if (s.id == sourceId) return s;
+    }
+    return null;
+  }
+
+  static String _resolveEpisodeTitle(Work work, Episode episode) =>
+      episode.title ??
+      (episode.episodeNumber != null
+          ? '第 ${episode.episodeNumber} 话'
+          : (episode.category == EpisodeCategory.extra
+                ? (episode.extraType?.name.toUpperCase() ?? '特典')
+                : work.title));
+
+  Future<void> _recordAndRefresh(PlaybackRecord record) async {
+    await _ref.read(libraryRepositoryProvider).recordPlayback(record);
     _ref.invalidate(playbackHistoryProvider);
-    _ref.invalidate(workDetailBundleProvider(workId));
+    _ref.invalidate(workDetailBundleProvider(record.workId));
   }
 }
 

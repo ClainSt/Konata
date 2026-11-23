@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:drift/native.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -10,6 +11,9 @@ import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqlite3/sqlite3.dart' as sq;
 
+import 'package:konata/application/providers/diagnostics_providers.dart';
+import 'package:konata/application/providers/library_providers.dart';
+import 'package:konata/application/providers/sync_providers.dart';
 import 'package:konata/application/sync/konata_backup_service.dart';
 import 'package:konata/application/sync/webdav_sync_coordinator.dart';
 import 'package:konata/domain/models/episode.dart';
@@ -19,9 +23,11 @@ import 'package:konata/domain/models/playback_record.dart';
 import 'package:konata/domain/models/work.dart';
 import 'package:konata/domain/sync/konata_sync_models.dart';
 import 'package:konata/infrastructure/database/drift_library_repository.dart';
+import 'package:konata/infrastructure/database/drift_playback_helpers.dart';
 import 'package:konata/infrastructure/database/konata_database.dart';
 import 'package:konata/infrastructure/logging/diagnostics_log_store.dart';
 import 'package:konata/infrastructure/sync/konata_sync_store.dart';
+import 'package:konata/infrastructure/sync/webdav_sync_config_repository.dart';
 
 /// 内存模拟 WebDAV 服务器（支持 MKCOL、GET、PUT 与首次 Digest 401 质询）。
 class _InMemoryWebDavServer {
@@ -645,5 +651,89 @@ void main() {
       expect(diagReport, isNot(contains('dav_secret_password')));
       expect(diagReport, contains('SYNC_WEBDAV_COMPLETED'));
     });
+
+    test('数据库损坏 JSON 字符串列表容错降级且不抛异常', () {
+      expect(decodeJsonStringList('["a.ass","b.srt"]'), ['a.ass', 'b.srt']);
+      expect(decodeJsonStringList(''), isEmpty);
+      expect(decodeJsonStringList('   '), isEmpty);
+      expect(decodeJsonStringList('{corrupt-json'), isEmpty);
+      expect(decodeJsonStringList('{"not":"a-list"}'), isEmpty);
+    });
+
+    test('WebDAV 启动自动同步与停播自动同步开关真实触发同步', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final server = _InMemoryWebDavServer();
+      final mockClient = server.buildClient();
+      final db = KonataDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final repo = DriftLibraryRepository(db);
+      final store = KonataSyncStore(db);
+      final logStore = DiagnosticsLogStore();
+      final backupService = KonataBackupService(
+        repository: repo,
+        syncStore: store,
+        logStore: logStore,
+      );
+      final coordinator = WebDavSyncCoordinator(
+        backupService: backupService,
+        syncStore: store,
+        logStore: logStore,
+        httpClientForTest: mockClient,
+      );
+      final configRepo = _InMemoryWebDavConfigRepo(
+        const WebDavSyncConfig(
+          enabled: true,
+          baseUrl: 'https://dav.example.com/root',
+          username: 'konata',
+          password: 'pwd',
+          remoteDir: 'KonataSync',
+          autoSyncOnStartup: true,
+          autoSyncOnPlaybackStop: true,
+        ),
+      );
+
+      final container = ProviderContainer(
+        overrides: [
+          libraryRepositoryProvider.overrideWithValue(repo),
+          konataSyncStoreProvider.overrideWithValue(store),
+          diagnosticsLogStoreProvider.overrideWithValue(logStore),
+          konataBackupServiceProvider.overrideWithValue(backupService),
+          webDavSyncCoordinatorProvider.overrideWithValue(coordinator),
+          webDavSyncConfigRepositoryProvider.overrideWithValue(configRepo),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      // 读取控制器触发 _restore() 与启动自动同步
+      container.read(webDavSyncControllerProvider);
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      final afterStartup = container.read(webDavSyncControllerProvider);
+      expect(afterStartup.loaded, isTrue);
+      expect(afterStartup.lastSyncAt, isNotNull);
+      expect(server.files.keys.any((k) => k.endsWith('/manifest.json')), isTrue);
+
+      // 停播触发防抖自动同步（更新远端分片）
+      final prevFilesCount = server.files.length;
+      server.files.clear();
+      container
+          .read(webDavSyncControllerProvider.notifier)
+          .notifyPlaybackStopped();
+      await Future<void>.delayed(const Duration(milliseconds: 2300));
+      expect(server.files.length, greaterThanOrEqualTo(prevFilesCount));
+    });
   });
+}
+
+class _InMemoryWebDavConfigRepo extends WebDavSyncConfigRepository {
+  _InMemoryWebDavConfigRepo(this._config);
+
+  WebDavSyncConfig _config;
+
+  @override
+  Future<WebDavSyncConfig> load() async => _config;
+
+  @override
+  Future<void> save(WebDavSyncConfig config) async {
+    _config = config;
+  }
 }

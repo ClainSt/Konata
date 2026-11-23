@@ -11,6 +11,7 @@ import '../../application/playback/unified_playback_coordinator.dart';
 import '../../application/playback/video_playback_controller.dart';
 import '../../application/providers/konata_value_notifier.dart';
 import '../../application/providers/memory_coordinator.dart';
+import '../../application/providers/sync_providers.dart';
 import '../shell/adaptive_capsule_layout.dart';
 import '../shell/android_scroll_capture_bridge.dart';
 import '../theme/konata_adaptive_tokens.dart';

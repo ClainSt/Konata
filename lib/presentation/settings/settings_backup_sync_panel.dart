@@ -17,6 +17,7 @@ import '../widgets/design_system/konata_surface_card.dart';
 import '../widgets/design_system/konata_switch.dart';
 import '../widgets/design_system/konata_system_file_picker.dart';
 import '../widgets/design_system/konata_toast.dart';
+import 'settings_shared_widgets.dart';
 
 /// 备份与同步设置面板（本地 `.konata` 备份恢复 + WebDAV 多设备分片同步）。
 class SettingsBackupSyncPanel extends ConsumerStatefulWidget {
@@ -42,13 +43,20 @@ class _SettingsBackupSyncPanelState
   bool _obscurePassword = true;
   bool _exportingBackup = false;
   bool _restoringBackup = false;
+  bool _hasPendingSave = false;
   Timer? _autoSaveTimer;
+  WebDavSyncController? _syncController;
+  WebDavSyncConfig _lastKnownConfig = const WebDavSyncConfig();
   String? _testResultText;
   bool _testResultIsError = false;
 
   @override
   void dispose() {
     _autoSaveTimer?.cancel();
+    if (_hasPendingSave && _syncController != null) {
+      _hasPendingSave = false;
+      unawaited(_syncController!.saveConfig(_draftConfig(_lastKnownConfig)));
+    }
     _urlController.dispose();
     _dirController.dispose();
     _userController.dispose();
@@ -57,6 +65,8 @@ class _SettingsBackupSyncPanelState
   }
 
   void _syncControllersIfNeeded(WebDavSyncUiState syncState) {
+    _syncController = ref.read(webDavSyncControllerProvider.notifier);
+    _lastKnownConfig = syncState.config;
     if (_initializedForm || !syncState.loaded) return;
     _initializedForm = true;
     _urlController.text = syncState.config.baseUrl;
@@ -77,9 +87,11 @@ class _SettingsBackupSyncPanelState
   }
 
   void _scheduleSaveConfig() {
+    _hasPendingSave = true;
     _autoSaveTimer?.cancel();
     _autoSaveTimer = Timer(KonataTheme.settingsAutoSaveDebounce, () {
       if (!mounted) return;
+      _hasPendingSave = false;
       final current = ref.read(webDavSyncControllerProvider).config;
       unawaited(
         ref
@@ -87,19 +99,6 @@ class _SettingsBackupSyncPanelState
             .saveConfig(_draftConfig(current)),
       );
     });
-  }
-
-  String _formatDateTime(DateTime dt) {
-    String two(int v) => v.toString().padLeft(2, '0');
-    return '${dt.year}.${two(dt.month)}.${two(dt.day)} '
-        '${two(dt.hour)}:${two(dt.minute)}';
-  }
-
-  String _timestampSuffix() {
-    final now = DateTime.now();
-    String two(int v) => v.toString().padLeft(2, '0');
-    return '${now.year}${two(now.month)}${two(now.day)}_'
-        '${two(now.hour)}${two(now.minute)}${two(now.second)}';
   }
 
   Future<void> _exportBackup() async {
@@ -111,7 +110,7 @@ class _SettingsBackupSyncPanelState
           .exportKonataArchiveBytes();
       final uri = await ref.read(konataSystemFilePickerProvider).saveFile(
         dialogTitle: '导出 Konata 本地备份',
-        fileName: 'konata_backup_${_timestampSuffix()}.konata',
+        fileName: 'konata_backup_${buildKonataFileTimestampSuffix()}.konata',
         bytes: bytes,
       );
       if (uri == null || !mounted) return;
@@ -197,7 +196,7 @@ class _SettingsBackupSyncPanelState
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  '来源：${preview.deviceName} · ${_formatDateTime(preview.exportedAt)}',
+                  '来源：${preview.deviceName} · ${formatKonataShortDateTime(preview.exportedAt)}',
                   style: TextStyle(
                     color: p.textMuted,
                     fontSize: KonataTheme.fontSizeBodyXs,
@@ -296,20 +295,10 @@ class _SettingsBackupSyncPanelState
     }
   }
 
-  Widget _buildLeadingBox(KonataPalette p, IconData icon) {
-    return SizedBox(
-      width: 38,
-      height: 38,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: p.softFill,
-          borderRadius: KonataTheme.borderRadiusControl,
-          border: Border.all(color: p.hairline, width: 1),
-        ),
-        child: Center(child: Icon(icon, size: 20, color: p.textSecondary)),
-      ),
-    );
-  }
+  Widget _buildLeadingBox(KonataPalette p, IconData icon) =>
+      KonataSettingsLeadingBox(
+        child: Icon(icon, size: 20, color: p.textSecondary),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -319,7 +308,7 @@ class _SettingsBackupSyncPanelState
 
     final lastSyncText = syncState.lastSyncAt == null
         ? '尚未同步'
-        : '上次同步：${_formatDateTime(syncState.lastSyncAt!)}'
+        : '上次同步：${formatKonataShortDateTime(syncState.lastSyncAt!)}'
               '${syncState.lastSummary != null ? ' · ${syncState.lastSummary}' : ''}';
 
     return Column(
@@ -450,52 +439,34 @@ class _SettingsBackupSyncPanelState
                 onChanged: (_) => _scheduleSaveConfig(),
               ),
               const SizedBox(height: 14),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      '启动时自动同步',
-                      style: TextStyle(
-                        color: p.textPrimary,
-                        fontSize: KonataTheme.fontSizeBodySm,
-                      ),
-                    ),
-                  ),
-                  KonataSwitch(
-                    value: syncState.config.autoSyncOnStartup,
-                    onChanged: (value) => ref
-                        .read(webDavSyncControllerProvider.notifier)
-                        .saveConfig(
-                          _draftConfig(
-                            syncState.config,
-                          ).copyWith(autoSyncOnStartup: value),
-                        ),
-                  ),
-                ],
+              KonataSettingsSwitchRow(
+                label: '启动时自动同步',
+                value: syncState.config.autoSyncOnStartup,
+                onChanged: (value) {
+                  _hasPendingSave = false;
+                  ref
+                      .read(webDavSyncControllerProvider.notifier)
+                      .saveConfig(
+                        _draftConfig(
+                          syncState.config,
+                        ).copyWith(autoSyncOnStartup: value),
+                      );
+                },
               ),
               const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      '停播后静默上传进度',
-                      style: TextStyle(
-                        color: p.textPrimary,
-                        fontSize: KonataTheme.fontSizeBodySm,
-                      ),
-                    ),
-                  ),
-                  KonataSwitch(
-                    value: syncState.config.autoSyncOnPlaybackStop,
-                    onChanged: (value) => ref
-                        .read(webDavSyncControllerProvider.notifier)
-                        .saveConfig(
-                          _draftConfig(
-                            syncState.config,
-                          ).copyWith(autoSyncOnPlaybackStop: value),
-                        ),
-                  ),
-                ],
+              KonataSettingsSwitchRow(
+                label: '停播后静默上传进度',
+                value: syncState.config.autoSyncOnPlaybackStop,
+                onChanged: (value) {
+                  _hasPendingSave = false;
+                  ref
+                      .read(webDavSyncControllerProvider.notifier)
+                      .saveConfig(
+                        _draftConfig(
+                          syncState.config,
+                        ).copyWith(autoSyncOnPlaybackStop: value),
+                      );
+                },
               ),
               const SizedBox(height: 16),
               Wrap(

@@ -109,40 +109,12 @@ class _FloatingVideoPlayPauseCornerLeaf extends ConsumerWidget {
     final isPlaying = ref.watch(
       videoPlaybackProvider(request).select((s) => s.isPlaying),
     );
-    return Tooltip(
-      message: isPlaying ? '暂停' : '播放',
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: GestureDetector(
-          key: const ValueKey('floating_mini_video_play_pause'),
-          behavior: HitTestBehavior.opaque,
-          onTap: () =>
-              ref.read(videoPlaybackProvider(request).notifier).togglePlayPause(),
-          child: SizedBox.square(
-            dimension: KonataAdaptiveTokens.touchTarget,
-            child: Center(
-              child: Container(
-                width: KonataPlaybackTokens.floatingMiniOverlayPillSize,
-                height: KonataPlaybackTokens.floatingMiniOverlayPillSize,
-                decoration: BoxDecoration(
-                  color: KonataPlaybackTokens.videoOverlayBadgeBg,
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: KonataPlaybackTokens.videoOverlayBadgeBorder,
-                    width: KonataPlaybackTokens.floatingMiniBorderWidth,
-                  ),
-                ),
-                alignment: Alignment.center,
-                child: Icon(
-                  isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                  size: KonataPlaybackTokens.floatingMiniOverlayIconSize,
-                  color: KonataPlaybackTokens.videoOverlayBadgeFg,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
+    return _FloatingOverlayCornerButton(
+      buttonKey: const ValueKey('floating_mini_video_play_pause'),
+      icon: isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+      tooltip: isPlaying ? '暂停' : '播放',
+      onTap: () =>
+          ref.read(videoPlaybackProvider(request).notifier).togglePlayPause(),
     );
   }
 }

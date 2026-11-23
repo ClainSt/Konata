@@ -103,11 +103,13 @@ class _PlaybackSessionCoordinator extends ConsumerWidget {
         }
       },
     );
-    // 桌面置顶迷你窗模式期间若活跃播放意外结束或被关闭，自动退出迷你窗并还原主窗口，防滞留空白小窗。
+    // 桌面置顶迷你窗模式期间若活跃播放意外结束或被关闭，自动退出迷你窗并还原主窗口，防滞留空白小窗；
+    // 同时按需通知 WebDAV 同步控制器执行停播静默同步。
     ref.listen<bool>(
       activeVideoSessionProvider.select((s) => s.isActive),
       (prev, next) {
         if (prev == true && !next) {
+          ref.read(webDavSyncControllerProvider.notifier).notifyPlaybackStopped();
           final mini = ref.read(desktopAlwaysOnTopMiniModeProvider);
           if (mini.kind == DesktopAlwaysOnTopMiniKind.video) {
             unawaited(
@@ -123,6 +125,7 @@ class _PlaybackSessionCoordinator extends ConsumerWidget {
       audioPlaybackProvider.select((s) => s.isActive),
       (prev, next) {
         if (prev == true && !next) {
+          ref.read(webDavSyncControllerProvider.notifier).notifyPlaybackStopped();
           final mini = ref.read(desktopAlwaysOnTopMiniModeProvider);
           if (mini.kind == DesktopAlwaysOnTopMiniKind.audio) {
             unawaited(

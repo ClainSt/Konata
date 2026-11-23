@@ -533,7 +533,12 @@ class TmdbService {
       throw StateError('TMDB 请求失败: HTTP ${response.statusCode}');
     }
 
-    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    Object? decoded;
+    try {
+      decoded = jsonDecode(utf8.decode(response.bodyBytes, allowMalformed: true));
+    } on FormatException {
+      return null;
+    }
     if (decoded is! Map) return null;
     return decoded.map((k, v) => MapEntry(k.toString(), v));
   }

@@ -95,16 +95,13 @@ class KonataDropdown<T> extends StatefulWidget {
   State<KonataDropdown<T>> createState() => _KonataDropdownState<T>();
 }
 
-class _KonataDropdownState<T> extends State<KonataDropdown<T>> {
+/// 下拉浮层宿主共用状态与触发器壳层混入，统一三种下拉组件的定位、开关与样式逻辑。
+mixin _KonataDropdownHostMixin<W extends StatefulWidget> on State<W> {
   final LayerLink _link = LayerLink();
   OverlayEntry? _entry;
   bool _hovered = false;
 
-  @override
-  void dispose() {
-    _closeMenu(notify: false);
-    super.dispose();
-  }
+  bool get _isOpen => _entry != null;
 
   void _closeMenu({bool notify = true}) {
     _entry?.remove();
@@ -114,8 +111,26 @@ class _KonataDropdownState<T> extends State<KonataDropdown<T>> {
     }
   }
 
-  void _toggleMenu() {
-    if (!widget.enabled || widget.options.isEmpty) return;
+  /// 切换悬浮下拉菜单：已展开则收起，否则计算安全视口位置并插入根浮层。
+  void _toggleDropdownOverlay({
+    required bool canOpen,
+    required double? menuWidth,
+    required double maxMenuHeight,
+    double minMenuWidth = 200.0,
+    double upwardThreshold = 180.0,
+    double minAvailableHeight = 140.0,
+    bool clampExplicitWidth = false,
+    bool centerAligned = false,
+    required Widget Function(
+      double width,
+      double maxHeight,
+      bool openUpward,
+      double horizontalShift,
+      double triggerHeight,
+    )
+    builder,
+  }) {
+    if (!canOpen) return;
     if (_entry != null) {
       _closeMenu();
       return;
@@ -127,52 +142,146 @@ class _KonataDropdownState<T> extends State<KonataDropdown<T>> {
     final screenSize = MediaQuery.sizeOf(context);
     final overlay = Overlay.of(context, rootOverlay: true);
 
-    final effectiveWidth = math.max(
-      widget.menuWidth ?? triggerSize.width,
-      math.min(200.0, screenSize.width - 24),
-    );
+    final effectiveWidth = clampExplicitWidth && menuWidth != null
+        ? math.min(menuWidth, screenSize.width - 24)
+        : math.max(
+            menuWidth ?? triggerSize.width,
+            math.min(minMenuWidth, screenSize.width - 24),
+          );
     final spaceBelow =
         screenSize.height - (triggerOffset.dy + triggerSize.height) - 16;
     final spaceAbove = triggerOffset.dy - 16;
-    final openUpward = spaceBelow < 180 && spaceAbove > spaceBelow;
+    final openUpward = spaceBelow < upwardThreshold && spaceAbove > spaceBelow;
     final availableHeight = math.max(
-      140.0,
-      math.min(widget.maxMenuHeight, openUpward ? spaceAbove : spaceBelow),
+      minAvailableHeight,
+      math.min(maxMenuHeight, openUpward ? spaceAbove : spaceBelow),
     );
-    final overflowRight =
-        triggerOffset.dx + effectiveWidth > screenSize.width - 12;
-    final horizontalShift = overflowRight
-        ? (screenSize.width - 12 - effectiveWidth - triggerOffset.dx)
-        : 0.0;
+    final double horizontalShift;
+    if (centerAligned) {
+      final centeredLeft =
+          triggerOffset.dx + (triggerSize.width - effectiveWidth) / 2;
+      final clampedLeft = centeredLeft.clamp(
+        12.0,
+        math.max(12.0, screenSize.width - 12 - effectiveWidth),
+      );
+      horizontalShift = clampedLeft - centeredLeft;
+    } else {
+      final overflowRight =
+          triggerOffset.dx + effectiveWidth > screenSize.width - 12;
+      horizontalShift = overflowRight
+          ? (screenSize.width - 12 - effectiveWidth - triggerOffset.dx)
+          : 0.0;
+    }
 
     _entry = OverlayEntry(
-      builder: (_) => _FrostedDropdownOverlay<T>(
-        link: _link,
-        width: effectiveWidth,
-        maxHeight: availableHeight,
-        openUpward: openUpward,
-        horizontalShift: horizontalShift,
-        triggerHeight: triggerSize.height,
-        options: widget.options,
-        selectedValue: widget.value,
-        searchable: false,
-        searchHint: '',
-        emptyText: '暂无选项',
-        onDismiss: _closeMenu,
-        onSelect: (val) {
-          _closeMenu();
-          widget.onChanged?.call(val);
-        },
+      builder: (_) => builder(
+        effectiveWidth,
+        availableHeight,
+        openUpward,
+        horizontalShift,
+        triggerSize.height,
       ),
     );
     overlay.insert(_entry!);
     setState(() {});
   }
 
+  /// 构建统一的触发器圆角毛玻璃外壳。
+  Widget _buildTriggerShell({
+    required KonataPalette p,
+    required bool enabled,
+    required double height,
+    required EdgeInsetsGeometry padding,
+    required BorderRadius borderRadius,
+    required VoidCallback onTap,
+    required Widget child,
+    double openBorderWidth = 1,
+  }) {
+    return CompositedTransformTarget(
+      link: _link,
+      child: MouseRegion(
+        cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: enabled ? onTap : null,
+          child: AnimatedContainer(
+            duration: KonataTheme.motionFast,
+            height: height,
+            padding: padding,
+            decoration: BoxDecoration(
+              color: !enabled
+                  ? p.softFill.withValues(alpha: 0.55)
+                  : (_isOpen || _hovered ? p.surfaceHover : p.softFill),
+              borderRadius: borderRadius,
+              border: Border.all(
+                color: _isOpen
+                    ? p.accent.withValues(alpha: 0.65)
+                    : (_hovered ? p.hoverBorder : p.hairline),
+                width: _isOpen ? openBorderWidth : 1,
+              ),
+            ),
+            child: child,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 构建统一的展开旋转指示箭头。
+  Widget _buildChevron(
+    KonataPalette p, {
+    required bool enabled,
+    required double size,
+  }) => AnimatedRotation(
+    turns: _isOpen ? 0.5 : 0.0,
+    duration: KonataTheme.motionMedium,
+    curve: Curves.easeOutCubic,
+    child: Icon(
+      Icons.keyboard_arrow_down_rounded,
+      size: size,
+      color: enabled ? p.textSecondary : p.textMuted,
+    ),
+  );
+}
+
+class _KonataDropdownState<T> extends State<KonataDropdown<T>>
+    with _KonataDropdownHostMixin<KonataDropdown<T>> {
+  @override
+  void dispose() {
+    _closeMenu(notify: false);
+    super.dispose();
+  }
+
+  void _toggleMenu() => _toggleDropdownOverlay(
+    canOpen: widget.enabled && widget.options.isNotEmpty,
+    menuWidth: widget.menuWidth,
+    maxMenuHeight: widget.maxMenuHeight,
+    builder: (width, maxHeight, openUpward, horizontalShift, triggerHeight) =>
+        _FrostedDropdownOverlay<T>(
+          link: _link,
+          width: width,
+          maxHeight: maxHeight,
+          openUpward: openUpward,
+          horizontalShift: horizontalShift,
+          triggerHeight: triggerHeight,
+          options: widget.options,
+          selectedValue: widget.value,
+          searchable: false,
+          searchHint: '',
+          emptyText: '暂无选项',
+          onDismiss: _closeMenu,
+          onSelect: (val) {
+            _closeMenu();
+            widget.onChanged?.call(val);
+          },
+        ),
+  );
+
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final isOpen = _entry != null;
     final activeOption = widget.options
         .where((opt) => opt.value == widget.value)
         .firstOrNull;
@@ -182,74 +291,42 @@ class _KonataDropdownState<T> extends State<KonataDropdown<T>> {
         ? 32.0
         : 38.0;
 
-    return CompositedTransformTarget(
-      link: _link,
-      child: MouseRegion(
-        cursor: widget.enabled
-            ? SystemMouseCursors.click
-            : SystemMouseCursors.basic,
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() => _hovered = false),
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: widget.enabled ? _toggleMenu : null,
-          child: AnimatedContainer(
-            duration: KonataTheme.motionFast,
-            height: height,
-            padding: EdgeInsets.symmetric(horizontal: widget.dense ? 10 : 12),
-            decoration: BoxDecoration(
-              color: !widget.enabled
-                  ? p.softFill.withValues(alpha: 0.55)
-                  : (isOpen || _hovered ? p.surfaceHover : p.softFill),
-              borderRadius: BorderRadius.circular(widget.dense ? 9 : 11),
-              border: Border.all(
-                color: isOpen
-                    ? p.accent.withValues(alpha: 0.65)
-                    : (_hovered ? p.hoverBorder : p.hairline),
-                width: 1,
+    return _buildTriggerShell(
+      p: p,
+      enabled: widget.enabled,
+      height: height,
+      padding: EdgeInsets.symmetric(horizontal: widget.dense ? 10 : 12),
+      borderRadius: BorderRadius.circular(widget.dense ? 9 : 11),
+      onTap: _toggleMenu,
+      child: Row(
+        children: [
+          if (widget.leadingIcon != null) ...[
+            Icon(
+              widget.leadingIcon,
+              size: widget.dense ? 14 : 16,
+              color: p.textSecondary,
+            ),
+            const SizedBox(width: 6),
+          ],
+          Expanded(
+            child: Text(
+              activeOption?.label ?? widget.hintText,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: activeOption != null
+                    ? (widget.enabled ? p.textPrimary : p.textMuted)
+                    : p.textMuted,
+                fontSize: widget.dense ? 12 : 12.5,
+                fontWeight: activeOption != null
+                    ? FontWeight.w500
+                    : FontWeight.w400,
               ),
             ),
-            child: Row(
-              children: [
-                if (widget.leadingIcon != null) ...[
-                  Icon(
-                    widget.leadingIcon,
-                    size: widget.dense ? 14 : 16,
-                    color: p.textSecondary,
-                  ),
-                  const SizedBox(width: 6),
-                ],
-                Expanded(
-                  child: Text(
-                    activeOption?.label ?? widget.hintText,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: activeOption != null
-                          ? (widget.enabled ? p.textPrimary : p.textMuted)
-                          : p.textMuted,
-                      fontSize: widget.dense ? 12 : 12.5,
-                      fontWeight: activeOption != null
-                          ? FontWeight.w500
-                          : FontWeight.w400,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 4),
-                AnimatedRotation(
-                  turns: isOpen ? 0.5 : 0.0,
-                  duration: KonataTheme.motionMedium,
-                  curve: Curves.easeOutCubic,
-                  child: Icon(
-                    Icons.keyboard_arrow_down_rounded,
-                    size: widget.dense ? 17 : 18,
-                    color: widget.enabled ? p.textSecondary : p.textMuted,
-                  ),
-                ),
-              ],
-            ),
           ),
-        ),
+          const SizedBox(width: 4),
+          _buildChevron(p, enabled: widget.enabled, size: widget.dense ? 17 : 18),
+        ],
       ),
     );
   }
@@ -290,84 +367,45 @@ class KonataSearchableSelect<T> extends StatefulWidget {
       _KonataSearchableSelectState<T>();
 }
 
-class _KonataSearchableSelectState<T> extends State<KonataSearchableSelect<T>> {
-  final LayerLink _link = LayerLink();
-  OverlayEntry? _entry;
-  bool _hovered = false;
-
+class _KonataSearchableSelectState<T> extends State<KonataSearchableSelect<T>>
+    with _KonataDropdownHostMixin<KonataSearchableSelect<T>> {
   @override
   void dispose() {
     _closeMenu(notify: false);
     super.dispose();
   }
 
-  void _closeMenu({bool notify = true}) {
-    _entry?.remove();
-    _entry = null;
-    if (notify && mounted) {
-      setState(() {});
-    }
-  }
-
-  void _toggleMenu() {
-    if (!widget.enabled) return;
-    if (_entry != null) {
-      _closeMenu();
-      return;
-    }
-    final renderBox = context.findRenderObject() as RenderBox?;
-    if (renderBox == null || !renderBox.hasSize) return;
-    final triggerSize = renderBox.size;
-    final triggerOffset = renderBox.localToGlobal(Offset.zero);
-    final screenSize = MediaQuery.sizeOf(context);
-    final overlay = Overlay.of(context, rootOverlay: true);
-
-    final effectiveWidth = math.max(
-      widget.menuWidth ?? triggerSize.width,
-      math.min(260.0, screenSize.width - 24),
-    );
-    final spaceBelow =
-        screenSize.height - (triggerOffset.dy + triggerSize.height) - 16;
-    final spaceAbove = triggerOffset.dy - 16;
-    final openUpward = spaceBelow < 220 && spaceAbove > spaceBelow;
-    final availableHeight = math.max(
-      180.0,
-      math.min(widget.maxMenuHeight, openUpward ? spaceAbove : spaceBelow),
-    );
-    final overflowRight =
-        triggerOffset.dx + effectiveWidth > screenSize.width - 12;
-    final horizontalShift = overflowRight
-        ? (screenSize.width - 12 - effectiveWidth - triggerOffset.dx)
-        : 0.0;
-
-    _entry = OverlayEntry(
-      builder: (_) => _FrostedDropdownOverlay<T>(
-        link: _link,
-        width: effectiveWidth,
-        maxHeight: availableHeight,
-        openUpward: openUpward,
-        horizontalShift: horizontalShift,
-        triggerHeight: triggerSize.height,
-        options: widget.options,
-        selectedValue: widget.value,
-        searchable: true,
-        searchHint: widget.searchHint,
-        emptyText: widget.emptyText,
-        onDismiss: _closeMenu,
-        onSelect: (val) {
-          _closeMenu();
-          widget.onChanged?.call(val);
-        },
-      ),
-    );
-    overlay.insert(_entry!);
-    setState(() {});
-  }
+  void _toggleMenu() => _toggleDropdownOverlay(
+    canOpen: widget.enabled,
+    menuWidth: widget.menuWidth,
+    maxMenuHeight: widget.maxMenuHeight,
+    minMenuWidth: 260.0,
+    upwardThreshold: 220.0,
+    minAvailableHeight: 180.0,
+    builder: (width, maxHeight, openUpward, horizontalShift, triggerHeight) =>
+        _FrostedDropdownOverlay<T>(
+          link: _link,
+          width: width,
+          maxHeight: maxHeight,
+          openUpward: openUpward,
+          horizontalShift: horizontalShift,
+          triggerHeight: triggerHeight,
+          options: widget.options,
+          selectedValue: widget.value,
+          searchable: true,
+          searchHint: widget.searchHint,
+          emptyText: widget.emptyText,
+          onDismiss: _closeMenu,
+          onSelect: (val) {
+            _closeMenu();
+            widget.onChanged?.call(val);
+          },
+        ),
+  );
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final isOpen = _entry != null;
     final activeOption = widget.options
         .where((opt) => opt.value == widget.value)
         .firstOrNull;
@@ -377,70 +415,38 @@ class _KonataSearchableSelectState<T> extends State<KonataSearchableSelect<T>> {
         ? 34.0
         : 38.0;
 
-    return CompositedTransformTarget(
-      link: _link,
-      child: MouseRegion(
-        cursor: widget.enabled
-            ? SystemMouseCursors.click
-            : SystemMouseCursors.basic,
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() => _hovered = false),
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: widget.enabled ? _toggleMenu : null,
-          child: AnimatedContainer(
-            duration: KonataTheme.motionFast,
-            height: height,
-            padding: const EdgeInsets.symmetric(horizontal: 11),
-            decoration: BoxDecoration(
-              color: !widget.enabled
-                  ? p.softFill.withValues(alpha: 0.55)
-                  : (isOpen || _hovered ? p.surfaceHover : p.softFill),
-              borderRadius: KonataTheme.borderRadiusTile,
-              border: Border.all(
-                color: isOpen
-                    ? p.accent.withValues(alpha: 0.65)
-                    : (_hovered ? p.hoverBorder : p.hairline),
-                width: 1,
+    return _buildTriggerShell(
+      p: p,
+      enabled: widget.enabled,
+      height: height,
+      padding: const EdgeInsets.symmetric(horizontal: 11),
+      borderRadius: KonataTheme.borderRadiusTile,
+      onTap: _toggleMenu,
+      child: Row(
+        children: [
+          Icon(
+            widget.leadingIcon ?? Icons.search_rounded,
+            size: 15,
+            color: activeOption != null ? p.accent : p.textMuted,
+          ),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Text(
+              activeOption?.label ?? widget.hintText,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: activeOption != null ? p.textPrimary : p.textMuted,
+                fontSize: KonataTheme.fontSizeBodyXs,
+                fontWeight: activeOption != null
+                    ? FontWeight.w500
+                    : FontWeight.w400,
               ),
             ),
-            child: Row(
-              children: [
-                Icon(
-                  widget.leadingIcon ?? Icons.search_rounded,
-                  size: 15,
-                  color: activeOption != null ? p.accent : p.textMuted,
-                ),
-                const SizedBox(width: 7),
-                Expanded(
-                  child: Text(
-                    activeOption?.label ?? widget.hintText,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: activeOption != null ? p.textPrimary : p.textMuted,
-                      fontSize: KonataTheme.fontSizeBodyXs,
-                      fontWeight: activeOption != null
-                          ? FontWeight.w500
-                          : FontWeight.w400,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 4),
-                AnimatedRotation(
-                  turns: isOpen ? 0.5 : 0.0,
-                  duration: KonataTheme.motionMedium,
-                  curve: Curves.easeOutCubic,
-                  child: Icon(
-                    Icons.keyboard_arrow_down_rounded,
-                    size: 18,
-                    color: widget.enabled ? p.textSecondary : p.textMuted,
-                  ),
-                ),
-              ],
-            ),
           ),
-        ),
+          const SizedBox(width: 4),
+          _buildChevron(p, enabled: widget.enabled, size: 18),
+        ],
       ),
     );
   }
@@ -503,11 +509,9 @@ class KonataMultiSelectDropdown<T> extends StatefulWidget {
 }
 
 class _KonataMultiSelectDropdownState<T>
-    extends State<KonataMultiSelectDropdown<T>> {
-  final LayerLink _link = LayerLink();
+    extends State<KonataMultiSelectDropdown<T>>
+    with _KonataDropdownHostMixin<KonataMultiSelectDropdown<T>> {
   late final ValueNotifier<Set<T>> _selectedNotifier;
-  OverlayEntry? _entry;
-  bool _hovered = false;
 
   @override
   void initState() {
@@ -537,83 +541,36 @@ class _KonataMultiSelectDropdownState<T>
     super.dispose();
   }
 
-  void _closeMenu({bool notify = true}) {
-    _entry?.remove();
-    _entry = null;
-    if (notify && mounted) {
-      setState(() {});
-    }
-  }
-
-  void _toggleMenu() {
-    if (!widget.enabled || widget.options.isEmpty) return;
-    if (_entry != null) {
-      _closeMenu();
-      return;
-    }
-    final renderBox = context.findRenderObject() as RenderBox?;
-    if (renderBox == null || !renderBox.hasSize) return;
-    final triggerSize = renderBox.size;
-    final triggerOffset = renderBox.localToGlobal(Offset.zero);
-    final screenSize = MediaQuery.sizeOf(context);
-    final overlay = Overlay.of(context, rootOverlay: true);
-
-    final effectiveWidth = widget.menuWidth != null
-        ? math.min(widget.menuWidth!, screenSize.width - 24)
-        : math.max(triggerSize.width, math.min(200.0, screenSize.width - 24));
-    final spaceBelow =
-        screenSize.height - (triggerOffset.dy + triggerSize.height) - 16;
-    final spaceAbove = triggerOffset.dy - 16;
-    final openUpward = spaceBelow < 180 && spaceAbove > spaceBelow;
-    final availableHeight = math.max(
-      140.0,
-      math.min(widget.maxMenuHeight, openUpward ? spaceAbove : spaceBelow),
-    );
-    final double horizontalShift;
-    if (widget.centerAligned) {
-      final centeredLeft =
-          triggerOffset.dx + (triggerSize.width - effectiveWidth) / 2;
-      final clampedLeft = centeredLeft.clamp(
-        12.0,
-        math.max(12.0, screenSize.width - 12 - effectiveWidth),
-      );
-      horizontalShift = clampedLeft - centeredLeft;
-    } else {
-      final overflowRight =
-          triggerOffset.dx + effectiveWidth > screenSize.width - 12;
-      horizontalShift = overflowRight
-          ? (screenSize.width - 12 - effectiveWidth - triggerOffset.dx)
-          : 0.0;
-    }
-
-    _entry = OverlayEntry(
-      builder: (_) => _FrostedDropdownOverlay<T>(
-        link: _link,
-        width: effectiveWidth,
-        maxHeight: availableHeight,
-        openUpward: openUpward,
-        horizontalShift: horizontalShift,
-        triggerHeight: triggerSize.height,
-        options: widget.options,
-        selectedValue: null,
-        multiSelect: true,
-        selectedValuesListenable: _selectedNotifier,
-        searchable: false,
-        searchHint: '',
-        emptyText: '暂无选项',
-        centerAligned: widget.centerAligned,
-        onDismiss: _closeMenu,
-        onSelect: (val) => widget.onToggle?.call(val),
-      ),
-    );
-    overlay.insert(_entry!);
-    setState(() {});
-  }
+  void _toggleMenu() => _toggleDropdownOverlay(
+    canOpen: widget.enabled && widget.options.isNotEmpty,
+    menuWidth: widget.menuWidth,
+    maxMenuHeight: widget.maxMenuHeight,
+    clampExplicitWidth: true,
+    centerAligned: widget.centerAligned,
+    builder: (width, maxHeight, openUpward, horizontalShift, triggerHeight) =>
+        _FrostedDropdownOverlay<T>(
+          link: _link,
+          width: width,
+          maxHeight: maxHeight,
+          openUpward: openUpward,
+          horizontalShift: horizontalShift,
+          triggerHeight: triggerHeight,
+          options: widget.options,
+          selectedValue: null,
+          multiSelect: true,
+          selectedValuesListenable: _selectedNotifier,
+          searchable: false,
+          searchHint: '',
+          emptyText: '暂无选项',
+          centerAligned: widget.centerAligned,
+          onDismiss: _closeMenu,
+          onSelect: (val) => widget.onToggle?.call(val),
+        ),
+  );
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final isOpen = _entry != null;
     final height = KonataAdaptiveTokens.isAndroid
         ? KonataAdaptiveTokens.touchTarget
         : widget.centerAligned
@@ -626,106 +583,68 @@ class _KonataMultiSelectDropdownState<T>
         ? KonataTheme.borderRadiusPill
         : BorderRadius.circular(widget.dense ? 9 : 11);
 
-    return CompositedTransformTarget(
-      link: _link,
-      child: MouseRegion(
-        cursor: widget.enabled
-            ? SystemMouseCursors.click
-            : SystemMouseCursors.basic,
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() => _hovered = false),
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: widget.enabled ? _toggleMenu : null,
-          child: AnimatedContainer(
-            duration: KonataTheme.motionFast,
-            height: height,
-            padding: EdgeInsets.symmetric(horizontal: widget.dense ? 10 : 12),
-            decoration: BoxDecoration(
-              color: !widget.enabled
-                  ? p.softFill.withValues(alpha: 0.55)
-                  : (isOpen || _hovered ? p.surfaceHover : p.softFill),
-              borderRadius: borderRadius,
-              border: Border.all(
-                color: isOpen
-                    ? p.accent.withValues(alpha: 0.65)
-                    : (_hovered ? p.hoverBorder : p.hairline),
-                width: isOpen && widget.centerAligned ? 1.5 : 1,
-              ),
-            ),
-            child: widget.centerAligned
-                ? Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: Text(
-                          label,
-                          textAlign: TextAlign.center,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: widget.enabled ? p.textPrimary : p.textMuted,
-                            fontSize: KonataTheme.fontSizeCaption,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                      Positioned(
-                        right: 0,
-                        child: AnimatedRotation(
-                          turns: isOpen ? 0.5 : 0.0,
-                          duration: KonataTheme.motionMedium,
-                          curve: Curves.easeOutCubic,
-                          child: Icon(
-                            Icons.keyboard_arrow_down_rounded,
-                            size: 17,
-                            color: widget.enabled
-                                ? p.textSecondary
-                                : p.textMuted,
-                          ),
-                        ),
-                      ),
-                    ],
-                  )
-                : Row(
-                    children: [
-                      if (widget.leadingIcon != null) ...[
-                        Icon(
-                          widget.leadingIcon,
-                          size: widget.dense ? 14 : 16,
-                          color: p.textSecondary,
-                        ),
-                        const SizedBox(width: 6),
-                      ],
-                      Expanded(
-                        child: Text(
-                          label,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: widget.enabled ? p.textPrimary : p.textMuted,
-                            fontSize: widget.dense ? 12 : 12.5,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      AnimatedRotation(
-                        turns: isOpen ? 0.5 : 0.0,
-                        duration: KonataTheme.motionMedium,
-                        curve: Curves.easeOutCubic,
-                        child: Icon(
-                          Icons.keyboard_arrow_down_rounded,
-                          size: widget.dense ? 17 : 18,
-                          color: widget.enabled ? p.textSecondary : p.textMuted,
-                        ),
-                      ),
-                    ],
+    return _buildTriggerShell(
+      p: p,
+      enabled: widget.enabled,
+      height: height,
+      padding: EdgeInsets.symmetric(horizontal: widget.dense ? 10 : 12),
+      borderRadius: borderRadius,
+      openBorderWidth: widget.centerAligned ? 1.5 : 1,
+      onTap: _toggleMenu,
+      child: widget.centerAligned
+          ? Stack(
+              alignment: Alignment.center,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Text(
+                    label,
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: widget.enabled ? p.textPrimary : p.textMuted,
+                      fontSize: KonataTheme.fontSizeCaption,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-          ),
-        ),
-      ),
+                ),
+                Positioned(
+                  right: 0,
+                  child: _buildChevron(p, enabled: widget.enabled, size: 17),
+                ),
+              ],
+            )
+          : Row(
+              children: [
+                if (widget.leadingIcon != null) ...[
+                  Icon(
+                    widget.leadingIcon,
+                    size: widget.dense ? 14 : 16,
+                    color: p.textSecondary,
+                  ),
+                  const SizedBox(width: 6),
+                ],
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: widget.enabled ? p.textPrimary : p.textMuted,
+                      fontSize: widget.dense ? 12 : 12.5,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                _buildChevron(
+                  p,
+                  enabled: widget.enabled,
+                  size: widget.dense ? 17 : 18,
+                ),
+              ],
+            ),
     );
   }
 }

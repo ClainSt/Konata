@@ -2,11 +2,144 @@
 import 'package:flutter/gestures.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../../application/providers/library_providers.dart';
+import '../../domain/matching/episode_title_formatter.dart';
+import '../../domain/matching/supplementary_subclassifier.dart';
+import '../../domain/models/episode.dart';
+import '../../domain/models/media_variant.dart';
+import '../../domain/playback/cue_variant_resolver.dart';
 import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
 import '../theme/konata_theme.dart';
 import '../widgets/design_system/ellipsis_text_with_tooltip.dart';
+
+/// 详情页底部抽屉与完整列表共用的剧集、特典、CD 与 Scan 二级分组聚合数据。
+class DetailSupplementaryViewData {
+  const DetailSupplementaryViewData._({
+    required this.mainEpisodes,
+    required this.extraEpisodes,
+    required this.cdList,
+    required this.scanList,
+    required this.extraKindByEpId,
+    required this.extraDisplayTitleByEpId,
+    required this.cdSummary,
+    required this.scanSummary,
+    required this.extraSecondaryItems,
+    required this.cdSecondaryItems,
+    required this.scanSecondaryItems,
+  });
+
+  /// 从作品详情聚合包统一计算正片、特典、CD、Scan 列表与二级筛选选项。
+  factory DetailSupplementaryViewData.fromBundle({
+    required WorkDetailBundle bundle,
+    required bool showCdTab,
+    required bool showScanTab,
+  }) {
+    final mainEps = bundle.episodes
+        .where((e) => e.category == EpisodeCategory.main)
+        .toList(growable: false);
+    final extraEps = bundle.episodes
+        .where((e) => e.category == EpisodeCategory.extra)
+        .toList(growable: false);
+    final cdList = showCdTab
+        ? bundle.cdVariants
+              .where((v) => !CueVariantResolver.isCueSheetFile(v.fileName))
+              .toList(growable: false)
+        : const <MediaVariant>[];
+    final scanList = showScanTab
+        ? bundle.scanVariants
+        : const <MediaVariant>[];
+
+    final extraKindByEpId = <String, ExtraKind>{};
+    final extraCountByKind = <ExtraKind, int>{};
+    final extraDisplayTitleByEpId = <String, String>{};
+    for (final ep in extraEps) {
+      final variants = bundle.variantsForEpisode(ep.id);
+      final firstVar = variants.isNotEmpty ? variants.first : null;
+      final kind = firstVar != null
+          ? SupplementarySubclassifier.classifyExtraVideo(
+              fileName: firstVar.fileName,
+              relativePath: firstVar.relativePath,
+              fallbackExtraType: ep.extraType,
+            )
+          : (ep.extraType ?? ExtraKind.sp);
+      extraKindByEpId[ep.id] = kind;
+      extraCountByKind[kind] = (extraCountByKind[kind] ?? 0) + 1;
+      extraDisplayTitleByEpId[ep.id] =
+          SupplementarySubclassifier.formatExtraDisplayTitle(
+            episode: ep,
+            episodeVariants: variants,
+            allWorkVariants: bundle.variants,
+            defaultFormattedTitle: EpisodeTitleFormatter.formatCardTitle(
+              episode: ep,
+              workTitle: bundle.work.title,
+              workMediaType: bundle.work.tmdbMediaType,
+              mainEpisodeCount: mainEps.length,
+            ),
+          );
+    }
+
+    final cdSummary = SupplementarySubclassifier.groupCdVariants(cdList);
+    final scanSummary = SupplementarySubclassifier.groupScanVariants(scanList);
+
+    List<DetailSecondaryFilterItem> toItems(
+      Iterable<({String key, String label, int count})> chips,
+    ) => [
+      for (final c in chips)
+        DetailSecondaryFilterItem(key: c.key, label: c.label, count: c.count),
+    ];
+
+    return DetailSupplementaryViewData._(
+      mainEpisodes: mainEps,
+      extraEpisodes: extraEps,
+      cdList: cdList,
+      scanList: scanList,
+      extraKindByEpId: extraKindByEpId,
+      extraDisplayTitleByEpId: extraDisplayTitleByEpId,
+      cdSummary: cdSummary,
+      scanSummary: scanSummary,
+      extraSecondaryItems: [
+        for (final k in SupplementarySubclassifier.extraKindDisplayOrder)
+          if ((extraCountByKind[k] ?? 0) > 0)
+            DetailSecondaryFilterItem(
+              key: k.name,
+              label: SupplementarySubclassifier.extraKindLabel(k),
+              count: extraCountByKind[k]!,
+            ),
+      ],
+      cdSecondaryItems: toItems(cdSummary.chips),
+      scanSecondaryItems: toItems(scanSummary.chips),
+    );
+  }
+
+  final List<Episode> mainEpisodes;
+  final List<Episode> extraEpisodes;
+  final List<MediaVariant> cdList;
+  final List<MediaVariant> scanList;
+  final Map<String, ExtraKind> extraKindByEpId;
+  final Map<String, String> extraDisplayTitleByEpId;
+  final CdAlbumGroupSummary cdSummary;
+  final ScanVolumeGroupSummary scanSummary;
+  final List<DetailSecondaryFilterItem> extraSecondaryItems;
+  final List<DetailSecondaryFilterItem> cdSecondaryItems;
+  final List<DetailSecondaryFilterItem> scanSecondaryItems;
+
+  /// 当整轨光盘镜像使用通用占位名时，回退使用专辑分组标签作为展示标题。
+  String? cdTitleOverrideFor(MediaVariant variant) {
+    final group = cdSummary.byVariantId[variant.id];
+    final dot = variant.fileName.lastIndexOf('.');
+    final stem = dot > 0
+        ? variant.fileName.substring(0, dot)
+        : variant.fileName;
+    return (CueVariantResolver.isGenericDiscImageStem(stem) &&
+            group != null &&
+            group.chipLabel.isNotEmpty &&
+            group.chipLabel != 'CD')
+        ? group.chipLabel
+        : null;
+  }
+}
 
 /// 详情页二级分类筛选条上的单条筛选项数据。
 class DetailSecondaryFilterItem {

@@ -3,11 +3,8 @@ import 'package:flutter/gestures.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../application/providers/library_providers.dart';
-import '../../domain/matching/episode_title_formatter.dart';
-import '../../domain/matching/supplementary_subclassifier.dart';
 import '../../domain/models/episode.dart';
 import '../../domain/models/media_variant.dart';
-import '../../domain/playback/cue_variant_resolver.dart';
 import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
@@ -252,21 +249,15 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
 
   @override
   Widget build(BuildContext context) {
-    final episodes = widget.bundle.episodes;
-    final mainEps = episodes
-        .where((e) => e.category == EpisodeCategory.main)
-        .toList();
-    final extraEps = episodes
-        .where((e) => e.category == EpisodeCategory.extra)
-        .toList();
-    final cdList = widget.showCdTab
-        ? widget.bundle.cdVariants
-              .where((v) => !CueVariantResolver.isCueSheetFile(v.fileName))
-              .toList(growable: false)
-        : const <MediaVariant>[];
-    final scanList = widget.showScanTab
-        ? widget.bundle.scanVariants
-        : const <MediaVariant>[];
+    final viewData = DetailSupplementaryViewData.fromBundle(
+      bundle: widget.bundle,
+      showCdTab: widget.showCdTab,
+      showScanTab: widget.showScanTab,
+    );
+    final mainEps = viewData.mainEpisodes;
+    final extraEps = viewData.extraEpisodes;
+    final cdList = viewData.cdList;
+    final scanList = viewData.scanList;
 
     final isExpanded = widget.activeTab != null;
     var currentTab = widget.activeTab ?? widget.preferredTab;
@@ -276,72 +267,13 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
       currentTab = DetailDrawerTab.main;
     }
 
-    // 预计算特典二级分类与决策点 2 展示标题
-    final extraKindByEpId = <String, ExtraKind>{};
-    final extraCountByKind = <ExtraKind, int>{};
-    final extraDisplayTitleByEpId = <String, String>{};
-    for (final ep in extraEps) {
-      final variants = widget.bundle.variantsForEpisode(ep.id);
-      final firstVar = variants.isNotEmpty ? variants.first : null;
-      final kind = firstVar != null
-          ? SupplementarySubclassifier.classifyExtraVideo(
-              fileName: firstVar.fileName,
-              relativePath: firstVar.relativePath,
-              fallbackExtraType: ep.extraType,
-            )
-          : (ep.extraType ?? ExtraKind.sp);
-      extraKindByEpId[ep.id] = kind;
-      extraCountByKind[kind] = (extraCountByKind[kind] ?? 0) + 1;
-      final defaultTitle = EpisodeTitleFormatter.formatCardTitle(
-        episode: ep,
-        workTitle: widget.bundle.work.title,
-        workMediaType: widget.bundle.work.tmdbMediaType,
-        mainEpisodeCount: mainEps.length,
-      );
-      extraDisplayTitleByEpId[ep.id] =
-          SupplementarySubclassifier.formatExtraDisplayTitle(
-            episode: ep,
-            episodeVariants: variants,
-            allWorkVariants: widget.bundle.variants,
-            defaultFormattedTitle: defaultTitle,
-          );
-    }
-
-    final cdSummary = SupplementarySubclassifier.groupCdVariants(cdList);
-    final scanSummary = SupplementarySubclassifier.groupScanVariants(scanList);
-
+    final extraKindByEpId = viewData.extraKindByEpId;
+    final cdSummary = viewData.cdSummary;
+    final scanSummary = viewData.scanSummary;
     final secondaryItems = switch (currentTab) {
-      DetailDrawerTab.extra =>
-        SupplementarySubclassifier.extraKindDisplayOrder
-            .where((k) => (extraCountByKind[k] ?? 0) > 0)
-            .map(
-              (k) => DetailSecondaryFilterItem(
-                key: k.name,
-                label: SupplementarySubclassifier.extraKindLabel(k),
-                count: extraCountByKind[k] ?? 0,
-              ),
-            )
-            .toList(growable: false),
-      DetailDrawerTab.cd =>
-        cdSummary.chips
-            .map(
-              (c) => DetailSecondaryFilterItem(
-                key: c.key,
-                label: c.label,
-                count: c.count,
-              ),
-            )
-            .toList(growable: false),
-      DetailDrawerTab.scan =>
-        scanSummary.chips
-            .map(
-              (c) => DetailSecondaryFilterItem(
-                key: c.key,
-                label: c.label,
-                count: c.count,
-              ),
-            )
-            .toList(growable: false),
+      DetailDrawerTab.extra => viewData.extraSecondaryItems,
+      DetailDrawerTab.cd => viewData.cdSecondaryItems,
+      DetailDrawerTab.scan => viewData.scanSecondaryItems,
       DetailDrawerTab.main => const <DetailSecondaryFilterItem>[],
     };
 
@@ -550,33 +482,17 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
             ),
           SizedBox(
             height: landscapeRailH,
-            child: currentCount == 0
-                ? Center(
-                    child: Text(
-                      '该分类下暂无内容',
-                      style: KonataTheme.detailTextStyle(
-                        palette: context.palette,
-                        color: KonataTheme.overlayWhiteTextMid,
-                        fontSize: KonataTheme.fontSizeBody,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  )
-                : _buildTabRail(
-                    tab: currentTab,
-                    episodes: currentEps,
-                    mainEpisodeCount: mainEps.length,
-                    cdList: filteredCdList,
-                    scanList: filteredScanList,
-                    extraDisplayTitleByEpId: extraDisplayTitleByEpId,
-                    cdSummary: cdSummary,
-                    scanSummary: scanSummary,
-                    activeSecondaryKey: activeSecondaryKey,
-                    cardWidth: 208.0,
-                    compactMeta: false,
-                    showRawFilenameOverride: widget.showRawVideoFilename,
-                    railPadH: 16.0,
-                  ),
+            child: _buildRailContent(
+              currentCount: currentCount,
+              tab: currentTab,
+              episodes: currentEps,
+              viewData: viewData,
+              cdList: filteredCdList,
+              scanList: filteredScanList,
+              activeSecondaryKey: activeSecondaryKey,
+              cardWidth: 208.0,
+              railPadH: 16.0,
+            ),
           ),
         ],
       );
@@ -634,35 +550,17 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
                         ),
                       SizedBox(
                         height: portraitRailH,
-                        child: currentCount == 0
-                            ? Center(
-                                child: Text(
-                                  '该分类下暂无内容',
-                                  style: KonataTheme.detailTextStyle(
-                                    palette: context.palette,
-                                    color: KonataTheme.overlayWhiteTextMid,
-                                    fontSize: KonataTheme.fontSizeBody,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              )
-                            : _buildTabRail(
-                                tab: currentTab,
-                                episodes: currentEps,
-                                mainEpisodeCount: mainEps.length,
-                                cdList: filteredCdList,
-                                scanList: filteredScanList,
-                                extraDisplayTitleByEpId:
-                                    extraDisplayTitleByEpId,
-                                cdSummary: cdSummary,
-                                scanSummary: scanSummary,
-                                activeSecondaryKey: activeSecondaryKey,
-                                cardWidth: portraitCardWidth,
-                                compactMeta: false,
-                                showRawFilenameOverride:
-                                    widget.showRawVideoFilename,
-                                railPadH: sectionPadH,
-                              ),
+                        child: _buildRailContent(
+                          currentCount: currentCount,
+                          tab: currentTab,
+                          episodes: currentEps,
+                          viewData: viewData,
+                          cdList: filteredCdList,
+                          scanList: filteredScanList,
+                          activeSecondaryKey: activeSecondaryKey,
+                          cardWidth: portraitCardWidth,
+                          railPadH: sectionPadH,
+                        ),
                       ),
                     ],
                   ),
@@ -721,35 +619,17 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
                       padding: const EdgeInsets.only(bottom: 20),
                       child: SizedBox(
                         height: 226,
-                        child: currentCount == 0
-                            ? Center(
-                                child: Text(
-                                  '该分类下暂无内容',
-                                  style: KonataTheme.detailTextStyle(
-                                    palette: context.palette,
-                                    color: KonataTheme.overlayWhiteTextMid,
-                                    fontSize: KonataTheme.fontSizeBody,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              )
-                            : _buildTabRail(
-                                tab: currentTab,
-                                episodes: currentEps,
-                                mainEpisodeCount: mainEps.length,
-                                cdList: filteredCdList,
-                                scanList: filteredScanList,
-                                extraDisplayTitleByEpId:
-                                    extraDisplayTitleByEpId,
-                                cdSummary: cdSummary,
-                                scanSummary: scanSummary,
-                                activeSecondaryKey: activeSecondaryKey,
-                                cardWidth: 244.0,
-                                compactMeta: false,
-                                showRawFilenameOverride:
-                                    widget.showRawVideoFilename,
-                                railPadH: drawerPadH,
-                              ),
+                        child: _buildRailContent(
+                          currentCount: currentCount,
+                          tab: currentTab,
+                          episodes: currentEps,
+                          viewData: viewData,
+                          cdList: filteredCdList,
+                          scanList: filteredScanList,
+                          activeSecondaryKey: activeSecondaryKey,
+                          cardWidth: 244.0,
+                          railPadH: drawerPadH,
+                        ),
                       ),
                     ),
                   ],
@@ -759,15 +639,49 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
     );
   }
 
+  Widget _buildRailContent({
+    required int currentCount,
+    required DetailDrawerTab tab,
+    required List<Episode> episodes,
+    required DetailSupplementaryViewData viewData,
+    required List<MediaVariant> cdList,
+    required List<MediaVariant> scanList,
+    required String? activeSecondaryKey,
+    required double cardWidth,
+    required double railPadH,
+  }) {
+    if (currentCount == 0) {
+      return Center(
+        child: Text(
+          '该分类下暂无内容',
+          style: KonataTheme.detailTextStyle(
+            palette: context.palette,
+            color: KonataTheme.overlayWhiteTextMid,
+            fontSize: KonataTheme.fontSizeBody,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      );
+    }
+    return _buildTabRail(
+      tab: tab,
+      episodes: episodes,
+      viewData: viewData,
+      cdList: cdList,
+      scanList: scanList,
+      activeSecondaryKey: activeSecondaryKey,
+      cardWidth: cardWidth,
+      showRawFilenameOverride: widget.showRawVideoFilename,
+      railPadH: railPadH,
+    );
+  }
+
   Widget _buildTabRail({
     required DetailDrawerTab tab,
     required List<Episode> episodes,
-    required int mainEpisodeCount,
+    required DetailSupplementaryViewData viewData,
     required List<MediaVariant> cdList,
     required List<MediaVariant> scanList,
-    required Map<String, String> extraDisplayTitleByEpId,
-    required CdAlbumGroupSummary cdSummary,
-    required ScanVolumeGroupSummary scanSummary,
     required String? activeSecondaryKey,
     double cardWidth = 244.0,
     bool compactMeta = false,
@@ -781,9 +695,9 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
         itemCount: episodes.length,
         itemBuilder: (_, index) => _buildCard(
           episodes[index],
-          mainEpisodeCount,
+          viewData.mainEpisodes.length,
           displayTitleOverride: tab == DetailDrawerTab.extra
-              ? extraDisplayTitleByEpId[episodes[index].id]
+              ? viewData.extraDisplayTitleByEpId[episodes[index].id]
               : null,
           cardWidth: cardWidth,
           compactMeta: compactMeta,
@@ -795,18 +709,10 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
         itemCount: cdList.length,
         itemBuilder: (_, index) {
           final v = cdList[index];
-          final group = cdSummary.byVariantId[v.id];
+          final group = viewData.cdSummary.byVariantId[v.id];
           final showDirectSubdir =
-              activeSecondaryKey == null && cdSummary.hasMultipleSubdirs;
-          final dot = v.fileName.lastIndexOf('.');
-          final stem = dot > 0 ? v.fileName.substring(0, dot) : v.fileName;
-          final titleOverride =
-              (CueVariantResolver.isGenericDiscImageStem(stem) &&
-                  group != null &&
-                  group.chipLabel.isNotEmpty &&
-                  group.chipLabel != 'CD')
-              ? group.chipLabel
-              : null;
+              activeSecondaryKey == null &&
+              viewData.cdSummary.hasMultipleSubdirs;
           final cdWidth = cardWidth <= 216.0 ? 132.0 : 144.0;
           return CdDrawerCard(
             variant: v,
@@ -818,7 +724,7 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
             imageLoader: widget.imageLoader,
             cardWidth: cdWidth,
             showSeriesSharedBadge: showSharedBadge,
-            displayTitleOverride: titleOverride,
+            displayTitleOverride: viewData.cdTitleOverrideFor(v),
             showRawFileName:
                 showRawFilenameOverride ?? widget.showRawVideoFilename,
             directSubdirLabel: showDirectSubdir
@@ -839,9 +745,10 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
         itemCount: scanList.length,
         itemBuilder: (_, index) {
           final v = scanList[index];
-          final group = scanSummary.byVariantId[v.id];
+          final group = viewData.scanSummary.byVariantId[v.id];
           final showDirectSubdir =
-              activeSecondaryKey == null && scanSummary.hasMultipleSubdirs;
+              activeSecondaryKey == null &&
+              viewData.scanSummary.hasMultipleSubdirs;
           final scanWidth = cardWidth <= 216.0 ? 168.0 : 186.0;
           return ScanDrawerCard(
             variant: v,

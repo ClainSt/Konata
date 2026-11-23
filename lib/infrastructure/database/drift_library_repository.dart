@@ -327,7 +327,7 @@ class DriftLibraryRepository implements LibraryRepository {
     bitDepth: row.bitDepth,
     resolution: row.resolution,
     audioCodec: row.audioCodec,
-    externalSubtitles: _decodeSubtitles(row.externalSubtitlesJson),
+    externalSubtitles: decodeJsonStringList(row.externalSubtitlesJson),
     mappingLocked: row.mappingLocked,
     workLocked: row.workLocked,
     assetScope: row.assetScope,
@@ -490,11 +490,4 @@ class DriftLibraryRepository implements LibraryRepository {
   @override
   Future<void> deleteSeriesGroup(String seriesId) =>
       deleteSeriesGroupInDb(_db, seriesId);
-
-  List<String> _decodeSubtitles(String raw) {
-    if (raw.isEmpty || raw == '[]') return const [];
-    final decoded = jsonDecode(raw);
-    if (decoded is! List) return const [];
-    return [for (final item in decoded) item.toString()];
-  }
 }

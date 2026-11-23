@@ -435,20 +435,20 @@ class DetailHeroInfo extends StatelessWidget {
   /// 透明徽标在文档流模式下的最大宽度上限。
   final double logoMaxWidth;
 
-  @override
-  Widget build(BuildContext context) {
+  /// 从作品详情聚合包提取单行元信息标签与主播放按钮文案。
+  static ({List<String> metaParts, String buttonLabel}) buildSummary(
+    WorkDetailBundle bundle,
+  ) {
     final work = bundle.work;
-    final mainEpisodes = bundle.episodes
+    final mainCount = bundle.episodes
         .where((e) => e.category == EpisodeCategory.main)
-        .toList();
-
+        .length;
     final metaParts = <String>[
       if (work.year != null) '${work.year}',
-      if (mainEpisodes.isNotEmpty) '${mainEpisodes.length} 话',
+      if (mainCount > 0) '$mainCount 话',
       if (work.bangumiScore != null && work.bangumiScore! > 0)
         'Bangumi ${work.bangumiScore!.toStringAsFixed(1)}',
     ];
-
     final resumePlan = PlaybackResumeResolver.resolve(
       episodes: bundle.episodes,
       latestPlayback: bundle.latestPlayback,
@@ -456,7 +456,18 @@ class DetailHeroInfo extends StatelessWidget {
       workTitle: work.title,
       workMediaType: work.tmdbMediaType,
     );
-    final buttonLabel = resumePlan?.buttonLabel ?? '开始播放';
+    return (
+      metaParts: metaParts,
+      buttonLabel: resumePlan?.buttonLabel ?? '开始播放',
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final work = bundle.work;
+    final summary = buildSummary(bundle);
+    final metaParts = summary.metaParts;
+    final buttonLabel = summary.buttonLabel;
 
     final hasLogo = work.logoPath != null && work.logoPath!.trim().isNotEmpty;
     final hasVisibleLogo = showTitleLogo && hasLogo;

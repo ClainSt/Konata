@@ -351,6 +351,43 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
               landscapeCompactInput ||
               (viewInsets.bottom > 0 && outerConstraints.maxHeight < 420);
 
+          final mergeExistingField = Column(
+            crossAxisAlignment: isNarrow
+                ? CrossAxisAlignment.stretch
+                : CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '并入已有系列',
+                style: TextStyle(
+                  color: p.textSecondary,
+                  fontSize: KonataTheme.fontSizeCaptionSm,
+                ),
+              ),
+              const SizedBox(height: 5),
+              KonataSearchableSelect<String>(
+                value: groups.any((g) => g.id == _editingSeriesId)
+                    ? _editingSeriesId
+                    : null,
+                hintText: '搜索要并入的已有系列...',
+                searchHint: '输入系列标题检索...',
+                enabled: !_saving,
+                options: [
+                  for (final g in groups)
+                    KonataDropdownOption<String>(value: g.id, label: g.title),
+                ],
+                onChanged: (selectedId) {
+                  final group = groups
+                      .where((g) => g.id == selectedId)
+                      .firstOrNull;
+                  if (group != null) {
+                    _switchToExistingSeries(group, allWorks);
+                  }
+                },
+              ),
+            ],
+          );
+
           final formSection = isNarrow
               ? Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -369,37 +406,7 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
                         children: [
                           if (groups.isNotEmpty) ...[
                             const SizedBox(height: 10),
-                            Text(
-                              '并入已有系列',
-                              style: TextStyle(
-                                color: p.textSecondary,
-                                fontSize: KonataTheme.fontSizeCaptionSm,
-                              ),
-                            ),
-                            const SizedBox(height: 5),
-                            KonataSearchableSelect<String>(
-                              value: groups.any((g) => g.id == _editingSeriesId)
-                                  ? _editingSeriesId
-                                  : null,
-                              hintText: '搜索要并入的已有系列...',
-                              searchHint: '输入系列标题检索...',
-                              enabled: !_saving,
-                              options: [
-                                for (final g in groups)
-                                  KonataDropdownOption<String>(
-                                    value: g.id,
-                                    label: g.title,
-                                  ),
-                              ],
-                              onChanged: (selectedId) {
-                                final group = groups
-                                    .where((g) => g.id == selectedId)
-                                    .firstOrNull;
-                                if (group != null) {
-                                  _switchToExistingSeries(group, allWorks);
-                                }
-                              },
-                            ),
+                            mergeExistingField,
                           ],
                         ],
                       ),
@@ -420,45 +427,7 @@ class _SeriesManageDialogState extends ConsumerState<SeriesManageDialog> {
                     ),
                     if (!hideFormExtras && groups.isNotEmpty) ...[
                       const SizedBox(width: 12),
-                      Expanded(
-                        flex: 2,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '并入已有系列',
-                              style: TextStyle(
-                                color: p.textSecondary,
-                                fontSize: KonataTheme.fontSizeCaptionSm,
-                              ),
-                            ),
-                            const SizedBox(height: 5),
-                            KonataSearchableSelect<String>(
-                              value: groups.any((g) => g.id == _editingSeriesId)
-                                  ? _editingSeriesId
-                                  : null,
-                              hintText: '搜索要并入的已有系列...',
-                              searchHint: '输入系列标题检索...',
-                              enabled: !_saving,
-                              options: [
-                                for (final g in groups)
-                                  KonataDropdownOption<String>(
-                                    value: g.id,
-                                    label: g.title,
-                                  ),
-                              ],
-                              onChanged: (selectedId) {
-                                final group = groups
-                                    .where((g) => g.id == selectedId)
-                                    .firstOrNull;
-                                if (group != null) {
-                                  _switchToExistingSeries(group, allWorks);
-                                }
-                              },
-                            ),
-                          ],
-                        ),
-                      ),
+                      Expanded(flex: 2, child: mergeExistingField),
                     ],
                     if (!hideFormExtras && _canDetachToIndependentSeries) ...[
                       const SizedBox(width: 10),

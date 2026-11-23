@@ -175,11 +175,19 @@ class AudioAssetExtractor {
     return (synced: synced, lyrics: lyrics, unsynced: unsynced);
   }
 
-  static String? _extractId3v2Lyrics(
-    Uint8List bytes, {
-    LegacyCodePageDecoder? legacyDecoder,
-  }) {
-    if (bytes.length < 10) return null;
+  /// 通用 ID3v2 帧遍历器（兼容 v2.2/v2.3/v2.4 扩展头与帧头长度），回调返回 `true` 时提前终止。
+  static void _walkId3v2Frames(
+    Uint8List bytes,
+    bool Function({
+      required int majorVersion,
+      required String frameId,
+      required int frameFlags2,
+      required int dataOffset,
+      required int frameSize,
+    })
+    onFrame,
+  ) {
+    if (bytes.length < 10) return;
     final majorVersion = bytes[3];
     final flags = bytes[5];
     final tagSize = _readSyncSafeInt(bytes, 6);
@@ -193,9 +201,6 @@ class AudioAssetExtractor {
     final tagEnd = (10 + tagSize) <= bytes.length
         ? (10 + tagSize)
         : bytes.length;
-
-    String? syncedBest;
-    String? plainBest;
 
     while (offset + (majorVersion == 2 ? 6 : 10) <= tagEnd) {
       if (bytes[offset] == 0) break;
@@ -220,34 +225,61 @@ class AudioAssetExtractor {
       }
       offset += headerLen;
       if (frameSize <= 0 || offset + frameSize > tagEnd) break;
-
-      if (frameId == 'USLT' || frameId == 'ULT' || frameId == 'TXXX') {
-        var payloadStart = offset;
-        // ID3v2.4 若开启数据长度指示标志，帧负载开头多出 4 字节同步安全整数。
-        if (majorVersion >= 4 && (frameFlags2 & 0x01) != 0) {
-          payloadStart += 4;
-        }
-        if (payloadStart < offset + frameSize) {
-          final frameData = Uint8List.sublistView(
-            bytes,
-            payloadStart,
-            offset + frameSize,
-          );
-          final text = frameId == 'TXXX'
-              ? _parseId3TxxxLyrics(frameData, legacyDecoder: legacyDecoder)
-              : _parseId3UsltPayload(frameData, legacyDecoder: legacyDecoder);
-          if (text != null && text.trim().isNotEmpty) {
-            final trimmed = text.trim();
-            if (_lrcTimestampProbe.hasMatch(trimmed)) {
-              syncedBest ??= trimmed;
-            } else {
-              plainBest ??= trimmed;
-            }
-          }
-        }
+      if (onFrame(
+        majorVersion: majorVersion,
+        frameId: frameId,
+        frameFlags2: frameFlags2,
+        dataOffset: offset,
+        frameSize: frameSize,
+      )) {
+        break;
       }
       offset += frameSize;
     }
+  }
+
+  static String? _extractId3v2Lyrics(
+    Uint8List bytes, {
+    LegacyCodePageDecoder? legacyDecoder,
+  }) {
+    String? syncedBest;
+    String? plainBest;
+
+    _walkId3v2Frames(bytes, ({
+      required int majorVersion,
+      required String frameId,
+      required int frameFlags2,
+      required int dataOffset,
+      required int frameSize,
+    }) {
+      if (frameId != 'USLT' && frameId != 'ULT' && frameId != 'TXXX') {
+        return false;
+      }
+      var payloadStart = dataOffset;
+      // ID3v2.4 若开启数据长度指示标志，帧负载开头多出 4 字节同步安全整数。
+      if (majorVersion >= 4 && (frameFlags2 & 0x01) != 0) {
+        payloadStart += 4;
+      }
+      if (payloadStart < dataOffset + frameSize) {
+        final frameData = Uint8List.sublistView(
+          bytes,
+          payloadStart,
+          dataOffset + frameSize,
+        );
+        final text = frameId == 'TXXX'
+            ? _parseId3TxxxLyrics(frameData, legacyDecoder: legacyDecoder)
+            : _parseId3UsltPayload(frameData, legacyDecoder: legacyDecoder);
+        if (text != null && text.trim().isNotEmpty) {
+          final trimmed = text.trim();
+          if (_lrcTimestampProbe.hasMatch(trimmed)) {
+            syncedBest ??= trimmed;
+          } else {
+            plainBest ??= trimmed;
+          }
+        }
+      }
+      return false;
+    });
     return syncedBest ?? plainBest;
   }
 
@@ -413,55 +445,24 @@ class AudioAssetExtractor {
   }
 
   static Uint8List? _extractId3v2Picture(Uint8List bytes) {
-    if (bytes.length < 10) return null;
-    final majorVersion = bytes[3];
-    final flags = bytes[5];
-    final tagSize = _readSyncSafeInt(bytes, 6);
-    var offset = 10;
-    if ((flags & 0x40) != 0 && offset + 4 <= bytes.length) {
-      final extSize = majorVersion >= 4
-          ? _readSyncSafeInt(bytes, offset)
-          : _readUint32Be(bytes, offset);
-      offset += extSize + (majorVersion >= 4 ? 0 : 4);
-    }
-    final tagEnd = (10 + tagSize) <= bytes.length
-        ? (10 + tagSize)
-        : bytes.length;
-
-    while (offset + (majorVersion == 2 ? 6 : 10) <= tagEnd) {
-      if (bytes[offset] == 0) break;
-      final String frameId;
-      final int frameSize;
-      final int headerLen;
-      if (majorVersion == 2) {
-        frameId = String.fromCharCodes(bytes.sublist(offset, offset + 3));
-        frameSize =
-            (bytes[offset + 3] << 16) |
-            (bytes[offset + 4] << 8) |
-            bytes[offset + 5];
-        headerLen = 6;
-      } else {
-        frameId = String.fromCharCodes(bytes.sublist(offset, offset + 4));
-        frameSize = majorVersion >= 4
-            ? _readSyncSafeInt(bytes, offset + 4)
-            : _readUint32Be(bytes, offset + 4);
-        headerLen = 10;
+    Uint8List? found;
+    _walkId3v2Frames(bytes, ({
+      required int majorVersion,
+      required String frameId,
+      required int frameFlags2,
+      required int dataOffset,
+      required int frameSize,
+    }) {
+      if (frameId != 'APIC' && frameId != 'PIC') return false;
+      final frameData = bytes.sublist(dataOffset, dataOffset + frameSize);
+      final img = _parseApicPayload(frameData, isV22: majorVersion == 2);
+      if (img != null && img.isNotEmpty) {
+        found = img;
+        return true;
       }
-      offset += headerLen;
-      if (frameSize <= 0 || offset + frameSize > tagEnd) {
-        break;
-      }
-
-      if (frameId == 'APIC' || frameId == 'PIC') {
-        final frameData = bytes.sublist(offset, offset + frameSize);
-        final img = _parseApicPayload(frameData, isV22: majorVersion == 2);
-        if (img != null && img.isNotEmpty) {
-          return img;
-        }
-      }
-      offset += frameSize;
-    }
-    return null;
+      return false;
+    });
+    return found;
   }
 
   static Uint8List? _parseApicPayload(Uint8List frame, {required bool isV22}) {

@@ -2,53 +2,17 @@ part of 'immersive_audio_page.dart';
 
 /// `ImmersiveAudioPage` 移动端布局、顶栏与歌词/队列子视口扩展。
 extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
-  Widget _buildAndroidShortPhoneStage({
-    required BuildContext context,
-    required EdgeInsets safe,
-    required AudioQueueItem item,
-    required LrcDocument? lrc,
-    required AudioCoverSource cover,
-    required bool isPlaying,
-    required AudioLoopMode loopMode,
-    required double volume,
-    required bool isMuted,
-    required String specLabel,
-    required _ImmersiveRightPane effectivePane,
-    required AudioPlaybackNotifier notifier,
-    required bool audioMiniEnabled,
-  }) {
+  Widget _buildAndroidShortPhoneStage(
+    BuildContext context,
+    EdgeInsets safe,
+    _ImmersiveStageData data,
+  ) {
     final p = context.palette;
-    final snapshotState = ref.read(audioPlaybackProvider);
     final screenSize = MediaQuery.sizeOf(context);
     final maxCoverSize = (screenSize.height * 0.44).clamp(108.0, 172.0);
     final capsuleMaxW = math.min(
       KonataAdaptiveTokens.tabletPlayerMaxWidth,
       math.max(320.0, screenSize.width - safe.horizontal - 24.0),
-    );
-
-    final togglePaneButton = KonataCapsuleIconButton(
-      key: const ValueKey('immersive_toggle_pane_button'),
-      icon: effectivePane == _ImmersiveRightPane.queue
-          ? Icons.lyrics_rounded
-          : Icons.queue_music_rounded,
-      tooltip: effectivePane == _ImmersiveRightPane.queue
-          ? '切换至同步歌词'
-          : '切换至专辑曲目列表',
-      color: p.textPrimary,
-      size: 20,
-      fixedSize: KonataAdaptiveTokens.touchTarget,
-      borderRadius: KonataPlaybackTokens.immersiveSwitchButtonRadius,
-      padding: EdgeInsets.zero,
-      highlighted: effectivePane == _ImmersiveRightPane.queue,
-      highlightColor: p.textPrimary,
-      highlightBgColor: KonataPlaybackTokens.activePillBg(p),
-      showHighlightBorder: false,
-      onTap: () => _mutateState(() {
-        _pane = effectivePane == _ImmersiveRightPane.queue
-            ? _ImmersiveRightPane.lyrics
-            : _ImmersiveRightPane.queue;
-        _userPinnedPane = true;
-      }),
     );
 
     return Padding(
@@ -68,7 +32,7 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
               children: [
                 ..._buildTopLeadingActions(
                   p,
-                  audioMiniEnabled: audioMiniEnabled,
+                  audioMiniEnabled: data.audioMiniEnabled,
                   isAndroid: true,
                   showEscHint: false,
                 ),
@@ -86,7 +50,7 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 8),
                       child: ImmersiveCoverWithReflection(
-                        cover: cover,
+                        cover: data.cover,
                         maxCoverSize: maxCoverSize,
                         borderRadius: 14,
                       ),
@@ -96,73 +60,43 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
                 const SizedBox(width: 16),
                 Expanded(
                   flex: 6,
-                  child: KonataSmoothSectionSwitcher(
-                    switchKey: effectivePane,
-                    alignment: Alignment.center,
-                    child: effectivePane == _ImmersiveRightPane.lyrics
-                        ? KeyedSubtree(
-                            key: const ValueKey('short_phone_lyrics_pane'),
-                            child: _buildLyricsViewport(
-                              item.id,
-                              lrc,
-                              notifier,
-                              compact: true,
-                            ),
-                          )
-                        : KeyedSubtree(
-                            key: const ValueKey('short_phone_queue_pane'),
-                            child: _buildQueueViewport(snapshotState, notifier),
-                          ),
+                  child: _buildRightPaneSwitcher(
+                    data: data,
+                    lyricsKey: 'short_phone_lyrics_pane',
+                    queueKey: 'short_phone_queue_pane',
+                    compactLyrics: true,
                   ),
                 ),
               ],
             ),
           ),
           const SizedBox(height: 6),
-          Center(
-            child: ImmersiveAudioCapsuleDockLeaf(
-              maxWidth: capsuleMaxW,
-              title: item.title,
-              isPlaying: isPlaying,
-              loopMode: loopMode,
-              notifier: notifier,
-              trailingCenterPrimaryButton: togglePaneButton,
-              rightSlot: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (specLabel.isNotEmpty &&
-                      screenSize.width >=
-                          KonataPlaybackTokens.miniBarHideBadgeBreakpoint) ...[
-                    KonataSpecBadge(label: specLabel),
-                    const SizedBox(width: 6),
-                  ],
-                  KonataVolumeControl(
-                    volume: (volume / 100.0).clamp(0.0, 1.0),
-                    isMuted: isMuted,
-                    onVolumeChanged: (v) => notifier.setVolume(v * 100.0),
-                    onToggleMute: notifier.toggleMute,
-                  ),
-                ],
-              ),
-            ),
+          _buildBottomCapsuleDock(
+            context: context,
+            data: data,
+            maxWidth: capsuleMaxW,
+            screenWidth: screenSize.width,
+            toggleIconSize: 20,
+            toggleFixedSize: KonataAdaptiveTokens.touchTarget,
           ),
         ],
       ),
     );
   }
 
-  Widget _buildAndroidPortraitPhoneStage({
-    required BuildContext context,
-    required AudioQueueItem item,
-    required LrcDocument? lrc,
-    required AudioCoverSource cover,
-    required bool isPlaying,
-    required AudioLoopMode loopMode,
-    required String specLabel,
-    required AudioPlaybackNotifier notifier,
-    required bool audioMiniEnabled,
-  }) {
+  Widget _buildAndroidPortraitPhoneStage(
+    BuildContext context,
+    _ImmersiveStageData data,
+  ) {
     final p = context.palette;
+    final item = data.item;
+    final lrc = data.lrc;
+    final cover = data.cover;
+    final isPlaying = data.isPlaying;
+    final loopMode = data.loopMode;
+    final specLabel = data.specLabel;
+    final notifier = data.notifier;
+    final audioMiniEnabled = data.audioMiniEnabled;
 
     return SafeArea(
       child: Column(

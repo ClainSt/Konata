@@ -74,7 +74,7 @@ class BangumiService {
         }
         return const <Map<String, Object?>>[];
       }
-      final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      final decoded = _tryDecodeJson(response.bodyBytes);
       if (decoded is! Map) return const <Map<String, Object?>>[];
       final data = decoded['data'];
       if (data is! List) return const <Map<String, Object?>>[];
@@ -152,7 +152,7 @@ class BangumiService {
       if (response.statusCode != 200) {
         throw StateError('Bangumi 条目拉取失败: HTTP ${response.statusCode}');
       }
-      final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      final decoded = _tryDecodeJson(response.bodyBytes);
       if (decoded is! Map) return null;
       return decoded.map((k, v) => MapEntry(k.toString(), v));
     });
@@ -185,9 +185,8 @@ class BangumiService {
         dedupeKey: 'bgm:$key',
         bucketKey: _bangumiBucketKey,
       );
-      if (response.statusCode == 404) return const <Map<String, Object?>>[];
       if (response.statusCode != 200) return const <Map<String, Object?>>[];
-      final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      final decoded = _tryDecodeJson(response.bodyBytes);
       if (decoded is! Map) return const <Map<String, Object?>>[];
       final data = decoded['data'];
       if (data is! List) return const <Map<String, Object?>>[];
@@ -235,7 +234,7 @@ class BangumiService {
         bucketKey: _bangumiBucketKey,
       );
       if (response.statusCode != 200) return const <BangumiRelatedSubject>[];
-      final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      final decoded = _tryDecodeJson(response.bodyBytes);
       if (decoded is! List) return const <BangumiRelatedSubject>[];
       final items = <BangumiRelatedSubject>[];
       for (final item in decoded.whereType<Map>()) {
@@ -393,6 +392,14 @@ class BangumiService {
     if (raw == null) return null;
     final m = RegExp(r'(19|20)\d{2}').firstMatch(raw.toString());
     return m == null ? null : int.tryParse(m.group(0)!);
+  }
+
+  static Object? _tryDecodeJson(List<int> bodyBytes) {
+    try {
+      return jsonDecode(utf8.decode(bodyBytes, allowMalformed: true));
+    } on FormatException {
+      return null;
+    }
   }
 
   static String? _nonEmpty(String? raw) {

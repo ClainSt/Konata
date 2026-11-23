@@ -60,7 +60,7 @@ Future<List<ScrapeCandidateSummary>> readScrapeCandidatesInDb(
         posterPath: row.posterPath,
         score: row.score,
         rank: row.rank,
-        reasons: _decodeStringList(row.reasonsJson),
+        reasons: decodeJsonStringList(row.reasonsJson),
       ),
   ];
 }
@@ -179,9 +179,14 @@ PlaybackRecord mapPlaybackRow(PlaybackRecordRow row) => PlaybackRecord(
   isCompleted: row.isCompleted,
 );
 
-List<String> _decodeStringList(String raw) {
-  if (raw.isEmpty || raw == '[]') return const [];
-  final decoded = jsonDecode(raw);
-  if (decoded is! List) return const [];
-  return [for (final item in decoded) item.toString()];
+/// 安全解析数据库中持久化存储的 JSON 字符串列表（遇坏数据容错返回空表，防整页读取崩溃）。
+List<String> decodeJsonStringList(String raw) {
+  if (raw.isEmpty || raw == '[]') return const <String>[];
+  try {
+    final decoded = jsonDecode(raw);
+    if (decoded is! List) return const <String>[];
+    return [for (final item in decoded) item.toString()];
+  } on FormatException {
+    return const <String>[];
+  }
 }

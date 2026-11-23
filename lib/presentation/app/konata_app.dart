@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../application/playback/playback_preferences_provider.dart';
 import '../../application/providers/diagnostics_providers.dart';
 import '../../application/providers/diagnostics_runtime_bridge.dart';
+import '../../application/providers/sync_providers.dart';
 import '../../application/providers/theme_providers.dart';
 import '../../composition/platform_composition.dart';
 import '../../domain/config/konata_lane_config.dart';
@@ -63,8 +64,10 @@ class KonataApp extends ConsumerWidget {
 
     final navKey = ref.watch(rootNavigatorKeyProvider);
     final routeObserver = ref.watch(rootRouteObserverProvider);
-    // 激活全局异常捕获与运行时状态快照采集桥接，确保导出日志自带源码定位上下文。
+    // 激活全局异常捕获与运行时状态快照采集桥接，确保导出日志自带源码定位上下文；
+    // 同时惰性触发已启用的启动自动同步配置检查。
     ref.watch(diagnosticsRuntimeBridgeProvider);
+    ref.watch(webDavSyncControllerProvider.select((s) => s.loaded));
     final logStore = ref.watch(diagnosticsLogStoreProvider);
     final appTitle = KonataLaneConfig.resolveDesktopWindowTitle();
 

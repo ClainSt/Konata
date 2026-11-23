@@ -1,5 +1,4 @@
 import 'package:material_ui/material_ui.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../domain/models/network_config.dart';
 import '../theme/konata_palette.dart';
@@ -8,16 +7,12 @@ import '../widgets/design_system/konata_draggable_scrollbar.dart';
 import '../widgets/design_system/konata_glass_dialog.dart';
 import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_surface_card.dart';
+import 'settings_shared_widgets.dart';
 
 /// Fanart.tv 个人密钥（Client Key）选填获取指引毛玻璃弹窗。
 class FanartApiHelpDialog extends StatelessWidget {
   /// 创建 Fanart.tv 个人密钥说明弹窗。
   const FanartApiHelpDialog({super.key});
-
-  Future<void> _openUrl(String url) async {
-    final uri = Uri.parse(url);
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -68,7 +63,8 @@ class FanartApiHelpDialog extends StatelessWidget {
                 label: '打开 Fanart.tv API 申请页',
                 icon: Icons.open_in_new_rounded,
                 compact: true,
-                onPressed: () => _openUrl(TmdbNetworkConfig.fanartGetApiKeyUrl),
+                onPressed: () =>
+                    openKonataExternalUrl(TmdbNetworkConfig.fanartGetApiKeyUrl),
               ),
               const SizedBox(height: 14),
               Text(

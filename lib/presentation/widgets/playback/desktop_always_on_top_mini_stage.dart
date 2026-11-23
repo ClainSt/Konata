@@ -322,27 +322,6 @@ class _DesktopAlwaysOnTopMiniStageState
                         _buildMiniTopBar(
                           title: titleText,
                           showBackToInWindowButton: videoMiniEnabled,
-                          onBackToInWindow: () => unawaited(
-                            ref
-                                .read(
-                                  desktopAlwaysOnTopMiniModeProvider.notifier,
-                                )
-                                .exitToMainWindow(forceExpanded: false),
-                          ),
-                          onRestore: () => unawaited(
-                            ref
-                                .read(
-                                  desktopAlwaysOnTopMiniModeProvider.notifier,
-                                )
-                                .exitToMainWindow(),
-                          ),
-                          onClose: () => unawaited(
-                            ref
-                                .read(
-                                  desktopAlwaysOnTopMiniModeProvider.notifier,
-                                )
-                                .closePlaybackAndExit(),
-                          ),
                         ),
                         _DesktopMiniVideoBottomBarLeaf(request: req),
                       ],
@@ -418,21 +397,6 @@ class _DesktopAlwaysOnTopMiniStageState
                       title: '',
                       showGradient: false,
                       showBackToInWindowButton: audioMiniEnabled,
-                      onBackToInWindow: () => unawaited(
-                        ref
-                            .read(desktopAlwaysOnTopMiniModeProvider.notifier)
-                            .exitToMainWindow(forceExpanded: false),
-                      ),
-                      onRestore: () => unawaited(
-                        ref
-                            .read(desktopAlwaysOnTopMiniModeProvider.notifier)
-                            .exitToMainWindow(),
-                      ),
-                      onClose: () => unawaited(
-                        ref
-                            .read(desktopAlwaysOnTopMiniModeProvider.notifier)
-                            .closePlaybackAndExit(),
-                      ),
                     ),
                   );
                 },
@@ -473,11 +437,9 @@ class _DesktopAlwaysOnTopMiniStageState
   Widget _buildMiniTopBar({
     required String title,
     required bool showBackToInWindowButton,
-    required VoidCallback onBackToInWindow,
-    required VoidCallback onRestore,
-    required VoidCallback onClose,
     bool showGradient = true,
   }) {
+    final miniCtrl = ref.read(desktopAlwaysOnTopMiniModeProvider.notifier);
     final bar = Padding(
       padding: const EdgeInsets.fromLTRB(10, 6, 6, 6),
       child: Row(
@@ -504,7 +466,9 @@ class _DesktopAlwaysOnTopMiniStageState
               size: 16,
               fixedSize: 30,
               padding: EdgeInsets.zero,
-              onTap: onBackToInWindow,
+              onTap: () => unawaited(
+                miniCtrl.exitToMainWindow(forceExpanded: false),
+              ),
             ),
           KonataCapsuleIconButton(
             key: const ValueKey('desktop_mini_restore_button'),
@@ -514,7 +478,7 @@ class _DesktopAlwaysOnTopMiniStageState
             size: 16,
             fixedSize: 30,
             padding: EdgeInsets.zero,
-            onTap: onRestore,
+            onTap: () => unawaited(miniCtrl.exitToMainWindow()),
           ),
           KonataCapsuleIconButton(
             key: const ValueKey('desktop_mini_close_button'),
@@ -524,7 +488,7 @@ class _DesktopAlwaysOnTopMiniStageState
             size: 16,
             fixedSize: 30,
             padding: EdgeInsets.zero,
-            onTap: onClose,
+            onTap: () => unawaited(miniCtrl.closePlaybackAndExit()),
           ),
         ],
       ),

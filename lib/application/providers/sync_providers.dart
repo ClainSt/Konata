@@ -103,6 +103,8 @@ class WebDavSyncUiState {
 /// WebDAV 同步配置读写、连通性校验、立即同步与本地备份恢复状态控制器。
 class WebDavSyncController extends Notifier<WebDavSyncUiState> {
   void Function()? _disposeDiagContributor;
+  Timer? _playbackStopSyncTimer;
+  bool _startupSyncTriggered = false;
 
   @override
   WebDavSyncUiState build() {
@@ -128,6 +130,8 @@ class WebDavSyncController extends Notifier<WebDavSyncUiState> {
       ),
     );
     ref.onDispose(() {
+      _playbackStopSyncTimer?.cancel();
+      _playbackStopSyncTimer = null;
       _disposeDiagContributor?.call();
       _disposeDiagContributor = null;
     });
@@ -156,6 +160,13 @@ class WebDavSyncController extends Notifier<WebDavSyncUiState> {
             : null,
         lastSummary: lastSummary,
       );
+      if (!_startupSyncTriggered &&
+          config.enabled &&
+          config.autoSyncOnStartup &&
+          config.hasValidServerUrl) {
+        _startupSyncTriggered = true;
+        unawaited(_syncSilently());
+      }
     } catch (error) {
       developer.log(
         '恢复 WebDAV 同步配置失败',
@@ -165,6 +176,33 @@ class WebDavSyncController extends Notifier<WebDavSyncUiState> {
       if (ref.mounted) {
         state = state.copyWith(loaded: true);
       }
+    }
+  }
+
+  /// 停播后按需防抖触发后台静默同步（仅在用户开启「停播后静默上传进度」时生效）。
+  void notifyPlaybackStopped() {
+    final cfg = state.config;
+    if (!cfg.enabled || !cfg.autoSyncOnPlaybackStop || !cfg.hasValidServerUrl) {
+      return;
+    }
+    _playbackStopSyncTimer?.cancel();
+    _playbackStopSyncTimer = Timer(const Duration(seconds: 2), () {
+      _playbackStopSyncTimer = null;
+      if (ref.mounted) {
+        unawaited(_syncSilently());
+      }
+    });
+  }
+
+  Future<void> _syncSilently() async {
+    try {
+      await syncNow();
+    } catch (error) {
+      developer.log(
+        '后台自动 WebDAV 同步失败（已写入诊断日志）',
+        name: 'konata.sync_providers',
+        error: error,
+      );
     }
   }
 

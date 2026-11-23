@@ -207,10 +207,8 @@ class PhotosStorage {
   DateTime? _indexedRootModified;
   Future<void>? _indexBuildInFlight;
 
-  static final RegExp _invalidPathChars = RegExp(r'[<>:"/\\|?*\x00-\x1F]');
   static final RegExp _safePlainId = RegExp(r'^[A-Za-z0-9_-]{1,32}$');
   static final RegExp _nonTagChars = RegExp(r'[^A-Za-z0-9_-]+');
-  static final RegExp _whitespaceCollapse = RegExp(r'\s+');
 
   /// 解析当前运行环境对应的 `photos/` 根目录路径。
   Directory resolveRootDirectory() {
@@ -219,21 +217,9 @@ class PhotosStorage {
     return _storageRoot.photosRootDirSync();
   }
 
-  /// 将作品名规范化为 Windows / POSIX 安全可读目录前缀。
-  static String sanitizeTitle(String raw) {
-    var cleaned = raw.replaceAll(_invalidPathChars, ' ');
-    cleaned = cleaned.replaceAll(_whitespaceCollapse, ' ').trim();
-    while (cleaned.endsWith('.')) {
-      cleaned = cleaned.substring(0, cleaned.length - 1).trim();
-    }
-    if (cleaned.length > 48) {
-      cleaned = cleaned.substring(0, 48).trim();
-      while (cleaned.endsWith('.')) {
-        cleaned = cleaned.substring(0, cleaned.length - 1).trim();
-      }
-    }
-    return cleaned.isEmpty ? '未命名作品' : cleaned;
-  }
+  /// 将作品名规范化为 Windows / POSIX 安全可读目录前缀（复用存储根服务的统一清洗规则）。
+  static String sanitizeTitle(String raw) =>
+      StorageRootService.sanitizeWorkTitle(raw);
 
   /// 将任意包含 `::` / `/` 等字符的 `workId` 确定性编码为 Windows 安全唯一标识段。
   static String encodeWorkIdTag(String workId) {
@@ -355,6 +341,27 @@ class PhotosStorage {
     return Directory(p.join(workDir.path, subfolder.dirName));
   }
 
+  static String _scanFileName(String variantId, String relativePath, int size) =>
+      '${shortDigest('${relativePath.replaceAll('\\', '/')}#$size#$variantId')}.webp';
+
+  Future<File?> _existingScanFile(
+    String workId,
+    String variantId,
+    String relativePath,
+    int fileSize,
+    String? title,
+  ) async {
+    final workDir = await _resolveExistingWorkDirectory(workId, title: title);
+    if (workDir == null) return null;
+    return File(
+      p.join(
+        workDir.path,
+        PhotoSubfolder.scans.dirName,
+        _scanFileName(variantId, relativePath, fileSize),
+      ),
+    );
+  }
+
   /// 返回指定作品 Scan 缩略图的目标 `.webp` 文件句柄（写入前才创建父目录）。
   Future<File> scanThumbnailFile({
     required String workId,
@@ -368,8 +375,7 @@ class PhotosStorage {
       PhotoSubfolder.scans,
       title: title,
     );
-    final sig = '${relativePath.replaceAll('\\', '/')}#$fileSize#$variantId';
-    return File(p.join(dir.path, '${shortDigest(sig)}.webp'));
+    return File(p.join(dir.path, _scanFileName(variantId, relativePath, fileSize)));
   }
 
   /// 仅当作品目录在磁盘实际存在时返回该目录（只读路径专用，未命中直接返回 `null` 省去多余子目录 stat）。
@@ -411,12 +417,14 @@ class PhotosStorage {
     required int fileSize,
     String? title,
   }) async {
-    final workDir = await _resolveExistingWorkDirectory(workId, title: title);
-    if (workDir == null) return null;
-    final sig = '${relativePath.replaceAll('\\', '/')}#$fileSize#$variantId';
-    final file = File(
-      p.join(workDir.path, PhotoSubfolder.scans.dirName, '${shortDigest(sig)}.webp'),
+    final file = await _existingScanFile(
+      workId,
+      variantId,
+      relativePath,
+      fileSize,
+      title,
     );
+    if (file == null) return null;
     try {
       final bytes = await file.readAsBytes();
       return bytes.isEmpty ? null : bytes;
@@ -433,12 +441,14 @@ class PhotosStorage {
     required int fileSize,
     String? title,
   }) async {
-    final workDir = await _resolveExistingWorkDirectory(workId, title: title);
-    if (workDir == null) return null;
-    final sig = '${relativePath.replaceAll('\\', '/')}#$fileSize#$variantId';
-    final file = File(
-      p.join(workDir.path, PhotoSubfolder.scans.dirName, '${shortDigest(sig)}.webp'),
+    final file = await _existingScanFile(
+      workId,
+      variantId,
+      relativePath,
+      fileSize,
+      title,
     );
+    if (file == null) return null;
     RandomAccessFile? raf;
     try {
       raf = await file.open();

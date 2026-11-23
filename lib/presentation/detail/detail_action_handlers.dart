@@ -281,72 +281,77 @@ class DetailActionHandlers {
     );
     var category = episode.category;
 
-    final confirmed = await showKonataGlassDialog<bool>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => KonataGlassDialog(
-          width: 390,
-          title: '微调单集编号与分类',
-          onClose: () => Navigator.of(ctx).pop(false),
-          actions: [
-            KonataPillButton.ghost(
-              label: '取消',
-              compact: true,
-              onPressed: () => Navigator.of(ctx).pop(false),
-            ),
-            KonataPillButton.primary(
-              label: '保存',
-              compact: true,
-              onPressed: () => Navigator.of(ctx).pop(true),
-            ),
-          ],
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              KonataSegmentedCapsule<EpisodeCategory>(
-                options: const [
-                  KonataSegmentOption(value: EpisodeCategory.main, label: '正片'),
-                  KonataSegmentOption(
-                    value: EpisodeCategory.extra,
-                    label: '特典',
-                  ),
-                ],
-                selected: category,
-                onChanged: (v) => setDialogState(() => category = v),
+    try {
+      final confirmed = await showKonataGlassDialog<bool>(
+        context: context,
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, setDialogState) => KonataGlassDialog(
+            width: 390,
+            title: '微调单集编号与分类',
+            onClose: () => Navigator.of(ctx).pop(false),
+            actions: [
+              KonataPillButton.ghost(
+                label: '取消',
+                compact: true,
+                onPressed: () => Navigator.of(ctx).pop(false),
               ),
-              const SizedBox(height: 14),
-              KonataSoftTextField(
-                controller: seasonController,
-                label: '季号 (Season)',
-                keyboardType: TextInputType.number,
-              ),
-              const SizedBox(height: 10),
-              KonataSoftTextField(
-                controller: epController,
-                label: '集号 (Episode)',
-                keyboardType: TextInputType.number,
+              KonataPillButton.primary(
+                label: '保存',
+                compact: true,
+                onPressed: () => Navigator.of(ctx).pop(true),
               ),
             ],
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                KonataSegmentedCapsule<EpisodeCategory>(
+                  options: const [
+                    KonataSegmentOption(value: EpisodeCategory.main, label: '正片'),
+                    KonataSegmentOption(
+                      value: EpisodeCategory.extra,
+                      label: '特典',
+                    ),
+                  ],
+                  selected: category,
+                  onChanged: (v) => setDialogState(() => category = v),
+                ),
+                const SizedBox(height: 14),
+                KonataSoftTextField(
+                  controller: seasonController,
+                  label: '季号 (Season)',
+                  keyboardType: TextInputType.number,
+                ),
+                const SizedBox(height: 10),
+                KonataSoftTextField(
+                  controller: epController,
+                  label: '集号 (Episode)',
+                  keyboardType: TextInputType.number,
+                ),
+              ],
+            ),
           ),
         ),
-      ),
-    );
+      );
 
-    if (confirmed == true) {
-      final s = int.tryParse(seasonController.text.trim());
-      final e = int.tryParse(epController.text.trim());
-      if (s != null && e != null) {
-        await ref
-            .read(konataActionsProvider)
-            .updateEpisodeSlot(
-              episode: episode,
-              seasonNumber: s,
-              episodeNumber: e,
-              category: category,
-              extraType: episode.extraType ?? ExtraKind.sp,
-            );
+      if (confirmed == true) {
+        final s = int.tryParse(seasonController.text.trim());
+        final e = int.tryParse(epController.text.trim());
+        if (s != null && e != null) {
+          await ref
+              .read(konataActionsProvider)
+              .updateEpisodeSlot(
+                episode: episode,
+                seasonNumber: s,
+                episodeNumber: e,
+                category: category,
+                extraType: episode.extraType ?? ExtraKind.sp,
+              );
+        }
       }
+    } finally {
+      seasonController.dispose();
+      epController.dispose();
     }
   }
 

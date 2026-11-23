@@ -417,6 +417,141 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
     );
   }
 
+  PopupMenuItem<String> _buildHistoryMenuItem({
+    required String value,
+    required double height,
+    required IconData icon,
+    required String label,
+  }) => PopupMenuItem<String>(
+    value: value,
+    height: height,
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [Icon(icon, size: 17), const SizedBox(width: 8), Text(label)],
+    ),
+  );
+
+  Future<void> _resumeWithEngine({
+    required BuildContext context,
+    required WidgetRef ref,
+    required PlaybackRecord rec,
+    required bool isAudio,
+    required PreferredPlaybackEngine engine,
+  }) => isAudio
+      ? _resumeAudioRecord(
+          context: context,
+          ref: ref,
+          rec: rec,
+          overrideEngine: engine,
+        )
+      : _resumeRecord(
+          context: context,
+          ref: ref,
+          rec: rec,
+          overrideEngine: engine,
+        );
+
+  Future<void> _showContextMenu({
+    required BuildContext context,
+    required WidgetRef ref,
+    required Offset globalPos,
+    required PlaybackRecord targetRecord,
+    required List<PlaybackRecord> actionRecords,
+    required bool isAudio,
+    required bool showDetailAction,
+    WorkLibraryItem? workItem,
+  }) async {
+    final pos = RelativeRect.fromLTRB(
+      globalPos.dx,
+      globalPos.dy,
+      globalPos.dx,
+      globalPos.dy,
+    );
+    final itemHeight = KonataAdaptiveTokens.isAndroid
+        ? KonataAdaptiveTokens.touchTarget
+        : kMinInteractiveDimension;
+    final resumeLabel = KonataAdaptiveTokens.isAndroid
+        ? (isAudio ? '继续收听' : '继续观看')
+        : (isAudio ? '使用内置音频续播' : '使用内置播放器续播');
+    final isMulti = actionRecords.length > 1;
+    final hasIncomplete = actionRecords.any((r) => !r.isCompleted);
+
+    final action = await showMenu<String>(
+      context: context,
+      position: pos,
+      items: [
+        _buildHistoryMenuItem(
+          value: 'builtin',
+          height: itemHeight,
+          icon: isAudio
+              ? Icons.graphic_eq_rounded
+              : (KonataAdaptiveTokens.isAndroid
+                    ? Icons.play_circle_outline_rounded
+                    : Icons.smart_display_outlined),
+          label: resumeLabel,
+        ),
+        if (KonataAdaptiveTokens.isWindows)
+          _buildHistoryMenuItem(
+            value: 'external',
+            height: itemHeight,
+            icon: Icons.open_in_new_rounded,
+            label: '使用外部播放器续播',
+          ),
+        if (showDetailAction)
+          _buildHistoryMenuItem(
+            value: 'detail',
+            height: itemHeight,
+            icon: Icons.info_outline_rounded,
+            label: '查看作品详情',
+          ),
+        if (hasIncomplete)
+          _buildHistoryMenuItem(
+            value: 'complete',
+            height: itemHeight,
+            icon: Icons.check_circle_outline_rounded,
+            label: isMulti
+                ? '当日全部标为${isAudio ? '已听' : '已看'}'
+                : (isAudio ? '标为已听' : '标为已看'),
+          ),
+        _buildHistoryMenuItem(
+          value: 'delete',
+          height: itemHeight,
+          icon: Icons.delete_outline_rounded,
+          label: isMulti ? '删除当日记录' : '删除记录',
+        ),
+      ],
+    );
+    if (!context.mounted || action == null) return;
+    switch (action) {
+      case 'builtin':
+        await _resumeWithEngine(
+          context: context,
+          ref: ref,
+          rec: targetRecord,
+          isAudio: isAudio,
+          engine: PreferredPlaybackEngine.builtinLibmpv,
+        );
+      case 'external':
+        await _resumeWithEngine(
+          context: context,
+          ref: ref,
+          rec: targetRecord,
+          isAudio: isAudio,
+          engine: PreferredPlaybackEngine.desktopRelay,
+        );
+      case 'detail':
+        await _openWorkDetail(context, targetRecord, workItem);
+      case 'complete':
+        await ref
+            .read(playbackCoordinatorProvider)
+            .markRecordsCompleted(actionRecords);
+      case 'delete':
+        await ref
+            .read(playbackCoordinatorProvider)
+            .deleteHistoryRecords(actionRecords);
+    }
+  }
+
   Future<void> _showGroupMenu({
     required BuildContext context,
     required WidgetRef ref,
@@ -424,147 +559,16 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
     required PlaybackHistoryWorkGroup group,
     required WorkLibraryItem? workItem,
     required bool isAudio,
-  }) async {
-    final latest = group.latestRecord;
-    final pos = RelativeRect.fromLTRB(
-      globalPos.dx,
-      globalPos.dy,
-      globalPos.dx,
-      globalPos.dy,
-    );
-    final itemHeight = KonataAdaptiveTokens.isAndroid
-        ? KonataAdaptiveTokens.touchTarget
-        : kMinInteractiveDimension;
-    final resumeLabel = KonataAdaptiveTokens.isAndroid
-        ? (isAudio ? '继续收听' : '继续观看')
-        : (isAudio ? '使用内置音频续播' : '使用内置播放器续播');
-    final hasIncomplete = group.records.any((r) => !r.isCompleted);
-
-    final action = await showMenu<String>(
-      context: context,
-      position: pos,
-      items: [
-        PopupMenuItem<String>(
-          value: 'builtin',
-          height: itemHeight,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                isAudio
-                    ? Icons.graphic_eq_rounded
-                    : (KonataAdaptiveTokens.isAndroid
-                          ? Icons.play_circle_outline_rounded
-                          : Icons.smart_display_outlined),
-                size: 17,
-              ),
-              const SizedBox(width: 8),
-              Text(resumeLabel),
-            ],
-          ),
-        ),
-        if (KonataAdaptiveTokens.isWindows)
-          PopupMenuItem<String>(
-            value: 'external',
-            height: itemHeight,
-            child: const Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.open_in_new_rounded, size: 17),
-                SizedBox(width: 8),
-                Text('使用外部播放器续播'),
-              ],
-            ),
-          ),
-        PopupMenuItem<String>(
-          value: 'detail',
-          height: itemHeight,
-          child: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.info_outline_rounded, size: 17),
-              SizedBox(width: 8),
-              Text('查看作品详情'),
-            ],
-          ),
-        ),
-        if (hasIncomplete)
-          PopupMenuItem<String>(
-            value: 'complete',
-            height: itemHeight,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.check_circle_outline_rounded, size: 17),
-                const SizedBox(width: 8),
-                Text(
-                  group.entryCount > 1
-                      ? '当日全部标为${isAudio ? '已听' : '已看'}'
-                      : (isAudio ? '标为已听' : '标为已看'),
-                ),
-              ],
-            ),
-          ),
-        PopupMenuItem<String>(
-          value: 'delete',
-          height: itemHeight,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.delete_outline_rounded, size: 17),
-              const SizedBox(width: 8),
-              Text(group.entryCount > 1 ? '删除当日记录' : '删除记录'),
-            ],
-          ),
-        ),
-      ],
-    );
-    if (!context.mounted || action == null) return;
-    switch (action) {
-      case 'builtin':
-        if (isAudio) {
-          await _resumeAudioRecord(
-            context: context,
-            ref: ref,
-            rec: latest,
-            overrideEngine: PreferredPlaybackEngine.builtinLibmpv,
-          );
-        } else {
-          await _resumeRecord(
-            context: context,
-            ref: ref,
-            rec: latest,
-            overrideEngine: PreferredPlaybackEngine.builtinLibmpv,
-          );
-        }
-      case 'external':
-        if (isAudio) {
-          await _resumeAudioRecord(
-            context: context,
-            ref: ref,
-            rec: latest,
-            overrideEngine: PreferredPlaybackEngine.desktopRelay,
-          );
-        } else {
-          await _resumeRecord(
-            context: context,
-            ref: ref,
-            rec: latest,
-            overrideEngine: PreferredPlaybackEngine.desktopRelay,
-          );
-        }
-      case 'detail':
-        await _openWorkDetail(context, latest, workItem);
-      case 'complete':
-        await ref
-            .read(playbackCoordinatorProvider)
-            .markRecordsCompleted(group.records);
-      case 'delete':
-        await ref
-            .read(playbackCoordinatorProvider)
-            .deleteHistoryRecords(group.records);
-    }
-  }
+  }) => _showContextMenu(
+    context: context,
+    ref: ref,
+    globalPos: globalPos,
+    targetRecord: group.latestRecord,
+    actionRecords: group.records,
+    isAudio: isAudio,
+    showDetailAction: true,
+    workItem: workItem,
+  );
 
   Future<void> _showEntryMenu({
     required BuildContext context,
@@ -572,122 +576,15 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
     required Offset globalPos,
     required PlaybackRecord rec,
     required bool isAudio,
-  }) async {
-    final pos = RelativeRect.fromLTRB(
-      globalPos.dx,
-      globalPos.dy,
-      globalPos.dx,
-      globalPos.dy,
-    );
-    final itemHeight = KonataAdaptiveTokens.isAndroid
-        ? KonataAdaptiveTokens.touchTarget
-        : kMinInteractiveDimension;
-    final resumeLabel = KonataAdaptiveTokens.isAndroid
-        ? (isAudio ? '继续收听' : '继续观看')
-        : (isAudio ? '使用内置音频续播' : '使用内置播放器续播');
-    final action = await showMenu<String>(
-      context: context,
-      position: pos,
-      items: [
-        PopupMenuItem<String>(
-          value: 'builtin',
-          height: itemHeight,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                isAudio
-                    ? Icons.graphic_eq_rounded
-                    : (KonataAdaptiveTokens.isAndroid
-                          ? Icons.play_circle_outline_rounded
-                          : Icons.smart_display_outlined),
-                size: 17,
-              ),
-              const SizedBox(width: 8),
-              Text(resumeLabel),
-            ],
-          ),
-        ),
-        if (KonataAdaptiveTokens.isWindows)
-          PopupMenuItem<String>(
-            value: 'external',
-            height: itemHeight,
-            child: const Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.open_in_new_rounded, size: 17),
-                SizedBox(width: 8),
-                Text('使用外部播放器续播'),
-              ],
-            ),
-          ),
-        if (!rec.isCompleted)
-          PopupMenuItem<String>(
-            value: 'complete',
-            height: itemHeight,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.check_circle_outline_rounded, size: 17),
-                const SizedBox(width: 8),
-                Text(isAudio ? '标为已听' : '标为已看'),
-              ],
-            ),
-          ),
-        PopupMenuItem<String>(
-          value: 'delete',
-          height: itemHeight,
-          child: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.delete_outline_rounded, size: 17),
-              SizedBox(width: 8),
-              Text('删除记录'),
-            ],
-          ),
-        ),
-      ],
-    );
-    if (!context.mounted || action == null) return;
-    switch (action) {
-      case 'builtin':
-        if (isAudio) {
-          await _resumeAudioRecord(
-            context: context,
-            ref: ref,
-            rec: rec,
-            overrideEngine: PreferredPlaybackEngine.builtinLibmpv,
-          );
-        } else {
-          await _resumeRecord(
-            context: context,
-            ref: ref,
-            rec: rec,
-            overrideEngine: PreferredPlaybackEngine.builtinLibmpv,
-          );
-        }
-      case 'external':
-        if (isAudio) {
-          await _resumeAudioRecord(
-            context: context,
-            ref: ref,
-            rec: rec,
-            overrideEngine: PreferredPlaybackEngine.desktopRelay,
-          );
-        } else {
-          await _resumeRecord(
-            context: context,
-            ref: ref,
-            rec: rec,
-            overrideEngine: PreferredPlaybackEngine.desktopRelay,
-          );
-        }
-      case 'complete':
-        await ref.read(playbackCoordinatorProvider).markRecordCompleted(rec);
-      case 'delete':
-        await ref.read(playbackCoordinatorProvider).deleteHistoryRecord(rec);
-    }
-  }
+  }) => _showContextMenu(
+    context: context,
+    ref: ref,
+    globalPos: globalPos,
+    targetRecord: rec,
+    actionRecords: [rec],
+    isAudio: isAudio,
+    showDetailAction: false,
+  );
 
   String? _resolveAudioDirectoryLabel(
     PlaybackRecord rec,

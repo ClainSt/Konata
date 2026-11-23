@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
@@ -59,11 +60,15 @@ class TopNavBar extends StatefulWidget {
 class _TopNavBarState extends State<TopNavBar> {
   late final TextEditingController _controller;
   late final FocusNode _searchEscapeFocusNode;
+  Timer? _searchDebounce;
+  late String _lastDispatchedQuery;
 
   @override
   void initState() {
     super.initState();
+    _lastDispatchedQuery = widget.searchQuery;
     _controller = TextEditingController(text: widget.searchQuery);
+    _controller.addListener(_handleControllerValueChanged);
     _searchEscapeFocusNode = FocusNode(skipTraversal: true);
     widget.searchFocusNode.addListener(_handleFocusChange);
   }
@@ -71,17 +76,65 @@ class _TopNavBarState extends State<TopNavBar> {
   @override
   void didUpdateWidget(covariant TopNavBar oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.searchQuery != _controller.text) {
-      _controller.text = widget.searchQuery;
+    if (oldWidget.searchQuery != widget.searchQuery &&
+        widget.searchQuery != _lastDispatchedQuery) {
+      _searchDebounce?.cancel();
+      _searchDebounce = null;
+      _lastDispatchedQuery = widget.searchQuery;
+      if (_controller.text != widget.searchQuery) {
+        _controller.value = TextEditingValue(
+          text: widget.searchQuery,
+          selection: TextSelection.collapsed(
+            offset: widget.searchQuery.length,
+          ),
+        );
+      }
     }
   }
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
+    _searchDebounce = null;
+    _controller.removeListener(_handleControllerValueChanged);
     widget.searchFocusNode.removeListener(_handleFocusChange);
     _searchEscapeFocusNode.dispose();
     _controller.dispose();
     super.dispose();
+  }
+
+  void _handleControllerValueChanged() {
+    final value = _controller.value;
+    if (value.text == _lastDispatchedQuery) return;
+    // 输入法拼音组合尚未上屏前跳过过滤，避免未定稿字符频繁重绘整面海报墙。
+    if (value.composing.isValid &&
+        !value.composing.isCollapsed &&
+        value.text.isNotEmpty) {
+      return;
+    }
+    _searchDebounce?.cancel();
+    if (value.text.isEmpty) {
+      _searchDebounce = null;
+      _dispatchSearchQuery('');
+      return;
+    }
+    _searchDebounce = Timer(KonataTheme.searchInputDebounce, () {
+      _searchDebounce = null;
+      if (!mounted) return;
+      _dispatchSearchQuery(_controller.text);
+    });
+  }
+
+  void _dispatchSearchQuery(String query) {
+    if (_lastDispatchedQuery == query) return;
+    _lastDispatchedQuery = query;
+    widget.onSearchChanged(query);
+  }
+
+  void _flushSearchImmediately() {
+    _searchDebounce?.cancel();
+    _searchDebounce = null;
+    _dispatchSearchQuery(_controller.text);
   }
 
   void _handleFocusChange() {
@@ -93,8 +146,10 @@ class _TopNavBarState extends State<TopNavBar> {
   }
 
   void _collapseSearch() {
+    _searchDebounce?.cancel();
+    _searchDebounce = null;
     _controller.clear();
-    widget.onSearchChanged('');
+    _dispatchSearchQuery('');
     widget.searchFocusNode.unfocus();
     widget.onSearchExpandedChanged(false);
   }
@@ -103,84 +158,88 @@ class _TopNavBarState extends State<TopNavBar> {
   Widget build(BuildContext context) {
     final p = context.palette;
     final isLibrary = widget.activeSection == KonataNavSection.library;
+    final enableWindowDrag =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
 
-    final barContent = ClipRect(
+    return ClipRect(
       child: SizedBox(
         height: KonataTheme.topNavHeight,
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final compactOuter = constraints.maxWidth < 360;
-            final outerPad = compactOuter
-                ? 8.0
-                : KonataTheme.topNavOuterHorizontalPadding;
-            final innerWidth = (constraints.maxWidth - outerPad * 2).clamp(
-              0.0,
-              double.infinity,
-            );
-            // 右侧固定控件（搜索间隙 4 + 主题键 32 + 间隙 8 + 窗口三键 108 = 152）与最小安全余量。
-            final rightFixedWidth = 152.0 + (innerWidth >= 240 ? 8.0 : 0.0);
-            final searchExpandedWidth = (innerWidth - rightFixedWidth).clamp(
-              32.0,
-              236.0,
-            );
-            return Padding(
-              padding: EdgeInsets.symmetric(horizontal: outerPad),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        physics: const ClampingScrollPhysics(),
-                        child: _TopNavTabStrip(
-                          activeSection: widget.activeSection,
-                          onSectionChanged: widget.onSectionChanged,
+        child: Stack(
+          children: [
+            // 仅将窗口拖拽/双击最大化/右键系统菜单铺在底层空白区，避免拦截搜索框拖拽选字、双击选词与右键粘贴菜单。
+            if (enableWindowDrag)
+              Positioned.fill(
+                child: DragToMoveArea(child: const SizedBox.expand()),
+              ),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final compactOuter = constraints.maxWidth < 360;
+                final outerPad = compactOuter
+                    ? 8.0
+                    : KonataTheme.topNavOuterHorizontalPadding;
+                final innerWidth = (constraints.maxWidth - outerPad * 2).clamp(
+                  0.0,
+                  double.infinity,
+                );
+                // 右侧固定控件（搜索间隙 4 + 主题键 32 + 间隙 8 + 窗口三键 108 = 152）与最小安全余量。
+                final rightFixedWidth = 152.0 + (innerWidth >= 240 ? 8.0 : 0.0);
+                final searchExpandedWidth = (innerWidth - rightFixedWidth)
+                    .clamp(32.0, 236.0);
+                return Padding(
+                  padding: EdgeInsets.symmetric(horizontal: outerPad),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            physics: const ClampingScrollPhysics(),
+                            child: _TopNavTabStrip(
+                              activeSection: widget.activeSection,
+                              onSectionChanged: widget.onSectionChanged,
+                            ),
+                          ),
                         ),
                       ),
-                    ),
+                      if (innerWidth >= 240) const SizedBox(width: 8),
+                      if (isLibrary) ...[
+                        _ExpandableSearchBox(
+                          expanded: widget.searchExpanded,
+                          expandedWidth: searchExpandedWidth,
+                          controller: _controller,
+                          focusNode: widget.searchFocusNode,
+                          escapeFocusNode: _searchEscapeFocusNode,
+                          onExpand: () {
+                            widget.onSearchExpandedChanged(true);
+                            widget.searchFocusNode.requestFocus();
+                          },
+                          onSubmitted: _flushSearchImmediately,
+                          onCollapse: _collapseSearch,
+                        ),
+                        const SizedBox(width: 4),
+                      ],
+                      _TopNavIconButton(
+                        tooltip: p.isDark ? '切换亮色模式' : '切换暗色模式',
+                        icon: p.isDark
+                            ? Icons.light_mode_outlined
+                            : Icons.dark_mode_outlined,
+                        color: p.textSecondary,
+                        hoverBg: p.secondaryButtonBg,
+                        hoverColor: p.textPrimary,
+                        onPressed: widget.onToggleTheme,
+                      ),
+                      const SizedBox(width: 8),
+                      const WindowControls(),
+                    ],
                   ),
-                  if (innerWidth >= 240) const SizedBox(width: 8),
-                  if (isLibrary) ...[
-                    _ExpandableSearchBox(
-                      expanded: widget.searchExpanded,
-                      expandedWidth: searchExpandedWidth,
-                      controller: _controller,
-                      focusNode: widget.searchFocusNode,
-                      escapeFocusNode: _searchEscapeFocusNode,
-                      onExpand: () {
-                        widget.onSearchExpandedChanged(true);
-                        widget.searchFocusNode.requestFocus();
-                      },
-                      onChanged: widget.onSearchChanged,
-                      onCollapse: _collapseSearch,
-                    ),
-                    const SizedBox(width: 4),
-                  ],
-                  _TopNavIconButton(
-                    tooltip: p.isDark ? '切换亮色模式' : '切换暗色模式',
-                    icon: p.isDark
-                        ? Icons.light_mode_outlined
-                        : Icons.dark_mode_outlined,
-                    color: p.textSecondary,
-                    hoverBg: p.secondaryButtonBg,
-                    hoverColor: p.textPrimary,
-                    onPressed: widget.onToggleTheme,
-                  ),
-                  const SizedBox(width: 8),
-                  const WindowControls(),
-                ],
-              ),
-            );
-          },
+                );
+              },
+            ),
+          ],
         ),
       ),
     );
-
-    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
-      return DragToMoveArea(child: barContent);
-    }
-    return barContent;
   }
 }
 
@@ -581,7 +640,7 @@ class _ExpandableSearchBox extends StatelessWidget {
     required this.focusNode,
     required this.escapeFocusNode,
     required this.onExpand,
-    required this.onChanged,
+    required this.onSubmitted,
     required this.onCollapse,
   });
 
@@ -591,7 +650,7 @@ class _ExpandableSearchBox extends StatelessWidget {
   final FocusNode focusNode;
   final FocusNode escapeFocusNode;
   final VoidCallback onExpand;
-  final ValueChanged<String> onChanged;
+  final VoidCallback onSubmitted;
   final VoidCallback onCollapse;
 
   @override
@@ -608,17 +667,20 @@ class _ExpandableSearchBox extends StatelessWidget {
         width: targetWidth,
         height: 32,
         decoration: BoxDecoration(
-          color: showExpanded ? p.softFill : Colors.transparent,
+          color: showExpanded ? p.softFill : p.softFill.withValues(alpha: 0),
           borderRadius: KonataTheme.borderRadiusSheet,
         ),
         child: showExpanded
-            ? ClipRect(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  physics: const NeverScrollableScrollPhysics(),
-                  child: SizedBox(
-                    width: expandedWidth,
-                    height: 32,
+            // 不透明指针屏障截断命中测试，避免底层 DragToMoveArea 抢占拖选、双击选词与右键粘贴，同时零手势竞技场干扰。
+            ? Listener(
+                behavior: HitTestBehavior.opaque,
+                child: ClipRect(
+                  child: OverflowBox(
+                    minWidth: expandedWidth,
+                    maxWidth: expandedWidth,
+                    minHeight: 32,
+                    maxHeight: 32,
+                    alignment: Alignment.centerLeft,
                     child: KeyboardListener(
                       focusNode: escapeFocusNode,
                       onKeyEvent: (event) {
@@ -629,18 +691,27 @@ class _ExpandableSearchBox extends StatelessWidget {
                       },
                       child: Row(
                         children: [
-                          const SizedBox(width: 10),
-                          Icon(
-                            Icons.search_rounded,
-                            size: 15,
-                            color: p.textSecondary,
+                          GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: focusNode.requestFocus,
+                            child: Padding(
+                              padding: const EdgeInsets.only(
+                                left: 10,
+                                right: 6,
+                              ),
+                              child: Icon(
+                                Icons.search_rounded,
+                                size: 15,
+                                color: p.textSecondary,
+                              ),
+                            ),
                           ),
-                          const SizedBox(width: 6),
                           Expanded(
                             child: TextField(
+                              key: const ValueKey('top_nav_search_text_field'),
                               controller: controller,
                               focusNode: focusNode,
-                              onChanged: onChanged,
+                              onSubmitted: (_) => onSubmitted(),
                               style: TextStyle(
                                 color: p.textPrimary,
                                 fontSize: KonataTheme.fontSizeBodyXs,

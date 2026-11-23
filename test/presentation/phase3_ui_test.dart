@@ -279,6 +279,7 @@ void main() {
       await tester.tap(find.byIcon(Icons.search_rounded));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), '芙莉莲');
+      await tester.pump(KonataTheme.searchInputDebounce);
       await tester.pumpAndSettle();
 
       expect(find.text('葬送的芙莉莲'), findsAtLeastNWidgets(1));

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:material_ui/material_ui.dart';
@@ -33,6 +34,8 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   final ScrollController _gridCtrl = ScrollController();
   final TextEditingController _searchCtrl = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
+  Timer? _mobileSearchDebounce;
+  String _lastDispatchedQuery = '';
   bool _searchBarOpen = false;
   bool _searchHasText = false;
 
@@ -40,6 +43,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   void initState() {
     super.initState();
     final initialQuery = ref.read(librarySearchQueryProvider);
+    _lastDispatchedQuery = initialQuery;
     if (initialQuery.isNotEmpty) {
       _searchCtrl.text = initialQuery;
       _searchBarOpen = true;
@@ -49,14 +53,41 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   }
 
   void _onSearchCtrlTextChanged() {
+    if (!KonataAdaptiveTokens.isAndroid) return;
     final hasText = _searchCtrl.text.isNotEmpty;
     if (mounted && hasText != _searchHasText) {
       setState(() => _searchHasText = hasText);
     }
   }
 
+  void _dispatchMobileSearchQuery(String query) {
+    if (_lastDispatchedQuery == query) return;
+    _lastDispatchedQuery = query;
+    ref.read(librarySearchQueryProvider.notifier).state = query;
+  }
+
+  void _handleMobileSearchChanged(String value) {
+    final composing = _searchCtrl.value.composing;
+    if (composing.isValid && !composing.isCollapsed && value.isNotEmpty) {
+      return;
+    }
+    _mobileSearchDebounce?.cancel();
+    if (value.isEmpty) {
+      _mobileSearchDebounce = null;
+      _dispatchMobileSearchQuery('');
+      return;
+    }
+    _mobileSearchDebounce = Timer(KonataTheme.searchInputDebounce, () {
+      _mobileSearchDebounce = null;
+      if (!mounted) return;
+      _dispatchMobileSearchQuery(_searchCtrl.text);
+    });
+  }
+
   @override
   void dispose() {
+    _mobileSearchDebounce?.cancel();
+    _mobileSearchDebounce = null;
     _searchCtrl.removeListener(_onSearchCtrlTextChanged);
     _gridCtrl.dispose();
     _searchCtrl.dispose();
@@ -74,16 +105,20 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   }
 
   void _clearMobileSearchOnly() {
+    _mobileSearchDebounce?.cancel();
+    _mobileSearchDebounce = null;
     _searchCtrl.clear();
-    ref.read(librarySearchQueryProvider.notifier).state = '';
+    _dispatchMobileSearchQuery('');
     if (mounted) {
       _searchFocusNode.requestFocus();
     }
   }
 
   void _closeMobileSearch() {
+    _mobileSearchDebounce?.cancel();
+    _mobileSearchDebounce = null;
     _searchCtrl.clear();
-    ref.read(librarySearchQueryProvider.notifier).state = '';
+    _dispatchMobileSearchQuery('');
     _searchFocusNode.unfocus();
     setState(() => _searchBarOpen = false);
   }
@@ -106,7 +141,11 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     final imageLoader = ref.watch(tmdbImageLoaderProvider);
     final bottomClearance = KonataBottomClearanceScope.resolve(context, ref);
 
-    if (searchQuery != _searchCtrl.text) {
+    // 桌面端由顶栏独立搜索框驱动，跳过隐藏移动搜索控制器同步，避免每次过滤触发二次整页重建。
+    if (KonataAdaptiveTokens.isAndroid &&
+        searchQuery != _lastDispatchedQuery &&
+        searchQuery != _searchCtrl.text) {
+      _lastDispatchedQuery = searchQuery;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         final current = ref.read(librarySearchQueryProvider);
@@ -137,8 +176,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
           onOpenHidden: () => showHiddenWorksDialog(context),
           onOpenReview: () => showReviewDialog(context),
           onOpenSearch: _openMobileSearch,
-          onSearchChanged: (v) =>
-              ref.read(librarySearchQueryProvider.notifier).state = v,
+          onSearchChanged: _handleMobileSearchChanged,
           onClearSearch: _clearMobileSearchOnly,
           onCloseSearch: _closeMobileSearch,
         ),
@@ -182,6 +220,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                       itemBuilder: (_, index, _) {
                         final item = items[index];
                         return PosterCard(
+                          key: ValueKey<String>(item.work.id),
                           item: item,
                           imageLoader: imageLoader,
                           onTap: () {

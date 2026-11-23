@@ -76,6 +76,7 @@ abstract final class KonataTheme {
   static const Duration navSliderDuration = Duration(milliseconds: 240);
   static const Duration tabSwitchDuration = Duration(milliseconds: 220);
   static const Duration settingsAutoSaveDebounce = Duration(milliseconds: 300);
+  static const Duration searchInputDebounce = Duration(milliseconds: 150);
   static const Duration motionSnap = Duration(milliseconds: 70);
   static const Duration motionMicro = Duration(milliseconds: 110);
   static const Duration motionFast = Duration(milliseconds: 140);
@@ -682,6 +683,13 @@ abstract final class KonataTheme {
         onSurface: palette.textPrimary,
       ),
       dividerColor: palette.hairline,
+      textSelectionTheme: TextSelectionThemeData(
+        cursorColor: palette.accent,
+        selectionColor: palette.accent.withValues(
+          alpha: palette.isDark ? 0.34 : 0.24,
+        ),
+        selectionHandleColor: palette.accent,
+      ),
       progressIndicatorTheme: ProgressIndicatorThemeData(
         color: palette.progressFill,
         linearTrackColor: palette.progressTrack,

@@ -2,6 +2,7 @@ import 'dart:developer' as developer;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/matching/directory_grouper.dart';
+import '../../domain/matching/library_search_matcher.dart';
 import '../../domain/matching/supplementary_subclassifier.dart';
 import '../../domain/models/episode.dart';
 import '../../domain/models/media_source.dart';
@@ -413,24 +414,22 @@ final hiddenWorksProvider = FutureProvider<List<Work>>((ref) {
   return ref.watch(libraryRepositoryProvider).getHiddenWorks();
 });
 
-/// 按关键词实时过滤后的正式入库作品列表（支持作品名、原名、压制组、TMDB ID）。
+/// 按关键词实时过滤并按相关度稳定排序后的正式入库作品列表。
+///
+/// 支持作品译名、原名、压制组空格分词模糊搜索，以及完整 TMDB / Bangumi ID
+/// 或 `tmdb:ID` / `bgm:ID` 精确查询（杜绝短数字子串误召回无关 ID）。
 final filteredLibraryItemsProvider =
     Provider<AsyncValue<List<WorkLibraryItem>>>((ref) {
       final itemsAsync = ref.watch(confirmedLibraryItemsProvider);
-      final query = ref.watch(librarySearchQueryProvider).trim().toLowerCase();
+      final query = ref.watch(librarySearchQueryProvider).trim();
       return itemsAsync.whenData((items) {
         if (query.isEmpty) return items;
-        return items.where((item) {
-          final w = item.work;
-          if (w.title.toLowerCase().contains(query)) return true;
-          if ((w.originalTitle ?? '').toLowerCase().contains(query)) {
-            return true;
-          }
-          if (w.tmdbId != null && w.tmdbId.toString().contains(query)) {
-            return true;
-          }
-          return item.releaseGroups.any((g) => g.toLowerCase().contains(query));
-        }).toList();
+        return LibrarySearchMatcher.filterAndRank<WorkLibraryItem>(
+          items: items,
+          rawQuery: query,
+          workOf: (item) => item.work,
+          releaseGroupsOf: (item) => item.releaseGroups,
+        );
       });
     });
 

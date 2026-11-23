@@ -237,7 +237,11 @@ class AudioPlaybackState {
     this.activeSpanLines = const [],
     this.activeLyricIndex = -1,
     this.activeLyricSource,
+    this.activeLyricSourceId = '',
     this.isLyricLookupInFlight = false,
+    this.isLyricUserEdited = false,
+    this.lyricOffset = LyricOffsetSnapshot.zero,
+    this.lyricCandidates = const [],
     this.audioCodecLabel = '',
     this.sampleRateAndBitDepthLabel = '',
     this.bitrateLabel = '',
@@ -261,11 +265,23 @@ class AudioPlaybackState {
   final List<ActiveSpanLyricLine> activeSpanLines;
   final int activeLyricIndex;
 
-  /// 当前生效歌词的命中来源（本地 / LRCLIB / 网易云 / AMLL）。
+  /// 当前生效歌词的命中来源（本地 / LRCLIB / 网易云 / AMLL / QQ）。
   final LyricSource? activeLyricSource;
+
+  /// 当前生效歌词在对应来源内的曲目标识（用于换候选列表高亮）。
+  final String activeLyricSourceId;
 
   /// 缓存未命中、正在进行在线歌词竞速检索。
   final bool isLyricLookupInFlight;
+
+  /// 当前曲目歌词是否由用户手动选定锁定（永不被自动流程覆盖）。
+  final bool isLyricUserEdited;
+
+  /// 当前曲目生效的三级时间轴偏移快照（单曲 + 专辑 + 输出路由，正值歌词提前）。
+  final LyricOffsetSnapshot lyricOffset;
+
+  /// 当前曲目可用的在线歌词候选列表（来自竞速收束或手动重搜）。
+  final List<ScoredLyricCandidate> lyricCandidates;
   final String audioCodecLabel;
   final String sampleRateAndBitDepthLabel;
   final String bitrateLabel;
@@ -417,7 +433,11 @@ class AudioPlaybackState {
     bool clearLrcDocument = false,
     int? activeLyricIndex,
     LyricSource? activeLyricSource,
+    String? activeLyricSourceId,
     bool? isLyricLookupInFlight,
+    bool? isLyricUserEdited,
+    LyricOffsetSnapshot? lyricOffset,
+    List<ScoredLyricCandidate>? lyricCandidates,
     String? audioCodecLabel,
     String? sampleRateAndBitDepthLabel,
     String? bitrateLabel,
@@ -444,9 +464,19 @@ class AudioPlaybackState {
       activeLyricSource: clearLrcDocument
           ? activeLyricSource
           : (activeLyricSource ?? this.activeLyricSource),
+      activeLyricSourceId: clearLrcDocument
+          ? (activeLyricSourceId ?? '')
+          : (activeLyricSourceId ?? this.activeLyricSourceId),
       isLyricLookupInFlight: clearLrcDocument
           ? (isLyricLookupInFlight ?? false)
           : (isLyricLookupInFlight ?? this.isLyricLookupInFlight),
+      isLyricUserEdited: clearLrcDocument
+          ? (isLyricUserEdited ?? false)
+          : (isLyricUserEdited ?? this.isLyricUserEdited),
+      lyricOffset: lyricOffset ?? this.lyricOffset,
+      lyricCandidates: clearLrcDocument
+          ? (lyricCandidates ?? const [])
+          : (lyricCandidates ?? this.lyricCandidates),
       audioCodecLabel: audioCodecLabel ?? this.audioCodecLabel,
       sampleRateAndBitDepthLabel:
           sampleRateAndBitDepthLabel ?? this.sampleRateAndBitDepthLabel,

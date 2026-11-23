@@ -262,7 +262,11 @@ class _ImmersiveLyricsViewportState
   void _commitScrubSeek(LrcDocument lrc) {
     final idx = _scrubTargetIndex;
     if (idx == null || idx < 0 || idx >= lrc.lines.length) return;
-    final targetSec = lrc.lines[idx].startSeconds;
+    final offsetSec = ref
+        .read(audioPlaybackProvider)
+        .lyricOffset
+        .totalOffsetSeconds;
+    final targetSec = math.max(0.0, lrc.lines[idx].startSeconds - offsetSec);
     _scrollResetTimer?.cancel();
     _scrollIdleTimer?.cancel();
     setState(() {

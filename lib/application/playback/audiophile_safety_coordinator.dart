@@ -158,6 +158,9 @@ class AudiophileSafetyCoordinator {
   /// 最近一次编译并下发的音频安全链路计划。
   AudioSafetyChainPlan get activePlan => _activePlan;
 
+  /// 当前活跃的音频输出设备名称（Windows 来自 `audio-device`，供蓝牙/有线路由延迟判定）。
+  String? get activeOutputDeviceName => _activeWindowsDeviceName;
+
   /// 登记活跃音视频播放会话，纳入双端外设热插拔瞬态静音与安全衰减统一托管。
   void attachSession({
     required Object owner,

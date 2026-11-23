@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 
 import '../../composition/platform_composition.dart';
 import '../../domain/lyrics/lyric_candidate.dart';
+import '../../domain/lyrics/lyric_offset_resolver.dart';
 import '../../domain/lyrics/lyric_search_query.dart';
 import '../../domain/models/media_source.dart';
 import '../../domain/models/media_variant.dart';
@@ -47,6 +48,7 @@ import 'unified_playback_coordinator.dart';
 import 'unified_playback_engine.dart';
 
 part 'audio_playback_assets.dart';
+part 'audio_playback_lyrics.dart';
 part 'audio_playback_models.dart';
 part 'audio_playback_queue_builder.dart';
 part 'audio_playback_transport.dart';
@@ -229,6 +231,19 @@ class AudioPlaybackNotifier extends Notifier<AudioPlaybackState> {
             ),
           );
         },
+      ),
+    );
+    _runtimeSubscriptions.add(
+      _ref.listen<int>(audiophileSafetyRevisionProvider, (_, _) {
+        _syncActiveRouteLyricOffset();
+      }),
+    );
+    _runtimeSubscriptions.add(
+      _ref.listen<(int, int)>(
+        playbackPreferencesProvider.select(
+          (p) => (p.lyricWiredOffsetMillis, p.lyricBluetoothOffsetMillis),
+        ),
+        (_, _) => _syncActiveRouteLyricOffset(),
       ),
     );
     _runtimeSubscriptions.add(
@@ -725,7 +740,11 @@ class AudioPlaybackNotifier extends Notifier<AudioPlaybackState> {
     if (state.isPlaying) {
       _startMicroFadeInRamp(c);
     }
-    final lyricIdx = state.lrcDocument?.activeIndexAt(clamped) ?? -1;
+    final lyricIdx =
+        state.lrcDocument?.activeIndexAt(
+          clamped + state.lyricOffset.totalOffsetSeconds,
+        ) ??
+        -1;
     state = _mergePendingLyricUpgrade(
       state.copyWith(
         positionSeconds: clamped,
@@ -817,6 +836,7 @@ class AudioPlaybackNotifier extends Notifier<AudioPlaybackState> {
     } else {
       unawaited(_scheduleGaplessNextTrackPrefetch(generation: _loadGeneration));
     }
+    _onLoopModeChangedForLyrics(nextMode);
   }
 
   /// 手动关闭当前音频错误提示横幅。
@@ -850,6 +870,7 @@ class AudioPlaybackNotifier extends Notifier<AudioPlaybackState> {
     _pendingSeekGuardUntil = null;
     _pendingRemoteAuxJob = null;
     _pendingLyricUpgrade = null;
+    _cancelLyricTasksOnClose();
     _sessionAllCdVariants = const [];
     _sessionSourcesById = const {};
     _unexpandedMasterByCueId.clear();

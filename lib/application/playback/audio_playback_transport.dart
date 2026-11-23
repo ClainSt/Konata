@@ -92,6 +92,7 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
       durationSeconds: initialDuration,
       activeLyricIndex: -1,
       clearLrcDocument: true,
+      lyricOffset: _buildCurrentRouteOffsetSnapshot(),
       cover: initialCover,
       audioCodecLabel: canSeekInsideLoadedCue ? _state.audioCodecLabel : '',
       sampleRateAndBitDepthLabel: canSeekInsideLoadedCue
@@ -135,7 +136,10 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
         _syncAudioSpecBadges();
         if (mounted) {
           final lyricIdx =
-              _state.lrcDocument?.activeIndexAt(clampedInitialOffset) ?? -1;
+              _state.lrcDocument?.activeIndexAt(
+                clampedInitialOffset + _state.lyricOffset.totalOffsetSeconds,
+              ) ??
+              -1;
           _state = _state.copyWith(
             isBuffering: false,
             isPlaying: true,
@@ -715,7 +719,11 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
         advancedMs >= UnifiedPlaybackEngine.effectiveAudioProgressThresholdMs) {
       _engine.recordEffectiveProgress(audioAdvancedMs: advancedMs);
     }
-    final lyricIdx = _state.lrcDocument?.activeIndexAt(relPos) ?? -1;
+    final lyricIdx =
+        _state.lrcDocument?.activeIndexAt(
+          relPos + _state.lyricOffset.totalOffsetSeconds,
+        ) ??
+        -1;
     final lineChanged = lyricIdx != _state.activeLyricIndex;
     final hasReadyUpgrade =
         _pendingLyricUpgrade != null &&
@@ -793,6 +801,7 @@ extension AudioPlaybackTransport on AudioPlaybackNotifier {
       cover: nextCover,
       activeLyricIndex: -1,
       clearLrcDocument: true,
+      lyricOffset: _buildCurrentRouteOffsetSnapshot(),
       clearError: true,
     );
 

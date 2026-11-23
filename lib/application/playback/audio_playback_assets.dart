@@ -315,6 +315,7 @@ extension AudioPlaybackAssets on AudioPlaybackNotifier {
   Future<void> _resolveTrackLyrics(
     AudioQueueItem item, {
     required int generation,
+    bool bypassCache = false,
   }) async {
     final LyricResolveOutcome outcome;
     try {
@@ -324,21 +325,19 @@ extension AudioPlaybackAssets on AudioPlaybackNotifier {
           : (item.resolvedDuration > Duration.zero
                 ? item.resolvedDuration.inMilliseconds / 1000.0
                 : null);
+      final req = _buildLyricResolveRequest(
+        item,
+        durationOverrideSeconds: durationSec,
+      );
+      final albumOffsetMs = (await resolver.readPersistedOffsets(
+        trackKey: req.trackKey,
+        albumKey: req.albumKey,
+      )).albumOffsetMillis;
+      if (generation != _loadGeneration || !mounted) return;
+
       outcome = await resolver.resolve(
-        LyricResolveRequest(
-          trackKey: LyricsResolver.buildTrackKey(
-            physicalFileKey: item.physicalFileKey,
-            fileSize: item.variant.fileSize,
-            cueStartSeconds: item.cueStartSeconds,
-          ),
-          query: LyricSearchQuery(
-            title: item.title,
-            artist: item.performer,
-            album: item.albumTitle,
-            fileName: item.effectiveFileName,
-            durationSeconds: durationSec,
-          ),
-        ),
+        req,
+        bypassCache: bypassCache,
         onNetworkLookupStarted: () {
           if (generation == _loadGeneration &&
               mounted &&
@@ -349,7 +348,54 @@ extension AudioPlaybackAssets on AudioPlaybackNotifier {
         onProgressiveUpgrade: (upgraded) {
           _handleProgressiveLyricUpgrade(upgraded, generation: generation);
         },
+        onCandidatesSettled: (candidates) {
+          if (generation == _loadGeneration &&
+              mounted &&
+              candidates.isNotEmpty) {
+            _state = _state.copyWith(lyricCandidates: candidates);
+          }
+        },
       );
+      if (generation != _loadGeneration || !mounted || outcome.staleAborted) {
+        return;
+      }
+      if (_localLyricGeneration == generation) return;
+
+      final offsetSnap = _buildCurrentRouteOffsetSnapshot(
+        trackOffsetMillis: outcome.trackOffsetMillis,
+        albumOffsetMillis: albumOffsetMs,
+        userOffsetLocked: outcome.userOffsetLocked,
+      );
+      final resolvedLrc = outcome.lrcDocument;
+      if (resolvedLrc == null || resolvedLrc.lines.isEmpty) {
+        _state = _state.copyWith(
+          lyricOffset: offsetSnap,
+          isLyricLookupInFlight: false,
+          isLyricUserEdited: outcome.userEdited,
+          lyricCandidates: outcome.candidates.isNotEmpty
+              ? outcome.candidates
+              : _state.lyricCandidates,
+        );
+        unawaited(_scheduleQueueLyricPrefetch(generation: generation));
+        return;
+      }
+      final activeIdx = resolvedLrc.activeIndexAt(
+        currentPositionSeconds + offsetSnap.totalOffsetSeconds,
+      );
+      _state = _state.copyWith(
+        lrcDocument: resolvedLrc,
+        activeSpanLines: outcome.activeSpanLines,
+        activeLyricIndex: activeIdx,
+        activeLyricSource: outcome.source,
+        activeLyricSourceId: outcome.sourceId,
+        isLyricLookupInFlight: false,
+        isLyricUserEdited: outcome.userEdited,
+        lyricOffset: offsetSnap,
+        lyricCandidates: outcome.candidates.isNotEmpty
+            ? outcome.candidates
+            : _state.lyricCandidates,
+      );
+      unawaited(_scheduleQueueLyricPrefetch(generation: generation));
     } on Object catch (e) {
       _logStore.record('AUDIO-LYRIC', '在线歌词解析异常已忽略：$e');
       if (generation == _loadGeneration && mounted) {
@@ -357,25 +403,6 @@ extension AudioPlaybackAssets on AudioPlaybackNotifier {
       }
       return;
     }
-    if (generation != _loadGeneration || !mounted || outcome.staleAborted) {
-      return;
-    }
-    if (_localLyricGeneration == generation) return;
-    final resolvedLrc = outcome.lrcDocument;
-    if (resolvedLrc == null || resolvedLrc.lines.isEmpty) {
-      if (_state.isLyricLookupInFlight) {
-        _state = _state.copyWith(isLyricLookupInFlight: false);
-      }
-      return;
-    }
-    final activeIdx = resolvedLrc.activeIndexAt(_state.positionSeconds);
-    _state = _state.copyWith(
-      lrcDocument: resolvedLrc,
-      activeSpanLines: outcome.activeSpanLines,
-      activeLyricIndex: activeIdx,
-      activeLyricSource: outcome.source,
-      isLyricLookupInFlight: false,
-    );
   }
 
   /// 接收首屏之后延迟到达的更优逐字/译文歌词：暂停或前奏期立即应用，演唱中暂存待行边界热替换。
@@ -385,7 +412,8 @@ extension AudioPlaybackAssets on AudioPlaybackNotifier {
   }) {
     if (generation != _loadGeneration ||
         !mounted ||
-        _localLyricGeneration == generation) {
+        _localLyricGeneration == generation ||
+        _state.isLyricUserEdited) {
       return;
     }
     final upgradedDoc = upgraded.lrcDocument;
@@ -395,9 +423,15 @@ extension AudioPlaybackAssets on AudioPlaybackNotifier {
       _state = _state.copyWith(
         lrcDocument: upgradedDoc,
         activeSpanLines: upgraded.activeSpanLines,
-        activeLyricIndex: upgradedDoc.activeIndexAt(currentPositionSeconds),
+        activeLyricIndex: upgradedDoc.activeIndexAt(
+          currentPositionSeconds + _state.lyricOffset.totalOffsetSeconds,
+        ),
         activeLyricSource: upgraded.source,
+        activeLyricSourceId: upgraded.sourceId,
         isLyricLookupInFlight: false,
+        lyricCandidates: upgraded.candidates.isNotEmpty
+            ? upgraded.candidates
+            : _state.lyricCandidates,
       );
       return;
     }
@@ -413,7 +447,8 @@ extension AudioPlaybackAssets on AudioPlaybackNotifier {
     final pending = _pendingLyricUpgrade;
     if (pending == null) return targetState;
     if (pending.generation != _loadGeneration ||
-        _localLyricGeneration == _loadGeneration) {
+        _localLyricGeneration == _loadGeneration ||
+        targetState.isLyricUserEdited) {
       _pendingLyricUpgrade = null;
       return targetState;
     }
@@ -428,9 +463,15 @@ extension AudioPlaybackAssets on AudioPlaybackNotifier {
     return targetState.copyWith(
       lrcDocument: upgradedDoc,
       activeSpanLines: pending.outcome.activeSpanLines,
-      activeLyricIndex: upgradedDoc.activeIndexAt(positionSeconds),
+      activeLyricIndex: upgradedDoc.activeIndexAt(
+        positionSeconds + targetState.lyricOffset.totalOffsetSeconds,
+      ),
       activeLyricSource: pending.outcome.source,
+      activeLyricSourceId: pending.outcome.sourceId,
       isLyricLookupInFlight: false,
+      lyricCandidates: pending.outcome.candidates.isNotEmpty
+          ? pending.outcome.candidates
+          : targetState.lyricCandidates,
     );
   }
 
@@ -564,10 +605,16 @@ extension AudioPlaybackAssets on AudioPlaybackNotifier {
           cover: resolvedCover,
           lrcDocument: lrc,
           activeSpanLines: activeSpanLines,
-          activeLyricIndex: lrc.activeIndexAt(_state.positionSeconds),
+          activeLyricIndex: lrc.activeIndexAt(
+            currentPositionSeconds + _state.lyricOffset.totalOffsetSeconds,
+          ),
           activeLyricSource: LyricSource.local,
+          activeLyricSourceId: '',
           isLyricLookupInFlight: false,
+          isLyricUserEdited: false,
         );
+        unawaited(_hydratePersistedLyricOffsets(item, generation: generation));
+        unawaited(_scheduleQueueLyricPrefetch(generation: generation));
       } else {
         _state = _state.copyWith(cover: resolvedCover);
       }

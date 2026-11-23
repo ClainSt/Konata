@@ -37,6 +37,7 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
                   showEscHint: false,
                 ),
                 const Spacer(),
+                _buildLyricControlButton(p, isAndroid: true),
               ],
             ),
           ),
@@ -367,6 +368,28 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
     ];
   }
 
+  Widget _buildLyricControlButton(
+    KonataPalette p, {
+    required bool isAndroid,
+  }) {
+    final btnSize = isAndroid ? KonataAdaptiveTokens.touchTarget : 36.0;
+    return KonataCapsuleIconButton(
+      key: const ValueKey('immersive_lyric_control_button'),
+      icon: Icons.tune_rounded,
+      tooltip: '歌词换源与时间轴校准',
+      color: p.textSecondary,
+      size: isAndroid ? 20 : 18,
+      fixedSize: btnSize,
+      highlighted: _lyricControlSheetOpen,
+      highlightColor: p.textPrimary,
+      highlightBgColor: KonataPlaybackTokens.activePillBg(p),
+      showHighlightBorder: false,
+      onTap: () => _mutateState(() {
+        _lyricControlSheetOpen = !_lyricControlSheetOpen;
+      }),
+    );
+  }
+
   Widget _buildTopBar({
     required double topPadding,
     required bool audioMiniEnabled,
@@ -392,6 +415,8 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
                 showEscHint: !isAndroid,
               ),
               const Spacer(),
+              _buildLyricControlButton(p, isAndroid: isAndroid),
+              const SizedBox(width: 6),
               if (canRelayExternal) ...[
                 KonataCapsuleIconButton(
                   key: const ValueKey('immersive_relay_external_button'),

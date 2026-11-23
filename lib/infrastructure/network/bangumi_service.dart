@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../../domain/lyrics/bangumi_track_enricher.dart';
 import '../../domain/models/network_config.dart';
 import '../../domain/scraping/bangumi_models.dart';
 import '../../domain/scraping/search_query_sanitizer.dart';
@@ -254,6 +255,64 @@ class BangumiService {
       return List<BangumiRelatedSubject>.unmodifiable(items);
     });
     return raw is List<BangumiRelatedSubject> ? raw : const [];
+  }
+
+  static const Set<String> _musicRelationLabels = <String>{
+    '片头曲',
+    '片尾曲',
+    '插入歌',
+    '原声集',
+    '角色歌',
+    '印象曲',
+    '广播剧',
+  };
+
+  /// 查询动画主条目关联的音乐条目曲目清单（复用已记忆化接口，限制最多 6 张碟以控流）。
+  Future<List<BangumiMusicTrack>> getRelatedMusicTracks(
+    int animeSubjectId, {
+    int maxMusicSubjects = 6,
+    RequestPriority priority = RequestPriority.background,
+  }) async {
+    if (animeSubjectId <= 0) return const [];
+    final key = 'music_tracks:$animeSubjectId:$maxMusicSubjects';
+    final raw = await _memoized(key, () async {
+      final related = await getRelatedSubjects(
+        animeSubjectId,
+        priority: priority,
+      );
+      final musicSubjects = <BangumiRelatedSubject>[
+        for (final r in related)
+          if (_musicRelationLabels.contains(r.relation)) r,
+      ];
+      if (musicSubjects.isEmpty) return const <BangumiMusicTrack>[];
+      final limited = musicSubjects.take(maxMusicSubjects).toList();
+      final tracks = <BangumiMusicTrack>[];
+      for (final subj in limited) {
+        final eps = await getSubjectEpisodes(
+          subj.id,
+          type: null,
+          limit: 60,
+          priority: priority,
+        );
+        for (final ep in eps) {
+          final trackNo = (ep.sort ?? ep.ep)?.round();
+          if (ep.name.isEmpty && ep.nameCn.isEmpty) continue;
+          tracks.add(
+            BangumiMusicTrack(
+              subjectId: subj.id,
+              subjectTitle: subj.name,
+              subjectTitleCn: subj.nameCn,
+              relation: subj.relation,
+              trackNumber: trackNo != null && trackNo > 0 ? trackNo : null,
+              title: ep.name,
+              titleCn: ep.nameCn,
+            ),
+          );
+        }
+      }
+      return List<BangumiMusicTrack>.unmodifiable(tracks);
+    });
+    return raw is List<BangumiMusicTrack> ? raw : const [];
   }
 
   /// 查询续集条目 ID 列表（用于分割放送识别，不查询任何角色或制作人员接口）。

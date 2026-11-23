@@ -12,6 +12,7 @@ class LyricSearchQuery {
     this.album = '',
     this.fileName = '',
     this.durationSeconds,
+    this.extraTitleAliases = const [],
   }) : title = cleanTitle(title);
 
   static final RegExp _leadingTrackNumber = RegExp(r'^\d{1,3}\s*[\s._\-、．]\s*');
@@ -42,6 +43,9 @@ class LyricSearchQuery {
   /// 本地曲目时长（秒，未知为 `null`）。
   final double? durationSeconds;
 
+  /// 外部补充的额外曲名别名（如 Bangumi 关联音乐曲目表的日文原名/中文名）。
+  final List<String> extraTitleAliases;
+
   /// 去除文件名形态曲名开头的音轨序号与音频扩展名；清洗后为空时保留原文。
   static String cleanTitle(String raw) {
     final trimmed = raw.trim();
@@ -70,6 +74,9 @@ class LyricSearchQuery {
     }
 
     add(title);
+    for (final extra in extraTitleAliases) {
+      add(extra);
+    }
     // 抽取书名号/日文引号内文本（优先最后一对，典型如 `TVアニメ「作品名」OP「曲名」`）。
     final quotes = _quotedTitleRegex.allMatches(title).toList();
     if (quotes.isNotEmpty) {

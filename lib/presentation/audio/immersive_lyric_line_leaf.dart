@@ -395,6 +395,7 @@ class _ActiveKaraokeSweepLeafState
 
   late double _windowStart;
   late double _windowEnd;
+  double _lyricOffsetSeconds = 0.0;
   double _lastTickClockSeconds = 0.0;
   double? _pendingMediaPosSeconds;
   bool _tickerVisible = true;
@@ -448,7 +449,8 @@ class _ActiveKaraokeSweepLeafState
 
   void _onPositionTick() {
     if (!mounted) return;
-    final pos = _boundNotifier?.currentPositionSeconds ?? 0.0;
+    final pos =
+        (_boundNotifier?.currentPositionSeconds ?? 0.0) + _lyricOffsetSeconds;
     final isPlaying = ref.read(audioPlaybackProvider.select((s) => s.isPlaying));
     _syncFromMediaClock(pos, isPlaying);
   }
@@ -506,8 +508,9 @@ class _ActiveKaraokeSweepLeafState
     _boundNotifier = notifier;
     notifier.positionListenable.addListener(_onPositionTick);
     final snap = ref.read(audioPlaybackProvider);
+    _lyricOffsetSeconds = snap.lyricOffset.totalOffsetSeconds;
     _syncFromMediaClock(
-      notifier.currentPositionSeconds,
+      notifier.currentPositionSeconds + _lyricOffsetSeconds,
       snap.isPlaying,
       forceSnap: true,
     );
@@ -520,8 +523,9 @@ class _ActiveKaraokeSweepLeafState
     if (visible != _tickerVisible) {
       _tickerVisible = visible;
       final pos =
-          _boundNotifier?.currentPositionSeconds ??
-          ref.read(audioPlaybackProvider.notifier).currentPositionSeconds;
+          (_boundNotifier?.currentPositionSeconds ??
+              ref.read(audioPlaybackProvider.notifier).currentPositionSeconds) +
+          _lyricOffsetSeconds;
       final isPlaying = ref.read(
         audioPlaybackProvider.select((s) => s.isPlaying),
       );
@@ -544,8 +548,9 @@ class _ActiveKaraokeSweepLeafState
       _recomputeWindow();
       final notifier = ref.read(audioPlaybackProvider.notifier);
       final snap = ref.read(audioPlaybackProvider);
+      _lyricOffsetSeconds = snap.lyricOffset.totalOffsetSeconds;
       _syncFromMediaClock(
-        notifier.currentPositionSeconds,
+        notifier.currentPositionSeconds + _lyricOffsetSeconds,
         snap.isPlaying,
         forceSnap: true,
       );
@@ -596,10 +601,24 @@ class _ActiveKaraokeSweepLeafState
     ref.listen<bool>(
       audioPlaybackProvider.select((s) => s.isPlaying),
       (_, isPlaying) => _syncFromMediaClock(
-        ref.read(audioPlaybackProvider.notifier).currentPositionSeconds,
+        ref.read(audioPlaybackProvider.notifier).currentPositionSeconds +
+            _lyricOffsetSeconds,
         isPlaying,
         forceSnap: true,
       ),
+    );
+    ref.listen<double>(
+      audioPlaybackProvider.select((s) => s.lyricOffset.totalOffsetSeconds),
+      (_, nextOffset) {
+        _lyricOffsetSeconds = nextOffset;
+        final snap = ref.read(audioPlaybackProvider);
+        _syncFromMediaClock(
+          ref.read(audioPlaybackProvider.notifier).currentPositionSeconds +
+              nextOffset,
+          snap.isPlaying,
+          forceSnap: true,
+        );
+      },
     );
 
     final p = widget.palette;

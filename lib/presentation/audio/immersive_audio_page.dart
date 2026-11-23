@@ -27,6 +27,7 @@ import '../widgets/playback/konata_spec_badge.dart';
 import '../widgets/playback/konata_stage_morph_frame.dart';
 import '../widgets/playback/konata_volume_control.dart';
 import 'immersive_audio_sub_widgets.dart';
+import 'immersive_lyric_control_sheet.dart';
 import 'immersive_lyrics_viewport.dart';
 
 part 'immersive_audio_stages.dart';
@@ -55,6 +56,7 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
   _ImmersiveRightPane _pane = _ImmersiveRightPane.lyrics;
   bool _userPinnedPane = false;
   bool _portraitShowLyricsInPlace = false;
+  bool _lyricControlSheetOpen = false;
   double _pullDownDy = 0.0;
   BuildContext? _activeQueueSheetContext;
   final GlobalKey _activeQueueItemKey = GlobalKey();
@@ -201,7 +203,9 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
     final notifier = ref.read(audioPlaybackProvider.notifier);
 
     if (key == LogicalKeyboardKey.escape) {
-      if (ref.read(immersivePortraitQueueSheetOpenProvider)) {
+      if (_lyricControlSheetOpen) {
+        setState(() => _lyricControlSheetOpen = false);
+      } else if (ref.read(immersivePortraitQueueSheetOpenProvider)) {
         _closePortraitQueueSheet();
       } else {
         _collapseToMiniBar();
@@ -439,6 +443,12 @@ class _ImmersiveAudioPageState extends ConsumerState<ImmersiveAudioPage> {
             // 全端同源静态缓存三层封面背景（铺满系统安全区，绝不随进度重绘）
             KonataCachedArtworkBackdrop(cover: snap.cover),
             stageContent,
+            if (_lyricControlSheetOpen)
+              Positioned.fill(
+                child: ImmersiveLyricControlSheet(
+                  onClose: () => setState(() => _lyricControlSheetOpen = false),
+                ),
+              ),
           ],
         ),
       ),

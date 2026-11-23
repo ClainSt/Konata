@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../composition/platform_composition.dart';
+import '../../domain/lyrics/lyric_offset_resolver.dart';
 import '../../domain/models/external_audio_relay_models.dart';
 import '../../domain/playback/track_preferences.dart';
 import '../../infrastructure/players/android/android_audio_route_bridge.dart';
@@ -63,6 +64,8 @@ class PlaybackPreferencesState {
     this.lyricSourceQqEnabled = false,
     this.qqLyricDisclaimerAccepted = false,
     this.showLyricRomaji = false,
+    this.lyricWiredOffsetMillis = 0,
+    this.lyricBluetoothOffsetMillis = 0,
   });
 
   /// 默认视频（正片 / 特典）播放引擎。
@@ -134,6 +137,12 @@ class PlaybackPreferencesState {
   /// 是否在沉浸歌词视口中额外显示罗马音注音行（默认关闭，不与译文混排）。
   final bool showLyricRomaji;
 
+  /// 有线/扬声器输出路由级全局歌词延迟补偿（毫秒，正值使歌词提前）。
+  final int lyricWiredOffsetMillis;
+
+  /// 蓝牙 A2DP 输出路由级全局歌词延迟补偿（毫秒，正值使歌词提前以抵消无线编码延迟）。
+  final int lyricBluetoothOffsetMillis;
+
   /// 复制并修改局部偏好字段。
   PlaybackPreferencesState copyWith({
     PreferredPlaybackEngine? defaultVideoEngine,
@@ -159,6 +168,8 @@ class PlaybackPreferencesState {
     bool? lyricSourceQqEnabled,
     bool? qqLyricDisclaimerAccepted,
     bool? showLyricRomaji,
+    int? lyricWiredOffsetMillis,
+    int? lyricBluetoothOffsetMillis,
   }) {
     return PlaybackPreferencesState(
       defaultVideoEngine: defaultVideoEngine ?? this.defaultVideoEngine,
@@ -192,6 +203,10 @@ class PlaybackPreferencesState {
       qqLyricDisclaimerAccepted:
           qqLyricDisclaimerAccepted ?? this.qqLyricDisclaimerAccepted,
       showLyricRomaji: showLyricRomaji ?? this.showLyricRomaji,
+      lyricWiredOffsetMillis:
+          lyricWiredOffsetMillis ?? this.lyricWiredOffsetMillis,
+      lyricBluetoothOffsetMillis:
+          lyricBluetoothOffsetMillis ?? this.lyricBluetoothOffsetMillis,
     );
   }
 
@@ -220,7 +235,9 @@ class PlaybackPreferencesState {
         other.lyricSourceLrclibEnabled == lyricSourceLrclibEnabled &&
         other.lyricSourceQqEnabled == lyricSourceQqEnabled &&
         other.qqLyricDisclaimerAccepted == qqLyricDisclaimerAccepted &&
-        other.showLyricRomaji == showLyricRomaji;
+        other.showLyricRomaji == showLyricRomaji &&
+        other.lyricWiredOffsetMillis == lyricWiredOffsetMillis &&
+        other.lyricBluetoothOffsetMillis == lyricBluetoothOffsetMillis;
   }
 
   @override
@@ -248,6 +265,8 @@ class PlaybackPreferencesState {
     lyricSourceQqEnabled,
     qqLyricDisclaimerAccepted,
     showLyricRomaji,
+    lyricWiredOffsetMillis,
+    lyricBluetoothOffsetMillis,
   ]);
 }
 
@@ -537,6 +556,22 @@ class PlaybackPreferencesNotifier extends Notifier<PlaybackPreferencesState> {
     await _persist();
   }
 
+  /// 更新有线/扬声器输出路由级全局歌词延迟（毫秒，正值使歌词提前）。
+  Future<void> setLyricWiredOffsetMillis(int offsetMillis) async {
+    final clamped = LyricOffsetSnapshot.clampRoute(offsetMillis);
+    if (state.lyricWiredOffsetMillis == clamped) return;
+    state = state.copyWith(lyricWiredOffsetMillis: clamped);
+    await _persist();
+  }
+
+  /// 更新蓝牙输出路由级全局歌词延迟（毫秒，正值使歌词提前以抵消无线音频延迟）。
+  Future<void> setLyricBluetoothOffsetMillis(int offsetMillis) async {
+    final clamped = LyricOffsetSnapshot.clampRoute(offsetMillis);
+    if (state.lyricBluetoothOffsetMillis == clamped) return;
+    state = state.copyWith(lyricBluetoothOffsetMillis: clamped);
+    await _persist();
+  }
+
   Future<void> _persist() async {
     if (!enablePersistence) return;
     try {
@@ -572,6 +607,8 @@ class PlaybackPreferencesNotifier extends Notifier<PlaybackPreferencesState> {
       'lyricSourceQqEnabled': s.lyricSourceQqEnabled,
       'qqLyricDisclaimerAccepted': s.qqLyricDisclaimerAccepted,
       'showLyricRomaji': s.showLyricRomaji,
+      'lyricWiredOffsetMillis': s.lyricWiredOffsetMillis,
+      'lyricBluetoothOffsetMillis': s.lyricBluetoothOffsetMillis,
       'preset': q.preset.name,
       'outputPipelineMode': q.outputPipelineMode.bridgeKey,
       'outputPipelineSchemaVersion': 2,
@@ -700,6 +737,18 @@ class PlaybackPreferencesNotifier extends Notifier<PlaybackPreferencesState> {
       showLyricRomaji: map['showLyricRomaji'] is bool
           ? map['showLyricRomaji'] as bool
           : false,
+      lyricWiredOffsetMillis: parseInt(
+        map['lyricWiredOffsetMillis'],
+        0,
+        -LyricOffsetSnapshot.maxRouteOffsetMillis,
+        LyricOffsetSnapshot.maxRouteOffsetMillis,
+      ),
+      lyricBluetoothOffsetMillis: parseInt(
+        map['lyricBluetoothOffsetMillis'],
+        0,
+        -LyricOffsetSnapshot.maxRouteOffsetMillis,
+        LyricOffsetSnapshot.maxRouteOffsetMillis,
+      ),
       qualityConfig: PlaybackQualityConfig(
         preset: parseEnum(
           VideoQualityPreset.values,

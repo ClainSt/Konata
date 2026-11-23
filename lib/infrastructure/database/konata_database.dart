@@ -427,8 +427,34 @@ class LyricCacheEntries extends Table {
   /// 最近写入时间。
   DateTimeColumn get updatedAt => dateTime()();
 
+  /// 单曲级手动时间轴偏移（毫秒，正值使歌词提前、负值使歌词延后）。
+  IntColumn get offsetMillis => integer().withDefault(const Constant(0))();
+
+  /// 单曲偏移是否由用户主动锁定。
+  BoolColumn get userOffsetLocked =>
+      boolean().withDefault(const Constant(false))();
+
+  /// 是否由用户手动选定或编辑歌词（自动流程与引擎版本升级永不覆盖）。
+  BoolColumn get userEdited => boolean().withDefault(const Constant(false))();
+
   @override
   Set<Column<Object>> get primaryKey => {trackKey};
+}
+
+/// 专辑级统一歌词时间轴偏移表（同一张 CD 专辑共享偏移，一键应用至全碟曲目）。
+@DataClassName('AlbumLyricOffsetRow')
+class AlbumLyricOffsets extends Table {
+  /// 专辑缓存键（`workId::sourceId::normalizedDir`）。
+  TextColumn get albumKey => text()();
+
+  /// 专辑级时间轴偏移（毫秒，正值使歌词提前、负值使歌词延后）。
+  IntColumn get offsetMillis => integer().withDefault(const Constant(0))();
+
+  /// 最近更新时间。
+  DateTimeColumn get updatedAt => dateTime()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {albumKey};
 }
 
 /// 跨设备同步删除墓碑表（记录已删除/清除条目的逻辑时间，避免离线设备同步后死灰复燃）。
@@ -512,6 +538,7 @@ class BangumiSyncQueue extends Table {
     IgnoredFolders,
     SeriesGroups,
     LyricCacheEntries,
+    AlbumLyricOffsets,
     SyncTombstones,
     SyncKvMeta,
     BangumiSyncQueue,
@@ -525,7 +552,7 @@ class KonataDatabase extends _$KonataDatabase {
   factory KonataDatabase.openDefault() => KonataDatabase(_openConnection());
 
   @override
-  int get schemaVersion => 15;
+  int get schemaVersion => 16;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -602,6 +629,18 @@ class KonataDatabase extends _$KonataDatabase {
         await m.createTable(syncTombstones);
         await m.createTable(syncKvMeta);
         await m.createTable(bangumiSyncQueue);
+      }
+      if (from < 16) {
+        // v14 之前的库已在 `from < 14` 按最新表定义建表，仅 v14..v15 追加单曲偏移与编辑锁列。
+        if (from >= 14) {
+          await m.addColumn(lyricCacheEntries, lyricCacheEntries.offsetMillis);
+          await m.addColumn(
+            lyricCacheEntries,
+            lyricCacheEntries.userOffsetLocked,
+          );
+          await m.addColumn(lyricCacheEntries, lyricCacheEntries.userEdited);
+        }
+        await m.createTable(albumLyricOffsets);
       }
     },
     beforeOpen: (details) async {

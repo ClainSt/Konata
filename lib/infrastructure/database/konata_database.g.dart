@@ -6623,6 +6623,48 @@ class $LyricCacheEntriesTable extends LyricCacheEntries
     type: DriftSqlType.dateTime,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _offsetMillisMeta = const VerificationMeta(
+    'offsetMillis',
+  );
+  @override
+  late final GeneratedColumn<int> offsetMillis = GeneratedColumn<int>(
+    'offset_millis',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _userOffsetLockedMeta = const VerificationMeta(
+    'userOffsetLocked',
+  );
+  @override
+  late final GeneratedColumn<bool> userOffsetLocked = GeneratedColumn<bool>(
+    'user_offset_locked',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("user_offset_locked" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _userEditedMeta = const VerificationMeta(
+    'userEdited',
+  );
+  @override
+  late final GeneratedColumn<bool> userEdited = GeneratedColumn<bool>(
+    'user_edited',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("user_edited" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     trackKey,
@@ -6634,6 +6676,9 @@ class $LyricCacheEntriesTable extends LyricCacheEntries
     score,
     engineVersion,
     updatedAt,
+    offsetMillis,
+    userOffsetLocked,
+    userEdited,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -6698,6 +6743,30 @@ class $LyricCacheEntriesTable extends LyricCacheEntries
     } else if (isInserting) {
       context.missing(_updatedAtMeta);
     }
+    if (data.containsKey('offset_millis')) {
+      context.handle(
+        _offsetMillisMeta,
+        offsetMillis.isAcceptableOrUnknown(
+          data['offset_millis']!,
+          _offsetMillisMeta,
+        ),
+      );
+    }
+    if (data.containsKey('user_offset_locked')) {
+      context.handle(
+        _userOffsetLockedMeta,
+        userOffsetLocked.isAcceptableOrUnknown(
+          data['user_offset_locked']!,
+          _userOffsetLockedMeta,
+        ),
+      );
+    }
+    if (data.containsKey('user_edited')) {
+      context.handle(
+        _userEditedMeta,
+        userEdited.isAcceptableOrUnknown(data['user_edited']!, _userEditedMeta),
+      );
+    }
     return context;
   }
 
@@ -6747,6 +6816,18 @@ class $LyricCacheEntriesTable extends LyricCacheEntries
         DriftSqlType.dateTime,
         data['${effectivePrefix}updated_at'],
       )!,
+      offsetMillis: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}offset_millis'],
+      )!,
+      userOffsetLocked: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}user_offset_locked'],
+      )!,
+      userEdited: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}user_edited'],
+      )!,
     );
   }
 
@@ -6790,6 +6871,15 @@ class LyricCacheRow extends DataClass implements Insertable<LyricCacheRow> {
 
   /// 最近写入时间。
   final DateTime updatedAt;
+
+  /// 单曲级手动时间轴偏移（毫秒，正值使歌词提前、负值使歌词延后）。
+  final int offsetMillis;
+
+  /// 单曲偏移是否由用户主动锁定。
+  final bool userOffsetLocked;
+
+  /// 是否由用户手动选定或编辑歌词（自动流程与引擎版本升级永不覆盖）。
+  final bool userEdited;
   const LyricCacheRow({
     required this.trackKey,
     this.songKey,
@@ -6800,6 +6890,9 @@ class LyricCacheRow extends DataClass implements Insertable<LyricCacheRow> {
     required this.score,
     required this.engineVersion,
     required this.updatedAt,
+    required this.offsetMillis,
+    required this.userOffsetLocked,
+    required this.userEdited,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -6823,6 +6916,9 @@ class LyricCacheRow extends DataClass implements Insertable<LyricCacheRow> {
     map['score'] = Variable<double>(score);
     map['engine_version'] = Variable<int>(engineVersion);
     map['updated_at'] = Variable<DateTime>(updatedAt);
+    map['offset_millis'] = Variable<int>(offsetMillis);
+    map['user_offset_locked'] = Variable<bool>(userOffsetLocked);
+    map['user_edited'] = Variable<bool>(userEdited);
     return map;
   }
 
@@ -6841,6 +6937,9 @@ class LyricCacheRow extends DataClass implements Insertable<LyricCacheRow> {
       score: Value(score),
       engineVersion: Value(engineVersion),
       updatedAt: Value(updatedAt),
+      offsetMillis: Value(offsetMillis),
+      userOffsetLocked: Value(userOffsetLocked),
+      userEdited: Value(userEdited),
     );
   }
 
@@ -6863,6 +6962,9 @@ class LyricCacheRow extends DataClass implements Insertable<LyricCacheRow> {
       score: serializer.fromJson<double>(json['score']),
       engineVersion: serializer.fromJson<int>(json['engineVersion']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+      offsetMillis: serializer.fromJson<int>(json['offsetMillis']),
+      userOffsetLocked: serializer.fromJson<bool>(json['userOffsetLocked']),
+      userEdited: serializer.fromJson<bool>(json['userEdited']),
     );
   }
   @override
@@ -6882,6 +6984,9 @@ class LyricCacheRow extends DataClass implements Insertable<LyricCacheRow> {
       'score': serializer.toJson<double>(score),
       'engineVersion': serializer.toJson<int>(engineVersion),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
+      'offsetMillis': serializer.toJson<int>(offsetMillis),
+      'userOffsetLocked': serializer.toJson<bool>(userOffsetLocked),
+      'userEdited': serializer.toJson<bool>(userEdited),
     };
   }
 
@@ -6895,6 +7000,9 @@ class LyricCacheRow extends DataClass implements Insertable<LyricCacheRow> {
     double? score,
     int? engineVersion,
     DateTime? updatedAt,
+    int? offsetMillis,
+    bool? userOffsetLocked,
+    bool? userEdited,
   }) => LyricCacheRow(
     trackKey: trackKey ?? this.trackKey,
     songKey: songKey.present ? songKey.value : this.songKey,
@@ -6905,6 +7013,9 @@ class LyricCacheRow extends DataClass implements Insertable<LyricCacheRow> {
     score: score ?? this.score,
     engineVersion: engineVersion ?? this.engineVersion,
     updatedAt: updatedAt ?? this.updatedAt,
+    offsetMillis: offsetMillis ?? this.offsetMillis,
+    userOffsetLocked: userOffsetLocked ?? this.userOffsetLocked,
+    userEdited: userEdited ?? this.userEdited,
   );
   LyricCacheRow copyWithCompanion(LyricCacheEntriesCompanion data) {
     return LyricCacheRow(
@@ -6921,6 +7032,15 @@ class LyricCacheRow extends DataClass implements Insertable<LyricCacheRow> {
           ? data.engineVersion.value
           : this.engineVersion,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      offsetMillis: data.offsetMillis.present
+          ? data.offsetMillis.value
+          : this.offsetMillis,
+      userOffsetLocked: data.userOffsetLocked.present
+          ? data.userOffsetLocked.value
+          : this.userOffsetLocked,
+      userEdited: data.userEdited.present
+          ? data.userEdited.value
+          : this.userEdited,
     );
   }
 
@@ -6935,7 +7055,10 @@ class LyricCacheRow extends DataClass implements Insertable<LyricCacheRow> {
           ..write('lrcContent: $lrcContent, ')
           ..write('score: $score, ')
           ..write('engineVersion: $engineVersion, ')
-          ..write('updatedAt: $updatedAt')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('offsetMillis: $offsetMillis, ')
+          ..write('userOffsetLocked: $userOffsetLocked, ')
+          ..write('userEdited: $userEdited')
           ..write(')'))
         .toString();
   }
@@ -6951,6 +7074,9 @@ class LyricCacheRow extends DataClass implements Insertable<LyricCacheRow> {
     score,
     engineVersion,
     updatedAt,
+    offsetMillis,
+    userOffsetLocked,
+    userEdited,
   );
   @override
   bool operator ==(Object other) =>
@@ -6964,7 +7090,10 @@ class LyricCacheRow extends DataClass implements Insertable<LyricCacheRow> {
           other.lrcContent == this.lrcContent &&
           other.score == this.score &&
           other.engineVersion == this.engineVersion &&
-          other.updatedAt == this.updatedAt);
+          other.updatedAt == this.updatedAt &&
+          other.offsetMillis == this.offsetMillis &&
+          other.userOffsetLocked == this.userOffsetLocked &&
+          other.userEdited == this.userEdited);
 }
 
 class LyricCacheEntriesCompanion extends UpdateCompanion<LyricCacheRow> {
@@ -6977,6 +7106,9 @@ class LyricCacheEntriesCompanion extends UpdateCompanion<LyricCacheRow> {
   final Value<double> score;
   final Value<int> engineVersion;
   final Value<DateTime> updatedAt;
+  final Value<int> offsetMillis;
+  final Value<bool> userOffsetLocked;
+  final Value<bool> userEdited;
   final Value<int> rowid;
   const LyricCacheEntriesCompanion({
     this.trackKey = const Value.absent(),
@@ -6988,6 +7120,9 @@ class LyricCacheEntriesCompanion extends UpdateCompanion<LyricCacheRow> {
     this.score = const Value.absent(),
     this.engineVersion = const Value.absent(),
     this.updatedAt = const Value.absent(),
+    this.offsetMillis = const Value.absent(),
+    this.userOffsetLocked = const Value.absent(),
+    this.userEdited = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   LyricCacheEntriesCompanion.insert({
@@ -7000,6 +7135,9 @@ class LyricCacheEntriesCompanion extends UpdateCompanion<LyricCacheRow> {
     this.score = const Value.absent(),
     required int engineVersion,
     required DateTime updatedAt,
+    this.offsetMillis = const Value.absent(),
+    this.userOffsetLocked = const Value.absent(),
+    this.userEdited = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : trackKey = Value(trackKey),
        status = Value(status),
@@ -7015,6 +7153,9 @@ class LyricCacheEntriesCompanion extends UpdateCompanion<LyricCacheRow> {
     Expression<double>? score,
     Expression<int>? engineVersion,
     Expression<DateTime>? updatedAt,
+    Expression<int>? offsetMillis,
+    Expression<bool>? userOffsetLocked,
+    Expression<bool>? userEdited,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -7027,6 +7168,9 @@ class LyricCacheEntriesCompanion extends UpdateCompanion<LyricCacheRow> {
       if (score != null) 'score': score,
       if (engineVersion != null) 'engine_version': engineVersion,
       if (updatedAt != null) 'updated_at': updatedAt,
+      if (offsetMillis != null) 'offset_millis': offsetMillis,
+      if (userOffsetLocked != null) 'user_offset_locked': userOffsetLocked,
+      if (userEdited != null) 'user_edited': userEdited,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -7041,6 +7185,9 @@ class LyricCacheEntriesCompanion extends UpdateCompanion<LyricCacheRow> {
     Value<double>? score,
     Value<int>? engineVersion,
     Value<DateTime>? updatedAt,
+    Value<int>? offsetMillis,
+    Value<bool>? userOffsetLocked,
+    Value<bool>? userEdited,
     Value<int>? rowid,
   }) {
     return LyricCacheEntriesCompanion(
@@ -7053,6 +7200,9 @@ class LyricCacheEntriesCompanion extends UpdateCompanion<LyricCacheRow> {
       score: score ?? this.score,
       engineVersion: engineVersion ?? this.engineVersion,
       updatedAt: updatedAt ?? this.updatedAt,
+      offsetMillis: offsetMillis ?? this.offsetMillis,
+      userOffsetLocked: userOffsetLocked ?? this.userOffsetLocked,
+      userEdited: userEdited ?? this.userEdited,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -7091,6 +7241,15 @@ class LyricCacheEntriesCompanion extends UpdateCompanion<LyricCacheRow> {
     if (updatedAt.present) {
       map['updated_at'] = Variable<DateTime>(updatedAt.value);
     }
+    if (offsetMillis.present) {
+      map['offset_millis'] = Variable<int>(offsetMillis.value);
+    }
+    if (userOffsetLocked.present) {
+      map['user_offset_locked'] = Variable<bool>(userOffsetLocked.value);
+    }
+    if (userEdited.present) {
+      map['user_edited'] = Variable<bool>(userEdited.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -7108,6 +7267,287 @@ class LyricCacheEntriesCompanion extends UpdateCompanion<LyricCacheRow> {
           ..write('lrcContent: $lrcContent, ')
           ..write('score: $score, ')
           ..write('engineVersion: $engineVersion, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('offsetMillis: $offsetMillis, ')
+          ..write('userOffsetLocked: $userOffsetLocked, ')
+          ..write('userEdited: $userEdited, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $AlbumLyricOffsetsTable extends AlbumLyricOffsets
+    with TableInfo<$AlbumLyricOffsetsTable, AlbumLyricOffsetRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $AlbumLyricOffsetsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _albumKeyMeta = const VerificationMeta(
+    'albumKey',
+  );
+  @override
+  late final GeneratedColumn<String> albumKey = GeneratedColumn<String>(
+    'album_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _offsetMillisMeta = const VerificationMeta(
+    'offsetMillis',
+  );
+  @override
+  late final GeneratedColumn<int> offsetMillis = GeneratedColumn<int>(
+    'offset_millis',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [albumKey, offsetMillis, updatedAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'album_lyric_offsets';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<AlbumLyricOffsetRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('album_key')) {
+      context.handle(
+        _albumKeyMeta,
+        albumKey.isAcceptableOrUnknown(data['album_key']!, _albumKeyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_albumKeyMeta);
+    }
+    if (data.containsKey('offset_millis')) {
+      context.handle(
+        _offsetMillisMeta,
+        offsetMillis.isAcceptableOrUnknown(
+          data['offset_millis']!,
+          _offsetMillisMeta,
+        ),
+      );
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {albumKey};
+  @override
+  AlbumLyricOffsetRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return AlbumLyricOffsetRow(
+      albumKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}album_key'],
+      )!,
+      offsetMillis: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}offset_millis'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $AlbumLyricOffsetsTable createAlias(String alias) {
+    return $AlbumLyricOffsetsTable(attachedDatabase, alias);
+  }
+}
+
+class AlbumLyricOffsetRow extends DataClass
+    implements Insertable<AlbumLyricOffsetRow> {
+  /// 专辑缓存键（`workId::sourceId::normalizedDir`）。
+  final String albumKey;
+
+  /// 专辑级时间轴偏移（毫秒，正值使歌词提前、负值使歌词延后）。
+  final int offsetMillis;
+
+  /// 最近更新时间。
+  final DateTime updatedAt;
+  const AlbumLyricOffsetRow({
+    required this.albumKey,
+    required this.offsetMillis,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['album_key'] = Variable<String>(albumKey);
+    map['offset_millis'] = Variable<int>(offsetMillis);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  AlbumLyricOffsetsCompanion toCompanion(bool nullToAbsent) {
+    return AlbumLyricOffsetsCompanion(
+      albumKey: Value(albumKey),
+      offsetMillis: Value(offsetMillis),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory AlbumLyricOffsetRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return AlbumLyricOffsetRow(
+      albumKey: serializer.fromJson<String>(json['albumKey']),
+      offsetMillis: serializer.fromJson<int>(json['offsetMillis']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'albumKey': serializer.toJson<String>(albumKey),
+      'offsetMillis': serializer.toJson<int>(offsetMillis),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  AlbumLyricOffsetRow copyWith({
+    String? albumKey,
+    int? offsetMillis,
+    DateTime? updatedAt,
+  }) => AlbumLyricOffsetRow(
+    albumKey: albumKey ?? this.albumKey,
+    offsetMillis: offsetMillis ?? this.offsetMillis,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  AlbumLyricOffsetRow copyWithCompanion(AlbumLyricOffsetsCompanion data) {
+    return AlbumLyricOffsetRow(
+      albumKey: data.albumKey.present ? data.albumKey.value : this.albumKey,
+      offsetMillis: data.offsetMillis.present
+          ? data.offsetMillis.value
+          : this.offsetMillis,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('AlbumLyricOffsetRow(')
+          ..write('albumKey: $albumKey, ')
+          ..write('offsetMillis: $offsetMillis, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(albumKey, offsetMillis, updatedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is AlbumLyricOffsetRow &&
+          other.albumKey == this.albumKey &&
+          other.offsetMillis == this.offsetMillis &&
+          other.updatedAt == this.updatedAt);
+}
+
+class AlbumLyricOffsetsCompanion extends UpdateCompanion<AlbumLyricOffsetRow> {
+  final Value<String> albumKey;
+  final Value<int> offsetMillis;
+  final Value<DateTime> updatedAt;
+  final Value<int> rowid;
+  const AlbumLyricOffsetsCompanion({
+    this.albumKey = const Value.absent(),
+    this.offsetMillis = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  AlbumLyricOffsetsCompanion.insert({
+    required String albumKey,
+    this.offsetMillis = const Value.absent(),
+    required DateTime updatedAt,
+    this.rowid = const Value.absent(),
+  }) : albumKey = Value(albumKey),
+       updatedAt = Value(updatedAt);
+  static Insertable<AlbumLyricOffsetRow> custom({
+    Expression<String>? albumKey,
+    Expression<int>? offsetMillis,
+    Expression<DateTime>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (albumKey != null) 'album_key': albumKey,
+      if (offsetMillis != null) 'offset_millis': offsetMillis,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  AlbumLyricOffsetsCompanion copyWith({
+    Value<String>? albumKey,
+    Value<int>? offsetMillis,
+    Value<DateTime>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return AlbumLyricOffsetsCompanion(
+      albumKey: albumKey ?? this.albumKey,
+      offsetMillis: offsetMillis ?? this.offsetMillis,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (albumKey.present) {
+      map['album_key'] = Variable<String>(albumKey.value);
+    }
+    if (offsetMillis.present) {
+      map['offset_millis'] = Variable<int>(offsetMillis.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('AlbumLyricOffsetsCompanion(')
+          ..write('albumKey: $albumKey, ')
+          ..write('offsetMillis: $offsetMillis, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('rowid: $rowid')
           ..write(')'))
@@ -8349,6 +8789,8 @@ abstract class _$KonataDatabase extends GeneratedDatabase {
   late final $SeriesGroupsTable seriesGroups = $SeriesGroupsTable(this);
   late final $LyricCacheEntriesTable lyricCacheEntries =
       $LyricCacheEntriesTable(this);
+  late final $AlbumLyricOffsetsTable albumLyricOffsets =
+      $AlbumLyricOffsetsTable(this);
   late final $SyncTombstonesTable syncTombstones = $SyncTombstonesTable(this);
   late final $SyncKvMetaTable syncKvMeta = $SyncKvMetaTable(this);
   late final $BangumiSyncQueueTable bangumiSyncQueue = $BangumiSyncQueueTable(
@@ -8368,6 +8810,7 @@ abstract class _$KonataDatabase extends GeneratedDatabase {
     ignoredFolders,
     seriesGroups,
     lyricCacheEntries,
+    albumLyricOffsets,
     syncTombstones,
     syncKvMeta,
     bangumiSyncQueue,
@@ -12867,6 +13310,9 @@ typedef $$LyricCacheEntriesTableCreateCompanionBuilder =
       Value<double> score,
       required int engineVersion,
       required DateTime updatedAt,
+      Value<int> offsetMillis,
+      Value<bool> userOffsetLocked,
+      Value<bool> userEdited,
       Value<int> rowid,
     });
 typedef $$LyricCacheEntriesTableUpdateCompanionBuilder =
@@ -12880,6 +13326,9 @@ typedef $$LyricCacheEntriesTableUpdateCompanionBuilder =
       Value<double> score,
       Value<int> engineVersion,
       Value<DateTime> updatedAt,
+      Value<int> offsetMillis,
+      Value<bool> userOffsetLocked,
+      Value<bool> userEdited,
       Value<int> rowid,
     });
 
@@ -12938,6 +13387,21 @@ class $$LyricCacheEntriesTableFilterComposer
     column: $table.updatedAt,
     builder: (column) => ColumnFilters(column),
   );
+
+  ColumnFilters<int> get offsetMillis => $composableBuilder(
+    column: $table.offsetMillis,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get userOffsetLocked => $composableBuilder(
+    column: $table.userOffsetLocked,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get userEdited => $composableBuilder(
+    column: $table.userEdited,
+    builder: (column) => ColumnFilters(column),
+  );
 }
 
 class $$LyricCacheEntriesTableOrderingComposer
@@ -12993,6 +13457,21 @@ class $$LyricCacheEntriesTableOrderingComposer
     column: $table.updatedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<int> get offsetMillis => $composableBuilder(
+    column: $table.offsetMillis,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get userOffsetLocked => $composableBuilder(
+    column: $table.userOffsetLocked,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get userEdited => $composableBuilder(
+    column: $table.userEdited,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$LyricCacheEntriesTableAnnotationComposer
@@ -13034,6 +13513,21 @@ class $$LyricCacheEntriesTableAnnotationComposer
 
   GeneratedColumn<DateTime> get updatedAt =>
       $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<int> get offsetMillis => $composableBuilder(
+    column: $table.offsetMillis,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get userOffsetLocked => $composableBuilder(
+    column: $table.userOffsetLocked,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get userEdited => $composableBuilder(
+    column: $table.userEdited,
+    builder: (column) => column,
+  );
 }
 
 class $$LyricCacheEntriesTableTableManager
@@ -13085,6 +13579,9 @@ class $$LyricCacheEntriesTableTableManager
                 Value<double> score = const Value.absent(),
                 Value<int> engineVersion = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
+                Value<int> offsetMillis = const Value.absent(),
+                Value<bool> userOffsetLocked = const Value.absent(),
+                Value<bool> userEdited = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => LyricCacheEntriesCompanion(
                 trackKey: trackKey,
@@ -13096,6 +13593,9 @@ class $$LyricCacheEntriesTableTableManager
                 score: score,
                 engineVersion: engineVersion,
                 updatedAt: updatedAt,
+                offsetMillis: offsetMillis,
+                userOffsetLocked: userOffsetLocked,
+                userEdited: userEdited,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -13109,6 +13609,9 @@ class $$LyricCacheEntriesTableTableManager
                 Value<double> score = const Value.absent(),
                 required int engineVersion,
                 required DateTime updatedAt,
+                Value<int> offsetMillis = const Value.absent(),
+                Value<bool> userOffsetLocked = const Value.absent(),
+                Value<bool> userEdited = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => LyricCacheEntriesCompanion.insert(
                 trackKey: trackKey,
@@ -13120,6 +13623,9 @@ class $$LyricCacheEntriesTableTableManager
                 score: score,
                 engineVersion: engineVersion,
                 updatedAt: updatedAt,
+                offsetMillis: offsetMillis,
+                userOffsetLocked: userOffsetLocked,
+                userEdited: userEdited,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -13158,6 +13664,194 @@ typedef $$LyricCacheEntriesTableProcessedTableManager =
         >,
       ),
       LyricCacheRow,
+      PrefetchHooks Function()
+    >;
+typedef $$AlbumLyricOffsetsTableCreateCompanionBuilder =
+    AlbumLyricOffsetsCompanion Function({
+      required String albumKey,
+      Value<int> offsetMillis,
+      required DateTime updatedAt,
+      Value<int> rowid,
+    });
+typedef $$AlbumLyricOffsetsTableUpdateCompanionBuilder =
+    AlbumLyricOffsetsCompanion Function({
+      Value<String> albumKey,
+      Value<int> offsetMillis,
+      Value<DateTime> updatedAt,
+      Value<int> rowid,
+    });
+
+class $$AlbumLyricOffsetsTableFilterComposer
+    extends Composer<_$KonataDatabase, $AlbumLyricOffsetsTable> {
+  $$AlbumLyricOffsetsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get albumKey => $composableBuilder(
+    column: $table.albumKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get offsetMillis => $composableBuilder(
+    column: $table.offsetMillis,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$AlbumLyricOffsetsTableOrderingComposer
+    extends Composer<_$KonataDatabase, $AlbumLyricOffsetsTable> {
+  $$AlbumLyricOffsetsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get albumKey => $composableBuilder(
+    column: $table.albumKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get offsetMillis => $composableBuilder(
+    column: $table.offsetMillis,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$AlbumLyricOffsetsTableAnnotationComposer
+    extends Composer<_$KonataDatabase, $AlbumLyricOffsetsTable> {
+  $$AlbumLyricOffsetsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get albumKey =>
+      $composableBuilder(column: $table.albumKey, builder: (column) => column);
+
+  GeneratedColumn<int> get offsetMillis => $composableBuilder(
+    column: $table.offsetMillis,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$AlbumLyricOffsetsTableTableManager
+    extends
+        RootTableManager<
+          _$KonataDatabase,
+          $AlbumLyricOffsetsTable,
+          AlbumLyricOffsetRow,
+          $$AlbumLyricOffsetsTableFilterComposer,
+          $$AlbumLyricOffsetsTableOrderingComposer,
+          $$AlbumLyricOffsetsTableAnnotationComposer,
+          $$AlbumLyricOffsetsTableCreateCompanionBuilder,
+          $$AlbumLyricOffsetsTableUpdateCompanionBuilder,
+          (
+            AlbumLyricOffsetRow,
+            BaseReferences<
+              _$KonataDatabase,
+              $AlbumLyricOffsetsTable,
+              AlbumLyricOffsetRow
+            >,
+          ),
+          AlbumLyricOffsetRow,
+          PrefetchHooks Function()
+        > {
+  $$AlbumLyricOffsetsTableTableManager(
+    _$KonataDatabase db,
+    $AlbumLyricOffsetsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$AlbumLyricOffsetsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$AlbumLyricOffsetsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$AlbumLyricOffsetsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> albumKey = const Value.absent(),
+                Value<int> offsetMillis = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => AlbumLyricOffsetsCompanion(
+                albumKey: albumKey,
+                offsetMillis: offsetMillis,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String albumKey,
+                Value<int> offsetMillis = const Value.absent(),
+                required DateTime updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => AlbumLyricOffsetsCompanion.insert(
+                albumKey: albumKey,
+                offsetMillis: offsetMillis,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$AlbumLyricOffsetsTable, AlbumLyricOffsetRow>(
+                    table,
+                  ),
+                  BaseReferences<
+                    _$KonataDatabase,
+                    $AlbumLyricOffsetsTable,
+                    AlbumLyricOffsetRow
+                  >(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$AlbumLyricOffsetsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$KonataDatabase,
+      $AlbumLyricOffsetsTable,
+      AlbumLyricOffsetRow,
+      $$AlbumLyricOffsetsTableFilterComposer,
+      $$AlbumLyricOffsetsTableOrderingComposer,
+      $$AlbumLyricOffsetsTableAnnotationComposer,
+      $$AlbumLyricOffsetsTableCreateCompanionBuilder,
+      $$AlbumLyricOffsetsTableUpdateCompanionBuilder,
+      (
+        AlbumLyricOffsetRow,
+        BaseReferences<
+          _$KonataDatabase,
+          $AlbumLyricOffsetsTable,
+          AlbumLyricOffsetRow
+        >,
+      ),
+      AlbumLyricOffsetRow,
       PrefetchHooks Function()
     >;
 typedef $$SyncTombstonesTableCreateCompanionBuilder =
@@ -13868,6 +14562,8 @@ class $KonataDatabaseManager {
       $$SeriesGroupsTableTableManager(_db, _db.seriesGroups);
   $$LyricCacheEntriesTableTableManager get lyricCacheEntries =>
       $$LyricCacheEntriesTableTableManager(_db, _db.lyricCacheEntries);
+  $$AlbumLyricOffsetsTableTableManager get albumLyricOffsets =>
+      $$AlbumLyricOffsetsTableTableManager(_db, _db.albumLyricOffsets);
   $$SyncTombstonesTableTableManager get syncTombstones =>
       $$SyncTombstonesTableTableManager(_db, _db.syncTombstones);
   $$SyncKvMetaTableTableManager get syncKvMeta =>

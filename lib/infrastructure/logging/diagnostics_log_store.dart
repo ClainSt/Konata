@@ -34,7 +34,7 @@ class DiagnosticsSummaryCounts {
   final int breadcrumbCount;
 }
 
-/// Konata Agent 友好结构化诊断日志存储器（纯 Infrastructure 层，无界面依赖）。
+/// Konata 结构化诊断日志存储器（纯 Infrastructure 层，无界面依赖）。
 ///
 /// 采用「全局时间线环 + 异常专属免淘汰环 + 按子系统独立分环 + 操作轨迹面包屑环」四层隔离架构，
 /// 确保高频播放/扫描日志绝不冲刷关键错误，且导出即自带源码锚点、故障分诊表与实时运行状态快照。
@@ -380,20 +380,20 @@ class DiagnosticsLogStore {
     return _formatTextReport(snapshotSections: const <DiagnosticSnapshotSection>[]);
   }
 
-  /// 异步生成包含实时运行态快照、故障分诊表与完整时间线的 Agent 友好诊断报告（TXT）。
-  Future<String> buildAgentDiagnosticReportAsync() async {
+  /// 异步生成包含实时运行态快照、故障分诊表与完整时间线的结构化诊断报告（TXT）。
+  Future<String> buildDiagnosticReportAsync() async {
     final sections = await collectRuntimeSnapshot();
     return _formatTextReport(snapshotSections: sections);
   }
 
-  /// 异步生成可直接投喂给 AI Agent 解析的精简 Markdown 剪贴板摘要（控制在 60 行以内）。
-  Future<String> buildCompactAgentClipboardSummaryAsync() async {
+  /// 异步生成精简 Markdown 诊断定位剪贴板摘要（控制在 60 行以内）。
+  Future<String> buildCompactClipboardSummaryAsync() async {
     final sections = await collectRuntimeSnapshot();
     final faults = summarizeFaults();
     final counts = summaryCounts;
     final crumbs = snapshotBreadcrumbs();
     final buf = StringBuffer()
-      ..writeln('# Konata Agent 诊断定位摘要')
+      ..writeln('# Konata 诊断定位摘要')
       ..writeln(
         '- 环境: Konata $appVersion | ${Platform.operatingSystem} ${Platform.operatingSystemVersion}'
         '${KonataLaneConfig.isIsolatedLane() ? ' | lane=${KonataLaneConfig.resolveLane()}' : ''}',
@@ -482,7 +482,7 @@ class DiagnosticsLogStore {
     final isJson = filePath.toLowerCase().endsWith('.json');
     final content = isJson
         ? await buildJsonDiagnosticBundleAsync()
-        : await buildAgentDiagnosticReportAsync();
+        : await buildDiagnosticReportAsync();
     await file.writeAsString(content);
   }
 
@@ -497,7 +497,7 @@ class DiagnosticsLogStore {
 
     final buf = StringBuffer()
       ..writeln('============================================================')
-      ..writeln('KONATA AGENT DIAGNOSTIC REPORT (SCHEMA v2)')
+      ..writeln('KONATA DIAGNOSTIC REPORT (SCHEMA v2)')
       ..writeln('============================================================')
       ..writeln('导出时间: ${_clock().toIso8601String()}')
       ..writeln('应用版本: Konata $appVersion')

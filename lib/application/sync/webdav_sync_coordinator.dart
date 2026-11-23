@@ -58,6 +58,10 @@ class WebDavSyncCoordinator {
     if (!config.hasValidServerUrl) {
       throw StateError('请先填写有效的 WebDAV 同步服务器地址');
     }
+    final scope = config.syncScope;
+    if (!scope.hasAnySelected) {
+      throw StateError('请至少选择一项要同步的内容');
+    }
 
     final startedAt = _clock();
     final deviceId = await _syncStore.getOrCreateDeviceId();
@@ -67,16 +71,19 @@ class WebDavSyncCoordinator {
     _logStore?.recordBreadcrumb(
       category: 'sync',
       label: '开始 WebDAV 多设备同步',
+      detail: scope.describeLabel(),
       source: 'lib/application/sync/webdav_sync_coordinator.dart:syncNow',
     );
     _logStore?.logEvent(
       subsystem: DiagnosticSubsystem.sync,
       code: 'SYNC_WEBDAV_STARTED',
-      message: '开始执行 WebDAV 分片多设备同步',
+      message: '开始执行 WebDAV 分片多设备同步（${scope.describeLabel()}）',
       source: 'lib/application/sync/webdav_sync_coordinator.dart:_runSyncInternal',
       context: <String, Object?>{
         'deviceId': deviceId,
         'remoteDir': config.normalizedRemoteDir,
+        'scope': scope.describeLabel(),
+        'intervalMinutes': config.autoSyncIntervalMinutes,
       },
     );
 
@@ -115,7 +122,9 @@ class WebDavSyncCoordinator {
         }
       }
 
-      final localBefore = await _backupService.buildLocalSnapshotEnvelope();
+      final localBefore = await _backupService.buildLocalSnapshotEnvelope(
+        scope: scope,
+      );
       final nowMs = _clock().millisecondsSinceEpoch;
       final merged = KonataSyncMergeEngine.merge(
         localPlaybacks: localBefore.playbackEntries,
@@ -128,7 +137,10 @@ class WebDavSyncCoordinator {
 
       final applyOutcome = await _backupService.applyMergedState(
         merged,
+        applyPlaybacks: scope.includePlaybacks,
+        applyWorkOverrides: scope.includeWorkOverrides,
         applyPreferences:
+            scope.includePreferences &&
             remoteSnapshots.isNotEmpty &&
             merged.mergedPreferences.updatedAtMs >
                 localBefore.preferences.updatedAtMs,
@@ -136,8 +148,10 @@ class WebDavSyncCoordinator {
         uploadedShard: true,
       );
 
-      // 落库后再重建本机最新分片并上传，确保其它设备下次可直接消费合并后的最新水位。
-      final postMergeSnapshot = await _backupService.buildLocalSnapshotEnvelope();
+      // 落库后再按当前勾选范围重建本机最新分片并上传，未勾选项绝不向外泄露或误改他端状态。
+      final postMergeSnapshot = await _backupService.buildLocalSnapshotEnvelope(
+        scope: scope,
+      );
       final shardPath = await transport.uploadDeviceShard(
         deviceId: deviceId,
         envelope: postMergeSnapshot,

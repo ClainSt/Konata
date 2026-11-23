@@ -44,35 +44,62 @@ class KonataSettingsLeadingBox extends StatelessWidget {
   }
 }
 
-/// 设置卡片内的紧凑单行开关项。
+/// 设置卡片内的紧凑开关项（支持可选副标题说明与禁用态，供同步范围与策略配置复用）。
 class KonataSettingsSwitchRow extends StatelessWidget {
-  /// 创建单行开关项。
+  /// 创建开关项。
   const KonataSettingsSwitchRow({
     super.key,
     required this.label,
     required this.value,
     required this.onChanged,
+    this.subtitle,
+    this.enabled = true,
   });
 
   final String label;
+  final String? subtitle;
   final bool value;
-  final ValueChanged<bool> onChanged;
+  final ValueChanged<bool>? onChanged;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
+    final effectiveOnChanged = enabled ? onChanged : null;
+    final isDisabled = effectiveOnChanged == null;
     return Row(
+      crossAxisAlignment: subtitle != null
+          ? CrossAxisAlignment.start
+          : CrossAxisAlignment.center,
       children: [
         Expanded(
-          child: Text(
-            label,
-            style: TextStyle(
-              color: p.textPrimary,
-              fontSize: KonataTheme.fontSizeBodySm,
-            ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  color: isDisabled ? p.textMuted : p.textPrimary,
+                  fontSize: KonataTheme.fontSizeBodySm,
+                ),
+              ),
+              if (subtitle != null && subtitle!.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(
+                  subtitle!,
+                  style: TextStyle(
+                    color: p.textMuted,
+                    fontSize: KonataTheme.fontSizeBodyXs,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ],
           ),
         ),
-        KonataSwitch(value: value, onChanged: onChanged),
+        const SizedBox(width: 12),
+        KonataSwitch(value: value, onChanged: effectiveOnChanged),
       ],
     );
   }

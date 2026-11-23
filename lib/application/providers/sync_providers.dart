@@ -100,10 +100,17 @@ class WebDavSyncUiState {
   }
 }
 
-/// WebDAV 同步配置读写、连通性校验、立即同步与本地备份恢复状态控制器。
+/// WebDAV 定时同步基础时间单位 Provider（默认 1 分钟，可在单元测试中缩短周期）。
+final webDavSyncIntervalUnitProvider = Provider<Duration>(
+  (ref) => const Duration(minutes: 1),
+);
+
+/// WebDAV 同步配置读写、连通性校验、定时自动同步与本地备份恢复状态控制器。
 class WebDavSyncController extends Notifier<WebDavSyncUiState> {
   void Function()? _disposeDiagContributor;
   Timer? _playbackStopSyncTimer;
+  Timer? _periodicSyncTimer;
+  int _activePeriodicMinutes = 0;
   bool _startupSyncTriggered = false;
 
   @override
@@ -119,8 +126,10 @@ class WebDavSyncController extends Notifier<WebDavSyncUiState> {
           'enabled': state.config.enabled.toString(),
           'hasServerUrl': state.config.hasValidServerUrl.toString(),
           'remoteDir': state.config.normalizedRemoteDir,
+          'syncScope': state.config.syncScope.describeLabel(),
           'autoStartup': state.config.autoSyncOnStartup.toString(),
           'autoStop': state.config.autoSyncOnPlaybackStop.toString(),
+          'intervalMinutes': state.config.autoSyncIntervalMinutes.toString(),
           'isBusy': state.isBusy.toString(),
           if (state.lastSyncAt != null)
             'lastSyncAt': state.lastSyncAt!.toIso8601String(),
@@ -132,11 +141,55 @@ class WebDavSyncController extends Notifier<WebDavSyncUiState> {
     ref.onDispose(() {
       _playbackStopSyncTimer?.cancel();
       _playbackStopSyncTimer = null;
+      _periodicSyncTimer?.cancel();
+      _periodicSyncTimer = null;
+      _activePeriodicMinutes = 0;
       _disposeDiagContributor?.call();
       _disposeDiagContributor = null;
     });
     unawaited(_restore());
     return const WebDavSyncUiState();
+  }
+
+  /// 按当前同步配置启停后台定时轮询计时器（关闭同步、地址无效、未勾选同步内容或间隔为 0 时立即停钟）。
+  void _reconcilePeriodicTimer(WebDavSyncConfig config) {
+    final minutes = WebDavSyncConfig.normalizeIntervalMinutes(
+      config.autoSyncIntervalMinutes,
+    );
+    final shouldRun =
+        config.enabled &&
+        config.hasValidServerUrl &&
+        config.syncScope.hasAnySelected &&
+        minutes > 0;
+    if (!shouldRun) {
+      _periodicSyncTimer?.cancel();
+      _periodicSyncTimer = null;
+      _activePeriodicMinutes = 0;
+      return;
+    }
+    if (_periodicSyncTimer != null && _activePeriodicMinutes == minutes) {
+      return;
+    }
+    _periodicSyncTimer?.cancel();
+    _activePeriodicMinutes = minutes;
+    final unit = ref.read(webDavSyncIntervalUnitProvider);
+    final period = Duration(microseconds: unit.inMicroseconds * minutes);
+    _periodicSyncTimer = Timer.periodic(period, (_) {
+      if (!ref.mounted) {
+        _periodicSyncTimer?.cancel();
+        _periodicSyncTimer = null;
+        return;
+      }
+      final current = state;
+      if (current.isBusy ||
+          current.isTesting ||
+          !current.config.enabled ||
+          !current.config.hasValidServerUrl ||
+          !current.config.syncScope.hasAnySelected) {
+        return;
+      }
+      unawaited(_syncSilently());
+    });
   }
 
   Future<void> _restore() async {
@@ -160,10 +213,12 @@ class WebDavSyncController extends Notifier<WebDavSyncUiState> {
             : null,
         lastSummary: lastSummary,
       );
+      _reconcilePeriodicTimer(config);
       if (!_startupSyncTriggered &&
           config.enabled &&
           config.autoSyncOnStartup &&
-          config.hasValidServerUrl) {
+          config.hasValidServerUrl &&
+          config.syncScope.hasAnySelected) {
         _startupSyncTriggered = true;
         unawaited(_syncSilently());
       }
@@ -179,10 +234,13 @@ class WebDavSyncController extends Notifier<WebDavSyncUiState> {
     }
   }
 
-  /// 停播后按需防抖触发后台静默同步（仅在用户开启「停播后静默上传进度」时生效）。
+  /// 停播后按需防抖触发后台静默同步（仅在开启「停播后静默上传进度」且勾选「观看进度与播放历史」时生效）。
   void notifyPlaybackStopped() {
     final cfg = state.config;
-    if (!cfg.enabled || !cfg.autoSyncOnPlaybackStop || !cfg.hasValidServerUrl) {
+    if (!cfg.enabled ||
+        !cfg.autoSyncOnPlaybackStop ||
+        !cfg.hasValidServerUrl ||
+        !cfg.syncScope.includePlaybacks) {
       return;
     }
     _playbackStopSyncTimer?.cancel();
@@ -206,9 +264,10 @@ class WebDavSyncController extends Notifier<WebDavSyncUiState> {
     }
   }
 
-  /// 保存并持久化 WebDAV 同步配置。
+  /// 保存并持久化 WebDAV 同步配置，并即时重建或关闭定时同步计时器。
   Future<void> saveConfig(WebDavSyncConfig next) async {
     state = state.copyWith(config: next, clearError: true);
+    _reconcilePeriodicTimer(next);
     await ref.read(webDavSyncConfigRepositoryProvider).save(next);
   }
 
@@ -257,16 +316,17 @@ class WebDavSyncController extends Notifier<WebDavSyncUiState> {
     }
   }
 
-  /// 执行本地 `.konata` 备份恢复并刷新全部相关媒体库与历史视图。
+  /// 执行本地 `.konata` 备份按范围选择性恢复并刷新全部相关媒体库与历史视图。
   Future<KonataSyncOutcome> restoreLocalBackup(
     Uint8List bytes, {
     required KonataBackupRestoreMode mode,
+    KonataSyncDataScope scope = KonataSyncDataScope.all,
   }) async {
     state = state.copyWith(isBusy: true, clearError: true);
     try {
       final outcome = await ref
           .read(konataBackupServiceProvider)
-          .restoreFromKonataArchiveBytes(bytes, mode: mode);
+          .restoreFromKonataArchiveBytes(bytes, mode: mode, scope: scope);
       _invalidateLibraryAfterSync();
       if (ref.mounted) {
         state = state.copyWith(isBusy: false, clearError: true);

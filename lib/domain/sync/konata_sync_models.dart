@@ -738,6 +738,68 @@ enum KonataBackupRestoreMode {
   overwrite,
 }
 
+/// 备份、恢复与 WebDAV 多设备同步共用的可选数据范围配置。
+class KonataSyncDataScope {
+  /// 创建数据范围配置（默认全选三类可移植数据）。
+  const KonataSyncDataScope({
+    this.includePlaybacks = true,
+    this.includeWorkOverrides = true,
+    this.includePreferences = true,
+  });
+
+  /// 全量范围常量。
+  static const KonataSyncDataScope all = KonataSyncDataScope();
+
+  /// 是否包含观看进度、播放历史与删除记录。
+  final bool includePlaybacks;
+
+  /// 是否包含作品人工整理锁、隐藏状态与系列归组标签。
+  final bool includeWorkOverrides;
+
+  /// 是否包含便携非敏感偏好设置（外观、显示、播放与网络镜像，不含密码与密钥）。
+  final bool includePreferences;
+
+  /// 是否至少勾选了一项数据。
+  bool get hasAnySelected =>
+      includePlaybacks || includeWorkOverrides || includePreferences;
+
+  /// 复制并修改指定勾选开关。
+  KonataSyncDataScope copyWith({
+    bool? includePlaybacks,
+    bool? includeWorkOverrides,
+    bool? includePreferences,
+  }) {
+    return KonataSyncDataScope(
+      includePlaybacks: includePlaybacks ?? this.includePlaybacks,
+      includeWorkOverrides: includeWorkOverrides ?? this.includeWorkOverrides,
+      includePreferences: includePreferences ?? this.includePreferences,
+    );
+  }
+
+  /// 生成便于日志与界面展示的简明中文范围描述。
+  String describeLabel() {
+    final parts = <String>[
+      if (includePlaybacks) '观看进度',
+      if (includeWorkOverrides) '作品整理',
+      if (includePreferences) '偏好设置',
+    ];
+    return parts.isEmpty ? '未选择' : parts.join('、');
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        (other is KonataSyncDataScope &&
+            other.includePlaybacks == includePlaybacks &&
+            other.includeWorkOverrides == includeWorkOverrides &&
+            other.includePreferences == includePreferences);
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(includePlaybacks, includeWorkOverrides, includePreferences);
+}
+
 /// 导入备份前的干跑预检摘要。
 class KonataBackupPreview {
   /// 创建干跑预检摘要。
@@ -803,6 +865,32 @@ class WebDavSyncConfig {
   /// 默认远端同步子目录名。
   static const String defaultRemoteDir = 'konata-sync';
 
+  /// 可选的后台定时同步间隔预设（分钟；`0` 表示关闭定时轮询）。
+  static const List<int> allowedAutoSyncIntervalsMinutes = <int>[
+    0,
+    3,
+    5,
+    10,
+    15,
+    30,
+    60,
+    120,
+  ];
+
+  /// 规范化定时同步间隔（负值归零，避免非法定时器周期）。
+  static int normalizeIntervalMinutes(int minutes) => minutes <= 0 ? 0 : minutes;
+
+  /// 将定时同步分钟数格式化为简洁中文下拉标签。
+  static String formatIntervalLabel(int minutes) {
+    final normalized = normalizeIntervalMinutes(minutes);
+    if (normalized == 0) return '关闭（仅手动或事件触发）';
+    if (normalized % 60 == 0) {
+      final hours = normalized ~/ 60;
+      return '每 $hours 小时';
+    }
+    return '每 $normalized 分钟';
+  }
+
   /// 创建 WebDAV 同步配置。
   const WebDavSyncConfig({
     this.enabled = false,
@@ -812,6 +900,8 @@ class WebDavSyncConfig {
     this.password = '',
     this.autoSyncOnStartup = false,
     this.autoSyncOnPlaybackStop = false,
+    this.autoSyncIntervalMinutes = 0,
+    this.syncScope = KonataSyncDataScope.all,
   });
 
   final bool enabled;
@@ -821,6 +911,12 @@ class WebDavSyncConfig {
   final String password;
   final bool autoSyncOnStartup;
   final bool autoSyncOnPlaybackStop;
+
+  /// 后台定时同步周期（分钟，`0` 表示关闭定时同步）。
+  final int autoSyncIntervalMinutes;
+
+  /// WebDAV 多设备同步包含的数据范围。
+  final KonataSyncDataScope syncScope;
 
   /// 是否已配置有效的 WebDAV 同步服务器地址。
   bool get hasValidServerUrl {
@@ -847,6 +943,8 @@ class WebDavSyncConfig {
     String? password,
     bool? autoSyncOnStartup,
     bool? autoSyncOnPlaybackStop,
+    int? autoSyncIntervalMinutes,
+    KonataSyncDataScope? syncScope,
   }) {
     return WebDavSyncConfig(
       enabled: enabled ?? this.enabled,
@@ -857,6 +955,10 @@ class WebDavSyncConfig {
       autoSyncOnStartup: autoSyncOnStartup ?? this.autoSyncOnStartup,
       autoSyncOnPlaybackStop:
           autoSyncOnPlaybackStop ?? this.autoSyncOnPlaybackStop,
+      autoSyncIntervalMinutes: normalizeIntervalMinutes(
+        autoSyncIntervalMinutes ?? this.autoSyncIntervalMinutes,
+      ),
+      syncScope: syncScope ?? this.syncScope,
     );
   }
 }

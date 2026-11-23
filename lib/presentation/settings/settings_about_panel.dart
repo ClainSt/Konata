@@ -14,7 +14,7 @@ import '../widgets/design_system/konata_system_file_picker.dart';
 import '../widgets/design_system/konata_toast.dart';
 import 'settings_shared_widgets.dart';
 
-/// 关于页面板（真实 Konata 头像、版本信息、Agent 结构化诊断日志导出与复制摘要、GitHub 与 TMDB 声明）。
+/// 关于页面板（真实 Konata 头像、版本信息、结构化诊断日志导出与复制摘要、GitHub 与 TMDB 声明）。
 class SettingsAboutPanel extends ConsumerWidget {
   /// 创建关于面板。
   const SettingsAboutPanel({super.key});
@@ -28,12 +28,12 @@ class SettingsAboutPanel extends ConsumerWidget {
       final store = ref.read(diagnosticsLogStoreProvider);
       final content = asJson
           ? await store.buildJsonDiagnosticBundleAsync()
-          : await store.buildAgentDiagnosticReportAsync();
+          : await store.buildDiagnosticReportAsync();
       final ext = asJson ? 'json' : 'txt';
       final fileName =
           'konata_diagnostics_${buildKonataFileTimestampSuffix()}.$ext';
       final targetUri = await ref.read(konataSystemFilePickerProvider).saveFile(
-        dialogTitle: asJson ? '导出结构化诊断包 (JSON)' : '导出 Agent 诊断报告 (TXT)',
+        dialogTitle: asJson ? '导出结构化诊断包 (JSON)' : '导出诊断日志报告 (TXT)',
         fileName: fileName,
         bytes: Uint8List.fromList(utf8.encode(content)),
       );
@@ -52,14 +52,17 @@ class SettingsAboutPanel extends ConsumerWidget {
     }
   }
 
-  Future<void> _copyAgentSummary(BuildContext context, WidgetRef ref) async {
+  Future<void> _copyDiagnosticSummary(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
     try {
       final summary = await ref
           .read(diagnosticsLogStoreProvider)
-          .buildCompactAgentClipboardSummaryAsync();
+          .buildCompactClipboardSummaryAsync();
       await Clipboard.setData(ClipboardData(text: summary));
       if (context.mounted) {
-        showKonataToast(context, '已复制 Agent 定位摘要，可直接粘贴排查问题');
+        showKonataToast(context, '已复制诊断定位摘要，可直接粘贴排查问题');
       }
     } catch (e) {
       if (context.mounted) {
@@ -181,7 +184,7 @@ class SettingsAboutPanel extends ConsumerWidget {
               KonataListTile(
                 key: const ValueKey('settings_export_diagnostics_json'),
                 title: '导出结构化诊断包 (.json)',
-                subtitle: '面向 AI Agent 与自动化排障的完整 Schema v2 结构化数据',
+                subtitle: '导出包含故障分诊、运行快照与操作轨迹的 Schema v2 结构化数据',
                 leading: _buildLeadingBox(
                   p,
                   Icon(
@@ -199,8 +202,8 @@ class SettingsAboutPanel extends ConsumerWidget {
               ),
               Divider(height: 1, color: p.hairline, indent: 18, endIndent: 18),
               KonataListTile(
-                key: const ValueKey('settings_copy_agent_summary'),
-                title: '复制 Agent 定位摘要',
+                key: const ValueKey('settings_copy_diagnostic_summary'),
+                title: '复制诊断定位摘要',
                 subtitle: '一键复制精简故障分诊、运行快照与最近 12 步操作轨迹至剪贴板',
                 leading: _buildLeadingBox(
                   p,
@@ -215,7 +218,7 @@ class SettingsAboutPanel extends ConsumerWidget {
                   size: 20,
                   color: p.textMuted,
                 ),
-                onTap: () => _copyAgentSummary(context, ref),
+                onTap: () => _copyDiagnosticSummary(context, ref),
               ),
               if (hasLogs) ...[
                 Divider(height: 1, color: p.hairline, indent: 18, endIndent: 18),

@@ -25,6 +25,14 @@ class WebDavSyncConfigRepository {
   static const String _keyPassword = 'konata_v2_sync_webdav_password_secret';
   static const String _keyAutoStartup = 'konata_v2_sync_webdav_auto_startup';
   static const String _keyAutoStop = 'konata_v2_sync_webdav_auto_stop';
+  static const String _keyAutoIntervalMinutes =
+      'konata_v2_sync_webdav_interval_minutes';
+  static const String _keyScopePlaybacks =
+      'konata_v2_sync_webdav_scope_playbacks';
+  static const String _keyScopeWorkOverrides =
+      'konata_v2_sync_webdav_scope_work_overrides';
+  static const String _keyScopePreferences =
+      'konata_v2_sync_webdav_scope_preferences';
 
   /// 加载当前持久化的 WebDAV 同步配置（无平台插件环境下安全回落空密码）。
   Future<WebDavSyncConfig> load() async {
@@ -50,6 +58,14 @@ class WebDavSyncConfigRepository {
       password: password,
       autoSyncOnStartup: prefs.getBool(_keyAutoStartup) ?? false,
       autoSyncOnPlaybackStop: prefs.getBool(_keyAutoStop) ?? false,
+      autoSyncIntervalMinutes: WebDavSyncConfig.normalizeIntervalMinutes(
+        prefs.getInt(_keyAutoIntervalMinutes) ?? 0,
+      ),
+      syncScope: KonataSyncDataScope(
+        includePlaybacks: prefs.getBool(_keyScopePlaybacks) ?? true,
+        includeWorkOverrides: prefs.getBool(_keyScopeWorkOverrides) ?? true,
+        includePreferences: prefs.getBool(_keyScopePreferences) ?? true,
+      ),
     );
   }
 
@@ -62,6 +78,19 @@ class WebDavSyncConfigRepository {
     await prefs.setString(_keyUsername, config.username.trim());
     await prefs.setBool(_keyAutoStartup, config.autoSyncOnStartup);
     await prefs.setBool(_keyAutoStop, config.autoSyncOnPlaybackStop);
+    await prefs.setInt(
+      _keyAutoIntervalMinutes,
+      WebDavSyncConfig.normalizeIntervalMinutes(config.autoSyncIntervalMinutes),
+    );
+    await prefs.setBool(_keyScopePlaybacks, config.syncScope.includePlaybacks);
+    await prefs.setBool(
+      _keyScopeWorkOverrides,
+      config.syncScope.includeWorkOverrides,
+    );
+    await prefs.setBool(
+      _keyScopePreferences,
+      config.syncScope.includePreferences,
+    );
 
     final pwd = config.password;
     try {

@@ -41,108 +41,123 @@ class KonataBackupService {
   /// 当前应用版本标识。
   final String appVersion;
 
-  /// 将当前设备上的观看进度、作品整理锁、墓碑与便携非敏感偏好构建为带 SHA-256 校验的标准快照。
-  Future<KonataSyncSnapshotEnvelope> buildLocalSnapshotEnvelope() async {
+  /// 将当前设备上的观看进度、作品整理锁、墓碑与便携非敏感偏好按 [scope] 构建为带 SHA-256 校验的标准快照。
+  Future<KonataSyncSnapshotEnvelope> buildLocalSnapshotEnvelope({
+    KonataSyncDataScope scope = KonataSyncDataScope.all,
+  }) async {
     final nowMs = _clock().millisecondsSinceEpoch;
     final deviceId = await _syncStore.getOrCreateDeviceId();
     final deviceName = _syncStore.resolveLocalDeviceName();
 
-    final works = await _repo.getAllWorks();
+    final needWorks = scope.includePlaybacks || scope.includeWorkOverrides;
+    final works = needWorks ? await _repo.getAllWorks() : const <Work>[];
     final workById = <String, Work>{for (final w in works) w.id: w};
-    final playbacks = await _repo.getPlaybackHistory(limit: 10000);
-    final seriesGroups = await _repo.getAllSeriesGroups();
-    final seriesTitleById = <String, String>{
-      for (final s in seriesGroups) s.id: s.title,
-    };
-    final workUpdatedMap = await _syncStore.readWorkUpdatedAtMsMap();
-    final playbackUpdatedMap = await _syncStore.readPlaybackUpdatedAtMsMap();
-    final tombstones = await _syncStore.getAllTombstones();
 
     final syncPlaybacks = <SyncPlaybackEntry>[];
-    for (final rec in playbacks) {
-      final work = workById[rec.workId];
-      if (work == null) continue;
-      final primaryKey = CanonicalWorkIdentity.primaryKeyFor(work);
-      final secondaryKeys = CanonicalWorkIdentity.allKeysFor(work)
-          .where((k) => k != primaryKey)
-          .toList(growable: false);
-      final pbKey = CanonicalWorkIdentity.playbackKey(
-        canonicalWorkKey: primaryKey,
-        seasonNumber: rec.seasonNumber,
-        episodeNumber: rec.episodeNumber,
-        isAudio: rec.isAudioRecord,
-        audioTrackHint: rec.isAudioRecord ? rec.episodeTitle : null,
-      );
-      final playedAtMs = rec.playedAt.millisecondsSinceEpoch;
-      final storedUpdated = playbackUpdatedMap[rec.id] ?? 0;
-      final updatedAtMs = storedUpdated > 0 ? storedUpdated : playedAtMs;
-      syncPlaybacks.add(
-        SyncPlaybackEntry(
-          playbackKey: pbKey,
+    final List<SyncTombstoneEntry> tombstones;
+    if (scope.includePlaybacks) {
+      final playbacks = await _repo.getPlaybackHistory(limit: 10000);
+      final playbackUpdatedMap = await _syncStore.readPlaybackUpdatedAtMsMap();
+      tombstones = await _syncStore.getAllTombstones();
+      for (final rec in playbacks) {
+        final work = workById[rec.workId];
+        if (work == null) continue;
+        final primaryKey = CanonicalWorkIdentity.primaryKeyFor(work);
+        final secondaryKeys = CanonicalWorkIdentity.allKeysFor(work)
+            .where((k) => k != primaryKey)
+            .toList(growable: false);
+        final pbKey = CanonicalWorkIdentity.playbackKey(
           canonicalWorkKey: primaryKey,
-          secondaryWorkKeys: secondaryKeys,
           seasonNumber: rec.seasonNumber,
           episodeNumber: rec.episodeNumber,
           isAudio: rec.isAudioRecord,
-          episodeTitle: rec.episodeTitle,
-          positionSeconds: rec.positionSeconds,
-          durationSeconds: rec.durationSeconds,
-          isCompleted: rec.isCompleted,
-          playedAtMs: playedAtMs,
-          updatedAtMs: updatedAtMs,
-          sourceDeviceId: deviceId,
-        ),
-      );
+          audioTrackHint: rec.isAudioRecord ? rec.episodeTitle : null,
+        );
+        final playedAtMs = rec.playedAt.millisecondsSinceEpoch;
+        final storedUpdated = playbackUpdatedMap[rec.id] ?? 0;
+        final updatedAtMs = storedUpdated > 0 ? storedUpdated : playedAtMs;
+        syncPlaybacks.add(
+          SyncPlaybackEntry(
+            playbackKey: pbKey,
+            canonicalWorkKey: primaryKey,
+            secondaryWorkKeys: secondaryKeys,
+            seasonNumber: rec.seasonNumber,
+            episodeNumber: rec.episodeNumber,
+            isAudio: rec.isAudioRecord,
+            episodeTitle: rec.episodeTitle,
+            positionSeconds: rec.positionSeconds,
+            durationSeconds: rec.durationSeconds,
+            isCompleted: rec.isCompleted,
+            playedAtMs: playedAtMs,
+            updatedAtMs: updatedAtMs,
+            sourceDeviceId: deviceId,
+          ),
+        );
+      }
+    } else {
+      tombstones = const <SyncTombstoneEntry>[];
     }
 
     final syncOverrides = <SyncWorkOverrideEntry>[];
-    for (final work in works) {
-      final hasUserCuration =
-          work.isManualLocked ||
-          work.metadataLocked ||
-          work.isHidden ||
-          work.keepHidden ||
-          work.seriesLocked ||
-          work.tmdbId != null ||
-          work.bangumiId != null;
-      if (!hasUserCuration) continue;
-      final primaryKey = CanonicalWorkIdentity.primaryKeyFor(work);
-      final secondaryKeys = CanonicalWorkIdentity.allKeysFor(work)
-          .where((k) => k != primaryKey)
-          .toList(growable: false);
-      final storedUpdated = workUpdatedMap[work.id] ?? 0;
-      syncOverrides.add(
-        SyncWorkOverrideEntry(
-          canonicalWorkKey: primaryKey,
-          secondaryWorkKeys: secondaryKeys,
-          title: work.title,
-          tmdbId: work.tmdbId,
-          tmdbMediaType: work.tmdbMediaType,
-          bangumiId: work.bangumiId,
-          matchedSeason: work.matchedSeason,
-          isManualLocked: work.isManualLocked,
-          metadataLocked: work.metadataLocked,
-          isHidden: work.isHidden,
-          keepHidden: work.keepHidden,
-          seriesTitle: work.seriesId == null
-              ? null
-              : seriesTitleById[work.seriesId!],
-          seriesOrder: work.seriesOrder,
-          seriesLabel: work.seriesLabel,
-          seriesLocked: work.seriesLocked,
-          updatedAtMs: storedUpdated > 0 ? storedUpdated : nowMs,
-          sourceDeviceId: deviceId,
-        ),
-      );
+    if (scope.includeWorkOverrides) {
+      final seriesGroups = await _repo.getAllSeriesGroups();
+      final seriesTitleById = <String, String>{
+        for (final s in seriesGroups) s.id: s.title,
+      };
+      final workUpdatedMap = await _syncStore.readWorkUpdatedAtMsMap();
+      for (final work in works) {
+        final hasUserCuration =
+            work.isManualLocked ||
+            work.metadataLocked ||
+            work.isHidden ||
+            work.keepHidden ||
+            work.seriesLocked ||
+            work.tmdbId != null ||
+            work.bangumiId != null;
+        if (!hasUserCuration) continue;
+        final primaryKey = CanonicalWorkIdentity.primaryKeyFor(work);
+        final secondaryKeys = CanonicalWorkIdentity.allKeysFor(work)
+            .where((k) => k != primaryKey)
+            .toList(growable: false);
+        final storedUpdated = workUpdatedMap[work.id] ?? 0;
+        syncOverrides.add(
+          SyncWorkOverrideEntry(
+            canonicalWorkKey: primaryKey,
+            secondaryWorkKeys: secondaryKeys,
+            title: work.title,
+            tmdbId: work.tmdbId,
+            tmdbMediaType: work.tmdbMediaType,
+            bangumiId: work.bangumiId,
+            matchedSeason: work.matchedSeason,
+            isManualLocked: work.isManualLocked,
+            metadataLocked: work.metadataLocked,
+            isHidden: work.isHidden,
+            keepHidden: work.keepHidden,
+            seriesTitle: work.seriesId == null
+                ? null
+                : seriesTitleById[work.seriesId!],
+            seriesOrder: work.seriesOrder,
+            seriesLabel: work.seriesLabel,
+            seriesLocked: work.seriesLocked,
+            updatedAtMs: storedUpdated > 0 ? storedUpdated : nowMs,
+            sourceDeviceId: deviceId,
+          ),
+        );
+      }
     }
 
-    final rawPrefs = await readPortablePreferences();
-    final preferences = rawPrefs.values.isNotEmpty && rawPrefs.updatedAtMs == 0
-        ? SyncPreferencesBundle(
-            values: rawPrefs.values,
-            updatedAtMs: nowMs,
-          )
-        : rawPrefs;
+    final SyncPreferencesBundle preferences;
+    if (scope.includePreferences) {
+      final rawPrefs = await readPortablePreferences();
+      preferences = rawPrefs.values.isNotEmpty && rawPrefs.updatedAtMs == 0
+          ? SyncPreferencesBundle(
+              values: rawPrefs.values,
+              updatedAtMs: nowMs,
+            )
+          : rawPrefs;
+    } else {
+      preferences = const SyncPreferencesBundle();
+    }
 
     return KonataSyncSnapshotEnvelope.create(
       exportedAtMs: nowMs,
@@ -154,6 +169,21 @@ class KonataBackupService {
       workOverrides: syncOverrides,
       tombstones: tombstones,
       preferences: preferences,
+    );
+  }
+
+  /// 统计当前本机可备份的各类数据条目数（供导出弹窗展示勾选预览）。
+  Future<KonataBackupPreview> inspectCurrentLocalData() async {
+    final envelope = await buildLocalSnapshotEnvelope();
+    return KonataBackupPreview(
+      exportedAt: DateTime.fromMillisecondsSinceEpoch(envelope.exportedAtMs),
+      deviceName: envelope.deviceName.isEmpty ? '本机' : envelope.deviceName,
+      platform: envelope.platform,
+      appVersion: envelope.appVersion,
+      playbackCount: envelope.playbackEntries.length,
+      workOverrideCount: envelope.workOverrides.length,
+      tombstoneCount: envelope.tombstones.length,
+      preferenceCount: envelope.preferences.values.length,
     );
   }
 
@@ -177,19 +207,25 @@ class KonataBackupService {
     );
   }
 
-  /// 导出 gzip 压缩的本地 `.konata` 备份文件字节流。
-  Future<Uint8List> exportKonataArchiveBytes() async {
-    final envelope = await buildLocalSnapshotEnvelope();
+  /// 按指定数据范围 [scope] 导出 gzip 压缩的本地 `.konata` 备份文件字节流。
+  Future<Uint8List> exportKonataArchiveBytes({
+    KonataSyncDataScope scope = KonataSyncDataScope.all,
+  }) async {
+    if (!scope.hasAnySelected) {
+      throw StateError('请至少选择一项要备份的数据');
+    }
+    final envelope = await buildLocalSnapshotEnvelope(scope: scope);
     final jsonBytes = utf8.encode(jsonEncode(envelope.toJson()));
     final compressed = Uint8List.fromList(gzip.encode(jsonBytes));
     _logStore?.logEvent(
       subsystem: DiagnosticSubsystem.sync,
       code: 'BACKUP_EXPORTED',
       message:
-          '已导出 .konata 备份：${envelope.playbackEntries.length} 条进度、${envelope.workOverrides.length} 项作品整理',
+          '已导出 .konata 备份（${scope.describeLabel()}）：${envelope.playbackEntries.length} 条进度、${envelope.workOverrides.length} 项作品整理、${envelope.preferences.values.length} 项偏好',
       source:
           'lib/application/sync/konata_backup_service.dart:exportKonataArchiveBytes',
       context: <String, Object?>{
+        'scope': scope.describeLabel(),
         'playbacks': envelope.playbackEntries.length,
         'overrides': envelope.workOverrides.length,
         'preferences': envelope.preferences.values.length,
@@ -232,32 +268,46 @@ class KonataBackupService {
     );
   }
 
-  /// 从 `.konata` 备份字节恢复数据（支持智能合并或覆盖还原，原子事务落库）。
+  /// 从 `.konata` 备份字节按 [scope] 选择性恢复数据（支持智能合并或覆盖还原，原子事务落库）。
   Future<KonataSyncOutcome> restoreFromKonataArchiveBytes(
     Uint8List bytes, {
     required KonataBackupRestoreMode mode,
+    KonataSyncDataScope scope = KonataSyncDataScope.all,
   }) async {
+    if (!scope.hasAnySelected) {
+      throw StateError('请至少选择一项要恢复的数据');
+    }
     final incoming = decodeAndVerifyArchiveBytes(bytes);
     final nowMs = _clock().millisecondsSinceEpoch;
 
     final KonataSyncMergeResult merged;
     if (mode == KonataBackupRestoreMode.overwrite) {
       merged = KonataSyncMergeResult(
-        mergedPlaybacks: <String, SyncPlaybackEntry>{
-          for (final e in incoming.playbackEntries) e.playbackKey: e,
-        },
-        mergedWorkOverrides: <String, SyncWorkOverrideEntry>{
-          for (final o in incoming.workOverrides) o.canonicalWorkKey: o,
-        },
-        mergedTombstones: <String, SyncTombstoneEntry>{
-          for (final t in incoming.tombstones) t.entityKey: t,
-        },
-        mergedPreferences: incoming.preferences,
+        mergedPlaybacks: scope.includePlaybacks
+            ? <String, SyncPlaybackEntry>{
+                for (final e in incoming.playbackEntries) e.playbackKey: e,
+              }
+            : const <String, SyncPlaybackEntry>{},
+        mergedWorkOverrides: scope.includeWorkOverrides
+            ? <String, SyncWorkOverrideEntry>{
+                for (final o in incoming.workOverrides) o.canonicalWorkKey: o,
+              }
+            : const <String, SyncWorkOverrideEntry>{},
+        mergedTombstones: scope.includePlaybacks
+            ? <String, SyncTombstoneEntry>{
+                for (final t in incoming.tombstones) t.entityKey: t,
+              }
+            : const <String, SyncTombstoneEntry>{},
+        mergedPreferences: scope.includePreferences
+            ? incoming.preferences
+            : const SyncPreferencesBundle(),
         suppressedPlaybackKeys: const <String>{},
       );
     } else {
-      final local = await buildLocalSnapshotEnvelope();
-      final localPrefs = await readPortablePreferences();
+      final local = await buildLocalSnapshotEnvelope(scope: scope);
+      final localPrefs = scope.includePreferences
+          ? await readPortablePreferences()
+          : const SyncPreferencesBundle();
       merged = KonataSyncMergeEngine.merge(
         localPlaybacks: local.playbackEntries,
         localOverrides: local.workOverrides,
@@ -271,18 +321,23 @@ class KonataBackupService {
     final outcome = await applyMergedState(
       merged,
       clearExistingPlaybacksBeforeApply:
-          mode == KonataBackupRestoreMode.overwrite,
-      applyPreferences: incoming.preferences.values.isNotEmpty,
+          mode == KonataBackupRestoreMode.overwrite && scope.includePlaybacks,
+      applyPlaybacks: scope.includePlaybacks,
+      applyWorkOverrides: scope.includeWorkOverrides,
+      applyPreferences:
+          scope.includePreferences && incoming.preferences.values.isNotEmpty,
     );
 
     _logStore?.logEvent(
       subsystem: DiagnosticSubsystem.sync,
       code: 'BACKUP_RESTORED',
-      message: '已恢复 .konata 备份（模式=${mode.name}）：${outcome.toSummaryMessage()}',
+      message:
+          '已恢复 .konata 备份（模式=${mode.name}，范围=${scope.describeLabel()}）：${outcome.toSummaryMessage()}',
       source:
           'lib/application/sync/konata_backup_service.dart:restoreFromKonataArchiveBytes',
       context: <String, Object?>{
         'mode': mode.name,
+        'scope': scope.describeLabel(),
         'playbacksUpdated': outcome.playbacksUpdated,
         'workOverridesApplied': outcome.workOverridesApplied,
         'preferencesRestored': outcome.preferencesRestored,
@@ -295,6 +350,8 @@ class KonataBackupService {
   Future<KonataSyncOutcome> applyMergedState(
     KonataSyncMergeResult merged, {
     bool clearExistingPlaybacksBeforeApply = false,
+    bool applyPlaybacks = true,
+    bool applyWorkOverrides = true,
     bool applyPreferences = true,
     int remoteDevicesMerged = 0,
     bool uploadedShard = false,
@@ -304,160 +361,169 @@ class KonataBackupService {
     var workOverridesApplied = 0;
     var tombstonesApplied = 0;
 
-    await _repo.runInTransaction(() async {
-      if (clearExistingPlaybacksBeforeApply) {
-        await _repo.clearPlaybackHistory();
-      }
-
-      final works = await _repo.getAllWorks();
-      final allEpisodes = await _repo.getAllEpisodes();
-      final allVariants = await _repo.getAllVariants();
-      final existingPlaybacks = await _repo.getPlaybackHistory(limit: 10000);
-
-      // 建立 跨端身份键 -> 本地 Work 列表 索引（支持多源同名作品同时受益）
-      final worksByCanonicalKey = <String, List<Work>>{};
-      for (final work in works) {
-        for (final key in CanonicalWorkIdentity.allKeysFor(work)) {
-          worksByCanonicalKey.putIfAbsent(key, () => <Work>[]).add(work);
+    if (applyPlaybacks || applyWorkOverrides) {
+      await _repo.runInTransaction(() async {
+        if (applyPlaybacks && clearExistingPlaybacksBeforeApply) {
+          await _repo.clearPlaybackHistory();
         }
-      }
 
-      // 1. 应用作品人工整理与隐藏状态覆盖
-      for (final ov in merged.mergedWorkOverrides.values) {
-        final matchedWorks = _resolveMatchingWorks(
-          ov.allWorkKeys,
-          worksByCanonicalKey,
-        );
-        for (final work in matchedWorks) {
-          final next = work.copyWith(
-            isHidden: ov.isHidden,
-            keepHidden: ov.keepHidden,
-            isManualLocked: work.isManualLocked || ov.isManualLocked,
-            metadataLocked: work.metadataLocked || ov.metadataLocked,
-            seriesOrder: ov.seriesLocked ? ov.seriesOrder : work.seriesOrder,
-            seriesLabel: ov.seriesLocked ? ov.seriesLabel : work.seriesLabel,
-            seriesLocked: work.seriesLocked || ov.seriesLocked,
-            bangumiId: work.bangumiId ?? ov.bangumiId,
-            tmdbId: work.tmdbId ?? ov.tmdbId,
-            tmdbMediaType: work.tmdbMediaType ?? ov.tmdbMediaType,
-            matchedSeason: work.matchedSeason ?? ov.matchedSeason,
-          );
-          if (_workSyncFieldsChanged(work, next)) {
-            await _repo.upsertWork(next);
-            workOverridesApplied++;
+        final works = await _repo.getAllWorks();
+        // 建立 跨端身份键 -> 本地 Work 列表 索引（支持多源同名作品同时受益）
+        final worksByCanonicalKey = <String, List<Work>>{};
+        for (final work in works) {
+          for (final key in CanonicalWorkIdentity.allKeysFor(work)) {
+            worksByCanonicalKey.putIfAbsent(key, () => <Work>[]).add(work);
           }
         }
-      }
 
-      final episodesByWorkId = <String, List<Episode>>{};
-      for (final ep in allEpisodes) {
-        episodesByWorkId.putIfAbsent(ep.workId, () => <Episode>[]).add(ep);
-      }
-      final variantByEpisodeId = <String, String>{};
-      for (final v in allVariants) {
-        final epId = v.episodeId;
-        if (epId != null && epId.isNotEmpty) {
-          variantByEpisodeId.putIfAbsent(epId, () => v.id);
-        }
-      }
-
-      final existingByWorkEp = <String, PlaybackRecord>{
-        for (final rec in existingPlaybacks) '${rec.workId}::${rec.episodeId}': rec,
-      };
-      final workById = <String, Work>{for (final w in works) w.id: w};
-
-      // 2. 应用远端删除墓碑，移除已被更新墓碑覆盖的本地播放记录（匹配主/辅全部身份别名键）
-      if (merged.suppressedPlaybackKeys.isNotEmpty) {
-        for (final rec in existingPlaybacks) {
-          final work = workById[rec.workId];
-          if (work == null) continue;
-          final hitTombstone = CanonicalWorkIdentity.allKeysFor(work).any((wk) {
-            final key = CanonicalWorkIdentity.playbackKey(
-              canonicalWorkKey: wk,
-              seasonNumber: rec.seasonNumber,
-              episodeNumber: rec.episodeNumber,
-              isAudio: rec.isAudioRecord,
-              audioTrackHint: rec.isAudioRecord ? rec.episodeTitle : null,
+        // 1. 按需应用作品人工整理与隐藏状态覆盖
+        if (applyWorkOverrides) {
+          for (final ov in merged.mergedWorkOverrides.values) {
+            final matchedWorks = _resolveMatchingWorks(
+              ov.allWorkKeys,
+              worksByCanonicalKey,
             );
-            return merged.suppressedPlaybackKeys.contains(key);
-          });
-          if (hitTombstone) {
-            await _repo.deletePlaybackRecord(rec.id);
-            existingByWorkEp.remove('${rec.workId}::${rec.episodeId}');
-            tombstonesApplied++;
+            for (final work in matchedWorks) {
+              final next = work.copyWith(
+                isHidden: ov.isHidden,
+                keepHidden: ov.keepHidden,
+                isManualLocked: work.isManualLocked || ov.isManualLocked,
+                metadataLocked: work.metadataLocked || ov.metadataLocked,
+                seriesOrder: ov.seriesLocked ? ov.seriesOrder : work.seriesOrder,
+                seriesLabel: ov.seriesLocked ? ov.seriesLabel : work.seriesLabel,
+                seriesLocked: work.seriesLocked || ov.seriesLocked,
+                bangumiId: work.bangumiId ?? ov.bangumiId,
+                tmdbId: work.tmdbId ?? ov.tmdbId,
+                tmdbMediaType: work.tmdbMediaType ?? ov.tmdbMediaType,
+                matchedSeason: work.matchedSeason ?? ov.matchedSeason,
+              );
+              if (_workSyncFieldsChanged(work, next)) {
+                await _repo.upsertWork(next);
+                workOverridesApplied++;
+              }
+            }
           }
         }
-      }
 
-      // 3. 应用冲突消解后的观看进度到本地匹配的剧集
-      for (final entry in merged.mergedPlaybacks.values) {
-        if (entry.isAudio) continue;
-        final matchedWorks = _resolveMatchingWorks(
-          entry.allWorkKeys,
-          worksByCanonicalKey,
-        );
-        if (matchedWorks.isEmpty) {
-          playbacksSkippedUnmatched++;
-          continue;
-        }
-        for (final work in matchedWorks) {
-          final workEps = episodesByWorkId[work.id] ?? const <Episode>[];
-          final targetEp = _matchLocalEpisode(workEps, entry);
-          if (targetEp == null) {
-            playbacksSkippedUnmatched++;
-            continue;
+        if (applyPlaybacks) {
+          final allEpisodes = await _repo.getAllEpisodes();
+          final allVariants = await _repo.getAllVariants();
+          final existingPlaybacks = await _repo.getPlaybackHistory(limit: 10000);
+
+          final episodesByWorkId = <String, List<Episode>>{};
+          for (final ep in allEpisodes) {
+            episodesByWorkId.putIfAbsent(ep.workId, () => <Episode>[]).add(ep);
           }
-          final mapKey = '${work.id}::${targetEp.id}';
-          final existing = existingByWorkEp[mapKey];
-          final needsWrite =
-              existing == null ||
-              existing.isCompleted != entry.isCompleted ||
-              existing.positionSeconds != entry.positionSeconds ||
-              existing.durationSeconds != entry.durationSeconds ||
-              existing.playedAt.millisecondsSinceEpoch != entry.playedAtMs;
-          if (!needsWrite) continue;
+          final variantByEpisodeId = <String, String>{};
+          for (final v in allVariants) {
+            final epId = v.episodeId;
+            if (epId != null && epId.isNotEmpty) {
+              variantByEpisodeId.putIfAbsent(epId, () => v.id);
+            }
+          }
 
-          final variantId =
-              existing?.variantId ?? variantByEpisodeId[targetEp.id] ?? '';
-          final nextRec = PlaybackRecord(
-            id: existing?.id ?? '${work.id}::${targetEp.id}',
-            workId: work.id,
-            episodeId: targetEp.id,
-            variantId: variantId,
-            seasonNumber: targetEp.seasonNumber,
-            episodeNumber: targetEp.episodeNumber,
-            episodeTitle: entry.episodeTitle.isNotEmpty
-                ? entry.episodeTitle
-                : (targetEp.title ?? work.title),
-            sourceType: existing?.sourceType ?? MediaSourceKind.local,
-            playedAt: DateTime.fromMillisecondsSinceEpoch(
-              entry.playedAtMs > 0
-                  ? entry.playedAtMs
-                  : _clock().millisecondsSinceEpoch,
-            ),
-            positionSeconds: entry.positionSeconds,
-            durationSeconds: entry.durationSeconds,
-            isCompleted: entry.isCompleted,
-          );
-          await _repo.recordPlayback(nextRec);
-          existingByWorkEp[mapKey] = nextRec;
-          playbacksUpdated++;
+          final existingByWorkEp = <String, PlaybackRecord>{
+            for (final rec in existingPlaybacks)
+              '${rec.workId}::${rec.episodeId}': rec,
+          };
+          final workById = <String, Work>{for (final w in works) w.id: w};
+
+          // 2. 应用远端删除墓碑，移除已被更新墓碑覆盖的本地播放记录（匹配主/辅全部身份别名键）
+          if (merged.suppressedPlaybackKeys.isNotEmpty) {
+            for (final rec in existingPlaybacks) {
+              final work = workById[rec.workId];
+              if (work == null) continue;
+              final hitTombstone = CanonicalWorkIdentity.allKeysFor(work).any((
+                wk,
+              ) {
+                final key = CanonicalWorkIdentity.playbackKey(
+                  canonicalWorkKey: wk,
+                  seasonNumber: rec.seasonNumber,
+                  episodeNumber: rec.episodeNumber,
+                  isAudio: rec.isAudioRecord,
+                  audioTrackHint: rec.isAudioRecord ? rec.episodeTitle : null,
+                );
+                return merged.suppressedPlaybackKeys.contains(key);
+              });
+              if (hitTombstone) {
+                await _repo.deletePlaybackRecord(rec.id);
+                existingByWorkEp.remove('${rec.workId}::${rec.episodeId}');
+                tombstonesApplied++;
+              }
+            }
+          }
+
+          // 3. 应用冲突消解后的观看进度到本地匹配的剧集
+          for (final entry in merged.mergedPlaybacks.values) {
+            if (entry.isAudio) continue;
+            final matchedWorks = _resolveMatchingWorks(
+              entry.allWorkKeys,
+              worksByCanonicalKey,
+            );
+            if (matchedWorks.isEmpty) {
+              playbacksSkippedUnmatched++;
+              continue;
+            }
+            for (final work in matchedWorks) {
+              final workEps = episodesByWorkId[work.id] ?? const <Episode>[];
+              final targetEp = _matchLocalEpisode(workEps, entry);
+              if (targetEp == null) {
+                playbacksSkippedUnmatched++;
+                continue;
+              }
+              final mapKey = '${work.id}::${targetEp.id}';
+              final existing = existingByWorkEp[mapKey];
+              final needsWrite =
+                  existing == null ||
+                  existing.isCompleted != entry.isCompleted ||
+                  existing.positionSeconds != entry.positionSeconds ||
+                  existing.durationSeconds != entry.durationSeconds ||
+                  existing.playedAt.millisecondsSinceEpoch != entry.playedAtMs;
+              if (!needsWrite) continue;
+
+              final variantId =
+                  existing?.variantId ?? variantByEpisodeId[targetEp.id] ?? '';
+              final nextRec = PlaybackRecord(
+                id: existing?.id ?? '${work.id}::${targetEp.id}',
+                workId: work.id,
+                episodeId: targetEp.id,
+                variantId: variantId,
+                seasonNumber: targetEp.seasonNumber,
+                episodeNumber: targetEp.episodeNumber,
+                episodeTitle: entry.episodeTitle.isNotEmpty
+                    ? entry.episodeTitle
+                    : (targetEp.title ?? work.title),
+                sourceType: existing?.sourceType ?? MediaSourceKind.local,
+                playedAt: DateTime.fromMillisecondsSinceEpoch(
+                  entry.playedAtMs > 0
+                      ? entry.playedAtMs
+                      : _clock().millisecondsSinceEpoch,
+                ),
+                positionSeconds: entry.positionSeconds,
+                durationSeconds: entry.durationSeconds,
+                isCompleted: entry.isCompleted,
+              );
+              await _repo.recordPlayback(nextRec);
+              existingByWorkEp[mapKey] = nextRec;
+              playbacksUpdated++;
+            }
+          }
+
+          // 4. 持久化合并后的墓碑并清理过期项
+          if (merged.mergedTombstones.isNotEmpty) {
+            await _syncStore.upsertTombstonesBatch(
+              merged.mergedTombstones.values.toList(growable: false),
+            );
+          }
+          final cutoffMs =
+              _clock().millisecondsSinceEpoch -
+              const Duration(
+                days: KonataSyncMergeEngine.tombstoneRetentionDays,
+              ).inMilliseconds;
+          await _syncStore.pruneTombstonesBefore(cutoffMs);
         }
-      }
-
-      // 4. 持久化合并后的墓碑并清理过期项
-      if (merged.mergedTombstones.isNotEmpty) {
-        await _syncStore.upsertTombstonesBatch(
-          merged.mergedTombstones.values.toList(growable: false),
-        );
-      }
-      final cutoffMs =
-          _clock().millisecondsSinceEpoch -
-          const Duration(
-            days: KonataSyncMergeEngine.tombstoneRetentionDays,
-          ).inMilliseconds;
-      await _syncStore.pruneTombstonesBefore(cutoffMs);
-    });
+      });
+    }
 
     var preferencesRestored = 0;
     if (applyPreferences && merged.mergedPreferences.values.isNotEmpty) {

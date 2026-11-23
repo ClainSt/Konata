@@ -24,7 +24,7 @@ import 'package:konata/presentation/theme/konata_theme.dart';
 import 'package:konata/presentation/widgets/design_system/konata_system_file_picker.dart';
 
 void main() {
-  group('Agent 友好结构化诊断日志系统回归', () {
+  group('结构化诊断日志系统回归', () {
     test('全链路自动脱敏 PAT、Basic/Digest 鉴权、URL 密码、JSON 敏感字段与本机用户路径', () {
       const raw =
           'Authorization: Bearer bgm_super_secret_pat_999 '
@@ -147,9 +147,10 @@ void main() {
       expect(jsonStr, contains('模拟快照采集失败'));
 
       final clipboardSummary = await store
-          .buildCompactAgentClipboardSummaryAsync();
+          .buildCompactClipboardSummaryAsync();
       expect(clipboardSummary, contains('WEBDAV_SYNC_401'));
       expect(clipboardSummary, contains('进入作品详情页'));
+      expect(clipboardSummary.toLowerCase(), isNot(contains('agent')));
     });
 
     test('DiagnosticsRuntimeBridge 捕获未捕获 FlutterError 并采集内存库运行快照', () async {
@@ -207,11 +208,12 @@ void main() {
       expect(forwardedToPrev, isTrue);
       expect(store.summaryCounts.errorCount, 1);
 
-      final report = await store.buildAgentDiagnosticReportAsync();
+      final report = await store.buildDiagnosticReportAsync();
       expect(report, contains('UNCAUGHT_FLUTTER_ERROR'));
       expect(report, contains('lib/presentation/library/broken.dart:42:9'));
       expect(report, contains('worksTotal: 1'));
       expect(report, contains('worksWithBangumiId: 1'));
+      expect(report.toLowerCase(), isNot(contains('agent')));
     });
 
     testWidgets('SettingsAboutPanel 展示实时计数并支持导出 TXT/JSON、复制摘要与清空缓冲', (
@@ -278,6 +280,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.textContaining('1 异常'), findsOneWidget);
+      expect(find.textContaining('Agent'), findsNothing);
+      expect(find.textContaining('AI'), findsNothing);
 
       await tester.tap(
         find.byKey(const ValueKey('settings_export_diagnostics_txt')),
@@ -298,11 +302,12 @@ void main() {
       expect(parsed['schemaVersion'], 2);
 
       await tester.tap(
-        find.byKey(const ValueKey('settings_copy_agent_summary')),
+        find.byKey(const ValueKey('settings_copy_diagnostic_summary')),
       );
       await tester.pumpAndSettle();
       expect(copiedClipboard, isNotNull);
       expect(copiedClipboard, contains('TEST_PLAYBACK_ERR'));
+      expect(copiedClipboard!.toLowerCase(), isNot(contains('agent')));
 
       await tester.tap(
         find.byKey(const ValueKey('settings_clear_diagnostics')),

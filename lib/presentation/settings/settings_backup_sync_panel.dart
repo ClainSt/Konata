@@ -9,6 +9,7 @@ import '../../domain/formatting/network_error_sanitizer.dart';
 import '../../domain/sync/konata_sync_models.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
+import '../widgets/design_system/konata_dropdown.dart';
 import '../widgets/design_system/konata_glass_dialog.dart';
 import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/design_system/konata_segmented_capsule.dart';
@@ -105,9 +106,16 @@ class _SettingsBackupSyncPanelState
     if (_exportingBackup) return;
     setState(() => _exportingBackup = true);
     try {
-      final bytes = await ref
-          .read(konataBackupServiceProvider)
-          .exportKonataArchiveBytes();
+      final backupService = ref.read(konataBackupServiceProvider);
+      final localPreview = await backupService.inspectCurrentLocalData();
+      if (!mounted) return;
+
+      final selectedScope = await _showExportOptionsDialog(localPreview);
+      if (selectedScope == null || !mounted) return;
+
+      final bytes = await backupService.exportKonataArchiveBytes(
+        scope: selectedScope,
+      );
       final uri = await ref.read(konataSystemFilePickerProvider).saveFile(
         dialogTitle: '导出 Konata 本地备份',
         fileName: 'konata_backup_${buildKonataFileTimestampSuffix()}.konata',
@@ -115,7 +123,10 @@ class _SettingsBackupSyncPanelState
       );
       if (uri == null || !mounted) return;
       final pathText = uri.isScheme('file') ? uri.toFilePath() : uri.toString();
-      showKonataToast(context, '已导出备份至 $pathText');
+      showKonataToast(
+        context,
+        '已导出备份（${selectedScope.describeLabel()}）至 $pathText',
+      );
     } catch (error) {
       if (mounted) {
         showKonataToast(
@@ -127,6 +138,76 @@ class _SettingsBackupSyncPanelState
     } finally {
       if (mounted) setState(() => _exportingBackup = false);
     }
+  }
+
+  Future<KonataSyncDataScope?> _showExportOptionsDialog(
+    KonataBackupPreview preview,
+  ) {
+    var scope = KonataSyncDataScope(
+      includePlaybacks: preview.playbackCount > 0 || preview.tombstoneCount > 0,
+      includeWorkOverrides: preview.workOverrideCount > 0,
+      includePreferences: preview.preferenceCount > 0,
+    );
+    if (!scope.hasAnySelected) {
+      scope = KonataSyncDataScope.all;
+    }
+    return showKonataGlassDialog<KonataSyncDataScope>(
+      context: context,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          final p = ctx.palette;
+          return KonataGlassDialog(
+            title: '选择导出备份内容',
+            width: 480,
+            actions: [
+              KonataPillButton.ghost(
+                label: '取消',
+                onPressed: () => Navigator.of(dialogCtx).pop(),
+              ),
+              KonataPillButton.primary(
+                key: const ValueKey('backup_export_confirm_btn'),
+                label: '选择保存位置',
+                onPressed: scope.hasAnySelected
+                    ? () => Navigator.of(dialogCtx).pop(scope)
+                    : null,
+              ),
+            ],
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '自由勾选需要写入 .konata 备份文件的数据分类（始终自动剥离密码与 API 密钥，附带 SHA-256 完整性校验）。',
+                  style: TextStyle(
+                    color: p.textSecondary,
+                    fontSize: KonataTheme.fontSizeBodySm,
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                _SyncDataScopeSwitches(
+                  keyPrefix: 'export_scope',
+                  scope: scope,
+                  preview: preview,
+                  disableWhenEmpty: false,
+                  onChanged: (next) => setDialogState(() => scope = next),
+                ),
+                if (!scope.hasAnySelected) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    '请至少勾选一项要导出的内容',
+                    style: TextStyle(
+                      color: p.danger,
+                      fontSize: KonataTheme.fontSizeBodyXs,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          );
+        },
+      ),
+    );
   }
 
   Future<void> _importBackup() async {
@@ -147,12 +228,16 @@ class _SettingsBackupSyncPanelState
           .inspectKonataArchiveBytes(bytes);
       if (!mounted) return;
 
-      final selectedMode = await _showRestoreConfirmDialog(preview);
-      if (selectedMode == null || !mounted) return;
+      final choice = await _showRestoreConfirmDialog(preview);
+      if (choice == null || !mounted) return;
 
       final outcome = await ref
           .read(webDavSyncControllerProvider.notifier)
-          .restoreLocalBackup(bytes, mode: selectedMode);
+          .restoreLocalBackup(
+            bytes,
+            mode: choice.mode,
+            scope: choice.scope,
+          );
       if (mounted) {
         showKonataToast(context, '恢复完成：${outcome.toSummaryMessage()}');
       }
@@ -169,26 +254,38 @@ class _SettingsBackupSyncPanelState
     }
   }
 
-  Future<KonataBackupRestoreMode?> _showRestoreConfirmDialog(
-    KonataBackupPreview preview,
-  ) {
+  Future<({KonataBackupRestoreMode mode, KonataSyncDataScope scope})?>
+  _showRestoreConfirmDialog(KonataBackupPreview preview) {
     var mode = KonataBackupRestoreMode.smartMerge;
-    return showKonataGlassDialog<KonataBackupRestoreMode>(
+    var scope = KonataSyncDataScope(
+      includePlaybacks: preview.playbackCount > 0 || preview.tombstoneCount > 0,
+      includeWorkOverrides: preview.workOverrideCount > 0,
+      includePreferences: preview.preferenceCount > 0,
+    );
+    return showKonataGlassDialog<
+      ({KonataBackupRestoreMode mode, KonataSyncDataScope scope})
+    >(
       context: context,
       builder: (dialogCtx) => StatefulBuilder(
         builder: (ctx, setDialogState) {
           final p = ctx.palette;
           return KonataGlassDialog(
             title: '确认恢复本地备份',
-            width: 480,
+            width: 500,
             actions: [
               KonataPillButton.ghost(
                 label: '取消',
                 onPressed: () => Navigator.of(dialogCtx).pop(),
               ),
               KonataPillButton.primary(
+                key: const ValueKey('backup_restore_confirm_btn'),
                 label: '开始恢复',
-                onPressed: () => Navigator.of(dialogCtx).pop(mode),
+                onPressed: scope.hasAnySelected
+                    ? () => Navigator.of(dialogCtx).pop((
+                        mode: mode,
+                        scope: scope,
+                      ))
+                    : null,
               ),
             ],
             child: Column(
@@ -204,18 +301,16 @@ class _SettingsBackupSyncPanelState
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  '已通过 SHA-256 完整性校验，备份包含 ${preview.playbackCount} 条观看进度、'
-                  '${preview.workOverrideCount} 项作品整理记录与 ${preview.preferenceCount} 项偏好设置'
-                  '（不含任何密码或密钥，不修改本地物理文件）。',
+                  '已通过 SHA-256 完整性校验，请勾选需要恢复到本机的数据项（不含任何密码或密钥，不修改物理媒体文件）。',
                   style: TextStyle(
                     color: p.textSecondary,
                     fontSize: KonataTheme.fontSizeBodySm,
                     height: 1.5,
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 14),
                 Text(
-                  '恢复策略',
+                  '恢复内容',
                   style: TextStyle(
                     color: p.textPrimary,
                     fontSize: KonataTheme.fontSizeBodySm,
@@ -223,30 +318,59 @@ class _SettingsBackupSyncPanelState
                   ),
                 ),
                 const SizedBox(height: 8),
-                KonataSegmentedCapsule<KonataBackupRestoreMode>(
-                  selected: mode,
-                  options: const [
-                    KonataSegmentOption(
-                      value: KonataBackupRestoreMode.smartMerge,
-                      label: '智能合并（推荐）',
-                    ),
-                    KonataSegmentOption(
-                      value: KonataBackupRestoreMode.overwrite,
-                      label: '覆盖播放记录',
-                    ),
-                  ],
-                  onChanged: (next) => setDialogState(() => mode = next),
+                _SyncDataScopeSwitches(
+                  keyPrefix: 'restore_scope',
+                  scope: scope,
+                  preview: preview,
+                  disableWhenEmpty: true,
+                  onChanged: (next) => setDialogState(() => scope = next),
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  mode == KonataBackupRestoreMode.smartMerge
-                      ? '保留两端观看进度并取最新位置，任一端已看状态自动保留。'
-                      : '先清空当前设备播放历史，再按备份快照重建（不删除媒体源与文件）。',
-                  style: TextStyle(
-                    color: p.textMuted,
-                    fontSize: KonataTheme.fontSizeBodyXs,
+                if (!scope.hasAnySelected) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    '请至少勾选一项要恢复的数据',
+                    style: TextStyle(
+                      color: p.danger,
+                      fontSize: KonataTheme.fontSizeBodyXs,
+                    ),
                   ),
-                ),
+                ],
+                if (scope.includePlaybacks) ...[
+                  const SizedBox(height: 16),
+                  Text(
+                    '进度恢复策略',
+                    style: TextStyle(
+                      color: p.textPrimary,
+                      fontSize: KonataTheme.fontSizeBodySm,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  KonataSegmentedCapsule<KonataBackupRestoreMode>(
+                    selected: mode,
+                    options: const [
+                      KonataSegmentOption(
+                        value: KonataBackupRestoreMode.smartMerge,
+                        label: '智能合并（推荐）',
+                      ),
+                      KonataSegmentOption(
+                        value: KonataBackupRestoreMode.overwrite,
+                        label: '覆盖播放记录',
+                      ),
+                    ],
+                    onChanged: (next) => setDialogState(() => mode = next),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    mode == KonataBackupRestoreMode.smartMerge
+                        ? '保留两端观看进度并取最新位置，任一端已看状态自动保留。'
+                        : '先清空当前设备播放历史，再按备份快照重建（不删除媒体源与文件）。',
+                    style: TextStyle(
+                      color: p.textMuted,
+                      fontSize: KonataTheme.fontSizeBodyXs,
+                    ),
+                  ),
+                ],
               ],
             ),
           );
@@ -322,7 +446,7 @@ class _SettingsBackupSyncPanelState
               KonataListTile(
                 key: const ValueKey('settings_export_konata_backup'),
                 title: '导出本地备份 (.konata)',
-                subtitle: '打包全部观看进度、作品整理锁、隐藏状态与便携偏好（自动剥离密码与密钥，带 SHA-256 校验）',
+                subtitle: '可自选观看进度、作品整理状态与便携偏好导出（自动剥离密码与密钥，带 SHA-256 校验）',
                 leading: _buildLeadingBox(p, Icons.archive_outlined),
                 trailing: Icon(
                   Icons.chevron_right_rounded,
@@ -335,7 +459,7 @@ class _SettingsBackupSyncPanelState
               KonataListTile(
                 key: const ValueKey('settings_import_konata_backup'),
                 title: '从备份文件恢复 (.konata)',
-                subtitle: '导入前先校验完整性并预览条目数，支持智能合并或覆盖还原，绝不触碰物理媒体文件',
+                subtitle: '导入前校验完整性并预览各项条目数，支持自选恢复内容与智能合并/覆盖策略，绝不触碰物理媒体文件',
                 leading: _buildLeadingBox(p, Icons.unarchive_outlined),
                 trailing: Icon(
                   Icons.chevron_right_rounded,
@@ -438,7 +562,54 @@ class _SettingsBackupSyncPanelState
                 ),
                 onChanged: (_) => _scheduleSaveConfig(),
               ),
+              const SizedBox(height: 16),
+              Divider(height: 1, color: p.hairline),
               const SizedBox(height: 14),
+              Text(
+                '同步内容',
+                style: TextStyle(
+                  color: p.textPrimary,
+                  fontSize: KonataTheme.fontSizeBodySm,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 10),
+              _SyncDataScopeSwitches(
+                keyPrefix: 'webdav_scope',
+                scope: syncState.config.syncScope,
+                onChanged: (nextScope) {
+                  _hasPendingSave = false;
+                  ref
+                      .read(webDavSyncControllerProvider.notifier)
+                      .saveConfig(
+                        _draftConfig(
+                          syncState.config,
+                        ).copyWith(syncScope: nextScope),
+                      );
+                },
+              ),
+              if (!syncState.config.syncScope.hasAnySelected) ...[
+                const SizedBox(height: 8),
+                Text(
+                  '请至少开启一项要同步的数据内容',
+                  style: TextStyle(
+                    color: p.danger,
+                    fontSize: KonataTheme.fontSizeBodyXs,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 16),
+              Divider(height: 1, color: p.hairline),
+              const SizedBox(height: 14),
+              Text(
+                '自动同步策略',
+                style: TextStyle(
+                  color: p.textPrimary,
+                  fontSize: KonataTheme.fontSizeBodySm,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 10),
               KonataSettingsSwitchRow(
                 label: '启动时自动同步',
                 value: syncState.config.autoSyncOnStartup,
@@ -468,6 +639,8 @@ class _SettingsBackupSyncPanelState
                       );
                 },
               ),
+              const SizedBox(height: 12),
+              _buildPeriodicIntervalRow(p, syncState.config),
               const SizedBox(height: 16),
               Wrap(
                 spacing: 10,
@@ -488,7 +661,10 @@ class _SettingsBackupSyncPanelState
                     label: syncState.isBusy ? '同步中...' : '立即同步',
                     icon: Icons.sync_rounded,
                     compact: true,
-                    onPressed: syncState.isBusy || syncState.isTesting
+                    onPressed:
+                        syncState.isBusy ||
+                            syncState.isTesting ||
+                            !syncState.config.syncScope.hasAnySelected
                         ? null
                         : _handleSyncNow,
                   ),
@@ -513,6 +689,159 @@ class _SettingsBackupSyncPanelState
           const SizedBox(height: 16),
           widget.extraSection!,
         ],
+      ],
+    );
+  }
+
+  Widget _buildPeriodicIntervalRow(KonataPalette p, WebDavSyncConfig config) {
+    final currentMinutes = WebDavSyncConfig.normalizeIntervalMinutes(
+      config.autoSyncIntervalMinutes,
+    );
+    final options = <KonataDropdownOption<int>>[
+      for (final m in WebDavSyncConfig.allowedAutoSyncIntervalsMinutes)
+        KonataDropdownOption<int>(
+          value: m,
+          label: WebDavSyncConfig.formatIntervalLabel(m),
+        ),
+      if (!WebDavSyncConfig.allowedAutoSyncIntervalsMinutes.contains(
+        currentMinutes,
+      ))
+        KonataDropdownOption<int>(
+          value: currentMinutes,
+          label: WebDavSyncConfig.formatIntervalLabel(currentMinutes),
+        ),
+    ];
+    final dropdown = KonataDropdown<int>(
+      key: const ValueKey('settings_webdav_sync_interval'),
+      value: currentMinutes,
+      dense: true,
+      options: options,
+      onChanged: (nextMinutes) {
+        _hasPendingSave = false;
+        ref
+            .read(webDavSyncControllerProvider.notifier)
+            .saveConfig(
+              _draftConfig(
+                config,
+              ).copyWith(autoSyncIntervalMinutes: nextMinutes),
+            );
+      },
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final labelBlock = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              '定时自动同步间隔',
+              style: TextStyle(
+                color: p.textPrimary,
+                fontSize: KonataTheme.fontSizeBodySm,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              '开启 WebDAV 同步后按设定周期在后台静默双向同步',
+              style: TextStyle(
+                color: p.textMuted,
+                fontSize: KonataTheme.fontSizeBodyXs,
+              ),
+            ),
+          ],
+        );
+        if (constraints.maxWidth < 420) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              labelBlock,
+              const SizedBox(height: 8),
+              dropdown,
+            ],
+          );
+        }
+        return Row(
+          children: [
+            Expanded(child: labelBlock),
+            const SizedBox(width: 12),
+            SizedBox(width: 224, child: dropdown),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// 备份导出、备份恢复与 WebDAV 同步共用的三类数据范围勾选列表（避免三处重复手写开关）。
+class _SyncDataScopeSwitches extends StatelessWidget {
+  const _SyncDataScopeSwitches({
+    required this.keyPrefix,
+    required this.scope,
+    required this.onChanged,
+    this.preview,
+    this.disableWhenEmpty = false,
+  });
+
+  final String keyPrefix;
+  final KonataSyncDataScope scope;
+  final ValueChanged<KonataSyncDataScope> onChanged;
+  final KonataBackupPreview? preview;
+  final bool disableWhenEmpty;
+
+  @override
+  Widget build(BuildContext context) {
+    final playbacksCount = preview?.playbackCount;
+    final tombstonesCount = preview?.tombstoneCount ?? 0;
+    final overridesCount = preview?.workOverrideCount;
+    final prefsCount = preview?.preferenceCount;
+
+    final playbacksAvailable =
+        !disableWhenEmpty ||
+        preview == null ||
+        (playbacksCount ?? 0) > 0 ||
+        tombstonesCount > 0;
+    final overridesAvailable =
+        !disableWhenEmpty || preview == null || (overridesCount ?? 0) > 0;
+    final prefsAvailable =
+        !disableWhenEmpty || preview == null || (prefsCount ?? 0) > 0;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        KonataSettingsSwitchRow(
+          key: ValueKey('${keyPrefix}_playbacks'),
+          label: playbacksCount == null
+              ? '观看进度与播放历史'
+              : '观看进度与播放历史（$playbacksCount 条）',
+          subtitle: '包含各集播放位置、已看状态与跨端删除记录',
+          value: scope.includePlaybacks && playbacksAvailable,
+          enabled: playbacksAvailable,
+          onChanged: (v) => onChanged(scope.copyWith(includePlaybacks: v)),
+        ),
+        const SizedBox(height: 10),
+        KonataSettingsSwitchRow(
+          key: ValueKey('${keyPrefix}_work_overrides'),
+          label: overridesCount == null
+              ? '作品整理与隐藏状态'
+              : '作品整理与隐藏状态（$overridesCount 项）',
+          subtitle: '包含人工匹配锁定、隐藏/永久隐藏状态与系列排序标签',
+          value: scope.includeWorkOverrides && overridesAvailable,
+          enabled: overridesAvailable,
+          onChanged: (v) => onChanged(scope.copyWith(includeWorkOverrides: v)),
+        ),
+        const SizedBox(height: 10),
+        KonataSettingsSwitchRow(
+          key: ValueKey('${keyPrefix}_preferences'),
+          label: prefsCount == null
+              ? '便携偏好设置'
+              : '便携偏好设置（$prefsCount 项）',
+          subtitle: '包含外观主题、详情页显示、播放器与网络镜像偏好（不含密码与密钥）',
+          value: scope.includePreferences && prefsAvailable,
+          enabled: prefsAvailable,
+          onChanged: (v) => onChanged(scope.copyWith(includePreferences: v)),
+        ),
       ],
     );
   }

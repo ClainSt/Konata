@@ -3,10 +3,12 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:drift/native.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqlite3/sqlite3.dart' as sq;
@@ -28,6 +30,10 @@ import 'package:konata/infrastructure/database/konata_database.dart';
 import 'package:konata/infrastructure/logging/diagnostics_log_store.dart';
 import 'package:konata/infrastructure/sync/konata_sync_store.dart';
 import 'package:konata/infrastructure/sync/webdav_sync_config_repository.dart';
+import 'package:konata/presentation/settings/settings_backup_sync_panel.dart';
+import 'package:konata/presentation/theme/konata_theme.dart';
+import 'package:konata/presentation/widgets/design_system/konata_switch.dart';
+import 'package:konata/presentation/widgets/design_system/konata_system_file_picker.dart';
 
 /// 内存模拟 WebDAV 服务器（支持 MKCOL、GET、PUT 与首次 Digest 401 质询）。
 class _InMemoryWebDavServer {
@@ -721,6 +727,361 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 2300));
       expect(server.files.length, greaterThanOrEqualTo(prevFilesCount));
     });
+
+    test('支持按范围选择性导出与选择性恢复，覆盖模式未勾选播放记录时绝不误清本地历史', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'konata_v2_theme_mode': 'dark',
+      });
+      final dbA = KonataDatabase(NativeDatabase.memory());
+      addTearDown(dbA.close);
+      final repoA = DriftLibraryRepository(dbA);
+      final storeA = KonataSyncStore(dbA);
+      await _seedDeviceAnime(
+        repo: repoA,
+        sourceId: 'src_a',
+        sourceKind: MediaSourceKind.local,
+        location: r'D:\Anime',
+        workId: 'w_a',
+        tmdbId: 100565,
+        tmdbType: TmdbMediaType.tv,
+        bangumiId: 302189,
+        title: '86 -不存在的战区-',
+      );
+      await repoA.upsertWork(
+        (await repoA.findWorkById('w_a'))!.copyWith(
+          isHidden: true,
+          keepHidden: true,
+        ),
+      );
+      await repoA.recordPlayback(
+        PlaybackRecord(
+          id: 'w_a::w_a_e1',
+          workId: 'w_a',
+          episodeId: 'w_a_e1',
+          variantId: 'w_a_v1',
+          seasonNumber: 1,
+          episodeNumber: 1,
+          episodeTitle: '第 1 话',
+          sourceType: MediaSourceKind.local,
+          playedAt: DateTime(2026, 11, 20, 20, 0),
+          positionSeconds: 900,
+          durationSeconds: 1420,
+          isCompleted: false,
+        ),
+      );
+
+      final backupA = KonataBackupService(
+        repository: repoA,
+        syncStore: storeA,
+      );
+
+      // 1. 仅导出观看进度时，作品整理与偏好设置必须为空
+      final playbacksOnlyBytes = await backupA.exportKonataArchiveBytes(
+        scope: const KonataSyncDataScope(
+          includePlaybacks: true,
+          includeWorkOverrides: false,
+          includePreferences: false,
+        ),
+      );
+      final pbOnlyPreview = backupA.inspectKonataArchiveBytes(playbacksOnlyBytes);
+      expect(pbOnlyPreview.playbackCount, 1);
+      expect(pbOnlyPreview.workOverrideCount, 0);
+      expect(pbOnlyPreview.preferenceCount, 0);
+
+      // 2. 全量导出后，在设备 B 仅勾选恢复「偏好设置」且使用覆盖模式，不得清空设备 B 现有观看进度与作品隐藏态
+      final fullBytes = await backupA.exportKonataArchiveBytes();
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'konata_v2_theme_mode': 'light',
+      });
+      final dbB = KonataDatabase(NativeDatabase.memory());
+      addTearDown(dbB.close);
+      final repoB = DriftLibraryRepository(dbB);
+      final storeB = KonataSyncStore(dbB);
+      await _seedDeviceAnime(
+        repo: repoB,
+        sourceId: 'src_b',
+        sourceKind: MediaSourceKind.local,
+        location: r'E:\Anime',
+        workId: 'w_b',
+        tmdbId: 100565,
+        tmdbType: TmdbMediaType.tv,
+        bangumiId: 302189,
+        title: '86 -不存在的战区-',
+      );
+      await repoB.recordPlayback(
+        PlaybackRecord(
+          id: 'w_b::w_b_e2',
+          workId: 'w_b',
+          episodeId: 'w_b_e2',
+          variantId: 'w_b_v2',
+          seasonNumber: 1,
+          episodeNumber: 2,
+          episodeTitle: '第 2 话',
+          sourceType: MediaSourceKind.local,
+          playedAt: DateTime(2026, 11, 21, 10, 0),
+          positionSeconds: 300,
+          durationSeconds: 1420,
+          isCompleted: false,
+        ),
+      );
+
+      final backupB = KonataBackupService(
+        repository: repoB,
+        syncStore: storeB,
+      );
+      final outcome = await backupB.restoreFromKonataArchiveBytes(
+        fullBytes,
+        mode: KonataBackupRestoreMode.overwrite,
+        scope: const KonataSyncDataScope(
+          includePlaybacks: false,
+          includeWorkOverrides: false,
+          includePreferences: true,
+        ),
+      );
+      expect(outcome.preferencesRestored, 1);
+      expect(outcome.playbacksUpdated, 0);
+      expect(outcome.workOverridesApplied, 0);
+      expect((await SharedPreferences.getInstance()).getString('konata_v2_theme_mode'), 'dark');
+      final pbB = await repoB.getPlaybacksByWork('w_b');
+      expect(pbB.length, 1);
+      expect(pbB.single.episodeNumber, 2);
+      expect((await repoB.findWorkById('w_b'))!.isHidden, isFalse);
+    });
+
+    test('WebDAV 配置持久化同步内容范围与定时分钟间隔，并按周期自动触发与按范围隔离合并', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      const configRepo = WebDavSyncConfigRepository();
+      const savedConfig = WebDavSyncConfig(
+        enabled: true,
+        baseUrl: 'https://dav.example.com/root',
+        remoteDir: 'konata-sync',
+        username: 'bob',
+        autoSyncOnStartup: false,
+        autoSyncOnPlaybackStop: false,
+        autoSyncIntervalMinutes: 15,
+        syncScope: KonataSyncDataScope(
+          includePlaybacks: true,
+          includeWorkOverrides: false,
+          includePreferences: false,
+        ),
+      );
+      await configRepo.save(savedConfig);
+      final reloaded = await configRepo.load();
+      expect(reloaded.autoSyncIntervalMinutes, 15);
+      expect(reloaded.syncScope.includePlaybacks, isTrue);
+      expect(reloaded.syncScope.includeWorkOverrides, isFalse);
+      expect(reloaded.syncScope.includePreferences, isFalse);
+
+      // 验证定时自动同步按间隔周期触发并在间隔归零后停止
+      final server = _InMemoryWebDavServer();
+      final mockClient = server.buildClient();
+      final db = KonataDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final repo = DriftLibraryRepository(db);
+      final store = KonataSyncStore(db);
+      final backupService = KonataBackupService(
+        repository: repo,
+        syncStore: store,
+      );
+      final coordinator = WebDavSyncCoordinator(
+        backupService: backupService,
+        syncStore: store,
+        httpClientForTest: mockClient,
+      );
+      final memConfigRepo = _InMemoryWebDavConfigRepo(
+        const WebDavSyncConfig(
+          enabled: true,
+          baseUrl: 'https://dav.example.com/root',
+          remoteDir: 'konata-sync',
+          autoSyncOnStartup: false,
+          autoSyncOnPlaybackStop: false,
+          autoSyncIntervalMinutes: 3,
+          syncScope: KonataSyncDataScope(
+            includePlaybacks: true,
+            includeWorkOverrides: false,
+            includePreferences: false,
+          ),
+        ),
+      );
+
+      final container = ProviderContainer(
+        overrides: [
+          libraryRepositoryProvider.overrideWithValue(repo),
+          konataSyncStoreProvider.overrideWithValue(store),
+          konataBackupServiceProvider.overrideWithValue(backupService),
+          webDavSyncCoordinatorProvider.overrideWithValue(coordinator),
+          webDavSyncConfigRepositoryProvider.overrideWithValue(memConfigRepo),
+          webDavSyncIntervalUnitProvider.overrideWithValue(
+            const Duration(milliseconds: 25),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      container.read(webDavSyncControllerProvider);
+      await Future<void>.delayed(const Duration(milliseconds: 220));
+      expect(
+        server.files.keys.any((k) => k.endsWith('/manifest.json')),
+        isTrue,
+        reason: '定时同步间隔为 3 单位时应自动触发后台同步并上传清单',
+      );
+
+      // 关闭定时同步后不再继续触发后台上传
+      await container.read(webDavSyncControllerProvider.notifier).saveConfig(
+        container
+            .read(webDavSyncControllerProvider)
+            .config
+            .copyWith(autoSyncIntervalMinutes: 0),
+      );
+      server.files.clear();
+      await Future<void>.delayed(const Duration(milliseconds: 160));
+      expect(server.files, isEmpty);
+    });
+
+    testWidgets('SettingsBackupSyncPanel 支持导出勾选、恢复勾选与 WebDAV 同步范围及定时间隔下拉无溢出', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'konata_v2_theme_mode': 'dark',
+      });
+      final db = KonataDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final repo = DriftLibraryRepository(db);
+      final store = KonataSyncStore(db);
+      await _seedDeviceAnime(
+        repo: repo,
+        sourceId: 'src_ui',
+        sourceKind: MediaSourceKind.local,
+        location: r'D:\Anime',
+        workId: 'w_ui',
+        tmdbId: 100565,
+        tmdbType: TmdbMediaType.tv,
+        bangumiId: 302189,
+        title: '86 -不存在的战区-',
+      );
+      await repo.recordPlayback(
+        PlaybackRecord(
+          id: 'w_ui::w_ui_e1',
+          workId: 'w_ui',
+          episodeId: 'w_ui_e1',
+          variantId: 'w_ui_v1',
+          seasonNumber: 1,
+          episodeNumber: 1,
+          episodeTitle: '第 1 话',
+          sourceType: MediaSourceKind.local,
+          playedAt: DateTime(2026, 11, 20, 20, 0),
+          positionSeconds: 600,
+          durationSeconds: 1420,
+          isCompleted: false,
+        ),
+      );
+
+      Uint8List? exportedBytes;
+      final mockPicker = KonataSystemFilePicker(
+        saveFileImpl: ({
+          required String fileName,
+          required Uint8List bytes,
+          String? dialogTitle,
+          String? initialDirectory,
+          windowsOptions = const WindowsOptions(),
+        }) async {
+          exportedBytes = bytes;
+          return Uri.file('D:/tmp/$fileName');
+        },
+        pickFilesImpl: ({
+          String? dialogTitle,
+          String? initialDirectory,
+          FileType type = FileType.any,
+          List<String>? allowedExtensions,
+          WindowsOptions windowsOptions = const WindowsOptions(),
+        }) async {
+          if (exportedBytes == null) return const <PlatformFile>[];
+          return <PlatformFile>[
+            _MemoryPlatformFile(
+              name: 'backup.konata',
+              content: exportedBytes!,
+            ),
+          ];
+        },
+      );
+      final memConfigRepo = _InMemoryWebDavConfigRepo(
+        const WebDavSyncConfig(enabled: true),
+      );
+
+      for (final viewport in const [Size(1200, 800), Size(375, 812)]) {
+        tester.view.physicalSize = viewport;
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              libraryRepositoryProvider.overrideWithValue(repo),
+              konataSyncStoreProvider.overrideWithValue(store),
+              webDavSyncConfigRepositoryProvider.overrideWithValue(
+                memConfigRepo,
+              ),
+              konataSystemFilePickerProvider.overrideWithValue(mockPicker),
+            ],
+            child: MaterialApp(
+              theme: KonataTheme.darkTheme(),
+              home: const Scaffold(
+                body: SingleChildScrollView(child: SettingsBackupSyncPanel()),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(find.text('同步内容'), findsOneWidget);
+        expect(find.text('定时自动同步间隔'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('settings_webdav_sync_interval')),
+          findsOneWidget,
+        );
+      }
+
+      // 在桌面视口测试导出弹窗勾选（取消偏好设置 -> 仅导出进度与作品整理）
+      tester.view.physicalSize = const Size(1200, 800);
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('settings_export_konata_backup')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('选择导出备份内容'), findsOneWidget);
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const ValueKey('export_scope_preferences')),
+          matching: find.byType(KonataSwitch),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('backup_export_confirm_btn')),
+      );
+      await tester.pumpAndSettle();
+      expect(exportedBytes, isNotNull);
+
+      final backupSvc = KonataBackupService(repository: repo, syncStore: store);
+      final exportedPreview = backupSvc.inspectKonataArchiveBytes(
+        exportedBytes!,
+      );
+      expect(exportedPreview.playbackCount, 1);
+      expect(exportedPreview.preferenceCount, 0);
+
+      // 测试恢复弹窗展示各分类开关，无偏好数据时偏好开关自动禁用
+      await tester.tap(
+        find.byKey(const ValueKey('settings_import_konata_backup')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('确认恢复本地备份'), findsOneWidget);
+      expect(find.text('恢复内容'), findsOneWidget);
+      await tester.tap(
+        find.byKey(const ValueKey('backup_restore_confirm_btn')),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
   });
 }
 
@@ -736,4 +1097,32 @@ class _InMemoryWebDavConfigRepo extends WebDavSyncConfigRepository {
   Future<void> save(WebDavSyncConfig config) async {
     _config = config;
   }
+}
+
+final class _MemoryPlatformFile extends PlatformFile {
+  _MemoryPlatformFile({required this.name, required Uint8List content})
+    : _bytes = content;
+
+  @override
+  final String name;
+
+  final Uint8List _bytes;
+
+  @override
+  Uri get uri => Uri.parse('content://konata.test/backups/$name');
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+
+  @override
+  int? lengthSync() => _bytes.length;
+
+  @override
+  Future<int?> length() async => _bytes.length;
+
+  @override
+  Future<Uint8List> readAsBytes() async => _bytes;
+
+  @override
+  Stream<Uint8List> readAsByteStream() => Stream<Uint8List>.value(_bytes);
 }

@@ -10,18 +10,39 @@ import 'package:konata/presentation/shell/top_nav_bar.dart';
 import 'package:konata/presentation/theme/konata_theme.dart';
 
 void main() {
-  group('LibrarySearchMatcher 精确 ID 与分词相关度排序', () {
+  group('LibrarySearchMatcher 仅检索标题与显式前缀精准查询', () {
     const gundam = Work(
       id: 'w_gundam',
       title: '机动战士高达 雷霆宙域 BANDIT FLOWER',
       originalTitle: '機動戦士ガンダム サンダーボルト BANDIT FLOWER',
-      tmdbId: 486947,
-      bangumiId: 218610,
+      tmdbId: 468690,
+      bangumiId: 219952,
+    );
+    const gundamX = Work(
+      id: 'w_gundam_x',
+      title: '机动新世纪高达X',
+      originalTitle: '機動新世紀ガンダムＸ',
+      tmdbId: 25504,
+      bangumiId: 3633,
+    );
+    const wakeUpGirls = Work(
+      id: 'w_wug',
+      title: 'Wake Up, Girls!',
+      originalTitle: 'Wake Up, Girls！',
+      tmdbId: 74191,
+      bangumiId: 48880,
+    );
+    const yuYu = Work(
+      id: 'w_yuyu',
+      title: '幽游白书',
+      originalTitle: '幽☆遊☆白書',
+      tmdbId: 30669,
+      bangumiId: 8803,
     );
     const eightySix = Work(
       id: 'w_86',
       title: '86-不存在的战区-',
-      originalTitle: '86―エイティシックス―',
+      originalTitle: '８６―エイティシックス―',
       tmdbId: 100565,
       bangumiId: 302189,
     );
@@ -31,43 +52,44 @@ void main() {
       originalTitle: 'Initial D',
       tmdbId: 99999,
     );
-    const groupMatch = Work(
-      id: 'w_group',
-      title: '葬送的芙莉莲',
-      originalTitle: '葬送のフリーレン',
-      tmdbId: 209867,
-    );
 
     final catalog = <({Work work, List<String> groups})>[
-      (work: gundam, groups: const ['VCB-Studio']),
-      (work: groupMatch, groups: const ['Studio86']),
+      (work: gundam, groups: const ['POPGO']),
+      (work: gundamX, groups: const ['BDRip x264 DTS-HDMA', 'NAOKI-Raws']),
+      (work: wakeUpGirls, groups: const ['Vol.4', 'ANK-Raws']),
+      (work: yuYu, groups: const ['BDRip 1440x1080p x265 HEVC FLAC 2.0']),
       (work: titleMid86, groups: const ['Snow-Raws']),
       (work: eightySix, groups: const ['VCB-Studio']),
     ];
 
-    test('搜索 86 不会因 TMDB/Bangumi ID 含子串 86 而误召回高达，且按标题前缀优先稳定排序', () {
-      final result = LibrarySearchMatcher.filterAndRank(
+    test('搜索 86 / 4 绝不因 ID 或 x264 / Vol.4 / 1440x1080p 压制组标签误召回无关作品', () {
+      final result86 = LibrarySearchMatcher.filterAndRank(
         items: catalog,
         rawQuery: '86',
         workOf: (e) => e.work,
         releaseGroupsOf: (e) => e.groups,
       );
-
       expect(
-        result.map((e) => e.work.id).toList(),
-        equals(const ['w_86', 'w_mid', 'w_group']),
+        result86.map((e) => e.work.id).toList(),
+        equals(const ['w_86', 'w_mid']),
       );
-      expect(result.any((e) => e.work.id == 'w_gundam'), isFalse);
+      expect(result86.any((e) => e.work.id == 'w_gundam'), isFalse);
+
+      final result4 = LibrarySearchMatcher.filterAndRank(
+        items: catalog,
+        rawQuery: '4',
+        workOf: (e) => e.work,
+        releaseGroupsOf: (e) => e.groups,
+      );
+      expect(result4, isEmpty);
     });
 
-    test('完整数字 ID 与 tmdb:/bgm: 显式前缀可精准命中目标作品', () {
+    test('显式前缀 tmdb:/bgm:/group: 可精准检索 ID 与压制组，且普通输入支持全角半角归一与多词匹配', () {
       for (final q in const [
-        '486947',
-        'tmdb:486947',
-        'tmdb-486947',
-        '218610',
-        'bgm:218610',
-        'bangumi:218610',
+        'tmdb:468690',
+        'tmdb-468690',
+        'bgm:219952',
+        'bangumi:219952',
       ]) {
         final result = LibrarySearchMatcher.filterAndRank(
           items: catalog,
@@ -77,24 +99,33 @@ void main() {
         );
         expect(result.map((e) => e.work.id).toList(), equals(const ['w_gundam']));
       }
-    });
 
-    test('支持空格多词联合匹配（跨译名、原名与压制组）', () {
-      final hit = LibrarySearchMatcher.filterAndRank(
+      final byGroup = LibrarySearchMatcher.filterAndRank(
         items: catalog,
-        rawQuery: '高达 雷霆 vcb',
+        rawQuery: 'group:vcb',
         workOf: (e) => e.work,
         releaseGroupsOf: (e) => e.groups,
       );
-      expect(hit.map((e) => e.work.id).toList(), equals(const ['w_gundam']));
+      expect(byGroup.map((e) => e.work.id).toList(), equals(const ['w_86']));
 
-      final miss = LibrarySearchMatcher.filterAndRank(
+      final byHalfWidthOriginal = LibrarySearchMatcher.filterAndRank(
         items: catalog,
-        rawQuery: '高达 种子',
+        rawQuery: 'ガンダムx',
         workOf: (e) => e.work,
         releaseGroupsOf: (e) => e.groups,
       );
-      expect(miss, isEmpty);
+      expect(
+        byHalfWidthOriginal.map((e) => e.work.id).toList(),
+        equals(const ['w_gundam_x']),
+      );
+
+      final multiTerm = LibrarySearchMatcher.filterAndRank(
+        items: catalog,
+        rawQuery: '高达 雷霆',
+        workOf: (e) => e.work,
+        releaseGroupsOf: (e) => e.groups,
+      );
+      expect(multiTerm.map((e) => e.work.id).toList(), equals(const ['w_gundam']));
     });
   });
 

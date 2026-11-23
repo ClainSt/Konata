@@ -416,8 +416,8 @@ final hiddenWorksProvider = FutureProvider<List<Work>>((ref) {
 
 /// 按关键词实时过滤并按相关度稳定排序后的正式入库作品列表。
 ///
-/// 支持作品译名、原名、压制组空格分词模糊搜索，以及完整 TMDB / Bangumi ID
-/// 或 `tmdb:ID` / `bgm:ID` 精确查询（杜绝短数字子串误召回无关 ID）。
+/// 常规输入仅检索作品译名与原名（含全角半角归一与空格分词），绝不被 `x264`/`Vol.4` 等
+/// 压制组标签或数字 ID 污染；同时支持 `tmdb:ID` / `bgm:ID` / `group:关键词` 显式检索。
 final filteredLibraryItemsProvider =
     Provider<AsyncValue<List<WorkLibraryItem>>>((ref) {
       final itemsAsync = ref.watch(confirmedLibraryItemsProvider);

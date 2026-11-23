@@ -6,6 +6,7 @@ class _FloatingMiniTransientChromeOverlay extends StatelessWidget {
     required this.visibleListenable,
     required this.videoRequest,
     required this.onExpand,
+    this.onPinDesktopMini,
     required this.onTuck,
     required this.onClose,
   });
@@ -13,6 +14,7 @@ class _FloatingMiniTransientChromeOverlay extends StatelessWidget {
   final ValueNotifier<bool> visibleListenable;
   final VideoLaunchRequest videoRequest;
   final VoidCallback onExpand;
+  final VoidCallback? onPinDesktopMini;
   final VoidCallback onTuck;
   final VoidCallback onClose;
 
@@ -54,6 +56,15 @@ class _FloatingMiniTransientChromeOverlay extends StatelessWidget {
                     tooltip: '展开全屏',
                     onTap: onExpand,
                   ),
+                  if (onPinDesktopMini != null)
+                    _FloatingOverlayCornerButton(
+                      buttonKey: const ValueKey(
+                        'floating_mini_pin_desktop_button',
+                      ),
+                      icon: Icons.picture_in_picture_alt_rounded,
+                      tooltip: '桌面置顶迷你窗',
+                      onTap: onPinDesktopMini!,
+                    ),
                   _FloatingOverlayCornerButton(
                     buttonKey: const ValueKey('floating_mini_tuck_button'),
                     icon: Icons.last_page_rounded,

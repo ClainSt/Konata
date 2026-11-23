@@ -18,10 +18,18 @@ import '../theme/konata_playback_tokens.dart';
 import '../video/embedded_video_page.dart';
 import '../video/video_hardware_surface.dart';
 import '../widgets/design_system/konata_toast.dart';
+import '../widgets/playback/desktop_always_on_top_mini_stage.dart';
 import '../widgets/playback/konata_floating_mini_player.dart';
 import '../widgets/playback/konata_stage_morph_frame.dart';
 import 'immersive_audio_page.dart';
 import '../theme/konata_theme.dart';
+
+export '../widgets/playback/desktop_always_on_top_mini_stage.dart'
+    show
+        DesktopAlwaysOnTopMiniKind,
+        DesktopAlwaysOnTopMiniStage,
+        DesktopAlwaysOnTopMiniState,
+        desktopAlwaysOnTopMiniModeProvider;
 
 export '../shell/adaptive_capsule_layout.dart'
     show
@@ -52,6 +60,9 @@ final _immersiveAudioNavigatorKeyProvider = Provider<GlobalKey<NavigatorState>>(
 
 /// 当前是否存在任何活跃音视频会话（仅在为 `true` 时向根 `Overlay` 挂载播放浮层，静息态零图层开销）。
 final _hasActivePlaybackOverlayProvider = Provider<bool>((ref) {
+  final desktopMiniActive = ref.watch(
+    desktopAlwaysOnTopMiniModeProvider.select((s) => s.isActive),
+  );
   final audioActive = ref.watch(
     audioPlaybackProvider.select((s) => s.isActive),
   );
@@ -60,13 +71,23 @@ final _hasActivePlaybackOverlayProvider = Provider<bool>((ref) {
   );
   final videoFlag = ref.watch(videoPlaybackActiveProvider);
   final audioExpanded = ref.watch(immersiveAudioExpandedProvider);
-  return audioActive || videoActive || videoFlag || audioExpanded;
+  return desktopMiniActive ||
+      audioActive ||
+      videoActive ||
+      videoFlag ||
+      audioExpanded;
 });
 
 /// 当前应展示的可拖拽悬浮小窗内容形态 Provider。
 final activeFloatingMiniPlayerKindProvider = Provider<FloatingMiniPlayerKind>((
   ref,
 ) {
+  final desktopMiniActive = ref.watch(
+    desktopAlwaysOnTopMiniModeProvider.select((s) => s.isActive),
+  );
+  if (desktopMiniActive) {
+    return FloatingMiniPlayerKind.none;
+  }
   final videoMiniEnabled = ref.watch(
     playbackPreferencesProvider.select((s) => s.videoFloatingMiniEnabled),
   );
@@ -687,6 +708,37 @@ class _PlaybackSessionCoordinator extends ConsumerWidget {
         }
       },
     );
+    // 桌面置顶迷你窗模式期间若活跃播放意外结束或被关闭，自动退出迷你窗并还原主窗口，防滞留空白小窗。
+    ref.listen<bool>(
+      activeVideoSessionProvider.select((s) => s.isActive),
+      (prev, next) {
+        if (prev == true && !next) {
+          final mini = ref.read(desktopAlwaysOnTopMiniModeProvider);
+          if (mini.kind == DesktopAlwaysOnTopMiniKind.video) {
+            unawaited(
+              ref
+                  .read(desktopAlwaysOnTopMiniModeProvider.notifier)
+                  .handleActiveSessionEnded(),
+            );
+          }
+        }
+      },
+    );
+    ref.listen<bool>(
+      audioPlaybackProvider.select((s) => s.isActive),
+      (prev, next) {
+        if (prev == true && !next) {
+          final mini = ref.read(desktopAlwaysOnTopMiniModeProvider);
+          if (mini.kind == DesktopAlwaysOnTopMiniKind.audio) {
+            unawaited(
+              ref
+                  .read(desktopAlwaysOnTopMiniModeProvider.notifier)
+                  .handleActiveSessionEnded(),
+            );
+          }
+        }
+      },
+    );
 
     return _OverlayBackInterceptor(
       handlesSystemBack: shouldHandleSystemBack,
@@ -1089,12 +1141,41 @@ class _FullscreenPlayerOverlaySlotState
 
   @override
   Widget build(BuildContext context) {
+    final desktopMini = ref.watch(desktopAlwaysOnTopMiniModeProvider);
     final videoSession = ref.watch(activeVideoSessionProvider);
     final videoReq = videoSession.request;
+    final audioActive = ref.watch(
+      audioPlaybackProvider.select((s) => s.isActive),
+    );
     final audioExpanded = ref.watch(immersiveAudioExpandedProvider);
     final videoMiniEnabled = ref.watch(
       playbackPreferencesProvider.select((s) => s.videoFloatingMiniEnabled),
     );
+
+    if (desktopMini.isActive) {
+      final canShowDesktopVideo =
+          desktopMini.kind == DesktopAlwaysOnTopMiniKind.video &&
+          videoSession.isActive &&
+          videoReq != null;
+      final canShowDesktopAudio =
+          desktopMini.kind == DesktopAlwaysOnTopMiniKind.audio && audioActive;
+      if (canShowDesktopVideo || canShowDesktopAudio) {
+        // 桌面置顶迷你窗直接切入 opaque=true 遮蔽底层主页面，窗口缩小至 300×300 时零冗余重绘与零溢出。
+        widget.onOpaqueChanged?.call(true);
+        return DesktopAlwaysOnTopMiniStage(
+          key: ValueKey('desktop_mini_stage_${desktopMini.kind.name}'),
+          kind: desktopMini.kind,
+          videoRequest: canShowDesktopVideo ? videoReq : null,
+          sharedVideoSurface: canShowDesktopVideo
+              ? KonataHardwareVideoSurface(
+                  key: GlobalObjectKey(videoReq),
+                  request: videoReq,
+                  miniPreview: false,
+                )
+              : null,
+        );
+      }
+    }
 
     final showImmersiveAudio = audioExpanded && !videoSession.isActive;
     final showAudioCollapsing = _collapsingAudio && !showImmersiveAudio;

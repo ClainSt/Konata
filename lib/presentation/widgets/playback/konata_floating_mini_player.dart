@@ -13,6 +13,7 @@ import '../../../application/playback/playback_preferences_provider.dart';
 import '../../../application/playback/unified_playback_coordinator.dart';
 import '../../../application/playback/video_playback_controller.dart';
 import '../../../application/providers/artwork_provider.dart';
+import '../../../composition/platform_composition.dart';
 import '../../../domain/playback/playback_formatters.dart';
 import '../../audio/smart_cover_framing.dart';
 import '../../shell/adaptive_capsule_layout.dart';
@@ -24,6 +25,7 @@ import '../design_system/konata_glass_capsule.dart';
 import '../design_system/konata_glass_menu.dart';
 import '../design_system/konata_toast.dart';
 import '../managed_image.dart';
+import 'desktop_always_on_top_mini_stage.dart';
 import 'konata_cd_disc_placeholder.dart';
 import 'konata_playback_capsule.dart';
 
@@ -281,6 +283,28 @@ class _KonataFloatingMiniPlayerState
       ref.read(activeVideoSessionProvider.notifier).expandToFull();
     } else if (widget.kind == FloatingMiniPlayerKind.audio) {
       ref.read(immersiveAudioExpandedProvider.notifier).state = true;
+    }
+  }
+
+  void _handlePinDesktopMiniWindow() {
+    _hideChromeImmediate();
+    ref.read(floatingMiniVisualStateProvider.notifier).state =
+        FloatingMiniVisualState.collapsed;
+    final miniCtrl = ref.read(desktopAlwaysOnTopMiniModeProvider.notifier);
+    if (widget.kind == FloatingMiniPlayerKind.video) {
+      final req = widget.videoRequest;
+      double? ratio;
+      if (req != null) {
+        final stats = ref.read(videoPlaybackProvider(req)).probeStats;
+        final w = stats.videoWidth;
+        final h = stats.videoHeight;
+        if (w != null && h != null && w > 0 && h > 0) {
+          ratio = w / h;
+        }
+      }
+      unawaited(miniCtrl.enterVideoMini(fromExpanded: false, aspectRatio: ratio));
+    } else if (widget.kind == FloatingMiniPlayerKind.audio) {
+      unawaited(miniCtrl.enterAudioMini(fromExpanded: false));
     }
   }
 
@@ -897,6 +921,21 @@ class _KonataFloatingMiniPlayerState
                       padding: EdgeInsets.zero,
                       onTap: notifier.next,
                     ),
+                    if (ref
+                        .watch(konataWindowHostProvider)
+                        .supportsAlwaysOnTopMiniWindow)
+                      KonataCapsuleIconButton(
+                        key: const ValueKey(
+                          'floating_mini_audio_pin_desktop_button',
+                        ),
+                        icon: Icons.picture_in_picture_alt_rounded,
+                        tooltip: '桌面置顶迷你窗',
+                        color: p.textSecondary,
+                        size: 16,
+                        fixedSize: iconBtnSize,
+                        padding: EdgeInsets.zero,
+                        onTap: _handlePinDesktopMiniWindow,
+                      ),
                     KonataCapsuleIconButton(
                       key: const ValueKey('floating_mini_tuck_button'),
                       icon: Icons.last_page_rounded,
@@ -963,6 +1002,11 @@ class _KonataFloatingMiniPlayerState
           visibleListenable: _chromeVisibleNotifier,
           videoRequest: req,
           onExpand: _handleExpandToFullscreen,
+          onPinDesktopMini: ref
+                  .watch(konataWindowHostProvider)
+                  .supportsAlwaysOnTopMiniWindow
+              ? _handlePinDesktopMiniWindow
+              : null,
           onTuck: () => _handleTuckToEdge(),
           onClose: _handleStopAndClose,
         ),

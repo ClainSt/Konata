@@ -48,6 +48,18 @@ abstract interface class KonataWindowHost {
   /// 切换桌面窗口最大化与还原状态。
   Future<void> toggleMaximize();
 
+  /// 是否支持将桌面主窗口一键切换为始终置顶的紧凑迷你窗（仅 Windows 宿主返回 `true`）。
+  bool get supportsAlwaysOnTopMiniWindow;
+
+  /// 将桌面主窗口切换至指定尺寸的始终置顶迷你窗（自动保存进入前的窗口边界与最大化状态）。
+  Future<void> enterAlwaysOnTopMiniWindow({
+    required Size targetSize,
+    required Size minimumSize,
+  });
+
+  /// 退出桌面置顶迷你窗并无损还原进入前的主窗口边界、最小尺寸约束与置顶态。
+  Future<void> exitAlwaysOnTopMiniWindow();
+
   /// 构建桌面右上角窗口控制按钮组（Android 返回空占位）。
   Widget buildWindowControls({
     bool forceLightIcons = false,
@@ -85,6 +97,18 @@ class NoopKonataWindowHost implements KonataWindowHost {
 
   @override
   Future<void> toggleMaximize() async {}
+
+  @override
+  bool get supportsAlwaysOnTopMiniWindow => false;
+
+  @override
+  Future<void> enterAlwaysOnTopMiniWindow({
+    required Size targetSize,
+    required Size minimumSize,
+  }) async {}
+
+  @override
+  Future<void> exitAlwaysOnTopMiniWindow() async {}
 
   @override
   Widget buildWindowControls({

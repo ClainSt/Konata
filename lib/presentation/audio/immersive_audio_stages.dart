@@ -387,6 +387,9 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
     required bool showEscHint,
   }) {
     final btnSize = isAndroid ? KonataAdaptiveTokens.touchTarget : 38.0;
+    final supportsDesktopMini =
+        !isAndroid &&
+        ref.watch(konataWindowHostProvider).supportsAlwaysOnTopMiniWindow;
     return [
       if (audioMiniEnabled) ...[
         KonataCapsuleIconButton(
@@ -399,6 +402,22 @@ extension _ImmersiveAudioPageStages on _ImmersiveAudioPageState {
           onTap: _collapseToMiniBar,
         ),
         SizedBox(width: isAndroid ? 4 : 2),
+      ],
+      if (supportsDesktopMini) ...[
+        KonataCapsuleIconButton(
+          key: const ValueKey('immersive_audio_desktop_mini_button'),
+          icon: Icons.picture_in_picture_alt_rounded,
+          tooltip: '桌面置顶迷你窗',
+          color: p.textSecondary,
+          size: 19,
+          fixedSize: btnSize,
+          onTap: () => unawaited(
+            ref
+                .read(desktopAlwaysOnTopMiniModeProvider.notifier)
+                .enterAudioMini(fromExpanded: true),
+          ),
+        ),
+        const SizedBox(width: 2),
       ],
       KonataCapsuleIconButton(
         key: const ValueKey('immersive_close_session_button'),

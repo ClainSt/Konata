@@ -22,6 +22,7 @@ import '../presentation/app/konata_app.dart';
 import '../presentation/settings/settings_external_tools_panel.dart';
 import '../presentation/shell/top_nav_bar.dart';
 import '../presentation/shell/window_controls.dart';
+import '../presentation/theme/konata_playback_tokens.dart';
 import '../presentation/theme/window_material_controller.dart';
 import 'platform_composition.dart';
 
@@ -32,6 +33,11 @@ class WindowsKonataWindowHost implements KonataWindowHost {
     : _materialController = materialController ?? WindowMaterialController();
 
   final WindowMaterialController _materialController;
+  bool _inAlwaysOnTopMiniWindow = false;
+  Rect? _savedNormalBounds;
+  bool _savedNormalMaximized = false;
+  bool _savedNormalFullScreen = false;
+  Offset? _lastMiniWindowOrigin;
 
   @override
   Future<void> applyMaterial({
@@ -128,6 +134,101 @@ class WindowsKonataWindowHost implements KonataWindowHost {
         name: 'konata.windows_composition_root',
         error: error,
       );
+    }
+  }
+
+  @override
+  bool get supportsAlwaysOnTopMiniWindow =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+
+  @override
+  Future<void> enterAlwaysOnTopMiniWindow({
+    required Size targetSize,
+    required Size minimumSize,
+  }) async {
+    if (!supportsAlwaysOnTopMiniWindow) return;
+    try {
+      final win = _currentNativeWindow();
+      if (win == null) return;
+      if (!_inAlwaysOnTopMiniWindow) {
+        _savedNormalFullScreen = win.isFullScreen;
+        _savedNormalMaximized = win.isMaximized;
+        if (win.isFullScreen) {
+          win.isFullScreen = false;
+        }
+        if (win.isMaximized) {
+          win.unmaximize();
+        }
+        final currentBounds = win.bounds.toRect();
+        _savedNormalBounds =
+            (currentBounds.width >= 600 && currentBounds.height >= 400)
+            ? currentBounds
+            : KonataPlaybackTokens.desktopNormalWindowFallbackBounds;
+        _inAlwaysOnTopMiniWindow = true;
+      }
+
+      win.minimumSize = wm.SizeToNative(minimumSize).toNative();
+      win.setSize(wm.SizeToNative(targetSize).toNative(), false);
+      final saved =
+          _savedNormalBounds ??
+          KonataPlaybackTokens.desktopNormalWindowFallbackBounds;
+      final desiredOrigin =
+          _lastMiniWindowOrigin ??
+          Offset(
+            (saved.right -
+                    targetSize.width -
+                    KonataPlaybackTokens.desktopAlwaysOnTopMiniEdgeOffset)
+                .clamp(0.0, double.infinity),
+            (saved.bottom -
+                    targetSize.height -
+                    KonataPlaybackTokens.desktopAlwaysOnTopMiniEdgeOffset)
+                .clamp(0.0, double.infinity),
+          );
+      win.position = wm.OffsetToNative(desiredOrigin).toNative();
+      win.isAlwaysOnTop = true;
+      await Window.hideWindowControls();
+    } catch (error) {
+      developer.log(
+        '进入桌面置顶迷你窗失败，已忽略并保持当前窗口态',
+        name: 'konata.windows_composition_root',
+        error: error,
+      );
+    }
+  }
+
+  @override
+  Future<void> exitAlwaysOnTopMiniWindow() async {
+    if (!supportsAlwaysOnTopMiniWindow || !_inAlwaysOnTopMiniWindow) return;
+    try {
+      final win = _currentNativeWindow();
+      if (win != null) {
+        _lastMiniWindowOrigin = win.position.toOffset();
+        win.isAlwaysOnTop = false;
+        win.minimumSize = wm.SizeToNative(
+          KonataPlaybackTokens.desktopNormalWindowMinSize,
+        ).toNative();
+        final restoreBounds =
+            _savedNormalBounds ??
+            KonataPlaybackTokens.desktopNormalWindowFallbackBounds;
+        win.bounds = wm.RectToNative(restoreBounds).toNative();
+        if (_savedNormalMaximized) {
+          win.maximize();
+        }
+        if (_savedNormalFullScreen) {
+          win.isFullScreen = true;
+        }
+      }
+      await Window.hideWindowControls();
+    } catch (error) {
+      developer.log(
+        '还原桌面主窗口边界失败，已尝试恢复置顶态',
+        name: 'konata.windows_composition_root',
+        error: error,
+      );
+    } finally {
+      _inAlwaysOnTopMiniWindow = false;
+      _savedNormalMaximized = false;
+      _savedNormalFullScreen = false;
     }
   }
 

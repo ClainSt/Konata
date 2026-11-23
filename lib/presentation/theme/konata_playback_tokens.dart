@@ -471,6 +471,28 @@ abstract final class KonataPlaybackTokens {
   /// 悬浮视频小窗稳态缩降渲染目标尺寸前的防抖间隔（避开全屏收起弹簧动画期间的逐帧重分配）。
   static const Duration miniSurfaceResizeDebounce = Duration(milliseconds: 180);
 
+  /// Windows 桌面主窗口切换为「置顶迷你窗」时的默认与最小尺寸约束常量。
+  static const double desktopAlwaysOnTopVideoDefaultWidth = 480.0;
+  static const double desktopAlwaysOnTopVideoMinHeight = 200.0;
+  static const double desktopAlwaysOnTopVideoMaxHeight = 420.0;
+  static const Size desktopAlwaysOnTopVideoMinSize = Size(320, 180);
+  static const Size desktopAlwaysOnTopAudioSize = Size(300, 300);
+  static const Size desktopAlwaysOnTopAudioMinSize = Size(240, 240);
+  static const Size desktopNormalWindowMinSize = Size(960, 620);
+  static const Rect desktopNormalWindowFallbackBounds = Rect.fromLTWH(
+    160,
+    120,
+    1360,
+    820,
+  );
+  static const double desktopAlwaysOnTopMiniEdgeOffset = 28.0;
+  static const Duration desktopMiniChromeFadeDuration = Duration(
+    milliseconds: 180,
+  );
+  static const Color desktopMiniTopScrimStart = Color(0xCC000000);
+  static const Color desktopMiniBottomScrimEnd = Color(0xE0000000);
+  static const Color desktopMiniAudioScrimMid = Color(0x4D000000);
+
   /// 歌词与当前队列高亮行统一柔光阴影（随明暗主题自动切换对比度）。
   static List<Shadow> lyricGlowShadow(
     KonataPalette p, {

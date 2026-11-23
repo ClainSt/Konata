@@ -302,6 +302,29 @@ extension _EmbeddedVideoTopOverlays on _EmbeddedVideoPageState {
             ),
           ),
           const SizedBox(width: 8),
+          if (ref.watch(konataWindowHostProvider).supportsAlwaysOnTopMiniWindow &&
+              widget.onCloseSession != null)
+            KonataCapsuleIconButton(
+              key: const ValueKey('video_desktop_mini_window_button'),
+              icon: Icons.picture_in_picture_alt_rounded,
+              tooltip: '桌面置顶迷你窗',
+              color: p.textPrimary,
+              size: 19,
+              fixedSize: 34,
+              padding: EdgeInsets.zero,
+              onTap: () {
+                final w = stats.videoWidth;
+                final h = stats.videoHeight;
+                final ratio = (w != null && h != null && w > 0 && h > 0)
+                    ? w / h
+                    : null;
+                unawaited(
+                  ref
+                      .read(desktopAlwaysOnTopMiniModeProvider.notifier)
+                      .enterVideoMini(fromExpanded: true, aspectRatio: ratio),
+                );
+              },
+            ),
           KonataCapsuleIconButton(
             icon: Icons.headphones_rounded,
             tooltip: snap.audioOnlyMode ? '恢复视频画面' : '切换后台纯音频',

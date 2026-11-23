@@ -19,6 +19,7 @@ import '../theme/konata_theme.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
 import '../widgets/design_system/konata_glass_dialog.dart';
 import '../widgets/design_system/konata_segmented_capsule.dart';
+import '../widgets/playback/desktop_always_on_top_mini_stage.dart';
 import '../widgets/playback/konata_cached_artwork_backdrop.dart';
 import '../widgets/playback/konata_foobar_beefweb_dialog.dart';
 import '../widgets/playback/konata_playback_capsule.dart';

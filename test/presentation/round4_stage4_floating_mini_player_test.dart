@@ -7,6 +7,7 @@ import 'package:konata/application/playback/video_playback_controller.dart';
 import 'package:konata/application/providers/artwork_provider.dart';
 import 'package:konata/application/providers/library_providers.dart';
 import 'package:konata/application/providers/source_actions_provider.dart';
+import 'package:konata/composition/platform_composition.dart';
 import 'package:konata/domain/models/episode.dart';
 import 'package:konata/domain/models/media_source.dart';
 import 'package:konata/domain/models/media_variant.dart';
@@ -36,6 +37,7 @@ import 'package:konata/presentation/widgets/design_system/konata_switch.dart';
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -49,6 +51,31 @@ final Uint8List _samplePng = Uint8List.fromList(const <int>[
   0x1F, 0x00, 0x05, 0x00, 0x01, 0xFF, 0x89, 0x99, 0x3D, 0x1D, 0x00, 0x00,
   0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
 ]);
+
+class _FakeDesktopMiniWindowHost extends NoopKonataWindowHost {
+  int enterCount = 0;
+  int exitCount = 0;
+  Size? lastTargetSize;
+  Size? lastMinimumSize;
+
+  @override
+  bool get supportsAlwaysOnTopMiniWindow => true;
+
+  @override
+  Future<void> enterAlwaysOnTopMiniWindow({
+    required Size targetSize,
+    required Size minimumSize,
+  }) async {
+    enterCount++;
+    lastTargetSize = targetSize;
+    lastMinimumSize = minimumSize;
+  }
+
+  @override
+  Future<void> exitAlwaysOnTopMiniWindow() async {
+    exitCount++;
+  }
+}
 
 class _ViewportCase {
   const _ViewportCase({
@@ -1170,6 +1197,148 @@ void main() {
         expect(
           container.read(activeFloatingMiniPlayerKindProvider),
           equals(FloatingMiniPlayerKind.none),
+        );
+      },
+    );
+
+    testWidgets(
+      'Windows 桌面一键切换视频/音频置顶迷你窗：精准缩放置顶、320×180 与 240×240 零溢出、一键还原与会话结束自动退回主窗',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+        addTearDown(() => debugDefaultTargetPlatformOverride = null);
+        await tester.binding.setSurfaceSize(const Size(1280, 760));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+
+        final fakeWindowHost = _FakeDesktopMiniWindowHost();
+        final req = _buildSampleVideoRequest();
+        final audioStub = _StubAudioNotifier(_buildSampleAudioState());
+        var videoCloseCount = 0;
+
+        final container = ProviderContainer(
+          overrides: [
+            konataWindowHostProvider.overrideWithValue(fakeWindowHost),
+            playbackPreferencesProvider.overrideWith(
+              () => PlaybackPreferencesNotifier(enablePersistence: false),
+            ),
+            tmdbImageLoaderProvider.overrideWithValue(
+              (_, {targetWidth, imageSize}) async => _samplePng,
+            ),
+            audioPlaybackProvider.overrideWith(() => audioStub),
+            videoPlaybackProvider(req).overrideWith(
+              () => _StubVideoController(
+                req,
+                onConstructed: () {},
+                onClosed: () => videoCloseCount++,
+              ),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp(
+              theme: KonataTheme.darkTheme(),
+              navigatorKey: container.read(rootNavigatorKeyProvider),
+              navigatorObservers: [container.read(rootRouteObserverProvider)],
+              builder: (context, child) =>
+                  MiniAudioOverlayHost(child: child ?? const SizedBox.shrink()),
+              home: const Scaffold(body: Center(child: Text('桌面主界面'))),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // 1. 全屏视频顶栏点击「桌面置顶迷你窗」：窗口按 16:9 缩放至 480×270 且进入独占舞台
+        await container.read(activeVideoSessionProvider.notifier).openVideo(req);
+        await tester.pumpAndSettle();
+        final videoPinBtn = find.byKey(
+          const ValueKey('video_desktop_mini_window_button'),
+        );
+        expect(videoPinBtn, findsOneWidget);
+        await tester.tap(videoPinBtn);
+        await tester.pumpAndSettle();
+
+        expect(fakeWindowHost.enterCount, equals(1));
+        expect(fakeWindowHost.lastTargetSize!.width, closeTo(480.0, 0.5));
+        expect(fakeWindowHost.lastTargetSize!.height, closeTo(270.0, 0.5));
+        expect(
+          fakeWindowHost.lastMinimumSize,
+          equals(KonataPlaybackTokens.desktopAlwaysOnTopVideoMinSize),
+        );
+        expect(
+          container.read(desktopAlwaysOnTopMiniModeProvider).kind,
+          equals(DesktopAlwaysOnTopMiniKind.video),
+        );
+        expect(
+          container.read(activeFloatingMiniPlayerKindProvider),
+          equals(FloatingMiniPlayerKind.none),
+        );
+        expect(
+          find.byKey(const ValueKey('desktop_always_on_top_video_stage')),
+          findsOneWidget,
+        );
+
+        // 模拟 Windows 窗口缩至最小 320×180 并悬停显现顶/底栏，验证零溢出且可一键还原回窗内小窗
+        await tester.binding.setSurfaceSize(const Size(320, 180));
+        await tester.pumpAndSettle();
+        final hoverMouse = await tester.createGesture(
+          kind: PointerDeviceKind.mouse,
+        );
+        await hoverMouse.addPointer(location: const Offset(160, 90));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+
+        await tester.tap(
+          find.byKey(const ValueKey('desktop_mini_back_to_in_window_button')),
+        );
+        await tester.binding.setSurfaceSize(const Size(1280, 760));
+        await tester.pumpAndSettle();
+        expect(fakeWindowHost.exitCount, equals(1));
+        expect(
+          container.read(desktopAlwaysOnTopMiniModeProvider).isActive,
+          isFalse,
+        );
+        expect(
+          container.read(activeFloatingMiniPlayerKindProvider),
+          equals(FloatingMiniPlayerKind.video),
+        );
+
+        // 关闭视频并切换到全屏音频，再进入音频置顶迷你窗
+        await container.read(activeVideoSessionProvider.notifier).closeVideo();
+        expect(videoCloseCount, equals(1));
+        audioStub.emit(_buildSampleAudioState());
+        container.read(immersiveAudioExpandedProvider.notifier).state = true;
+        await tester.pumpAndSettle();
+
+        final audioPinBtn = find.byKey(
+          const ValueKey('immersive_audio_desktop_mini_button'),
+        );
+        expect(audioPinBtn, findsOneWidget);
+        await tester.tap(audioPinBtn);
+        await tester.pumpAndSettle();
+        expect(fakeWindowHost.enterCount, equals(2));
+        expect(
+          fakeWindowHost.lastTargetSize,
+          equals(KonataPlaybackTokens.desktopAlwaysOnTopAudioSize),
+        );
+        expect(
+          find.byKey(const ValueKey('desktop_always_on_top_audio_stage')),
+          findsOneWidget,
+        );
+
+        // 缩至最小 240×240 验证音频迷你窗零溢出，随后播放结束自动退出置顶迷你窗并还原主窗口
+        await tester.binding.setSurfaceSize(const Size(240, 240));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+
+        audioStub.emit(const AudioPlaybackState());
+        await tester.pumpAndSettle();
+        expect(fakeWindowHost.exitCount, equals(2));
+        expect(
+          container.read(desktopAlwaysOnTopMiniModeProvider).isActive,
+          isFalse,
         );
       },
     );

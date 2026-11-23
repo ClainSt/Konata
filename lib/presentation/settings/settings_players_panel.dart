@@ -220,21 +220,19 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
         );
         const lyricsCard = SettingsLyricsCard();
         if (constraints.maxWidth >= 780) {
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(child: videoCard),
-              const SizedBox(width: KonataAdaptiveTokens.settingsGap),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    audioCard,
-                    const SizedBox(height: KonataAdaptiveTokens.settingsGap),
-                    lyricsCard,
-                  ],
-                ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: videoCard),
+                  const SizedBox(width: KonataAdaptiveTokens.settingsGap),
+                  Expanded(child: audioCard),
+                ],
               ),
+              const SizedBox(height: KonataAdaptiveTokens.settingsGap),
+              lyricsCard,
             ],
           );
         }

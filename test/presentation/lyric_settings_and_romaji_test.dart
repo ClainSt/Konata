@@ -20,7 +20,9 @@ import 'package:konata/infrastructure/lyrics/qqmusic_lyric_provider.dart';
 import 'package:konata/infrastructure/network/metered_network_detector.dart';
 import 'package:konata/presentation/audio/immersive_audio_sub_widgets.dart';
 import 'package:konata/presentation/settings/settings_lyrics_card.dart';
+import 'package:konata/presentation/settings/settings_players_panel.dart';
 import 'package:konata/presentation/theme/konata_theme.dart';
+import 'package:konata/presentation/widgets/design_system/konata_surface_card.dart';
 
 void main() {
   group('S2 提供者与开关联动（QQ 音乐 / LRCLIB get / 网易云 rv=1）', () {
@@ -429,6 +431,59 @@ void main() {
       expect(find.byKey(const ValueKey('lyric_line_romaji_0')), findsOneWidget);
       expect(find.text('mu te ki no e ga o'), findsOneWidget);
       expect(find.text('无敌的笑容'), findsOneWidget);
+    });
+
+    testWidgets('播放器设置页宽屏下在线歌词卡片在双栏下方通栏铺展，避免左侧留空', (tester) async {
+      tester.view.physicalSize = const Size(1280, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      final container = ProviderContainer(
+        overrides: [
+          playbackPreferencesProvider.overrideWith(
+            () => PlaybackPreferencesNotifier(enablePersistence: false),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            theme: KonataTheme.darkTheme(),
+            home: const Scaffold(
+              body: SingleChildScrollView(
+                padding: EdgeInsets.all(24),
+                child: SettingsPlayersPanel(),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final videoCard = find.ancestor(
+        of: find.text('视频渲染与看番体验'),
+        matching: find.byType(KonataSurfaceCard),
+      );
+      final audioCard = find.ancestor(
+        of: find.text('无损音频与着色器链路'),
+        matching: find.byType(KonataSurfaceCard),
+      );
+      final lyricsCard = find.byKey(const ValueKey('settings_lyrics_card'));
+
+      final videoRect = tester.getRect(videoCard);
+      final audioRect = tester.getRect(audioCard);
+      final lyricsRect = tester.getRect(lyricsCard);
+
+      // 顶部音视频两张卡片左右并排，在线歌词卡片在下方左右边缘对齐通栏铺展。
+      expect(videoRect.top, closeTo(audioRect.top, 1.0));
+      expect(audioRect.left, greaterThan(videoRect.right));
+      expect(lyricsRect.left, closeTo(videoRect.left, 1.0));
+      expect(lyricsRect.right, closeTo(audioRect.right, 1.0));
+      expect(lyricsRect.top, greaterThanOrEqualTo(videoRect.bottom));
+      expect(lyricsRect.top, greaterThanOrEqualTo(audioRect.bottom));
     });
   });
 }

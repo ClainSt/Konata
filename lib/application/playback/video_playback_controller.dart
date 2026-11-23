@@ -35,6 +35,7 @@ import '../../infrastructure/storage/temp_cache_pruner.dart';
 import '../../infrastructure/sources/byte_stream_source_gateway.dart';
 import '../../infrastructure/stream_bridge/local_stream_bridge.dart';
 import '../../infrastructure/subtitles/fontinass_cloud_client.dart';
+import '../providers/bangumi_sync_providers.dart';
 import '../providers/diagnostics_providers.dart';
 import '../providers/library_providers.dart';
 import '../providers/memory_coordinator.dart';

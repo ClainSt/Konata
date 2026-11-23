@@ -909,8 +909,16 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
       isCompleted: completed,
     );
 
+    final newlyCompleted = !_alreadyPersistedCompleted && completed;
     await repo.recordPlayback(record);
     _alreadyPersistedCompleted = completed;
+    if (newlyCompleted) {
+      unawaited(
+        _ref
+            .read(bangumiSyncControllerProvider.notifier)
+            .notifyEpisodeCompleted(work: work, episode: ep),
+      );
+    }
 
     final cachedBundle = _bundleCacheByWorkId[work.id] ?? bundle;
     final updatedPlaybackMap = Map<String, PlaybackRecord>.of(

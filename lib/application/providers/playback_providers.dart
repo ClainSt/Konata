@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../composition/platform_composition.dart';
@@ -16,6 +18,7 @@ import '../../infrastructure/storage/storage_root_provider.dart';
 import '../../infrastructure/stream_bridge/local_stream_bridge.dart';
 import '../../infrastructure/sync/konata_sync_store.dart';
 import '../playback/playback_preferences_provider.dart';
+import 'bangumi_sync_providers.dart';
 import 'library_providers.dart';
 
 /// 全局共享 WebDAV HTTP Keep-Alive 连接池与 Digest 质询缓存 Provider。
@@ -163,6 +166,13 @@ class PlaybackCoordinator {
                 isCompleted: completed,
               ),
             );
+            if (completed && !initialCompleted) {
+              unawaited(
+                _ref
+                    .read(bangumiSyncControllerProvider.notifier)
+                    .notifyEpisodeCompleted(work: work, episode: episode),
+              );
+            }
             _invalidateWorkAndHistory(work.id);
           },
     );
@@ -239,6 +249,11 @@ class PlaybackCoordinator {
         durationSeconds: dur,
         isCompleted: true,
       ),
+    );
+    unawaited(
+      _ref
+          .read(bangumiSyncControllerProvider.notifier)
+          .notifyEpisodeCompleted(work: work, episode: episode),
     );
     _invalidateWorkAndHistory(work.id);
   }

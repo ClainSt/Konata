@@ -63,6 +63,7 @@ class DetailBottomDrawer extends StatefulWidget {
     required this.onHideWork,
     required this.onDeleteWork,
     required this.onRescrape,
+    this.onSyncBangumi,
     required this.onOpenLocalDir,
     this.onOpenSeriesManage,
     this.onOpenMergeWork,
@@ -128,6 +129,7 @@ class DetailBottomDrawer extends StatefulWidget {
   final VoidCallback onHideWork;
   final VoidCallback onDeleteWork;
   final VoidCallback onRescrape;
+  final VoidCallback? onSyncBangumi;
   final VoidCallback onOpenLocalDir;
   final VoidCallback? onOpenSeriesManage;
   final VoidCallback? onOpenMergeWork;
@@ -504,6 +506,7 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
         onHideWork: widget.onHideWork,
         onDeleteWork: widget.onOpenDeleteWorkSafe(),
         onRescrape: widget.onRescrape,
+        onSyncBangumi: widget.onSyncBangumi,
         onOpenLocalDir: widget.onOpenLocalDir,
         onManageSeries: widget.onOpenSeriesManage,
         onMergeWork: widget.onOpenMergeWork,

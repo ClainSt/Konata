@@ -219,6 +219,35 @@ class TmdbHttpClient {
     );
   }
 
+  /// 发起支持官方主备自动回退与自定义动词（GET/POST/PUT/PATCH/DELETE）的请求。
+  Future<http.Response> sendWithFallback({
+    required String method,
+    required Uri primaryUri,
+    Uri? backupUri,
+    Map<String, String> headers = const {},
+    Object? body,
+    RequestPriority priority = RequestPriority.background,
+    String? dedupeKey,
+    String? bucketKey,
+    bool retryOnRateLimit = true,
+    Duration? timeoutOverride,
+  }) {
+    return _scheduler.schedule<http.Response>(
+      priority,
+      () => _executeWithFallback(
+        method: method.toUpperCase(),
+        primaryUri: primaryUri,
+        backupUri: backupUri,
+        headers: headers,
+        body: body,
+        timeoutOverride: timeoutOverride,
+      ),
+      dedupeKey: dedupeKey,
+      bucketKey: bucketKey,
+      retryOnRateLimit: retryOnRateLimit,
+    );
+  }
+
   /// 发起支持官方主备自动回退的 POST 请求。
   Future<http.Response> postWithFallback(
     Uri primaryUri, {
@@ -393,21 +422,48 @@ class TmdbHttpClient {
       await _warmAndroidSystemProxy(uri);
     }
 
+    final upperMethod = method.toUpperCase();
+    final hasBodyVerb =
+        upperMethod == 'POST' ||
+        upperMethod == 'PUT' ||
+        upperMethod == 'PATCH';
     final finalHeaders = <String, String>{
       'Accept': 'application/json',
-      if (method == 'POST') 'Content-Type': 'application/json',
+      if (hasBodyVerb) 'Content-Type': 'application/json',
       'User-Agent': Platform.isAndroid
           ? 'Konata/2.0 (Android)'
           : 'Konata/2.0 (Windows)',
       ...headers,
     };
 
-    Future<http.Response> dispatch() {
+    Future<http.Response> dispatch() async {
       final client = _getClient();
-      final future = method == 'POST'
-          ? client.post(uri, headers: finalHeaders, body: body)
-          : client.get(uri, headers: finalHeaders);
-      return future.timeout(timeout);
+      if (upperMethod == 'GET') {
+        return client.get(uri, headers: finalHeaders).timeout(timeout);
+      }
+      if (upperMethod == 'POST') {
+        return client
+            .post(uri, headers: finalHeaders, body: body)
+            .timeout(timeout);
+      }
+      if (upperMethod == 'PUT') {
+        return client
+            .put(uri, headers: finalHeaders, body: body)
+            .timeout(timeout);
+      }
+      if (upperMethod == 'PATCH') {
+        return client
+            .patch(uri, headers: finalHeaders, body: body)
+            .timeout(timeout);
+      }
+      final req = http.Request(upperMethod, uri)..headers.addAll(finalHeaders);
+      if (body is String) {
+        req.body = body;
+      } else if (body is List<int>) {
+        req.bodyBytes = body;
+      }
+      final streamed = await client.send(req).timeout(timeout);
+      return http.Response.fromStream(streamed).timeout(timeout);
     }
 
     http.Response response;

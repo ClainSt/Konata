@@ -9,6 +9,7 @@ import '../widgets/design_system/adaptive_settings_container.dart';
 import 'settings_about_panel.dart';
 import 'settings_appearance_panel.dart';
 import 'settings_backup_sync_panel.dart';
+import 'settings_bangumi_sync_card.dart';
 import 'settings_display_panel.dart';
 import 'settings_network_panel.dart';
 import 'settings_players_panel.dart';
@@ -89,7 +90,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               SettingsCategory.display => const SettingsDisplayPanel(),
               SettingsCategory.network => const SettingsNetworkPanel(),
               SettingsCategory.player => const SettingsPlayersPanel(),
-              SettingsCategory.sync => const SettingsBackupSyncPanel(),
+              SettingsCategory.sync => const SettingsBackupSyncPanel(
+                extraSection: SettingsBangumiSyncCard(),
+              ),
               SettingsCategory.externalTools =>
                 externalToolsBuilder?.call(ctx) ?? const SizedBox.shrink(),
               SettingsCategory.about => const SettingsAboutPanel(),

@@ -25,6 +25,7 @@ class DetailOpsCapsule extends StatefulWidget {
     required this.onHideWork,
     required this.onDeleteWork,
     required this.onRescrape,
+    this.onSyncBangumi,
     required this.onOpenLocalDir,
     this.onManageSeries,
     this.onMergeWork,
@@ -60,6 +61,7 @@ class DetailOpsCapsule extends StatefulWidget {
   final VoidCallback onHideWork;
   final VoidCallback onDeleteWork;
   final VoidCallback onRescrape;
+  final VoidCallback? onSyncBangumi;
   final VoidCallback onOpenLocalDir;
   final VoidCallback? onManageSeries;
   final VoidCallback? onMergeWork;
@@ -120,6 +122,7 @@ class _DetailOpsCapsuleState extends State<DetailOpsCapsule> {
           onHideWork: widget.onHideWork,
           onDeleteWork: widget.onDeleteWork,
           onRescrape: widget.onRescrape,
+          onSyncBangumi: widget.onSyncBangumi,
           onOpenLocalDir: widget.onOpenLocalDir,
           onManageSeries: widget.onManageSeries,
           onMergeWork: widget.onMergeWork,
@@ -223,6 +226,7 @@ class DetailGearMenuOverlay extends StatefulWidget {
     required this.onHideWork,
     required this.onDeleteWork,
     required this.onRescrape,
+    this.onSyncBangumi,
     required this.onOpenLocalDir,
     this.anchorRect,
     this.onManageSeries,
@@ -251,6 +255,7 @@ class DetailGearMenuOverlay extends StatefulWidget {
   final VoidCallback onHideWork;
   final VoidCallback onDeleteWork;
   final VoidCallback onRescrape;
+  final VoidCallback? onSyncBangumi;
   final VoidCallback onOpenLocalDir;
   final VoidCallback? onManageSeries;
   final VoidCallback? onMergeWork;
@@ -407,6 +412,13 @@ class _DetailGearMenuOverlayState extends State<DetailGearMenuOverlay> {
                             label: '重新抓取 TMDB 数据',
                             onTap: () => widget.onSelect(widget.onRescrape),
                           ),
+                          if (widget.onSyncBangumi != null)
+                            _MenuRow(
+                              icon: Icons.sync_rounded,
+                              label: '同步 Bangumi 观看进度',
+                              onTap: () =>
+                                  widget.onSelect(widget.onSyncBangumi!),
+                            ),
                           if (KonataAdaptiveTokens.isWindows)
                             _MenuRow(
                               icon: Icons.folder_open_rounded,

@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/playback/playback_preferences_provider.dart';
 import '../../application/providers/artwork_provider.dart';
+import '../../application/providers/bangumi_sync_providers.dart';
 import '../../application/providers/detail_display_preferences_provider.dart';
 import '../../application/providers/konata_value_notifier.dart';
 import '../../application/providers/library_providers.dart';
@@ -452,6 +453,13 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
         bundle,
       ),
       onRescrape: () => _handleRescrape(bundle),
+      onSyncBangumi:
+          bundle.work.bangumiId != null &&
+              ref.watch(
+                bangumiSyncControllerProvider.select((s) => s.isReadyForSync),
+              )
+          ? () => DetailActionHandlers.syncBangumiProgress(context, ref, bundle)
+          : null,
       onOpenLocalDir: () => DetailActionHandlers.openLocalDirectory(
         context,
         ref,
@@ -539,6 +547,13 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
         loaded,
       ),
       onRescrape: () => _handleRescrape(loaded),
+      onSyncBangumi:
+          loaded.work.bangumiId != null &&
+              ref.watch(
+                bangumiSyncControllerProvider.select((s) => s.isReadyForSync),
+              )
+          ? () => DetailActionHandlers.syncBangumiProgress(context, ref, loaded)
+          : null,
       onOpenLocalDir: () => DetailActionHandlers.openLocalDirectory(
         context,
         ref,

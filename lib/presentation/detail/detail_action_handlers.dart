@@ -6,11 +6,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/playback/playback_dispatcher.dart';
 import '../../application/playback/playback_preferences_provider.dart';
+import '../../application/providers/bangumi_sync_providers.dart';
 import '../../application/providers/library_providers.dart';
 import '../../application/providers/playback_providers.dart';
 import '../../application/providers/scraping_providers.dart';
 import '../../application/providers/source_actions_provider.dart';
 import '../../application/providers/work_management_provider.dart';
+import '../../domain/formatting/network_error_sanitizer.dart';
 import '../../domain/matching/episode_title_formatter.dart';
 import '../../domain/matching/playback_resume_resolver.dart';
 import '../../domain/models/episode.dart';
@@ -528,6 +530,34 @@ class DetailActionHandlers {
       variants: variants,
       sourcesById: bundle.sourcesById,
     );
+  }
+
+  /// 立即同步单部作品的 Bangumi 观看进度并弹出结果提示。
+  static Future<void> syncBangumiProgress(
+    BuildContext context,
+    WidgetRef ref,
+    WorkDetailBundle bundle,
+  ) async {
+    try {
+      final result = await ref
+          .read(bangumiSyncControllerProvider.notifier)
+          .syncWork(bundle.work.id);
+      if (context.mounted) {
+        showKonataToast(
+          context,
+          'Bangumi 同步：${result.toSummaryMessage()}',
+          isError: !result.isSuccess,
+        );
+      }
+    } catch (error) {
+      if (context.mounted) {
+        showKonataToast(
+          context,
+          NetworkErrorSanitizer.toUserMessage(error, prefix: 'Bangumi 同步失败'),
+          isError: true,
+        );
+      }
+    }
   }
 
   /// 直接在全端内置高清灯箱中浏览扫图（支持承接当前二级分卷筛选范围）。

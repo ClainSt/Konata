@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:developer' as developer;
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -11,6 +12,39 @@ const String _kVerboseLoggingKey = 'konata_v2_verbose_logging';
 final diagnosticsLogStoreProvider = Provider<DiagnosticsLogStore>((ref) {
   return DiagnosticsLogStore();
 });
+
+/// 诊断日志统计摘要实时流 Provider（供设置页无轮询展示已捕获异常/告警数）。
+final diagnosticsSummaryCountsProvider =
+    NotifierProvider<DiagnosticsSummaryNotifier, DiagnosticsSummaryCounts>(
+      DiagnosticsSummaryNotifier.new,
+    );
+
+/// 诊断统计计数响应式通知器（微任务合并刷新，避免构建期内同步写状态）。
+class DiagnosticsSummaryNotifier extends Notifier<DiagnosticsSummaryCounts> {
+  void Function()? _unsubscribe;
+  bool _syncScheduled = false;
+
+  @override
+  DiagnosticsSummaryCounts build() {
+    final store = ref.watch(diagnosticsLogStoreProvider);
+    _unsubscribe?.call();
+    _unsubscribe = store.addListener(() {
+      if (_syncScheduled || !ref.mounted) return;
+      _syncScheduled = true;
+      Future<void>.microtask(() {
+        _syncScheduled = false;
+        if (ref.mounted) {
+          state = store.summaryCounts;
+        }
+      });
+    });
+    ref.onDispose(() {
+      _unsubscribe?.call();
+      _unsubscribe = null;
+    });
+    return store.summaryCounts;
+  }
+}
 
 /// 详细调试日志开关管理器。
 class VerboseLoggingNotifier extends Notifier<bool> {
@@ -35,7 +69,11 @@ class VerboseLoggingNotifier extends Notifier<bool> {
       state = enabled;
       _store.setVerbose(enabled);
     } catch (error) {
-      developer.log('可恢复异常已记录', name: 'konata.diagnostics_providers', error: error);
+      developer.log(
+        '恢复详细调试日志开关失败',
+        name: 'konata.diagnostics_providers',
+        error: error,
+      );
     }
   }
 
@@ -47,11 +85,15 @@ class VerboseLoggingNotifier extends Notifier<bool> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_kVerboseLoggingKey, enabled);
     } catch (error) {
-      developer.log('可恢复异常已记录', name: 'konata.diagnostics_providers', error: error);
+      developer.log(
+        '持久化详细调试日志开关失败',
+        name: 'konata.diagnostics_providers',
+        error: error,
+      );
     }
   }
 
-  /// 导出最近异常日志 TXT 到指定路径。
+  /// 导出结构化诊断日志（TXT 或 JSON）到指定路径。
   Future<void> exportIncidentLog(String targetPath) {
     return _store.exportToFile(targetPath);
   }

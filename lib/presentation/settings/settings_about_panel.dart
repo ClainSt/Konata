@@ -1,6 +1,6 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
+import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -14,7 +14,7 @@ import '../widgets/design_system/konata_switch.dart';
 import '../widgets/design_system/konata_system_file_picker.dart';
 import '../widgets/design_system/konata_toast.dart';
 
-/// 关于页面板（真实 Konata 头像、版本 1.0.0、调试日志、异常导出、GitHub Octocat 与 TMDB 声明）。
+/// 关于页面板（真实 Konata 头像、版本信息、Agent 结构化诊断日志导出与复制摘要、GitHub 与 TMDB 声明）。
 class SettingsAboutPanel extends ConsumerWidget {
   /// 创建关于面板。
   const SettingsAboutPanel({super.key});
@@ -24,23 +24,56 @@ class SettingsAboutPanel extends ConsumerWidget {
     await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
-  Future<void> _exportLogs(BuildContext context, WidgetRef ref) async {
+  String _timestampSuffix() {
+    final now = DateTime.now();
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${now.year}${two(now.month)}${two(now.day)}_${two(now.hour)}${two(now.minute)}${two(now.second)}';
+  }
+
+  Future<void> _exportReport(
+    BuildContext context,
+    WidgetRef ref, {
+    required bool asJson,
+  }) async {
     try {
-      final report =
-          ref.read(diagnosticsLogStoreProvider).buildRecentIncidentReport();
+      final store = ref.read(diagnosticsLogStoreProvider);
+      final content = asJson
+          ? await store.buildJsonDiagnosticBundleAsync()
+          : await store.buildAgentDiagnosticReportAsync();
+      final ext = asJson ? 'json' : 'txt';
+      final fileName = 'konata_diagnostics_${_timestampSuffix()}.$ext';
       final targetUri = await ref.read(konataSystemFilePickerProvider).saveFile(
-        dialogTitle: '导出最近异常日志',
-        fileName: 'konata_incident_log.txt',
-        bytes: Uint8List.fromList(utf8.encode(report)),
+        dialogTitle: asJson ? '导出结构化诊断包 (JSON)' : '导出 Agent 诊断报告 (TXT)',
+        fileName: fileName,
+        bytes: Uint8List.fromList(utf8.encode(content)),
       );
       if (targetUri == null) return;
 
       if (context.mounted) {
-        showKonataToast(context, '已导出异常日志至 ${targetUri.toFilePath()}');
+        final displayPath = targetUri.isScheme('file')
+            ? targetUri.toFilePath()
+            : targetUri.toString();
+        showKonataToast(context, '已导出诊断日志至 $displayPath');
       }
     } catch (e) {
       if (context.mounted) {
-        showKonataToast(context, '导出异常日志失败：$e', isError: true);
+        showKonataToast(context, '导出诊断日志失败：$e', isError: true);
+      }
+    }
+  }
+
+  Future<void> _copyAgentSummary(BuildContext context, WidgetRef ref) async {
+    try {
+      final summary = await ref
+          .read(diagnosticsLogStoreProvider)
+          .buildCompactAgentClipboardSummaryAsync();
+      await Clipboard.setData(ClipboardData(text: summary));
+      if (context.mounted) {
+        showKonataToast(context, '已复制 Agent 定位摘要，可直接粘贴排查问题');
+      }
+    } catch (e) {
+      if (context.mounted) {
+        showKonataToast(context, '复制诊断摘要失败：$e', isError: true);
       }
     }
   }
@@ -68,6 +101,11 @@ class SettingsAboutPanel extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final p = context.palette;
     final verboseEnabled = ref.watch(verboseLoggingProvider);
+    final counts = ref.watch(diagnosticsSummaryCountsProvider);
+    final hasLogs = counts.totalEvents > 0 ||
+        counts.errorCount > 0 ||
+        counts.warningCount > 0 ||
+        counts.breadcrumbCount > 0;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -104,7 +142,10 @@ class SettingsAboutPanel extends ConsumerWidget {
                       '版本 1.0.0',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: p.textSecondary, fontSize: KonataTheme.fontSizeBodySm),
+                      style: TextStyle(
+                        color: p.textSecondary,
+                        fontSize: KonataTheme.fontSizeBodySm,
+                      ),
                     ),
                   ],
                 ),
@@ -119,7 +160,8 @@ class SettingsAboutPanel extends ConsumerWidget {
             children: [
               KonataListTile(
                 title: '详细调试日志',
-                subtitle: '平时保留异常和必要的播放记录；复现问题前开启，可补充详细信息。',
+                subtitle:
+                    '始终保留异常、子系统状态与操作轨迹（当前 ${counts.errorCount} 异常 · ${counts.warningCount} 警告 · ${counts.totalEvents} 事件）；复现复杂问题前可开启完整追踪。',
                 leading: _buildLeadingBox(
                   p,
                   Icon(
@@ -137,8 +179,9 @@ class SettingsAboutPanel extends ConsumerWidget {
               ),
               Divider(height: 1, color: p.hairline, indent: 18, endIndent: 18),
               KonataListTile(
+                key: const ValueKey('settings_export_diagnostics_txt'),
                 title: '导出最近异常日志',
-                subtitle: '仅导出最近一次异常前后的 TXT 文本记录',
+                subtitle: '导出含故障源码锚点、当前运行态快照、操作轨迹与脱敏时间线的 TXT 诊断报告',
                 leading: _buildLeadingBox(
                   p,
                   Icon(
@@ -152,8 +195,73 @@ class SettingsAboutPanel extends ConsumerWidget {
                   size: 20,
                   color: p.textMuted,
                 ),
-                onTap: () => _exportLogs(context, ref),
+                onTap: () => _exportReport(context, ref, asJson: false),
               ),
+              Divider(height: 1, color: p.hairline, indent: 18, endIndent: 18),
+              KonataListTile(
+                key: const ValueKey('settings_export_diagnostics_json'),
+                title: '导出结构化诊断包 (.json)',
+                subtitle: '面向 AI Agent 与自动化排障的完整 Schema v2 结构化数据',
+                leading: _buildLeadingBox(
+                  p,
+                  Icon(
+                    Icons.data_object_rounded,
+                    size: 20,
+                    color: p.textSecondary,
+                  ),
+                ),
+                trailing: Icon(
+                  Icons.chevron_right_rounded,
+                  size: 20,
+                  color: p.textMuted,
+                ),
+                onTap: () => _exportReport(context, ref, asJson: true),
+              ),
+              Divider(height: 1, color: p.hairline, indent: 18, endIndent: 18),
+              KonataListTile(
+                key: const ValueKey('settings_copy_agent_summary'),
+                title: '复制 Agent 定位摘要',
+                subtitle: '一键复制精简故障分诊、运行快照与最近 12 步操作轨迹至剪贴板',
+                leading: _buildLeadingBox(
+                  p,
+                  Icon(
+                    Icons.content_copy_rounded,
+                    size: 19,
+                    color: p.textSecondary,
+                  ),
+                ),
+                trailing: Icon(
+                  Icons.chevron_right_rounded,
+                  size: 20,
+                  color: p.textMuted,
+                ),
+                onTap: () => _copyAgentSummary(context, ref),
+              ),
+              if (hasLogs) ...[
+                Divider(height: 1, color: p.hairline, indent: 18, endIndent: 18),
+                KonataListTile(
+                  key: const ValueKey('settings_clear_diagnostics'),
+                  title: '清空当前诊断缓冲',
+                  subtitle: '清除内存中的历史日志与轨迹，方便干净复现下一次问题',
+                  leading: _buildLeadingBox(
+                    p,
+                    Icon(
+                      Icons.cleaning_services_outlined,
+                      size: 19,
+                      color: p.textSecondary,
+                    ),
+                  ),
+                  trailing: Icon(
+                    Icons.chevron_right_rounded,
+                    size: 20,
+                    color: p.textMuted,
+                  ),
+                  onTap: () {
+                    ref.read(diagnosticsLogStoreProvider).clear();
+                    showKonataToast(context, '已清空当前诊断日志缓冲');
+                  },
+                ),
+              ],
             ],
           ),
         ),

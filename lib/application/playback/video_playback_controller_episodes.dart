@@ -950,7 +950,24 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
     if (!mounted || _state.isClosing) return;
     final diag = await _diagnoseVideoError(msg);
     if (!mounted || _state.isClosing) return;
-    _logStore.record('VIDEO', '视频播放致命错误：${diag.message}', isError: true);
+    _logStore.logEvent(
+      subsystem: DiagnosticSubsystem.playback,
+      severity: DiagnosticSeverity.error,
+      code: diag.deterministicSourceFailure
+          ? 'VIDEO_SOURCE_FATAL'
+          : 'VIDEO_SESSION_FATAL',
+      message: '视频播放致命错误：${diag.message}',
+      source:
+          'lib/application/playback/video_playback_controller_episodes.dart:_handleFatalSessionError',
+      context: <String, Object?>{
+        'workId': _state.currentWork?.id ?? request.work.id,
+        'episodeId': _state.currentEpisode.id,
+        'variantId': _state.currentVariant.id,
+        'sourceId': _state.currentVariant.sourceId,
+        'rawError': msg,
+        'deterministicSourceFailure': diag.deterministicSourceFailure,
+      },
+    );
     if (diag.deterministicSourceFailure) {
       _state = _state.copyWith(
         isInitializing: false,

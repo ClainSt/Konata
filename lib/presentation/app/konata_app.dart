@@ -3,9 +3,12 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../application/playback/playback_preferences_provider.dart';
+import '../../application/providers/diagnostics_providers.dart';
+import '../../application/providers/diagnostics_runtime_bridge.dart';
 import '../../application/providers/theme_providers.dart';
 import '../../composition/platform_composition.dart';
 import '../../domain/config/konata_lane_config.dart';
+import '../../infrastructure/logging/diagnostics_log_store.dart';
 import '../audio/mini_audio_bar.dart';
 import '../shell/adaptive_capsule_layout.dart';
 import '../shell/android_scroll_capture_bridge.dart';
@@ -60,11 +63,17 @@ class KonataApp extends ConsumerWidget {
 
     final navKey = ref.watch(rootNavigatorKeyProvider);
     final routeObserver = ref.watch(rootRouteObserverProvider);
+    // 激活全局异常捕获与运行时状态快照采集桥接，确保导出日志自带源码定位上下文。
+    ref.watch(diagnosticsRuntimeBridgeProvider);
+    final logStore = ref.watch(diagnosticsLogStoreProvider);
     final appTitle = KonataLaneConfig.resolveDesktopWindowTitle();
 
     return MaterialApp(
       navigatorKey: navKey,
-      navigatorObservers: [routeObserver],
+      navigatorObservers: [
+        routeObserver,
+        _KonataDiagnosticRouteObserver(logStore),
+      ],
       title: appTitle,
       debugShowCheckedModeBanner: false,
       scrollBehavior: const KonataScrollBehavior(),
@@ -79,6 +88,42 @@ class KonataApp extends ConsumerWidget {
         child: MiniAudioOverlayHost(child: child ?? const SizedBox.shrink()),
       ),
       home: const DesktopShell(),
+    );
+  }
+}
+
+/// 全局路由轨迹观察器：无感记录页面推入与弹出面包屑，便于复现问题前后的操作路径。
+class _KonataDiagnosticRouteObserver extends NavigatorObserver {
+  _KonataDiagnosticRouteObserver(this._logStore);
+
+  final DiagnosticsLogStore _logStore;
+
+  String _describeRoute(Route<dynamic>? route) {
+    if (route == null) return 'none';
+    final name = route.settings.name;
+    if (name != null && name.trim().isNotEmpty) {
+      return name.trim();
+    }
+    return route.runtimeType.toString();
+  }
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    _logStore.recordBreadcrumb(
+      category: 'route',
+      label: '进入页面 ${_describeRoute(route)}',
+      detail: previousRoute == null ? null : 'from=${_describeRoute(previousRoute)}',
+      source: 'lib/presentation/app/konata_app.dart:didPush',
+    );
+  }
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    _logStore.recordBreadcrumb(
+      category: 'route',
+      label: '返回页面 ${_describeRoute(previousRoute)}',
+      detail: 'popped=${_describeRoute(route)}',
+      source: 'lib/presentation/app/konata_app.dart:didPop',
     );
   }
 }

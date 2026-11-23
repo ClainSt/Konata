@@ -4,29 +4,64 @@
 /// 并将底层套接字、域名解析、握手与超时异常转换为面向用户的中文提示。
 abstract final class NetworkErrorSanitizer {
   static final RegExp _apiKeyQueryPattern = RegExp(
-    r'((?:api_key|client_key|api-key|client-key)\s*[=:]\s*)([^&\s)\x27",;]+)',
+    r'((?:api_key|client_key|api-key|client-key|access_token|token|pat|password|passwd|secret)\s*[=:]\s*)([^&\s)\x27",;}\]]+)',
     caseSensitive: false,
   );
   static final RegExp _encodedApiKeyPattern = RegExp(
-    r'((?:api_key|client_key)%3d)([^&\s)\x27",;%]+)',
+    r'((?:api_key|client_key|access_token|token|password)%3d)([^&\s)\x27",;%]+)',
+    caseSensitive: false,
+  );
+  static final RegExp _jsonSecretPattern = RegExp(
+    r'("(?:api_key|client_key|access_token|token|pat|password|passwd|secret|credential|authorization)"\s*:\s*")([^"]*)(")',
     caseSensitive: false,
   );
   static final RegExp _bearerTokenPattern = RegExp(
     r'(Bearer\s+)([A-Za-z0-9\-._~+/]+=*)',
     caseSensitive: false,
   );
+  static final RegExp _basicAuthPattern = RegExp(
+    r'(Basic\s+)([A-Za-z0-9+/]+=*)',
+    caseSensitive: false,
+  );
+  static final RegExp _digestResponsePattern = RegExp(
+    r'(response\s*=\s*")([^"]+)(")',
+    caseSensitive: false,
+  );
+  static final RegExp _urlUserInfoPattern = RegExp(
+    r'(https?://[^/\s:@]+:)([^/\s@]+)(@)',
+    caseSensitive: false,
+  );
+  static final RegExp _windowsUserHomePattern = RegExp(
+    r'[A-Za-z]:\\Users\\[^\\/\s"\x27]+',
+  );
+  static final RegExp _unixUserHomePattern = RegExp(
+    r'/(?:Users|home)/[^/\s"\x27]+',
+  );
   static final RegExp _hostLookupPattern = RegExp(
     r"Failed host lookup:\s*'([^']+)'",
     caseSensitive: false,
   );
 
-  /// 将文本中所有明文或编码态 `api_key` 与 `Bearer` 令牌替换为脱敏占位符。
+  /// 将文本中所有明文或编码态凭据、Authorization 头与 URL 内嵌密码替换为脱敏占位符。
   static String redactSecrets(String input) {
     if (input.isEmpty) return input;
     return input
+        .replaceAllMapped(_urlUserInfoPattern, (m) => '${m[1]}***${m[3]}')
+        .replaceAllMapped(_jsonSecretPattern, (m) => '${m[1]}***${m[3]}')
         .replaceAllMapped(_apiKeyQueryPattern, (m) => '${m[1]}***')
         .replaceAllMapped(_encodedApiKeyPattern, (m) => '${m[1]}***')
-        .replaceAllMapped(_bearerTokenPattern, (m) => '${m[1]}***');
+        .replaceAllMapped(_bearerTokenPattern, (m) => '${m[1]}***')
+        .replaceAllMapped(_basicAuthPattern, (m) => '${m[1]}***')
+        .replaceAllMapped(_digestResponsePattern, (m) => '${m[1]}***${m[3]}');
+  }
+
+  /// 对导出的诊断文本进一步隐藏本机操作系统用户名目录前缀（保留后续相对路径便于定位）。
+  static String redactForDiagnosticsExport(String input) {
+    final secretSafe = redactSecrets(input);
+    if (secretSafe.isEmpty) return secretSafe;
+    return secretSafe
+        .replaceAll(_windowsUserHomePattern, r'<USER_HOME>')
+        .replaceAll(_unixUserHomePattern, '<USER_HOME>');
   }
 
   /// 判断异常是否属于可降级容错的外部网络瞬态异常（DNS 失败、连接超时、TLS 握手或连接中断）。

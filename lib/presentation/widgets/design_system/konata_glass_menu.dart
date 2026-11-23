@@ -7,6 +7,7 @@ import '../../theme/konata_adaptive_tokens.dart';
 import '../../theme/konata_palette.dart';
 import '../../theme/konata_playback_tokens.dart';
 import '../../theme/konata_theme.dart';
+import 'konata_popover_option_tile.dart';
 
 /// 全站统一毛玻璃弹出菜单项描述。
 @immutable
@@ -86,7 +87,7 @@ Future<T?> showKonataGlassMenu<T>({
   );
 }
 
-class _KonataGlassMenuOverlay<T> extends StatelessWidget {
+class _KonataGlassMenuOverlay<T> extends StatefulWidget {
   const _KonataGlassMenuOverlay({
     required this.anchorRect,
     required this.items,
@@ -98,6 +99,15 @@ class _KonataGlassMenuOverlay<T> extends StatelessWidget {
   final double minWidth;
 
   @override
+  State<_KonataGlassMenuOverlay<T>> createState() =>
+      _KonataGlassMenuOverlayState<T>();
+}
+
+class _KonataGlassMenuOverlayState<T>
+    extends State<_KonataGlassMenuOverlay<T>> {
+  int? _hoveredIndex;
+
+  @override
   Widget build(BuildContext context) {
     final p = context.palette;
     final media = MediaQuery.of(context);
@@ -106,23 +116,34 @@ class _KonataGlassMenuOverlay<T> extends StatelessWidget {
     final itemHeight = KonataAdaptiveTokens.isAndroid
         ? KonataAdaptiveTokens.touchTarget
         : kMinInteractiveDimension;
-    final estimatedHeight = items.length * itemHeight + 12.0;
+    final estimatedHeight = widget.items.length * itemHeight + 12.0;
     final menuWidth = math.min(
-      math.max(minWidth, anchorRect.width),
+      math.max(widget.minWidth, widget.anchorRect.width),
       math.max(160.0, viewport.width - safe.horizontal - 24.0),
     );
 
     final minLeft = safe.left + 12.0;
-    final maxLeft = math.max(minLeft, viewport.width - safe.right - menuWidth - 12.0);
-    final preferredLeft = (anchorRect.right - menuWidth).clamp(minLeft, maxLeft);
+    final maxLeft = math.max(
+      minLeft,
+      viewport.width - safe.right - menuWidth - 12.0,
+    );
+    final preferredLeft = (widget.anchorRect.right - menuWidth).clamp(
+      minLeft,
+      maxLeft,
+    );
 
-    final spaceBelow = viewport.height - safe.bottom - anchorRect.bottom - 12.0;
-    final openDown = spaceBelow >= estimatedHeight || anchorRect.top < estimatedHeight;
+    final spaceBelow =
+        viewport.height - safe.bottom - widget.anchorRect.bottom - 12.0;
+    final openDown =
+        spaceBelow >= estimatedHeight || widget.anchorRect.top < estimatedHeight;
     final minTop = safe.top + 12.0;
-    final maxTop = math.max(minTop, viewport.height - safe.bottom - estimatedHeight - 12.0);
+    final maxTop = math.max(
+      minTop,
+      viewport.height - safe.bottom - estimatedHeight - 12.0,
+    );
     final rawTop = openDown
-        ? anchorRect.bottom + 6.0
-        : anchorRect.top - estimatedHeight - 6.0;
+        ? widget.anchorRect.bottom + 6.0
+        : widget.anchorRect.top - estimatedHeight - 6.0;
     final top = rawTop.clamp(minTop, maxTop);
 
     final radius = BorderRadius.circular(KonataPlaybackTokens.floatingMiniRadius);
@@ -164,18 +185,39 @@ class _KonataGlassMenuOverlay<T> extends StatelessWidget {
                         color: KonataPlaybackTokens.glassBorder(p),
                       ),
                     ),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 6),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          for (final item in items)
-                            _KonataGlassMenuTile<T>(
-                              item: item,
-                              height: itemHeight,
-                            ),
-                        ],
+                    child: MouseRegion(
+                      onExit: (_) {
+                        if (_hoveredIndex != null) {
+                          setState(() => _hoveredIndex = null);
+                        }
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 6,
+                          horizontal: 6,
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            for (var i = 0; i < widget.items.length; i++)
+                              _KonataGlassMenuTile<T>(
+                                item: widget.items[i],
+                                height: itemHeight,
+                                hovered: _hoveredIndex == i,
+                                onHoverEnter: () {
+                                  if (_hoveredIndex != i) {
+                                    setState(() => _hoveredIndex = i);
+                                  }
+                                },
+                                onHoverExit: () {
+                                  if (_hoveredIndex == i) {
+                                    setState(() => _hoveredIndex = null);
+                                  }
+                                },
+                              ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -190,48 +232,54 @@ class _KonataGlassMenuOverlay<T> extends StatelessWidget {
 }
 
 class _KonataGlassMenuTile<T> extends StatelessWidget {
-  const _KonataGlassMenuTile({required this.item, required this.height});
+  const _KonataGlassMenuTile({
+    required this.item,
+    required this.height,
+    required this.hovered,
+    required this.onHoverEnter,
+    required this.onHoverExit,
+  });
 
   final KonataGlassMenuItem<T> item;
   final double height;
+  final bool hovered;
+  final VoidCallback onHoverEnter;
+  final VoidCallback onHoverExit;
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
     final fg = item.isDanger ? p.danger : p.textPrimary;
-    final tileRadius = BorderRadius.circular(KonataTheme.radiusControl);
 
-    return InkWell(
+    return KonataPopoverOptionTile(
       key: item.key,
-      borderRadius: tileRadius,
-      hoverColor: p.surfaceHover,
-      splashColor: p.softFill,
+      hovered: hovered,
+      onHoverEnter: onHoverEnter,
+      onHoverExit: onHoverExit,
       onTap: () => Navigator.of(context).pop(item.value),
-      child: SizedBox(
-        height: height,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          child: Row(
-            children: [
-              if (item.icon != null) ...[
-                Icon(item.icon, size: 18, color: fg),
-                const SizedBox(width: 8),
-              ],
-              Expanded(
-                child: Text(
-                  item.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: KonataTheme.bodyLabelStyle(
-                    p,
-                    fontSize: KonataTheme.fontSizeBodySm,
-                    color: fg,
-                  ),
-                ),
+      borderRadius: KonataTheme.borderRadiusControl,
+      margin: EdgeInsets.zero,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      minHeight: height,
+      child: Row(
+        children: [
+          if (item.icon != null) ...[
+            Icon(item.icon, size: 18, color: fg),
+            const SizedBox(width: 8),
+          ],
+          Expanded(
+            child: Text(
+              item.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: KonataTheme.bodyLabelStyle(
+                p,
+                fontSize: KonataTheme.fontSizeBodySm,
+                color: fg,
               ),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }

@@ -8,6 +8,7 @@ import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
 import '../widgets/design_system/ellipsis_text_with_tooltip.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
+import '../widgets/design_system/konata_popover_option_tile.dart';
 
 /// 手动编辑「文件映射修正」单行可变状态模型。
 class EditableFileMappingRow {
@@ -550,75 +551,51 @@ class _SlotPopoverOverlayState extends State<_SlotPopoverOverlay> {
                                           ),
                                         ),
                                       ),
-                                    MouseRegion(
-                                      cursor: SystemMouseCursors.click,
-                                      onEnter: (_) {
+                                    KonataPopoverOptionTile(
+                                      selected: isCurrent,
+                                      hovered: isHovered,
+                                      onHoverEnter: () {
                                         final next = isCurrent ? null : index;
                                         if (_hoveredIndex != next) {
                                           setState(() => _hoveredIndex = next);
                                         }
                                       },
-                                      onExit: (_) {
+                                      onHoverExit: () {
                                         if (_hoveredIndex == index) {
                                           setState(() => _hoveredIndex = null);
                                         }
                                       },
-                                      child: InkWell(
-                                        autofocus: false,
-                                        canRequestFocus: false,
-                                        focusColor: Colors.transparent,
-                                        hoverColor: Colors.transparent,
-                                        highlightColor: Colors.transparent,
-                                        splashColor: Colors.transparent,
-                                        borderRadius:
-                                            KonataTheme.borderRadiusSm,
-                                        onTap: () => widget.onPick(opt),
-                                        child: Container(
-                                          margin: const EdgeInsets.symmetric(
-                                            vertical: 1.5,
-                                          ),
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 10,
-                                            vertical: 6.5,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: isCurrent
-                                                ? p.accent.withValues(
-                                                    alpha: 0.16,
-                                                  )
-                                                : (isHovered
-                                                      ? p.softFill
-                                                      : Colors.transparent),
-                                            borderRadius:
-                                                KonataTheme.borderRadiusSm,
-                                          ),
-                                          child: Row(
-                                            children: [
-                                              Expanded(
-                                                child: EllipsisTextWithTooltip(
-                                                  text: opt.label,
-                                                  maxLines: 1,
-                                                  style: TextStyle(
-                                                    color: isCurrent
-                                                        ? p.accent
-                                                        : p.textPrimary,
-                                                    fontSize: KonataTheme
-                                                        .fontSizeCaption,
-                                                    fontWeight: isCurrent
-                                                        ? FontWeight.w600
-                                                        : FontWeight.w500,
-                                                  ),
-                                                ),
+                                      onTap: () => widget.onPick(opt),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 6.5,
+                                      ),
+                                      borderRadius: KonataTheme.borderRadiusSm,
+                                      child: Row(
+                                        children: [
+                                          Expanded(
+                                            child: EllipsisTextWithTooltip(
+                                              text: opt.label,
+                                              maxLines: 1,
+                                              style: TextStyle(
+                                                color: isCurrent
+                                                    ? p.accent
+                                                    : p.textPrimary,
+                                                fontSize:
+                                                    KonataTheme.fontSizeCaption,
+                                                fontWeight: isCurrent
+                                                    ? FontWeight.w600
+                                                    : FontWeight.w500,
                                               ),
-                                              if (isCurrent)
-                                                Icon(
-                                                  Icons.check_rounded,
-                                                  size: 15,
-                                                  color: p.accent,
-                                                ),
-                                            ],
+                                            ),
                                           ),
-                                        ),
+                                          if (isCurrent)
+                                            Icon(
+                                              Icons.check_rounded,
+                                              size: 15,
+                                              color: p.accent,
+                                            ),
+                                        ],
                                       ),
                                     ),
                                   ],

@@ -271,6 +271,7 @@ class _SpeedPillButtonState extends State<_SpeedPillButton> {
   @override
   Widget build(BuildContext context) {
     final pPal = context.palette;
+    final hoverBg = KonataPlaybackTokens.hoverFill(pPal);
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
@@ -294,7 +295,7 @@ class _SpeedPillButtonState extends State<_SpeedPillButton> {
             decoration: BoxDecoration(
               color: widget.selected
                   ? pPal.primaryButtonBg
-                  : (_hovered ? pPal.softFill : Colors.transparent),
+                  : (_hovered ? hoverBg : hoverBg.withValues(alpha: 0)),
               borderRadius: BorderRadius.circular(KonataTheme.radiusPill),
               border: Border.all(
                 color: widget.selected ? pPal.primaryButtonBg : pPal.hairline,

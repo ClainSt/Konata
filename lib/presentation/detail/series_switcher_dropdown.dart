@@ -9,6 +9,7 @@ import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
 import '../theme/konata_theme.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
+import '../widgets/design_system/konata_popover_option_tile.dart';
 
 /// 详情页底部左侧的紧凑毛玻璃系列成员下拉切换胶囊。
 class SeriesSwitcherDropdown extends StatefulWidget {
@@ -356,98 +357,66 @@ class _SeriesMenuOverlayState extends State<_SeriesMenuOverlay> {
                                     : (member.year != null
                                           ? '${member.year}'
                                           : null);
-                                return MouseRegion(
-                                  cursor: SystemMouseCursors.click,
-                                  onEnter: (_) {
+                                return KonataPopoverOptionTile(
+                                  selected: selected,
+                                  hovered: hovered,
+                                  onHoverEnter: () {
                                     final next = selected ? null : index;
                                     if (_hoveredIndex != next) {
                                       setState(() => _hoveredIndex = next);
                                     }
                                   },
-                                  onExit: (_) {
+                                  onHoverExit: () {
                                     if (_hoveredIndex == index) {
                                       setState(() => _hoveredIndex = null);
                                     }
                                   },
-                                  child: InkWell(
-                                    autofocus: false,
-                                    canRequestFocus: false,
-                                    focusColor: Colors.transparent,
-                                    hoverColor: Colors.transparent,
-                                    highlightColor: Colors.transparent,
-                                    splashColor: Colors.transparent,
-                                    borderRadius: KonataTheme.borderRadiusThumb,
-                                    onTap: () => widget.onPick(member.id),
-                                    child: Container(
-                                      constraints:
-                                          KonataAdaptiveTokens.isAndroid
-                                          ? const BoxConstraints(
-                                              minHeight: KonataAdaptiveTokens
-                                                  .touchTarget,
-                                            )
-                                          : null,
-                                      margin: const EdgeInsets.symmetric(
-                                        vertical: 1.5,
-                                      ),
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 10,
-                                        vertical: 8,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: selected
-                                            ? p.accent.withValues(alpha: 0.16)
-                                            : (hovered
-                                                  ? p.softFill
-                                                  : Colors.transparent),
-                                        borderRadius: KonataTheme.borderRadiusThumb,
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
-                                              children: [
-                                                Text(
-                                                  label,
-                                                  maxLines: 1,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                  style: TextStyle(
-                                                    color: selected
-                                                        ? p.accent
-                                                        : p.textPrimary,
-                                                    fontSize: KonataTheme.fontSizeBodySm,
-                                                    fontWeight: selected
-                                                        ? FontWeight.w700
-                                                        : FontWeight.w500,
-                                                  ),
+                                  onTap: () => widget.onPick(member.id),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              label,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                color: selected
+                                                    ? p.accent
+                                                    : p.textPrimary,
+                                                fontSize:
+                                                    KonataTheme.fontSizeBodySm,
+                                                fontWeight: selected
+                                                    ? FontWeight.w700
+                                                    : FontWeight.w500,
+                                              ),
+                                            ),
+                                            if (subtitleText != null)
+                                              Text(
+                                                subtitleText,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: TextStyle(
+                                                  color: p.textMuted,
+                                                  fontSize: KonataTheme
+                                                      .fontSizeCaptionXs,
                                                 ),
-                                                if (subtitleText != null)
-                                                  Text(
-                                                    subtitleText,
-                                                    maxLines: 1,
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
-                                                    style: TextStyle(
-                                                      color: p.textMuted,
-                                                      fontSize: KonataTheme.fontSizeCaptionXs,
-                                                    ),
-                                                  ),
-                                              ],
-                                            ),
-                                          ),
-                                          if (selected) ...[
-                                            const SizedBox(width: 8),
-                                            Icon(
-                                              Icons.check_rounded,
-                                              size: 16,
-                                              color: p.accent,
-                                            ),
+                                              ),
                                           ],
-                                        ],
+                                        ),
                                       ),
-                                    ),
+                                      if (selected) ...[
+                                        const SizedBox(width: 8),
+                                        Icon(
+                                          Icons.check_rounded,
+                                          size: 16,
+                                          color: p.accent,
+                                        ),
+                                      ],
+                                    ],
                                   ),
                                 );
                               },

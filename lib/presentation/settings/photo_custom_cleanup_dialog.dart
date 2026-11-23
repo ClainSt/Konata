@@ -666,8 +666,8 @@ class _WorkPhotoCleanupRowState extends State<_WorkPhotoCleanupRow> {
     final poster = entry.posterPath?.trim() ?? '';
 
     final bg = checked
-        ? p.softFill
-        : (_hovered ? p.surfaceHover : Colors.transparent);
+        ? KonataPlaybackTokens.softFill(p)
+        : (_hovered ? KonataPlaybackTokens.hoverFill(p) : Colors.transparent);
 
     return MouseRegion(
       cursor: widget.onToggle == null
@@ -678,8 +678,7 @@ class _WorkPhotoCleanupRowState extends State<_WorkPhotoCleanupRow> {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: widget.onToggle,
-        child: AnimatedContainer(
-          duration: KonataTheme.motionMicro,
+        child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
           decoration: BoxDecoration(
             color: bg,

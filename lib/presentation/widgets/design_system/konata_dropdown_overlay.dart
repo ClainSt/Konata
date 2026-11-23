@@ -388,52 +388,61 @@ class _DropdownOptionTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final bgColor = selected
-        ? p.accent.withValues(alpha: 0.16)
-        : (hovered ? p.softFill : Colors.transparent);
 
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => onHoverEnter(),
-      onExit: (_) => onHoverExit(),
-      child: InkWell(
-        autofocus: false,
-        canRequestFocus: false,
-        focusColor: Colors.transparent,
-        hoverColor: Colors.transparent,
-        highlightColor: Colors.transparent,
-        splashColor: Colors.transparent,
-        borderRadius: KonataTheme.borderRadiusThumb,
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: KonataTheme.motionMicro,
-          constraints: KonataAdaptiveTokens.isAndroid
-              ? const BoxConstraints(
-                  minHeight: KonataAdaptiveTokens.touchTarget,
-                )
-              : null,
-          margin: const EdgeInsets.symmetric(vertical: 1.5),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          decoration: BoxDecoration(
-            color: bgColor,
-            borderRadius: KonataTheme.borderRadiusThumb,
-          ),
-          child: centerAligned
-              ? Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    if (multiSelect) ...[
-                      Icon(
-                        selected
-                            ? Icons.check_box_rounded
-                            : Icons.check_box_outline_blank_rounded,
-                        size: 16,
-                        color: selected ? p.accent : p.textMuted,
-                      ),
-                      const SizedBox(width: 8),
-                    ],
-                    Flexible(
-                      child: Text(
+    return KonataPopoverOptionTile(
+      selected: selected,
+      hovered: hovered,
+      onHoverEnter: onHoverEnter,
+      onHoverExit: onHoverExit,
+      onTap: onTap,
+      child: centerAligned
+          ? Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (multiSelect) ...[
+                  Icon(
+                    selected
+                        ? Icons.check_box_rounded
+                        : Icons.check_box_outline_blank_rounded,
+                    size: 16,
+                    color: selected ? p.accent : p.textMuted,
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: selected ? p.accent : p.textPrimary,
+                      fontSize: KonataTheme.fontSizeBodyXs,
+                      fontWeight: selected
+                          ? FontWeight.w600
+                          : FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            )
+          : Row(
+              children: [
+                if (multiSelect) ...[
+                  Icon(
+                    selected
+                        ? Icons.check_box_rounded
+                        : Icons.check_box_outline_blank_rounded,
+                    size: 16,
+                    color: selected ? p.accent : p.textMuted,
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
                         label,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -445,62 +454,28 @@ class _DropdownOptionTile extends StatelessWidget {
                               : FontWeight.w500,
                         ),
                       ),
-                    ),
-                  ],
-                )
-              : Row(
-                  children: [
-                    if (multiSelect) ...[
-                      Icon(
-                        selected
-                            ? Icons.check_box_rounded
-                            : Icons.check_box_outline_blank_rounded,
-                        size: 16,
-                        color: selected ? p.accent : p.textMuted,
-                      ),
-                      const SizedBox(width: 8),
-                    ],
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            label,
+                      if (subtitle != null && subtitle!.trim().isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 1.5),
+                          child: Text(
+                            subtitle!,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              color: selected ? p.accent : p.textPrimary,
-                              fontSize: KonataTheme.fontSizeBodyXs,
-                              fontWeight: selected
-                                  ? FontWeight.w600
-                                  : FontWeight.w500,
+                              color: p.textMuted,
+                              fontSize: KonataTheme.fontSizeCaptionXs,
                             ),
                           ),
-                          if (subtitle != null && subtitle!.trim().isNotEmpty)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 1.5),
-                              child: Text(
-                                subtitle!,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: p.textMuted,
-                                  fontSize: KonataTheme.fontSizeCaptionXs,
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                    if (!multiSelect && selected) ...[
-                      const SizedBox(width: 8),
-                      Icon(Icons.check_rounded, size: 15, color: p.accent),
+                        ),
                     ],
-                  ],
+                  ),
                 ),
-        ),
-      ),
+                if (!multiSelect && selected) ...[
+                  const SizedBox(width: 8),
+                  Icon(Icons.check_rounded, size: 15, color: p.accent),
+                ],
+              ],
+            ),
     );
   }
 }

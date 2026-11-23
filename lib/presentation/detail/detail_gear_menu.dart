@@ -7,6 +7,7 @@ import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
+import '../widgets/design_system/konata_popover_option_tile.dart';
 import '../theme/konata_theme.dart';
 
 /// 详情页公共高透运维胶囊（展开态在齿轮左侧展示「完整列表」与可选「收起」图标，齿轮固定最右侧并弹出管理菜单）。
@@ -269,12 +270,36 @@ class DetailGearMenuOverlay extends StatefulWidget {
 
 class _DetailGearMenuOverlayState extends State<DetailGearMenuOverlay> {
   final ScrollController _scrollCtrl = ScrollController();
+  String? _hoveredLabel;
 
   @override
   void dispose() {
     _scrollCtrl.dispose();
     super.dispose();
   }
+
+  Widget _buildRow({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    bool isDanger = false,
+  }) => _MenuRow(
+    icon: icon,
+    label: label,
+    isDanger: isDanger,
+    hovered: _hoveredLabel == label,
+    onHoverEnter: () {
+      if (_hoveredLabel != label) {
+        setState(() => _hoveredLabel = label);
+      }
+    },
+    onHoverExit: () {
+      if (_hoveredLabel == label) {
+        setState(() => _hoveredLabel = null);
+      }
+    },
+    onTap: onTap,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -343,90 +368,97 @@ class _DetailGearMenuOverlayState extends State<DetailGearMenuOverlay> {
                       ),
                     ],
                   ),
-                  child: KonataDraggableScrollbar(
-                    controller: _scrollCtrl,
-                    builder: (_, ctrl) => SingleChildScrollView(
-                      controller: ctrl,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          _MenuRow(
-                            icon: Icons.manage_search_rounded,
-                            label: '绑定元数据',
-                            onTap: () => widget.onSelect(widget.onManualMatch),
-                          ),
-                          _MenuRow(
-                            icon: Icons.edit_note_rounded,
-                            label: '手动编辑',
-                            onTap: () => widget.onSelect(widget.onManualEdit),
-                          ),
-                          _MenuRow(
-                            icon: Icons.image_outlined,
-                            label: '编辑封面',
-                            onTap: () => widget.onSelect(widget.onEditPoster),
-                          ),
-                          _MenuRow(
-                            icon: Icons.wallpaper_rounded,
-                            label: '编辑背景图',
-                            onTap: () => widget.onSelect(widget.onEditBackdrop),
-                          ),
-                          if (widget.onEditLogo != null)
-                            _MenuRow(
-                              icon: Icons.title_rounded,
-                              label: '编辑标题徽标',
-                              onTap: () => widget.onSelect(widget.onEditLogo!),
+                  child: MouseRegion(
+                    onExit: (_) {
+                      if (_hoveredLabel != null) {
+                        setState(() => _hoveredLabel = null);
+                      }
+                    },
+                    child: KonataDraggableScrollbar(
+                      controller: _scrollCtrl,
+                      builder: (_, ctrl) => SingleChildScrollView(
+                        controller: ctrl,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _buildRow(
+                              icon: Icons.manage_search_rounded,
+                              label: '绑定元数据',
+                              onTap: () => widget.onSelect(widget.onManualMatch),
                             ),
-                          _MenuRow(
-                            icon: Icons.layers_rounded,
-                            label: '管理系列编组',
-                            onTap: () {
-                              final fn = widget.onManageSeries;
-                              if (fn != null) {
-                                widget.onSelect(fn);
-                              } else {
-                                widget.onDismiss();
-                              }
-                            },
-                          ),
-                          if (widget.onMergeWork != null)
-                            _MenuRow(
-                              icon: Icons.merge_type_rounded,
-                              label: '合并整部作品至其他条目...',
-                              onTap: () =>
-                                  widget.onSelect(widget.onMergeWork!),
+                            _buildRow(
+                              icon: Icons.edit_note_rounded,
+                              label: '手动编辑',
+                              onTap: () => widget.onSelect(widget.onManualEdit),
                             ),
-                          _MenuRow(
-                            icon: Icons.visibility_off_outlined,
-                            label: '隐藏作品',
-                            onTap: () => widget.onSelect(widget.onHideWork),
-                          ),
-                          _MenuRow(
-                            icon: Icons.delete_outline_rounded,
-                            label: '删除作品',
-                            isDanger: true,
-                            onTap: () => widget.onSelect(widget.onDeleteWork),
-                          ),
-                          Divider(height: 10, color: p.hairline),
-                          _MenuRow(
-                            icon: Icons.refresh_rounded,
-                            label: '重新抓取 TMDB 数据',
-                            onTap: () => widget.onSelect(widget.onRescrape),
-                          ),
-                          if (widget.onSyncBangumi != null)
-                            _MenuRow(
-                              icon: Icons.sync_rounded,
-                              label: '同步 Bangumi 观看进度',
-                              onTap: () =>
-                                  widget.onSelect(widget.onSyncBangumi!),
+                            _buildRow(
+                              icon: Icons.image_outlined,
+                              label: '编辑封面',
+                              onTap: () => widget.onSelect(widget.onEditPoster),
                             ),
-                          if (KonataAdaptiveTokens.isWindows)
-                            _MenuRow(
-                              icon: Icons.folder_open_rounded,
-                              label: '打开本地所在文件夹',
-                              onTap: () =>
-                                  widget.onSelect(widget.onOpenLocalDir),
+                            _buildRow(
+                              icon: Icons.wallpaper_rounded,
+                              label: '编辑背景图',
+                              onTap: () => widget.onSelect(widget.onEditBackdrop),
                             ),
-                        ],
+                            if (widget.onEditLogo != null)
+                              _buildRow(
+                                icon: Icons.title_rounded,
+                                label: '编辑标题徽标',
+                                onTap: () => widget.onSelect(widget.onEditLogo!),
+                              ),
+                            _buildRow(
+                              icon: Icons.layers_rounded,
+                              label: '管理系列编组',
+                              onTap: () {
+                                final fn = widget.onManageSeries;
+                                if (fn != null) {
+                                  widget.onSelect(fn);
+                                } else {
+                                  widget.onDismiss();
+                                }
+                              },
+                            ),
+                            if (widget.onMergeWork != null)
+                              _buildRow(
+                                icon: Icons.merge_type_rounded,
+                                label: '合并整部作品至其他条目...',
+                                onTap: () =>
+                                    widget.onSelect(widget.onMergeWork!),
+                              ),
+                            _buildRow(
+                              icon: Icons.visibility_off_outlined,
+                              label: '隐藏作品',
+                              onTap: () => widget.onSelect(widget.onHideWork),
+                            ),
+                            _buildRow(
+                              icon: Icons.delete_outline_rounded,
+                              label: '删除作品',
+                              isDanger: true,
+                              onTap: () => widget.onSelect(widget.onDeleteWork),
+                            ),
+                            Divider(height: 10, color: p.hairline),
+                            _buildRow(
+                              icon: Icons.refresh_rounded,
+                              label: '重新抓取 TMDB 数据',
+                              onTap: () => widget.onSelect(widget.onRescrape),
+                            ),
+                            if (widget.onSyncBangumi != null)
+                              _buildRow(
+                                icon: Icons.sync_rounded,
+                                label: '同步 Bangumi 观看进度',
+                                onTap: () =>
+                                    widget.onSelect(widget.onSyncBangumi!),
+                              ),
+                            if (KonataAdaptiveTokens.isWindows)
+                              _buildRow(
+                                icon: Icons.folder_open_rounded,
+                                label: '打开本地所在文件夹',
+                                onTap: () =>
+                                    widget.onSelect(widget.onOpenLocalDir),
+                              ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -444,12 +476,18 @@ class _MenuRow extends StatelessWidget {
   const _MenuRow({
     required this.icon,
     required this.label,
+    required this.hovered,
+    required this.onHoverEnter,
+    required this.onHoverExit,
     required this.onTap,
     this.isDanger = false,
   });
 
   final IconData icon;
   final String label;
+  final bool hovered;
+  final VoidCallback onHoverEnter;
+  final VoidCallback onHoverExit;
   final VoidCallback onTap;
   final bool isDanger;
 
@@ -457,31 +495,28 @@ class _MenuRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = context.palette;
     final fg = isDanger ? p.danger : p.textPrimary;
-    return InkWell(
+    return KonataPopoverOptionTile(
+      hovered: hovered,
+      onHoverEnter: onHoverEnter,
+      onHoverExit: onHoverExit,
       onTap: onTap,
-      child: ConstrainedBox(
-        constraints: KonataAdaptiveTokens.isAndroid
-            ? const BoxConstraints(minHeight: KonataAdaptiveTokens.touchTarget)
-            : const BoxConstraints(),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-          child: Row(
-            children: [
-              Icon(icon, size: 17, color: fg),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    color: fg,
-                    fontSize: KonataTheme.fontSizeBodySm,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
+      margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      child: Row(
+        children: [
+          Icon(icon, size: 17, color: fg),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: fg,
+                fontSize: KonataTheme.fontSizeBodySm,
+                fontWeight: FontWeight.w500,
               ),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }

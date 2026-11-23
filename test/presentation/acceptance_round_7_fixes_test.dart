@@ -41,6 +41,7 @@ import 'package:konata/presentation/settings/settings_network_panel.dart';
 import 'package:konata/presentation/shell/top_nav_bar.dart';
 import 'package:konata/presentation/theme/konata_theme.dart';
 import 'package:konata/presentation/widgets/design_system/konata_dropdown.dart';
+import 'package:konata/presentation/widgets/design_system/konata_popover_option_tile.dart';
 import 'package:konata/presentation/widgets/design_system/konata_segmented_capsule.dart';
 import 'package:konata/presentation/widgets/design_system/konata_surface_card.dart';
 
@@ -1020,16 +1021,16 @@ void main() {
       int countGreyHoverTiles() {
         var greyCount = 0;
         for (final label in const ['选项 Alpha', '选项 Beta']) {
-          final inkFinder = find.ancestor(
+          final tileFinder = find.ancestor(
             of: find.text(label),
-            matching: find.byType(InkWell),
+            matching: find.byType(KonataPopoverOptionTile),
           );
           final tileContainers = find.descendant(
-            of: inkFinder.first,
-            matching: find.byType(AnimatedContainer),
+            of: tileFinder.first,
+            matching: find.byType(Container),
           );
           for (final element in tileContainers.evaluate()) {
-            final widget = element.widget as AnimatedContainer;
+            final widget = element.widget as Container;
             final deco = widget.decoration;
             if (deco is BoxDecoration &&
                 deco.color != null &&
@@ -1046,20 +1047,23 @@ void main() {
       await tester.sendEventToBinding(
         pointer.hover(tester.getCenter(find.text('选项 Alpha'))),
       );
-      await tester.pumpAndSettle();
+      await tester.pump();
       expect(countGreyHoverTiles(), equals(1));
 
+      // 立即划入下一行时单帧内必须互斥切换，严禁出现两行同时亮起
       await tester.sendEventToBinding(
         pointer.hover(tester.getCenter(find.text('选项 Beta'))),
       );
-      await tester.pumpAndSettle();
+      await tester.pump();
+      expect(countGreyHoverTiles(), equals(1));
+      await tester.pump(const Duration(milliseconds: 40));
       expect(countGreyHoverTiles(), equals(1));
 
-      // 移入当前已选中蓝色高亮项时，灰色悬停底色必须归零
+      // 移入当前已选中蓝色高亮项时，悬停底色必须归零
       await tester.sendEventToBinding(
         pointer.hover(tester.getCenter(find.text('选项 Gamma').last)),
       );
-      await tester.pumpAndSettle();
+      await tester.pump();
       expect(countGreyHoverTiles(), equals(0));
     });
 

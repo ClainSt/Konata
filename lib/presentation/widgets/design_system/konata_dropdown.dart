@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import '../../theme/konata_palette.dart';
 import '../../theme/konata_playback_tokens.dart';
 import 'konata_draggable_scrollbar.dart';
+import 'konata_popover_option_tile.dart';
 import '../../theme/konata_theme.dart';
 
 part 'konata_dropdown_overlay.dart';

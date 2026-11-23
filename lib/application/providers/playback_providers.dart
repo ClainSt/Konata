@@ -7,11 +7,14 @@ import '../../domain/models/media_variant.dart';
 import '../../domain/models/playback_record.dart';
 import '../../domain/models/work.dart';
 import '../../domain/repositories/desktop_relay_service.dart';
+import '../../domain/sync/konata_sync_models.dart';
+import '../../infrastructure/database/drift_library_repository.dart';
 import '../../infrastructure/sources/source_gateway_factory.dart';
 import '../../infrastructure/sources/webdav_source_gateway.dart';
 import '../../infrastructure/sources/work_detail_warmup_service.dart';
 import '../../infrastructure/storage/storage_root_provider.dart';
 import '../../infrastructure/stream_bridge/local_stream_bridge.dart';
+import '../../infrastructure/sync/konata_sync_store.dart';
 import '../playback/playback_preferences_provider.dart';
 import 'library_providers.dart';
 
@@ -276,13 +279,45 @@ class PlaybackCoordinator {
     await deleteHistoryRecords([record]);
   }
 
-  /// 批量删除多条播放记录。
+  /// 批量删除多条播放记录，并同步写入删除墓碑以防多设备同步后旧记录复活。
   Future<void> deleteHistoryRecords(List<PlaybackRecord> records) async {
     if (records.isEmpty) return;
     final repo = _ref.read(libraryRepositoryProvider);
+    final syncStore = repo is DriftLibraryRepository
+        ? KonataSyncStore(repo.database)
+        : null;
+    final deviceId = syncStore != null
+        ? await syncStore.getOrCreateDeviceId()
+        : null;
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final workCache = <String, Work?>{};
     final affectedWorkIds = <String>{};
     for (final record in records) {
       await repo.deletePlaybackRecord(record.id);
+      if (syncStore != null && deviceId != null) {
+        final work = workCache.containsKey(record.workId)
+            ? workCache[record.workId]
+            : (workCache[record.workId] = await repo.findWorkById(
+                record.workId,
+              ));
+        if (work != null) {
+          final key = CanonicalWorkIdentity.playbackKey(
+            canonicalWorkKey: CanonicalWorkIdentity.primaryKeyFor(work),
+            seasonNumber: record.seasonNumber,
+            episodeNumber: record.episodeNumber,
+            isAudio: record.isAudioRecord,
+            audioTrackHint: record.isAudioRecord ? record.episodeTitle : null,
+          );
+          await syncStore.upsertTombstone(
+            SyncTombstoneEntry(
+              entityKey: key,
+              entityType: 'playback',
+              deletedAtMs: nowMs,
+              deviceId: deviceId,
+            ),
+          );
+        }
+      }
       affectedWorkIds.add(record.workId);
     }
     for (final workId in affectedWorkIds) {

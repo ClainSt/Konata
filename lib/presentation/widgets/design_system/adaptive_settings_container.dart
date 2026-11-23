@@ -277,7 +277,7 @@ class _SettingsCategoriesState<T> extends State<_SettingsCategories<T>> {
   @override
   Widget build(BuildContext context) => KonataDraggableScrollbar(
     controller: _scroll,
-    builder: (_, controller) => ListView(
+    builder: (_, controller) => SingleChildScrollView(
       controller: controller,
       padding: EdgeInsets.fromLTRB(
         KonataAdaptiveTokens.horizontalInset,
@@ -285,8 +285,10 @@ class _SettingsCategoriesState<T> extends State<_SettingsCategories<T>> {
         KonataAdaptiveTokens.horizontalInset,
         widget.bottomClearance,
       ),
-      children: [
-        for (final c in widget.categories)
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final c in widget.categories)
           DecoratedBox(
             decoration: BoxDecoration(
               color: !widget.summaries && c.value == widget.selected
@@ -319,7 +321,8 @@ class _SettingsCategoriesState<T> extends State<_SettingsCategories<T>> {
               onTap: () => widget.onTap(c),
             ),
           ),
-      ],
+        ],
+      ),
     ),
   );
 }

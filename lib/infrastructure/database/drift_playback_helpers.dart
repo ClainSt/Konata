@@ -116,6 +116,11 @@ Future<void> upsertPlaybackRecordInDb(
             positionSeconds: Value(record.positionSeconds),
             durationSeconds: Value(record.durationSeconds),
             isCompleted: Value(completed),
+            updatedAtMs: Value(
+              record.playedAt.millisecondsSinceEpoch > 0
+                  ? record.playedAt.millisecondsSinceEpoch
+                  : DateTime.now().millisecondsSinceEpoch,
+            ),
           ),
         );
   });

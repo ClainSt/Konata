@@ -818,6 +818,18 @@ class $WorksTable extends Works with TableInfo<$WorksTable, WorkRow> {
     ),
     defaultValue: const Constant(false),
   );
+  static const VerificationMeta _updatedAtMsMeta = const VerificationMeta(
+    'updatedAtMs',
+  );
+  @override
+  late final GeneratedColumn<int> updatedAtMs = GeneratedColumn<int>(
+    'updated_at_ms',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -853,6 +865,7 @@ class $WorksTable extends Works with TableInfo<$WorksTable, WorkRow> {
     seriesOrder,
     seriesLabel,
     seriesLocked,
+    updatedAtMs,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -1107,6 +1120,15 @@ class $WorksTable extends Works with TableInfo<$WorksTable, WorkRow> {
         ),
       );
     }
+    if (data.containsKey('updated_at_ms')) {
+      context.handle(
+        _updatedAtMsMeta,
+        updatedAtMs.isAcceptableOrUnknown(
+          data['updated_at_ms']!,
+          _updatedAtMsMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -1252,6 +1274,10 @@ class $WorksTable extends Works with TableInfo<$WorksTable, WorkRow> {
         DriftSqlType.bool,
         data['${effectivePrefix}series_locked'],
       )!,
+      updatedAtMs: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}updated_at_ms'],
+      )!,
     );
   }
 
@@ -1373,6 +1399,9 @@ class WorkRow extends DataClass implements Insertable<WorkRow> {
 
   /// 系列编组与标签是否已人工锁定。
   final bool seriesLocked;
+
+  /// 最近一次元数据或人工锁定变更的 UTC 毫秒时间戳（供多设备增量同步判定新旧）。
+  final int updatedAtMs;
   const WorkRow({
     required this.id,
     this.tmdbId,
@@ -1407,6 +1436,7 @@ class WorkRow extends DataClass implements Insertable<WorkRow> {
     this.seriesOrder,
     this.seriesLabel,
     required this.seriesLocked,
+    required this.updatedAtMs,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -1492,6 +1522,7 @@ class WorkRow extends DataClass implements Insertable<WorkRow> {
       map['series_label'] = Variable<String>(seriesLabel);
     }
     map['series_locked'] = Variable<bool>(seriesLocked);
+    map['updated_at_ms'] = Variable<int>(updatedAtMs);
     return map;
   }
 
@@ -1570,6 +1601,7 @@ class WorkRow extends DataClass implements Insertable<WorkRow> {
           ? const Value.absent()
           : Value(seriesLabel),
       seriesLocked: Value(seriesLocked),
+      updatedAtMs: Value(updatedAtMs),
     );
   }
 
@@ -1620,6 +1652,7 @@ class WorkRow extends DataClass implements Insertable<WorkRow> {
       seriesOrder: serializer.fromJson<int?>(json['seriesOrder']),
       seriesLabel: serializer.fromJson<String?>(json['seriesLabel']),
       seriesLocked: serializer.fromJson<bool>(json['seriesLocked']),
+      updatedAtMs: serializer.fromJson<int>(json['updatedAtMs']),
     );
   }
   @override
@@ -1663,6 +1696,7 @@ class WorkRow extends DataClass implements Insertable<WorkRow> {
       'seriesOrder': serializer.toJson<int?>(seriesOrder),
       'seriesLabel': serializer.toJson<String?>(seriesLabel),
       'seriesLocked': serializer.toJson<bool>(seriesLocked),
+      'updatedAtMs': serializer.toJson<int>(updatedAtMs),
     };
   }
 
@@ -1700,6 +1734,7 @@ class WorkRow extends DataClass implements Insertable<WorkRow> {
     Value<int?> seriesOrder = const Value.absent(),
     Value<String?> seriesLabel = const Value.absent(),
     bool? seriesLocked,
+    int? updatedAtMs,
   }) => WorkRow(
     id: id ?? this.id,
     tmdbId: tmdbId.present ? tmdbId.value : this.tmdbId,
@@ -1748,6 +1783,7 @@ class WorkRow extends DataClass implements Insertable<WorkRow> {
     seriesOrder: seriesOrder.present ? seriesOrder.value : this.seriesOrder,
     seriesLabel: seriesLabel.present ? seriesLabel.value : this.seriesLabel,
     seriesLocked: seriesLocked ?? this.seriesLocked,
+    updatedAtMs: updatedAtMs ?? this.updatedAtMs,
   );
   WorkRow copyWithCompanion(WorksCompanion data) {
     return WorkRow(
@@ -1830,6 +1866,9 @@ class WorkRow extends DataClass implements Insertable<WorkRow> {
       seriesLocked: data.seriesLocked.present
           ? data.seriesLocked.value
           : this.seriesLocked,
+      updatedAtMs: data.updatedAtMs.present
+          ? data.updatedAtMs.value
+          : this.updatedAtMs,
     );
   }
 
@@ -1868,7 +1907,8 @@ class WorkRow extends DataClass implements Insertable<WorkRow> {
           ..write('seriesId: $seriesId, ')
           ..write('seriesOrder: $seriesOrder, ')
           ..write('seriesLabel: $seriesLabel, ')
-          ..write('seriesLocked: $seriesLocked')
+          ..write('seriesLocked: $seriesLocked, ')
+          ..write('updatedAtMs: $updatedAtMs')
           ..write(')'))
         .toString();
   }
@@ -1908,6 +1948,7 @@ class WorkRow extends DataClass implements Insertable<WorkRow> {
     seriesOrder,
     seriesLabel,
     seriesLocked,
+    updatedAtMs,
   ]);
   @override
   bool operator ==(Object other) =>
@@ -1945,7 +1986,8 @@ class WorkRow extends DataClass implements Insertable<WorkRow> {
           other.seriesId == this.seriesId &&
           other.seriesOrder == this.seriesOrder &&
           other.seriesLabel == this.seriesLabel &&
-          other.seriesLocked == this.seriesLocked);
+          other.seriesLocked == this.seriesLocked &&
+          other.updatedAtMs == this.updatedAtMs);
 }
 
 class WorksCompanion extends UpdateCompanion<WorkRow> {
@@ -1982,6 +2024,7 @@ class WorksCompanion extends UpdateCompanion<WorkRow> {
   final Value<int?> seriesOrder;
   final Value<String?> seriesLabel;
   final Value<bool> seriesLocked;
+  final Value<int> updatedAtMs;
   final Value<int> rowid;
   const WorksCompanion({
     this.id = const Value.absent(),
@@ -2017,6 +2060,7 @@ class WorksCompanion extends UpdateCompanion<WorkRow> {
     this.seriesOrder = const Value.absent(),
     this.seriesLabel = const Value.absent(),
     this.seriesLocked = const Value.absent(),
+    this.updatedAtMs = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   WorksCompanion.insert({
@@ -2053,6 +2097,7 @@ class WorksCompanion extends UpdateCompanion<WorkRow> {
     this.seriesOrder = const Value.absent(),
     this.seriesLabel = const Value.absent(),
     this.seriesLocked = const Value.absent(),
+    this.updatedAtMs = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        title = Value(title),
@@ -2091,6 +2136,7 @@ class WorksCompanion extends UpdateCompanion<WorkRow> {
     Expression<int>? seriesOrder,
     Expression<String>? seriesLabel,
     Expression<bool>? seriesLocked,
+    Expression<int>? updatedAtMs,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -2127,6 +2173,7 @@ class WorksCompanion extends UpdateCompanion<WorkRow> {
       if (seriesOrder != null) 'series_order': seriesOrder,
       if (seriesLabel != null) 'series_label': seriesLabel,
       if (seriesLocked != null) 'series_locked': seriesLocked,
+      if (updatedAtMs != null) 'updated_at_ms': updatedAtMs,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -2165,6 +2212,7 @@ class WorksCompanion extends UpdateCompanion<WorkRow> {
     Value<int?>? seriesOrder,
     Value<String?>? seriesLabel,
     Value<bool>? seriesLocked,
+    Value<int>? updatedAtMs,
     Value<int>? rowid,
   }) {
     return WorksCompanion(
@@ -2201,6 +2249,7 @@ class WorksCompanion extends UpdateCompanion<WorkRow> {
       seriesOrder: seriesOrder ?? this.seriesOrder,
       seriesLabel: seriesLabel ?? this.seriesLabel,
       seriesLocked: seriesLocked ?? this.seriesLocked,
+      updatedAtMs: updatedAtMs ?? this.updatedAtMs,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -2311,6 +2360,9 @@ class WorksCompanion extends UpdateCompanion<WorkRow> {
     if (seriesLocked.present) {
       map['series_locked'] = Variable<bool>(seriesLocked.value);
     }
+    if (updatedAtMs.present) {
+      map['updated_at_ms'] = Variable<int>(updatedAtMs.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -2353,6 +2405,7 @@ class WorksCompanion extends UpdateCompanion<WorkRow> {
           ..write('seriesOrder: $seriesOrder, ')
           ..write('seriesLabel: $seriesLabel, ')
           ..write('seriesLocked: $seriesLocked, ')
+          ..write('updatedAtMs: $updatedAtMs, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -5018,6 +5071,18 @@ class $PlaybackRecordsTable extends PlaybackRecords
     ),
     defaultValue: const Constant(false),
   );
+  static const VerificationMeta _updatedAtMsMeta = const VerificationMeta(
+    'updatedAtMs',
+  );
+  @override
+  late final GeneratedColumn<int> updatedAtMs = GeneratedColumn<int>(
+    'updated_at_ms',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -5032,6 +5097,7 @@ class $PlaybackRecordsTable extends PlaybackRecords
     positionSeconds,
     durationSeconds,
     isCompleted,
+    updatedAtMs,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -5140,6 +5206,15 @@ class $PlaybackRecordsTable extends PlaybackRecords
         ),
       );
     }
+    if (data.containsKey('updated_at_ms')) {
+      context.handle(
+        _updatedAtMsMeta,
+        updatedAtMs.isAcceptableOrUnknown(
+          data['updated_at_ms']!,
+          _updatedAtMsMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -5199,6 +5274,10 @@ class $PlaybackRecordsTable extends PlaybackRecords
         DriftSqlType.bool,
         data['${effectivePrefix}is_completed'],
       )!,
+      updatedAtMs: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}updated_at_ms'],
+      )!,
     );
   }
 
@@ -5250,6 +5329,9 @@ class PlaybackRecordRow extends DataClass
 
   /// 是否已看完（自动阈值或手动标记）。
   final bool isCompleted;
+
+  /// 最近一次进度变更的 UTC 毫秒时间戳（供多设备冲突合并判定新旧）。
+  final int updatedAtMs;
   const PlaybackRecordRow({
     required this.id,
     required this.workId,
@@ -5263,6 +5345,7 @@ class PlaybackRecordRow extends DataClass
     required this.positionSeconds,
     required this.durationSeconds,
     required this.isCompleted,
+    required this.updatedAtMs,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -5285,6 +5368,7 @@ class PlaybackRecordRow extends DataClass
     map['position_seconds'] = Variable<int>(positionSeconds);
     map['duration_seconds'] = Variable<int>(durationSeconds);
     map['is_completed'] = Variable<bool>(isCompleted);
+    map['updated_at_ms'] = Variable<int>(updatedAtMs);
     return map;
   }
 
@@ -5304,6 +5388,7 @@ class PlaybackRecordRow extends DataClass
       positionSeconds: Value(positionSeconds),
       durationSeconds: Value(durationSeconds),
       isCompleted: Value(isCompleted),
+      updatedAtMs: Value(updatedAtMs),
     );
   }
 
@@ -5327,6 +5412,7 @@ class PlaybackRecordRow extends DataClass
       positionSeconds: serializer.fromJson<int>(json['positionSeconds']),
       durationSeconds: serializer.fromJson<int>(json['durationSeconds']),
       isCompleted: serializer.fromJson<bool>(json['isCompleted']),
+      updatedAtMs: serializer.fromJson<int>(json['updatedAtMs']),
     );
   }
   @override
@@ -5347,6 +5433,7 @@ class PlaybackRecordRow extends DataClass
       'positionSeconds': serializer.toJson<int>(positionSeconds),
       'durationSeconds': serializer.toJson<int>(durationSeconds),
       'isCompleted': serializer.toJson<bool>(isCompleted),
+      'updatedAtMs': serializer.toJson<int>(updatedAtMs),
     };
   }
 
@@ -5363,6 +5450,7 @@ class PlaybackRecordRow extends DataClass
     int? positionSeconds,
     int? durationSeconds,
     bool? isCompleted,
+    int? updatedAtMs,
   }) => PlaybackRecordRow(
     id: id ?? this.id,
     workId: workId ?? this.workId,
@@ -5378,6 +5466,7 @@ class PlaybackRecordRow extends DataClass
     positionSeconds: positionSeconds ?? this.positionSeconds,
     durationSeconds: durationSeconds ?? this.durationSeconds,
     isCompleted: isCompleted ?? this.isCompleted,
+    updatedAtMs: updatedAtMs ?? this.updatedAtMs,
   );
   PlaybackRecordRow copyWithCompanion(PlaybackRecordsCompanion data) {
     return PlaybackRecordRow(
@@ -5407,6 +5496,9 @@ class PlaybackRecordRow extends DataClass
       isCompleted: data.isCompleted.present
           ? data.isCompleted.value
           : this.isCompleted,
+      updatedAtMs: data.updatedAtMs.present
+          ? data.updatedAtMs.value
+          : this.updatedAtMs,
     );
   }
 
@@ -5424,7 +5516,8 @@ class PlaybackRecordRow extends DataClass
           ..write('playedAt: $playedAt, ')
           ..write('positionSeconds: $positionSeconds, ')
           ..write('durationSeconds: $durationSeconds, ')
-          ..write('isCompleted: $isCompleted')
+          ..write('isCompleted: $isCompleted, ')
+          ..write('updatedAtMs: $updatedAtMs')
           ..write(')'))
         .toString();
   }
@@ -5443,6 +5536,7 @@ class PlaybackRecordRow extends DataClass
     positionSeconds,
     durationSeconds,
     isCompleted,
+    updatedAtMs,
   );
   @override
   bool operator ==(Object other) =>
@@ -5459,7 +5553,8 @@ class PlaybackRecordRow extends DataClass
           other.playedAt == this.playedAt &&
           other.positionSeconds == this.positionSeconds &&
           other.durationSeconds == this.durationSeconds &&
-          other.isCompleted == this.isCompleted);
+          other.isCompleted == this.isCompleted &&
+          other.updatedAtMs == this.updatedAtMs);
 }
 
 class PlaybackRecordsCompanion extends UpdateCompanion<PlaybackRecordRow> {
@@ -5475,6 +5570,7 @@ class PlaybackRecordsCompanion extends UpdateCompanion<PlaybackRecordRow> {
   final Value<int> positionSeconds;
   final Value<int> durationSeconds;
   final Value<bool> isCompleted;
+  final Value<int> updatedAtMs;
   final Value<int> rowid;
   const PlaybackRecordsCompanion({
     this.id = const Value.absent(),
@@ -5489,6 +5585,7 @@ class PlaybackRecordsCompanion extends UpdateCompanion<PlaybackRecordRow> {
     this.positionSeconds = const Value.absent(),
     this.durationSeconds = const Value.absent(),
     this.isCompleted = const Value.absent(),
+    this.updatedAtMs = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   PlaybackRecordsCompanion.insert({
@@ -5504,6 +5601,7 @@ class PlaybackRecordsCompanion extends UpdateCompanion<PlaybackRecordRow> {
     this.positionSeconds = const Value.absent(),
     this.durationSeconds = const Value.absent(),
     this.isCompleted = const Value.absent(),
+    this.updatedAtMs = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
        workId = Value(workId),
@@ -5526,6 +5624,7 @@ class PlaybackRecordsCompanion extends UpdateCompanion<PlaybackRecordRow> {
     Expression<int>? positionSeconds,
     Expression<int>? durationSeconds,
     Expression<bool>? isCompleted,
+    Expression<int>? updatedAtMs,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -5541,6 +5640,7 @@ class PlaybackRecordsCompanion extends UpdateCompanion<PlaybackRecordRow> {
       if (positionSeconds != null) 'position_seconds': positionSeconds,
       if (durationSeconds != null) 'duration_seconds': durationSeconds,
       if (isCompleted != null) 'is_completed': isCompleted,
+      if (updatedAtMs != null) 'updated_at_ms': updatedAtMs,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -5558,6 +5658,7 @@ class PlaybackRecordsCompanion extends UpdateCompanion<PlaybackRecordRow> {
     Value<int>? positionSeconds,
     Value<int>? durationSeconds,
     Value<bool>? isCompleted,
+    Value<int>? updatedAtMs,
     Value<int>? rowid,
   }) {
     return PlaybackRecordsCompanion(
@@ -5573,6 +5674,7 @@ class PlaybackRecordsCompanion extends UpdateCompanion<PlaybackRecordRow> {
       positionSeconds: positionSeconds ?? this.positionSeconds,
       durationSeconds: durationSeconds ?? this.durationSeconds,
       isCompleted: isCompleted ?? this.isCompleted,
+      updatedAtMs: updatedAtMs ?? this.updatedAtMs,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -5618,6 +5720,9 @@ class PlaybackRecordsCompanion extends UpdateCompanion<PlaybackRecordRow> {
     if (isCompleted.present) {
       map['is_completed'] = Variable<bool>(isCompleted.value);
     }
+    if (updatedAtMs.present) {
+      map['updated_at_ms'] = Variable<int>(updatedAtMs.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -5639,6 +5744,7 @@ class PlaybackRecordsCompanion extends UpdateCompanion<PlaybackRecordRow> {
           ..write('positionSeconds: $positionSeconds, ')
           ..write('durationSeconds: $durationSeconds, ')
           ..write('isCompleted: $isCompleted, ')
+          ..write('updatedAtMs: $updatedAtMs, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -7009,6 +7115,1223 @@ class LyricCacheEntriesCompanion extends UpdateCompanion<LyricCacheRow> {
   }
 }
 
+class $SyncTombstonesTable extends SyncTombstones
+    with TableInfo<$SyncTombstonesTable, SyncTombstoneRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SyncTombstonesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _entityKeyMeta = const VerificationMeta(
+    'entityKey',
+  );
+  @override
+  late final GeneratedColumn<String> entityKey = GeneratedColumn<String>(
+    'entity_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _entityTypeMeta = const VerificationMeta(
+    'entityType',
+  );
+  @override
+  late final GeneratedColumn<String> entityType = GeneratedColumn<String>(
+    'entity_type',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _deletedAtMsMeta = const VerificationMeta(
+    'deletedAtMs',
+  );
+  @override
+  late final GeneratedColumn<int> deletedAtMs = GeneratedColumn<int>(
+    'deleted_at_ms',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _deviceIdMeta = const VerificationMeta(
+    'deviceId',
+  );
+  @override
+  late final GeneratedColumn<String> deviceId = GeneratedColumn<String>(
+    'device_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    entityKey,
+    entityType,
+    deletedAtMs,
+    deviceId,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'sync_tombstones';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<SyncTombstoneRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('entity_key')) {
+      context.handle(
+        _entityKeyMeta,
+        entityKey.isAcceptableOrUnknown(data['entity_key']!, _entityKeyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_entityKeyMeta);
+    }
+    if (data.containsKey('entity_type')) {
+      context.handle(
+        _entityTypeMeta,
+        entityType.isAcceptableOrUnknown(data['entity_type']!, _entityTypeMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_entityTypeMeta);
+    }
+    if (data.containsKey('deleted_at_ms')) {
+      context.handle(
+        _deletedAtMsMeta,
+        deletedAtMs.isAcceptableOrUnknown(
+          data['deleted_at_ms']!,
+          _deletedAtMsMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_deletedAtMsMeta);
+    }
+    if (data.containsKey('device_id')) {
+      context.handle(
+        _deviceIdMeta,
+        deviceId.isAcceptableOrUnknown(data['device_id']!, _deviceIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_deviceIdMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {entityKey};
+  @override
+  SyncTombstoneRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SyncTombstoneRow(
+      entityKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}entity_key'],
+      )!,
+      entityType: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}entity_type'],
+      )!,
+      deletedAtMs: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}deleted_at_ms'],
+      )!,
+      deviceId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}device_id'],
+      )!,
+    );
+  }
+
+  @override
+  $SyncTombstonesTable createAlias(String alias) {
+    return $SyncTombstonesTable(attachedDatabase, alias);
+  }
+}
+
+class SyncTombstoneRow extends DataClass
+    implements Insertable<SyncTombstoneRow> {
+  /// 逻辑实体唯一键（如 `playback::<canonicalKey>::s1::e3`）。
+  final String entityKey;
+
+  /// 实体类型（`playback` / `work_override` / `series`）。
+  final String entityType;
+
+  /// 删除发生的 UTC 毫秒时间戳。
+  final int deletedAtMs;
+
+  /// 产生该删除动作的设备标识。
+  final String deviceId;
+  const SyncTombstoneRow({
+    required this.entityKey,
+    required this.entityType,
+    required this.deletedAtMs,
+    required this.deviceId,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['entity_key'] = Variable<String>(entityKey);
+    map['entity_type'] = Variable<String>(entityType);
+    map['deleted_at_ms'] = Variable<int>(deletedAtMs);
+    map['device_id'] = Variable<String>(deviceId);
+    return map;
+  }
+
+  SyncTombstonesCompanion toCompanion(bool nullToAbsent) {
+    return SyncTombstonesCompanion(
+      entityKey: Value(entityKey),
+      entityType: Value(entityType),
+      deletedAtMs: Value(deletedAtMs),
+      deviceId: Value(deviceId),
+    );
+  }
+
+  factory SyncTombstoneRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SyncTombstoneRow(
+      entityKey: serializer.fromJson<String>(json['entityKey']),
+      entityType: serializer.fromJson<String>(json['entityType']),
+      deletedAtMs: serializer.fromJson<int>(json['deletedAtMs']),
+      deviceId: serializer.fromJson<String>(json['deviceId']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'entityKey': serializer.toJson<String>(entityKey),
+      'entityType': serializer.toJson<String>(entityType),
+      'deletedAtMs': serializer.toJson<int>(deletedAtMs),
+      'deviceId': serializer.toJson<String>(deviceId),
+    };
+  }
+
+  SyncTombstoneRow copyWith({
+    String? entityKey,
+    String? entityType,
+    int? deletedAtMs,
+    String? deviceId,
+  }) => SyncTombstoneRow(
+    entityKey: entityKey ?? this.entityKey,
+    entityType: entityType ?? this.entityType,
+    deletedAtMs: deletedAtMs ?? this.deletedAtMs,
+    deviceId: deviceId ?? this.deviceId,
+  );
+  SyncTombstoneRow copyWithCompanion(SyncTombstonesCompanion data) {
+    return SyncTombstoneRow(
+      entityKey: data.entityKey.present ? data.entityKey.value : this.entityKey,
+      entityType: data.entityType.present
+          ? data.entityType.value
+          : this.entityType,
+      deletedAtMs: data.deletedAtMs.present
+          ? data.deletedAtMs.value
+          : this.deletedAtMs,
+      deviceId: data.deviceId.present ? data.deviceId.value : this.deviceId,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SyncTombstoneRow(')
+          ..write('entityKey: $entityKey, ')
+          ..write('entityType: $entityType, ')
+          ..write('deletedAtMs: $deletedAtMs, ')
+          ..write('deviceId: $deviceId')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(entityKey, entityType, deletedAtMs, deviceId);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SyncTombstoneRow &&
+          other.entityKey == this.entityKey &&
+          other.entityType == this.entityType &&
+          other.deletedAtMs == this.deletedAtMs &&
+          other.deviceId == this.deviceId);
+}
+
+class SyncTombstonesCompanion extends UpdateCompanion<SyncTombstoneRow> {
+  final Value<String> entityKey;
+  final Value<String> entityType;
+  final Value<int> deletedAtMs;
+  final Value<String> deviceId;
+  final Value<int> rowid;
+  const SyncTombstonesCompanion({
+    this.entityKey = const Value.absent(),
+    this.entityType = const Value.absent(),
+    this.deletedAtMs = const Value.absent(),
+    this.deviceId = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  SyncTombstonesCompanion.insert({
+    required String entityKey,
+    required String entityType,
+    required int deletedAtMs,
+    required String deviceId,
+    this.rowid = const Value.absent(),
+  }) : entityKey = Value(entityKey),
+       entityType = Value(entityType),
+       deletedAtMs = Value(deletedAtMs),
+       deviceId = Value(deviceId);
+  static Insertable<SyncTombstoneRow> custom({
+    Expression<String>? entityKey,
+    Expression<String>? entityType,
+    Expression<int>? deletedAtMs,
+    Expression<String>? deviceId,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (entityKey != null) 'entity_key': entityKey,
+      if (entityType != null) 'entity_type': entityType,
+      if (deletedAtMs != null) 'deleted_at_ms': deletedAtMs,
+      if (deviceId != null) 'device_id': deviceId,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  SyncTombstonesCompanion copyWith({
+    Value<String>? entityKey,
+    Value<String>? entityType,
+    Value<int>? deletedAtMs,
+    Value<String>? deviceId,
+    Value<int>? rowid,
+  }) {
+    return SyncTombstonesCompanion(
+      entityKey: entityKey ?? this.entityKey,
+      entityType: entityType ?? this.entityType,
+      deletedAtMs: deletedAtMs ?? this.deletedAtMs,
+      deviceId: deviceId ?? this.deviceId,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (entityKey.present) {
+      map['entity_key'] = Variable<String>(entityKey.value);
+    }
+    if (entityType.present) {
+      map['entity_type'] = Variable<String>(entityType.value);
+    }
+    if (deletedAtMs.present) {
+      map['deleted_at_ms'] = Variable<int>(deletedAtMs.value);
+    }
+    if (deviceId.present) {
+      map['device_id'] = Variable<String>(deviceId.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SyncTombstonesCompanion(')
+          ..write('entityKey: $entityKey, ')
+          ..write('entityType: $entityType, ')
+          ..write('deletedAtMs: $deletedAtMs, ')
+          ..write('deviceId: $deviceId, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $SyncKvMetaTable extends SyncKvMeta
+    with TableInfo<$SyncKvMetaTable, SyncKvMetaRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SyncKvMetaTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _keyMeta = const VerificationMeta('key');
+  @override
+  late final GeneratedColumn<String> key = GeneratedColumn<String>(
+    'key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _valueMeta = const VerificationMeta('value');
+  @override
+  late final GeneratedColumn<String> value = GeneratedColumn<String>(
+    'value',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMsMeta = const VerificationMeta(
+    'updatedAtMs',
+  );
+  @override
+  late final GeneratedColumn<int> updatedAtMs = GeneratedColumn<int>(
+    'updated_at_ms',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [key, value, updatedAtMs];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'sync_kv_meta';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<SyncKvMetaRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('key')) {
+      context.handle(
+        _keyMeta,
+        key.isAcceptableOrUnknown(data['key']!, _keyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_keyMeta);
+    }
+    if (data.containsKey('value')) {
+      context.handle(
+        _valueMeta,
+        value.isAcceptableOrUnknown(data['value']!, _valueMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_valueMeta);
+    }
+    if (data.containsKey('updated_at_ms')) {
+      context.handle(
+        _updatedAtMsMeta,
+        updatedAtMs.isAcceptableOrUnknown(
+          data['updated_at_ms']!,
+          _updatedAtMsMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMsMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {key};
+  @override
+  SyncKvMetaRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SyncKvMetaRow(
+      key: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}key'],
+      )!,
+      value: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}value'],
+      )!,
+      updatedAtMs: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}updated_at_ms'],
+      )!,
+    );
+  }
+
+  @override
+  $SyncKvMetaTable createAlias(String alias) {
+    return $SyncKvMetaTable(attachedDatabase, alias);
+  }
+}
+
+class SyncKvMetaRow extends DataClass implements Insertable<SyncKvMetaRow> {
+  /// 元信息键名。
+  final String key;
+
+  /// 元信息值文本。
+  final String value;
+
+  /// 最近更新的 UTC 毫秒时间戳。
+  final int updatedAtMs;
+  const SyncKvMetaRow({
+    required this.key,
+    required this.value,
+    required this.updatedAtMs,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['key'] = Variable<String>(key);
+    map['value'] = Variable<String>(value);
+    map['updated_at_ms'] = Variable<int>(updatedAtMs);
+    return map;
+  }
+
+  SyncKvMetaCompanion toCompanion(bool nullToAbsent) {
+    return SyncKvMetaCompanion(
+      key: Value(key),
+      value: Value(value),
+      updatedAtMs: Value(updatedAtMs),
+    );
+  }
+
+  factory SyncKvMetaRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SyncKvMetaRow(
+      key: serializer.fromJson<String>(json['key']),
+      value: serializer.fromJson<String>(json['value']),
+      updatedAtMs: serializer.fromJson<int>(json['updatedAtMs']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'key': serializer.toJson<String>(key),
+      'value': serializer.toJson<String>(value),
+      'updatedAtMs': serializer.toJson<int>(updatedAtMs),
+    };
+  }
+
+  SyncKvMetaRow copyWith({String? key, String? value, int? updatedAtMs}) =>
+      SyncKvMetaRow(
+        key: key ?? this.key,
+        value: value ?? this.value,
+        updatedAtMs: updatedAtMs ?? this.updatedAtMs,
+      );
+  SyncKvMetaRow copyWithCompanion(SyncKvMetaCompanion data) {
+    return SyncKvMetaRow(
+      key: data.key.present ? data.key.value : this.key,
+      value: data.value.present ? data.value.value : this.value,
+      updatedAtMs: data.updatedAtMs.present
+          ? data.updatedAtMs.value
+          : this.updatedAtMs,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SyncKvMetaRow(')
+          ..write('key: $key, ')
+          ..write('value: $value, ')
+          ..write('updatedAtMs: $updatedAtMs')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(key, value, updatedAtMs);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SyncKvMetaRow &&
+          other.key == this.key &&
+          other.value == this.value &&
+          other.updatedAtMs == this.updatedAtMs);
+}
+
+class SyncKvMetaCompanion extends UpdateCompanion<SyncKvMetaRow> {
+  final Value<String> key;
+  final Value<String> value;
+  final Value<int> updatedAtMs;
+  final Value<int> rowid;
+  const SyncKvMetaCompanion({
+    this.key = const Value.absent(),
+    this.value = const Value.absent(),
+    this.updatedAtMs = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  SyncKvMetaCompanion.insert({
+    required String key,
+    required String value,
+    required int updatedAtMs,
+    this.rowid = const Value.absent(),
+  }) : key = Value(key),
+       value = Value(value),
+       updatedAtMs = Value(updatedAtMs);
+  static Insertable<SyncKvMetaRow> custom({
+    Expression<String>? key,
+    Expression<String>? value,
+    Expression<int>? updatedAtMs,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (key != null) 'key': key,
+      if (value != null) 'value': value,
+      if (updatedAtMs != null) 'updated_at_ms': updatedAtMs,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  SyncKvMetaCompanion copyWith({
+    Value<String>? key,
+    Value<String>? value,
+    Value<int>? updatedAtMs,
+    Value<int>? rowid,
+  }) {
+    return SyncKvMetaCompanion(
+      key: key ?? this.key,
+      value: value ?? this.value,
+      updatedAtMs: updatedAtMs ?? this.updatedAtMs,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (key.present) {
+      map['key'] = Variable<String>(key.value);
+    }
+    if (value.present) {
+      map['value'] = Variable<String>(value.value);
+    }
+    if (updatedAtMs.present) {
+      map['updated_at_ms'] = Variable<int>(updatedAtMs.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SyncKvMetaCompanion(')
+          ..write('key: $key, ')
+          ..write('value: $value, ')
+          ..write('updatedAtMs: $updatedAtMs, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $BangumiSyncQueueTable extends BangumiSyncQueue
+    with TableInfo<$BangumiSyncQueueTable, BangumiSyncQueueRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $BangumiSyncQueueTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _queueKeyMeta = const VerificationMeta(
+    'queueKey',
+  );
+  @override
+  late final GeneratedColumn<String> queueKey = GeneratedColumn<String>(
+    'queue_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _subjectIdMeta = const VerificationMeta(
+    'subjectId',
+  );
+  @override
+  late final GeneratedColumn<int> subjectId = GeneratedColumn<int>(
+    'subject_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _seasonNumberMeta = const VerificationMeta(
+    'seasonNumber',
+  );
+  @override
+  late final GeneratedColumn<int> seasonNumber = GeneratedColumn<int>(
+    'season_number',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _episodeNumberMeta = const VerificationMeta(
+    'episodeNumber',
+  );
+  @override
+  late final GeneratedColumn<int> episodeNumber = GeneratedColumn<int>(
+    'episode_number',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _targetStatusMeta = const VerificationMeta(
+    'targetStatus',
+  );
+  @override
+  late final GeneratedColumn<int> targetStatus = GeneratedColumn<int>(
+    'target_status',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _enqueuedAtMsMeta = const VerificationMeta(
+    'enqueuedAtMs',
+  );
+  @override
+  late final GeneratedColumn<int> enqueuedAtMs = GeneratedColumn<int>(
+    'enqueued_at_ms',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _retryCountMeta = const VerificationMeta(
+    'retryCount',
+  );
+  @override
+  late final GeneratedColumn<int> retryCount = GeneratedColumn<int>(
+    'retry_count',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _lastErrorMeta = const VerificationMeta(
+    'lastError',
+  );
+  @override
+  late final GeneratedColumn<String> lastError = GeneratedColumn<String>(
+    'last_error',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _nextRetryAtMsMeta = const VerificationMeta(
+    'nextRetryAtMs',
+  );
+  @override
+  late final GeneratedColumn<int> nextRetryAtMs = GeneratedColumn<int>(
+    'next_retry_at_ms',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    queueKey,
+    subjectId,
+    seasonNumber,
+    episodeNumber,
+    targetStatus,
+    enqueuedAtMs,
+    retryCount,
+    lastError,
+    nextRetryAtMs,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'bangumi_sync_queue';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<BangumiSyncQueueRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('queue_key')) {
+      context.handle(
+        _queueKeyMeta,
+        queueKey.isAcceptableOrUnknown(data['queue_key']!, _queueKeyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_queueKeyMeta);
+    }
+    if (data.containsKey('subject_id')) {
+      context.handle(
+        _subjectIdMeta,
+        subjectId.isAcceptableOrUnknown(data['subject_id']!, _subjectIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_subjectIdMeta);
+    }
+    if (data.containsKey('season_number')) {
+      context.handle(
+        _seasonNumberMeta,
+        seasonNumber.isAcceptableOrUnknown(
+          data['season_number']!,
+          _seasonNumberMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_seasonNumberMeta);
+    }
+    if (data.containsKey('episode_number')) {
+      context.handle(
+        _episodeNumberMeta,
+        episodeNumber.isAcceptableOrUnknown(
+          data['episode_number']!,
+          _episodeNumberMeta,
+        ),
+      );
+    }
+    if (data.containsKey('target_status')) {
+      context.handle(
+        _targetStatusMeta,
+        targetStatus.isAcceptableOrUnknown(
+          data['target_status']!,
+          _targetStatusMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_targetStatusMeta);
+    }
+    if (data.containsKey('enqueued_at_ms')) {
+      context.handle(
+        _enqueuedAtMsMeta,
+        enqueuedAtMs.isAcceptableOrUnknown(
+          data['enqueued_at_ms']!,
+          _enqueuedAtMsMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_enqueuedAtMsMeta);
+    }
+    if (data.containsKey('retry_count')) {
+      context.handle(
+        _retryCountMeta,
+        retryCount.isAcceptableOrUnknown(data['retry_count']!, _retryCountMeta),
+      );
+    }
+    if (data.containsKey('last_error')) {
+      context.handle(
+        _lastErrorMeta,
+        lastError.isAcceptableOrUnknown(data['last_error']!, _lastErrorMeta),
+      );
+    }
+    if (data.containsKey('next_retry_at_ms')) {
+      context.handle(
+        _nextRetryAtMsMeta,
+        nextRetryAtMs.isAcceptableOrUnknown(
+          data['next_retry_at_ms']!,
+          _nextRetryAtMsMeta,
+        ),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {queueKey};
+  @override
+  BangumiSyncQueueRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return BangumiSyncQueueRow(
+      queueKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}queue_key'],
+      )!,
+      subjectId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}subject_id'],
+      )!,
+      seasonNumber: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}season_number'],
+      )!,
+      episodeNumber: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}episode_number'],
+      ),
+      targetStatus: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}target_status'],
+      )!,
+      enqueuedAtMs: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}enqueued_at_ms'],
+      )!,
+      retryCount: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}retry_count'],
+      )!,
+      lastError: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}last_error'],
+      ),
+      nextRetryAtMs: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}next_retry_at_ms'],
+      )!,
+    );
+  }
+
+  @override
+  $BangumiSyncQueueTable createAlias(String alias) {
+    return $BangumiSyncQueueTable(attachedDatabase, alias);
+  }
+}
+
+class BangumiSyncQueueRow extends DataClass
+    implements Insertable<BangumiSyncQueueRow> {
+  /// 队列项唯一去重键（如 `ep::<subjectId>::s<season>::e<ep>`）。
+  final String queueKey;
+
+  /// Bangumi 条目 ID。
+  final int subjectId;
+
+  /// 本地季号（用于区分配对关系与特典 SP）。
+  final int seasonNumber;
+
+  /// 集号（单部剧场版可为空）。
+  final int? episodeNumber;
+
+  /// 目标 Bangumi 单集观看状态（`2=看过`、`0=未看`）。
+  final int targetStatus;
+
+  /// 首次入队的 UTC 毫秒时间戳。
+  final int enqueuedAtMs;
+
+  /// 已失败重试次数。
+  final int retryCount;
+
+  /// 最近一次失败原因（已脱敏）。
+  final String? lastError;
+
+  /// 下次允许重试的 UTC 毫秒时间戳。
+  final int nextRetryAtMs;
+  const BangumiSyncQueueRow({
+    required this.queueKey,
+    required this.subjectId,
+    required this.seasonNumber,
+    this.episodeNumber,
+    required this.targetStatus,
+    required this.enqueuedAtMs,
+    required this.retryCount,
+    this.lastError,
+    required this.nextRetryAtMs,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['queue_key'] = Variable<String>(queueKey);
+    map['subject_id'] = Variable<int>(subjectId);
+    map['season_number'] = Variable<int>(seasonNumber);
+    if (!nullToAbsent || episodeNumber != null) {
+      map['episode_number'] = Variable<int>(episodeNumber);
+    }
+    map['target_status'] = Variable<int>(targetStatus);
+    map['enqueued_at_ms'] = Variable<int>(enqueuedAtMs);
+    map['retry_count'] = Variable<int>(retryCount);
+    if (!nullToAbsent || lastError != null) {
+      map['last_error'] = Variable<String>(lastError);
+    }
+    map['next_retry_at_ms'] = Variable<int>(nextRetryAtMs);
+    return map;
+  }
+
+  BangumiSyncQueueCompanion toCompanion(bool nullToAbsent) {
+    return BangumiSyncQueueCompanion(
+      queueKey: Value(queueKey),
+      subjectId: Value(subjectId),
+      seasonNumber: Value(seasonNumber),
+      episodeNumber: episodeNumber == null && nullToAbsent
+          ? const Value.absent()
+          : Value(episodeNumber),
+      targetStatus: Value(targetStatus),
+      enqueuedAtMs: Value(enqueuedAtMs),
+      retryCount: Value(retryCount),
+      lastError: lastError == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastError),
+      nextRetryAtMs: Value(nextRetryAtMs),
+    );
+  }
+
+  factory BangumiSyncQueueRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return BangumiSyncQueueRow(
+      queueKey: serializer.fromJson<String>(json['queueKey']),
+      subjectId: serializer.fromJson<int>(json['subjectId']),
+      seasonNumber: serializer.fromJson<int>(json['seasonNumber']),
+      episodeNumber: serializer.fromJson<int?>(json['episodeNumber']),
+      targetStatus: serializer.fromJson<int>(json['targetStatus']),
+      enqueuedAtMs: serializer.fromJson<int>(json['enqueuedAtMs']),
+      retryCount: serializer.fromJson<int>(json['retryCount']),
+      lastError: serializer.fromJson<String?>(json['lastError']),
+      nextRetryAtMs: serializer.fromJson<int>(json['nextRetryAtMs']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'queueKey': serializer.toJson<String>(queueKey),
+      'subjectId': serializer.toJson<int>(subjectId),
+      'seasonNumber': serializer.toJson<int>(seasonNumber),
+      'episodeNumber': serializer.toJson<int?>(episodeNumber),
+      'targetStatus': serializer.toJson<int>(targetStatus),
+      'enqueuedAtMs': serializer.toJson<int>(enqueuedAtMs),
+      'retryCount': serializer.toJson<int>(retryCount),
+      'lastError': serializer.toJson<String?>(lastError),
+      'nextRetryAtMs': serializer.toJson<int>(nextRetryAtMs),
+    };
+  }
+
+  BangumiSyncQueueRow copyWith({
+    String? queueKey,
+    int? subjectId,
+    int? seasonNumber,
+    Value<int?> episodeNumber = const Value.absent(),
+    int? targetStatus,
+    int? enqueuedAtMs,
+    int? retryCount,
+    Value<String?> lastError = const Value.absent(),
+    int? nextRetryAtMs,
+  }) => BangumiSyncQueueRow(
+    queueKey: queueKey ?? this.queueKey,
+    subjectId: subjectId ?? this.subjectId,
+    seasonNumber: seasonNumber ?? this.seasonNumber,
+    episodeNumber: episodeNumber.present
+        ? episodeNumber.value
+        : this.episodeNumber,
+    targetStatus: targetStatus ?? this.targetStatus,
+    enqueuedAtMs: enqueuedAtMs ?? this.enqueuedAtMs,
+    retryCount: retryCount ?? this.retryCount,
+    lastError: lastError.present ? lastError.value : this.lastError,
+    nextRetryAtMs: nextRetryAtMs ?? this.nextRetryAtMs,
+  );
+  BangumiSyncQueueRow copyWithCompanion(BangumiSyncQueueCompanion data) {
+    return BangumiSyncQueueRow(
+      queueKey: data.queueKey.present ? data.queueKey.value : this.queueKey,
+      subjectId: data.subjectId.present ? data.subjectId.value : this.subjectId,
+      seasonNumber: data.seasonNumber.present
+          ? data.seasonNumber.value
+          : this.seasonNumber,
+      episodeNumber: data.episodeNumber.present
+          ? data.episodeNumber.value
+          : this.episodeNumber,
+      targetStatus: data.targetStatus.present
+          ? data.targetStatus.value
+          : this.targetStatus,
+      enqueuedAtMs: data.enqueuedAtMs.present
+          ? data.enqueuedAtMs.value
+          : this.enqueuedAtMs,
+      retryCount: data.retryCount.present
+          ? data.retryCount.value
+          : this.retryCount,
+      lastError: data.lastError.present ? data.lastError.value : this.lastError,
+      nextRetryAtMs: data.nextRetryAtMs.present
+          ? data.nextRetryAtMs.value
+          : this.nextRetryAtMs,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('BangumiSyncQueueRow(')
+          ..write('queueKey: $queueKey, ')
+          ..write('subjectId: $subjectId, ')
+          ..write('seasonNumber: $seasonNumber, ')
+          ..write('episodeNumber: $episodeNumber, ')
+          ..write('targetStatus: $targetStatus, ')
+          ..write('enqueuedAtMs: $enqueuedAtMs, ')
+          ..write('retryCount: $retryCount, ')
+          ..write('lastError: $lastError, ')
+          ..write('nextRetryAtMs: $nextRetryAtMs')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    queueKey,
+    subjectId,
+    seasonNumber,
+    episodeNumber,
+    targetStatus,
+    enqueuedAtMs,
+    retryCount,
+    lastError,
+    nextRetryAtMs,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is BangumiSyncQueueRow &&
+          other.queueKey == this.queueKey &&
+          other.subjectId == this.subjectId &&
+          other.seasonNumber == this.seasonNumber &&
+          other.episodeNumber == this.episodeNumber &&
+          other.targetStatus == this.targetStatus &&
+          other.enqueuedAtMs == this.enqueuedAtMs &&
+          other.retryCount == this.retryCount &&
+          other.lastError == this.lastError &&
+          other.nextRetryAtMs == this.nextRetryAtMs);
+}
+
+class BangumiSyncQueueCompanion extends UpdateCompanion<BangumiSyncQueueRow> {
+  final Value<String> queueKey;
+  final Value<int> subjectId;
+  final Value<int> seasonNumber;
+  final Value<int?> episodeNumber;
+  final Value<int> targetStatus;
+  final Value<int> enqueuedAtMs;
+  final Value<int> retryCount;
+  final Value<String?> lastError;
+  final Value<int> nextRetryAtMs;
+  final Value<int> rowid;
+  const BangumiSyncQueueCompanion({
+    this.queueKey = const Value.absent(),
+    this.subjectId = const Value.absent(),
+    this.seasonNumber = const Value.absent(),
+    this.episodeNumber = const Value.absent(),
+    this.targetStatus = const Value.absent(),
+    this.enqueuedAtMs = const Value.absent(),
+    this.retryCount = const Value.absent(),
+    this.lastError = const Value.absent(),
+    this.nextRetryAtMs = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  BangumiSyncQueueCompanion.insert({
+    required String queueKey,
+    required int subjectId,
+    required int seasonNumber,
+    this.episodeNumber = const Value.absent(),
+    required int targetStatus,
+    required int enqueuedAtMs,
+    this.retryCount = const Value.absent(),
+    this.lastError = const Value.absent(),
+    this.nextRetryAtMs = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : queueKey = Value(queueKey),
+       subjectId = Value(subjectId),
+       seasonNumber = Value(seasonNumber),
+       targetStatus = Value(targetStatus),
+       enqueuedAtMs = Value(enqueuedAtMs);
+  static Insertable<BangumiSyncQueueRow> custom({
+    Expression<String>? queueKey,
+    Expression<int>? subjectId,
+    Expression<int>? seasonNumber,
+    Expression<int>? episodeNumber,
+    Expression<int>? targetStatus,
+    Expression<int>? enqueuedAtMs,
+    Expression<int>? retryCount,
+    Expression<String>? lastError,
+    Expression<int>? nextRetryAtMs,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (queueKey != null) 'queue_key': queueKey,
+      if (subjectId != null) 'subject_id': subjectId,
+      if (seasonNumber != null) 'season_number': seasonNumber,
+      if (episodeNumber != null) 'episode_number': episodeNumber,
+      if (targetStatus != null) 'target_status': targetStatus,
+      if (enqueuedAtMs != null) 'enqueued_at_ms': enqueuedAtMs,
+      if (retryCount != null) 'retry_count': retryCount,
+      if (lastError != null) 'last_error': lastError,
+      if (nextRetryAtMs != null) 'next_retry_at_ms': nextRetryAtMs,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  BangumiSyncQueueCompanion copyWith({
+    Value<String>? queueKey,
+    Value<int>? subjectId,
+    Value<int>? seasonNumber,
+    Value<int?>? episodeNumber,
+    Value<int>? targetStatus,
+    Value<int>? enqueuedAtMs,
+    Value<int>? retryCount,
+    Value<String?>? lastError,
+    Value<int>? nextRetryAtMs,
+    Value<int>? rowid,
+  }) {
+    return BangumiSyncQueueCompanion(
+      queueKey: queueKey ?? this.queueKey,
+      subjectId: subjectId ?? this.subjectId,
+      seasonNumber: seasonNumber ?? this.seasonNumber,
+      episodeNumber: episodeNumber ?? this.episodeNumber,
+      targetStatus: targetStatus ?? this.targetStatus,
+      enqueuedAtMs: enqueuedAtMs ?? this.enqueuedAtMs,
+      retryCount: retryCount ?? this.retryCount,
+      lastError: lastError ?? this.lastError,
+      nextRetryAtMs: nextRetryAtMs ?? this.nextRetryAtMs,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (queueKey.present) {
+      map['queue_key'] = Variable<String>(queueKey.value);
+    }
+    if (subjectId.present) {
+      map['subject_id'] = Variable<int>(subjectId.value);
+    }
+    if (seasonNumber.present) {
+      map['season_number'] = Variable<int>(seasonNumber.value);
+    }
+    if (episodeNumber.present) {
+      map['episode_number'] = Variable<int>(episodeNumber.value);
+    }
+    if (targetStatus.present) {
+      map['target_status'] = Variable<int>(targetStatus.value);
+    }
+    if (enqueuedAtMs.present) {
+      map['enqueued_at_ms'] = Variable<int>(enqueuedAtMs.value);
+    }
+    if (retryCount.present) {
+      map['retry_count'] = Variable<int>(retryCount.value);
+    }
+    if (lastError.present) {
+      map['last_error'] = Variable<String>(lastError.value);
+    }
+    if (nextRetryAtMs.present) {
+      map['next_retry_at_ms'] = Variable<int>(nextRetryAtMs.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('BangumiSyncQueueCompanion(')
+          ..write('queueKey: $queueKey, ')
+          ..write('subjectId: $subjectId, ')
+          ..write('seasonNumber: $seasonNumber, ')
+          ..write('episodeNumber: $episodeNumber, ')
+          ..write('targetStatus: $targetStatus, ')
+          ..write('enqueuedAtMs: $enqueuedAtMs, ')
+          ..write('retryCount: $retryCount, ')
+          ..write('lastError: $lastError, ')
+          ..write('nextRetryAtMs: $nextRetryAtMs, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$KonataDatabase extends GeneratedDatabase {
   _$KonataDatabase(QueryExecutor e) : super(e);
   $KonataDatabaseManager get managers => $KonataDatabaseManager(this);
@@ -7026,6 +8349,11 @@ abstract class _$KonataDatabase extends GeneratedDatabase {
   late final $SeriesGroupsTable seriesGroups = $SeriesGroupsTable(this);
   late final $LyricCacheEntriesTable lyricCacheEntries =
       $LyricCacheEntriesTable(this);
+  late final $SyncTombstonesTable syncTombstones = $SyncTombstonesTable(this);
+  late final $SyncKvMetaTable syncKvMeta = $SyncKvMetaTable(this);
+  late final $BangumiSyncQueueTable bangumiSyncQueue = $BangumiSyncQueueTable(
+    this,
+  );
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -7040,6 +8368,9 @@ abstract class _$KonataDatabase extends GeneratedDatabase {
     ignoredFolders,
     seriesGroups,
     lyricCacheEntries,
+    syncTombstones,
+    syncKvMeta,
+    bangumiSyncQueue,
   ];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules([
@@ -7549,6 +8880,7 @@ typedef $$WorksTableCreateCompanionBuilder =
       Value<int?> seriesOrder,
       Value<String?> seriesLabel,
       Value<bool> seriesLocked,
+      Value<int> updatedAtMs,
       Value<int> rowid,
     });
 typedef $$WorksTableUpdateCompanionBuilder =
@@ -7586,6 +8918,7 @@ typedef $$WorksTableUpdateCompanionBuilder =
       Value<int?> seriesOrder,
       Value<String?> seriesLabel,
       Value<bool> seriesLocked,
+      Value<int> updatedAtMs,
       Value<int> rowid,
     });
 
@@ -7845,6 +9178,11 @@ class $$WorksTableFilterComposer
 
   ColumnFilters<bool> get seriesLocked => $composableBuilder(
     column: $table.seriesLocked,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get updatedAtMs => $composableBuilder(
+    column: $table.updatedAtMs,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -8122,6 +9460,11 @@ class $$WorksTableOrderingComposer
     column: $table.seriesLocked,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<int> get updatedAtMs => $composableBuilder(
+    column: $table.updatedAtMs,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$WorksTableAnnotationComposer
@@ -8277,6 +9620,11 @@ class $$WorksTableAnnotationComposer
 
   GeneratedColumn<bool> get seriesLocked => $composableBuilder(
     column: $table.seriesLocked,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get updatedAtMs => $composableBuilder(
+    column: $table.updatedAtMs,
     builder: (column) => column,
   );
 
@@ -8447,6 +9795,7 @@ class $$WorksTableTableManager
                 Value<int?> seriesOrder = const Value.absent(),
                 Value<String?> seriesLabel = const Value.absent(),
                 Value<bool> seriesLocked = const Value.absent(),
+                Value<int> updatedAtMs = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => WorksCompanion(
                 id: id,
@@ -8482,6 +9831,7 @@ class $$WorksTableTableManager
                 seriesOrder: seriesOrder,
                 seriesLabel: seriesLabel,
                 seriesLocked: seriesLocked,
+                updatedAtMs: updatedAtMs,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -8519,6 +9869,7 @@ class $$WorksTableTableManager
                 Value<int?> seriesOrder = const Value.absent(),
                 Value<String?> seriesLabel = const Value.absent(),
                 Value<bool> seriesLocked = const Value.absent(),
+                Value<int> updatedAtMs = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => WorksCompanion.insert(
                 id: id,
@@ -8554,6 +9905,7 @@ class $$WorksTableTableManager
                 seriesOrder: seriesOrder,
                 seriesLabel: seriesLabel,
                 seriesLocked: seriesLocked,
+                updatedAtMs: updatedAtMs,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -10469,6 +11821,7 @@ typedef $$PlaybackRecordsTableCreateCompanionBuilder =
       Value<int> positionSeconds,
       Value<int> durationSeconds,
       Value<bool> isCompleted,
+      Value<int> updatedAtMs,
       Value<int> rowid,
     });
 typedef $$PlaybackRecordsTableUpdateCompanionBuilder =
@@ -10485,6 +11838,7 @@ typedef $$PlaybackRecordsTableUpdateCompanionBuilder =
       Value<int> positionSeconds,
       Value<int> durationSeconds,
       Value<bool> isCompleted,
+      Value<int> updatedAtMs,
       Value<int> rowid,
     });
 
@@ -10584,6 +11938,11 @@ class $$PlaybackRecordsTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<int> get updatedAtMs => $composableBuilder(
+    column: $table.updatedAtMs,
+    builder: (column) => ColumnFilters(column),
+  );
+
   $$WorksTableFilterComposer get workId {
     final $$WorksTableFilterComposer composer = $composerBuilder(
       composer: this,
@@ -10672,6 +12031,11 @@ class $$PlaybackRecordsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get updatedAtMs => $composableBuilder(
+    column: $table.updatedAtMs,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   $$WorksTableOrderingComposer get workId {
     final $$WorksTableOrderingComposer composer = $composerBuilder(
       composer: this,
@@ -10753,6 +12117,11 @@ class $$PlaybackRecordsTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<int> get updatedAtMs => $composableBuilder(
+    column: $table.updatedAtMs,
+    builder: (column) => column,
+  );
+
   $$WorksTableAnnotationComposer get workId {
     final $$WorksTableAnnotationComposer composer = $composerBuilder(
       composer: this,
@@ -10819,6 +12188,7 @@ class $$PlaybackRecordsTableTableManager
                 Value<int> positionSeconds = const Value.absent(),
                 Value<int> durationSeconds = const Value.absent(),
                 Value<bool> isCompleted = const Value.absent(),
+                Value<int> updatedAtMs = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => PlaybackRecordsCompanion(
                 id: id,
@@ -10833,6 +12203,7 @@ class $$PlaybackRecordsTableTableManager
                 positionSeconds: positionSeconds,
                 durationSeconds: durationSeconds,
                 isCompleted: isCompleted,
+                updatedAtMs: updatedAtMs,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -10849,6 +12220,7 @@ class $$PlaybackRecordsTableTableManager
                 Value<int> positionSeconds = const Value.absent(),
                 Value<int> durationSeconds = const Value.absent(),
                 Value<bool> isCompleted = const Value.absent(),
+                Value<int> updatedAtMs = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => PlaybackRecordsCompanion.insert(
                 id: id,
@@ -10863,6 +12235,7 @@ class $$PlaybackRecordsTableTableManager
                 positionSeconds: positionSeconds,
                 durationSeconds: durationSeconds,
                 isCompleted: isCompleted,
+                updatedAtMs: updatedAtMs,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -11787,6 +13160,692 @@ typedef $$LyricCacheEntriesTableProcessedTableManager =
       LyricCacheRow,
       PrefetchHooks Function()
     >;
+typedef $$SyncTombstonesTableCreateCompanionBuilder =
+    SyncTombstonesCompanion Function({
+      required String entityKey,
+      required String entityType,
+      required int deletedAtMs,
+      required String deviceId,
+      Value<int> rowid,
+    });
+typedef $$SyncTombstonesTableUpdateCompanionBuilder =
+    SyncTombstonesCompanion Function({
+      Value<String> entityKey,
+      Value<String> entityType,
+      Value<int> deletedAtMs,
+      Value<String> deviceId,
+      Value<int> rowid,
+    });
+
+class $$SyncTombstonesTableFilterComposer
+    extends Composer<_$KonataDatabase, $SyncTombstonesTable> {
+  $$SyncTombstonesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get entityKey => $composableBuilder(
+    column: $table.entityKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get entityType => $composableBuilder(
+    column: $table.entityType,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get deletedAtMs => $composableBuilder(
+    column: $table.deletedAtMs,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get deviceId => $composableBuilder(
+    column: $table.deviceId,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$SyncTombstonesTableOrderingComposer
+    extends Composer<_$KonataDatabase, $SyncTombstonesTable> {
+  $$SyncTombstonesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get entityKey => $composableBuilder(
+    column: $table.entityKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get entityType => $composableBuilder(
+    column: $table.entityType,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get deletedAtMs => $composableBuilder(
+    column: $table.deletedAtMs,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get deviceId => $composableBuilder(
+    column: $table.deviceId,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$SyncTombstonesTableAnnotationComposer
+    extends Composer<_$KonataDatabase, $SyncTombstonesTable> {
+  $$SyncTombstonesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get entityKey =>
+      $composableBuilder(column: $table.entityKey, builder: (column) => column);
+
+  GeneratedColumn<String> get entityType => $composableBuilder(
+    column: $table.entityType,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get deletedAtMs => $composableBuilder(
+    column: $table.deletedAtMs,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get deviceId =>
+      $composableBuilder(column: $table.deviceId, builder: (column) => column);
+}
+
+class $$SyncTombstonesTableTableManager
+    extends
+        RootTableManager<
+          _$KonataDatabase,
+          $SyncTombstonesTable,
+          SyncTombstoneRow,
+          $$SyncTombstonesTableFilterComposer,
+          $$SyncTombstonesTableOrderingComposer,
+          $$SyncTombstonesTableAnnotationComposer,
+          $$SyncTombstonesTableCreateCompanionBuilder,
+          $$SyncTombstonesTableUpdateCompanionBuilder,
+          (
+            SyncTombstoneRow,
+            BaseReferences<
+              _$KonataDatabase,
+              $SyncTombstonesTable,
+              SyncTombstoneRow
+            >,
+          ),
+          SyncTombstoneRow,
+          PrefetchHooks Function()
+        > {
+  $$SyncTombstonesTableTableManager(
+    _$KonataDatabase db,
+    $SyncTombstonesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SyncTombstonesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SyncTombstonesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$SyncTombstonesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> entityKey = const Value.absent(),
+                Value<String> entityType = const Value.absent(),
+                Value<int> deletedAtMs = const Value.absent(),
+                Value<String> deviceId = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => SyncTombstonesCompanion(
+                entityKey: entityKey,
+                entityType: entityType,
+                deletedAtMs: deletedAtMs,
+                deviceId: deviceId,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String entityKey,
+                required String entityType,
+                required int deletedAtMs,
+                required String deviceId,
+                Value<int> rowid = const Value.absent(),
+              }) => SyncTombstonesCompanion.insert(
+                entityKey: entityKey,
+                entityType: entityType,
+                deletedAtMs: deletedAtMs,
+                deviceId: deviceId,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$SyncTombstonesTable, SyncTombstoneRow>(table),
+                  BaseReferences<
+                    _$KonataDatabase,
+                    $SyncTombstonesTable,
+                    SyncTombstoneRow
+                  >(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$SyncTombstonesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$KonataDatabase,
+      $SyncTombstonesTable,
+      SyncTombstoneRow,
+      $$SyncTombstonesTableFilterComposer,
+      $$SyncTombstonesTableOrderingComposer,
+      $$SyncTombstonesTableAnnotationComposer,
+      $$SyncTombstonesTableCreateCompanionBuilder,
+      $$SyncTombstonesTableUpdateCompanionBuilder,
+      (
+        SyncTombstoneRow,
+        BaseReferences<
+          _$KonataDatabase,
+          $SyncTombstonesTable,
+          SyncTombstoneRow
+        >,
+      ),
+      SyncTombstoneRow,
+      PrefetchHooks Function()
+    >;
+typedef $$SyncKvMetaTableCreateCompanionBuilder =
+    SyncKvMetaCompanion Function({
+      required String key,
+      required String value,
+      required int updatedAtMs,
+      Value<int> rowid,
+    });
+typedef $$SyncKvMetaTableUpdateCompanionBuilder =
+    SyncKvMetaCompanion Function({
+      Value<String> key,
+      Value<String> value,
+      Value<int> updatedAtMs,
+      Value<int> rowid,
+    });
+
+class $$SyncKvMetaTableFilterComposer
+    extends Composer<_$KonataDatabase, $SyncKvMetaTable> {
+  $$SyncKvMetaTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get key => $composableBuilder(
+    column: $table.key,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get value => $composableBuilder(
+    column: $table.value,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get updatedAtMs => $composableBuilder(
+    column: $table.updatedAtMs,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$SyncKvMetaTableOrderingComposer
+    extends Composer<_$KonataDatabase, $SyncKvMetaTable> {
+  $$SyncKvMetaTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get key => $composableBuilder(
+    column: $table.key,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get value => $composableBuilder(
+    column: $table.value,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get updatedAtMs => $composableBuilder(
+    column: $table.updatedAtMs,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$SyncKvMetaTableAnnotationComposer
+    extends Composer<_$KonataDatabase, $SyncKvMetaTable> {
+  $$SyncKvMetaTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get key =>
+      $composableBuilder(column: $table.key, builder: (column) => column);
+
+  GeneratedColumn<String> get value =>
+      $composableBuilder(column: $table.value, builder: (column) => column);
+
+  GeneratedColumn<int> get updatedAtMs => $composableBuilder(
+    column: $table.updatedAtMs,
+    builder: (column) => column,
+  );
+}
+
+class $$SyncKvMetaTableTableManager
+    extends
+        RootTableManager<
+          _$KonataDatabase,
+          $SyncKvMetaTable,
+          SyncKvMetaRow,
+          $$SyncKvMetaTableFilterComposer,
+          $$SyncKvMetaTableOrderingComposer,
+          $$SyncKvMetaTableAnnotationComposer,
+          $$SyncKvMetaTableCreateCompanionBuilder,
+          $$SyncKvMetaTableUpdateCompanionBuilder,
+          (
+            SyncKvMetaRow,
+            BaseReferences<_$KonataDatabase, $SyncKvMetaTable, SyncKvMetaRow>,
+          ),
+          SyncKvMetaRow,
+          PrefetchHooks Function()
+        > {
+  $$SyncKvMetaTableTableManager(_$KonataDatabase db, $SyncKvMetaTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SyncKvMetaTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SyncKvMetaTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$SyncKvMetaTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> key = const Value.absent(),
+                Value<String> value = const Value.absent(),
+                Value<int> updatedAtMs = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => SyncKvMetaCompanion(
+                key: key,
+                value: value,
+                updatedAtMs: updatedAtMs,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String key,
+                required String value,
+                required int updatedAtMs,
+                Value<int> rowid = const Value.absent(),
+              }) => SyncKvMetaCompanion.insert(
+                key: key,
+                value: value,
+                updatedAtMs: updatedAtMs,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$SyncKvMetaTable, SyncKvMetaRow>(table),
+                  BaseReferences<
+                    _$KonataDatabase,
+                    $SyncKvMetaTable,
+                    SyncKvMetaRow
+                  >(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$SyncKvMetaTableProcessedTableManager =
+    ProcessedTableManager<
+      _$KonataDatabase,
+      $SyncKvMetaTable,
+      SyncKvMetaRow,
+      $$SyncKvMetaTableFilterComposer,
+      $$SyncKvMetaTableOrderingComposer,
+      $$SyncKvMetaTableAnnotationComposer,
+      $$SyncKvMetaTableCreateCompanionBuilder,
+      $$SyncKvMetaTableUpdateCompanionBuilder,
+      (
+        SyncKvMetaRow,
+        BaseReferences<_$KonataDatabase, $SyncKvMetaTable, SyncKvMetaRow>,
+      ),
+      SyncKvMetaRow,
+      PrefetchHooks Function()
+    >;
+typedef $$BangumiSyncQueueTableCreateCompanionBuilder =
+    BangumiSyncQueueCompanion Function({
+      required String queueKey,
+      required int subjectId,
+      required int seasonNumber,
+      Value<int?> episodeNumber,
+      required int targetStatus,
+      required int enqueuedAtMs,
+      Value<int> retryCount,
+      Value<String?> lastError,
+      Value<int> nextRetryAtMs,
+      Value<int> rowid,
+    });
+typedef $$BangumiSyncQueueTableUpdateCompanionBuilder =
+    BangumiSyncQueueCompanion Function({
+      Value<String> queueKey,
+      Value<int> subjectId,
+      Value<int> seasonNumber,
+      Value<int?> episodeNumber,
+      Value<int> targetStatus,
+      Value<int> enqueuedAtMs,
+      Value<int> retryCount,
+      Value<String?> lastError,
+      Value<int> nextRetryAtMs,
+      Value<int> rowid,
+    });
+
+class $$BangumiSyncQueueTableFilterComposer
+    extends Composer<_$KonataDatabase, $BangumiSyncQueueTable> {
+  $$BangumiSyncQueueTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get queueKey => $composableBuilder(
+    column: $table.queueKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get subjectId => $composableBuilder(
+    column: $table.subjectId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get seasonNumber => $composableBuilder(
+    column: $table.seasonNumber,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get episodeNumber => $composableBuilder(
+    column: $table.episodeNumber,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get targetStatus => $composableBuilder(
+    column: $table.targetStatus,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get enqueuedAtMs => $composableBuilder(
+    column: $table.enqueuedAtMs,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get retryCount => $composableBuilder(
+    column: $table.retryCount,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get lastError => $composableBuilder(
+    column: $table.lastError,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get nextRetryAtMs => $composableBuilder(
+    column: $table.nextRetryAtMs,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$BangumiSyncQueueTableOrderingComposer
+    extends Composer<_$KonataDatabase, $BangumiSyncQueueTable> {
+  $$BangumiSyncQueueTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get queueKey => $composableBuilder(
+    column: $table.queueKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get subjectId => $composableBuilder(
+    column: $table.subjectId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get seasonNumber => $composableBuilder(
+    column: $table.seasonNumber,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get episodeNumber => $composableBuilder(
+    column: $table.episodeNumber,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get targetStatus => $composableBuilder(
+    column: $table.targetStatus,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get enqueuedAtMs => $composableBuilder(
+    column: $table.enqueuedAtMs,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get retryCount => $composableBuilder(
+    column: $table.retryCount,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get lastError => $composableBuilder(
+    column: $table.lastError,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get nextRetryAtMs => $composableBuilder(
+    column: $table.nextRetryAtMs,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$BangumiSyncQueueTableAnnotationComposer
+    extends Composer<_$KonataDatabase, $BangumiSyncQueueTable> {
+  $$BangumiSyncQueueTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get queueKey =>
+      $composableBuilder(column: $table.queueKey, builder: (column) => column);
+
+  GeneratedColumn<int> get subjectId =>
+      $composableBuilder(column: $table.subjectId, builder: (column) => column);
+
+  GeneratedColumn<int> get seasonNumber => $composableBuilder(
+    column: $table.seasonNumber,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get episodeNumber => $composableBuilder(
+    column: $table.episodeNumber,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get targetStatus => $composableBuilder(
+    column: $table.targetStatus,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get enqueuedAtMs => $composableBuilder(
+    column: $table.enqueuedAtMs,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get retryCount => $composableBuilder(
+    column: $table.retryCount,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get lastError =>
+      $composableBuilder(column: $table.lastError, builder: (column) => column);
+
+  GeneratedColumn<int> get nextRetryAtMs => $composableBuilder(
+    column: $table.nextRetryAtMs,
+    builder: (column) => column,
+  );
+}
+
+class $$BangumiSyncQueueTableTableManager
+    extends
+        RootTableManager<
+          _$KonataDatabase,
+          $BangumiSyncQueueTable,
+          BangumiSyncQueueRow,
+          $$BangumiSyncQueueTableFilterComposer,
+          $$BangumiSyncQueueTableOrderingComposer,
+          $$BangumiSyncQueueTableAnnotationComposer,
+          $$BangumiSyncQueueTableCreateCompanionBuilder,
+          $$BangumiSyncQueueTableUpdateCompanionBuilder,
+          (
+            BangumiSyncQueueRow,
+            BaseReferences<
+              _$KonataDatabase,
+              $BangumiSyncQueueTable,
+              BangumiSyncQueueRow
+            >,
+          ),
+          BangumiSyncQueueRow,
+          PrefetchHooks Function()
+        > {
+  $$BangumiSyncQueueTableTableManager(
+    _$KonataDatabase db,
+    $BangumiSyncQueueTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$BangumiSyncQueueTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$BangumiSyncQueueTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$BangumiSyncQueueTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> queueKey = const Value.absent(),
+                Value<int> subjectId = const Value.absent(),
+                Value<int> seasonNumber = const Value.absent(),
+                Value<int?> episodeNumber = const Value.absent(),
+                Value<int> targetStatus = const Value.absent(),
+                Value<int> enqueuedAtMs = const Value.absent(),
+                Value<int> retryCount = const Value.absent(),
+                Value<String?> lastError = const Value.absent(),
+                Value<int> nextRetryAtMs = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => BangumiSyncQueueCompanion(
+                queueKey: queueKey,
+                subjectId: subjectId,
+                seasonNumber: seasonNumber,
+                episodeNumber: episodeNumber,
+                targetStatus: targetStatus,
+                enqueuedAtMs: enqueuedAtMs,
+                retryCount: retryCount,
+                lastError: lastError,
+                nextRetryAtMs: nextRetryAtMs,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String queueKey,
+                required int subjectId,
+                required int seasonNumber,
+                Value<int?> episodeNumber = const Value.absent(),
+                required int targetStatus,
+                required int enqueuedAtMs,
+                Value<int> retryCount = const Value.absent(),
+                Value<String?> lastError = const Value.absent(),
+                Value<int> nextRetryAtMs = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => BangumiSyncQueueCompanion.insert(
+                queueKey: queueKey,
+                subjectId: subjectId,
+                seasonNumber: seasonNumber,
+                episodeNumber: episodeNumber,
+                targetStatus: targetStatus,
+                enqueuedAtMs: enqueuedAtMs,
+                retryCount: retryCount,
+                lastError: lastError,
+                nextRetryAtMs: nextRetryAtMs,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$BangumiSyncQueueTable, BangumiSyncQueueRow>(
+                    table,
+                  ),
+                  BaseReferences<
+                    _$KonataDatabase,
+                    $BangumiSyncQueueTable,
+                    BangumiSyncQueueRow
+                  >(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$BangumiSyncQueueTableProcessedTableManager =
+    ProcessedTableManager<
+      _$KonataDatabase,
+      $BangumiSyncQueueTable,
+      BangumiSyncQueueRow,
+      $$BangumiSyncQueueTableFilterComposer,
+      $$BangumiSyncQueueTableOrderingComposer,
+      $$BangumiSyncQueueTableAnnotationComposer,
+      $$BangumiSyncQueueTableCreateCompanionBuilder,
+      $$BangumiSyncQueueTableUpdateCompanionBuilder,
+      (
+        BangumiSyncQueueRow,
+        BaseReferences<
+          _$KonataDatabase,
+          $BangumiSyncQueueTable,
+          BangumiSyncQueueRow
+        >,
+      ),
+      BangumiSyncQueueRow,
+      PrefetchHooks Function()
+    >;
 
 class $KonataDatabaseManager {
   final _$KonataDatabase _db;
@@ -11809,4 +13868,10 @@ class $KonataDatabaseManager {
       $$SeriesGroupsTableTableManager(_db, _db.seriesGroups);
   $$LyricCacheEntriesTableTableManager get lyricCacheEntries =>
       $$LyricCacheEntriesTableTableManager(_db, _db.lyricCacheEntries);
+  $$SyncTombstonesTableTableManager get syncTombstones =>
+      $$SyncTombstonesTableTableManager(_db, _db.syncTombstones);
+  $$SyncKvMetaTableTableManager get syncKvMeta =>
+      $$SyncKvMetaTableTableManager(_db, _db.syncKvMeta);
+  $$BangumiSyncQueueTableTableManager get bangumiSyncQueue =>
+      $$BangumiSyncQueueTableTableManager(_db, _db.bangumiSyncQueue);
 }

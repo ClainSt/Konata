@@ -8,6 +8,7 @@ import '../shell/adaptive_capsule_layout.dart';
 import '../widgets/design_system/adaptive_settings_container.dart';
 import 'settings_about_panel.dart';
 import 'settings_appearance_panel.dart';
+import 'settings_backup_sync_panel.dart';
 import 'settings_display_panel.dart';
 import 'settings_network_panel.dart';
 import 'settings_players_panel.dart';
@@ -18,6 +19,7 @@ enum SettingsCategory {
   display('显示', Icons.tune_rounded),
   network('刮削与网络', Icons.public_rounded),
   player('播放器', Icons.play_circle_outline_rounded),
+  sync('备份与同步', Icons.sync_rounded),
   externalTools('外部调用', Icons.open_in_new_rounded),
   about('关于', Icons.info_outline_rounded);
 
@@ -77,6 +79,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               SettingsCategory.display => '作品展示与图片缓存',
               SettingsCategory.network => '元数据服务与网络连接',
               SettingsCategory.player => '播放与音画参数',
+              SettingsCategory.sync => '本地备份、多设备同步与 Bangumi 进度',
               SettingsCategory.externalTools => '桌面外部程序与路径',
               SettingsCategory.about => '版本、诊断日志与项目资料',
             },
@@ -86,6 +89,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               SettingsCategory.display => const SettingsDisplayPanel(),
               SettingsCategory.network => const SettingsNetworkPanel(),
               SettingsCategory.player => const SettingsPlayersPanel(),
+              SettingsCategory.sync => const SettingsBackupSyncPanel(),
               SettingsCategory.externalTools =>
                 externalToolsBuilder?.call(ctx) ?? const SizedBox.shrink(),
               SettingsCategory.about => const SettingsAboutPanel(),

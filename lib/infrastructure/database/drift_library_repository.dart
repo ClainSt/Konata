@@ -105,6 +105,7 @@ class DriftLibraryRepository implements LibraryRepository {
             seriesOrder: Value(work.seriesOrder),
             seriesLabel: Value(work.seriesLabel),
             seriesLocked: Value(work.seriesLocked),
+            updatedAtMs: Value(DateTime.now().millisecondsSinceEpoch),
           ),
         );
   }
@@ -447,6 +448,7 @@ class DriftLibraryRepository implements LibraryRepository {
         keepHidden: keepHidden != null
             ? Value(keepHidden)
             : const Value.absent(),
+        updatedAtMs: Value(DateTime.now().millisecondsSinceEpoch),
       ),
     );
   }

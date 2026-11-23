@@ -145,6 +145,9 @@ class Works extends Table {
   /// 系列编组与标签是否已人工锁定。
   BoolColumn get seriesLocked => boolean().withDefault(const Constant(false))();
 
+  /// 最近一次元数据或人工锁定变更的 UTC 毫秒时间戳（供多设备增量同步判定新旧）。
+  IntColumn get updatedAtMs => integer().withDefault(const Constant(0))();
+
   @override
   Set<Column<Object>> get primaryKey => {id};
 }
@@ -362,6 +365,9 @@ class PlaybackRecords extends Table {
   /// 是否已看完（自动阈值或手动标记）。
   BoolColumn get isCompleted => boolean().withDefault(const Constant(false))();
 
+  /// 最近一次进度变更的 UTC 毫秒时间戳（供多设备冲突合并判定新旧）。
+  IntColumn get updatedAtMs => integer().withDefault(const Constant(0))();
+
   @override
   Set<Column<Object>> get primaryKey => {id};
 }
@@ -425,6 +431,75 @@ class LyricCacheEntries extends Table {
   Set<Column<Object>> get primaryKey => {trackKey};
 }
 
+/// 跨设备同步删除墓碑表（记录已删除/清除条目的逻辑时间，避免离线设备同步后死灰复燃）。
+@DataClassName('SyncTombstoneRow')
+class SyncTombstones extends Table {
+  /// 逻辑实体唯一键（如 `playback::<canonicalKey>::s1::e3`）。
+  TextColumn get entityKey => text()();
+
+  /// 实体类型（`playback` / `work_override` / `series`）。
+  TextColumn get entityType => text()();
+
+  /// 删除发生的 UTC 毫秒时间戳。
+  IntColumn get deletedAtMs => integer()();
+
+  /// 产生该删除动作的设备标识。
+  TextColumn get deviceId => text()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {entityKey};
+}
+
+/// 同步与外部账号本地元信息键值表（仅存非敏感状态，如设备 ID、上次同步时间与用户昵称）。
+@DataClassName('SyncKvMetaRow')
+class SyncKvMeta extends Table {
+  /// 元信息键名。
+  TextColumn get key => text()();
+
+  /// 元信息值文本。
+  TextColumn get value => text()();
+
+  /// 最近更新的 UTC 毫秒时间戳。
+  IntColumn get updatedAtMs => integer()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {key};
+}
+
+/// Bangumi 观看进度离线持久化上报队列（支持弱网/离线重试与批量去重合并）。
+@DataClassName('BangumiSyncQueueRow')
+class BangumiSyncQueue extends Table {
+  /// 队列项唯一去重键（如 `ep::<subjectId>::s<season>::e<ep>`）。
+  TextColumn get queueKey => text()();
+
+  /// Bangumi 条目 ID。
+  IntColumn get subjectId => integer()();
+
+  /// 本地季号（用于区分配对关系与特典 SP）。
+  IntColumn get seasonNumber => integer()();
+
+  /// 集号（单部剧场版可为空）。
+  IntColumn get episodeNumber => integer().nullable()();
+
+  /// 目标 Bangumi 单集观看状态（`2=看过`、`0=未看`）。
+  IntColumn get targetStatus => integer()();
+
+  /// 首次入队的 UTC 毫秒时间戳。
+  IntColumn get enqueuedAtMs => integer()();
+
+  /// 已失败重试次数。
+  IntColumn get retryCount => integer().withDefault(const Constant(0))();
+
+  /// 最近一次失败原因（已脱敏）。
+  TextColumn get lastError => text().nullable()();
+
+  /// 下次允许重试的 UTC 毫秒时间戳。
+  IntColumn get nextRetryAtMs => integer().withDefault(const Constant(0))();
+
+  @override
+  Set<Column<Object>> get primaryKey => {queueKey};
+}
+
 /// Konata 2.0 强类型 Drift 数据库（默认存储为 `konata_v2.sqlite`）。
 @DriftDatabase(
   tables: [
@@ -437,6 +512,9 @@ class LyricCacheEntries extends Table {
     IgnoredFolders,
     SeriesGroups,
     LyricCacheEntries,
+    SyncTombstones,
+    SyncKvMeta,
+    BangumiSyncQueue,
   ],
 )
 class KonataDatabase extends _$KonataDatabase {
@@ -447,7 +525,7 @@ class KonataDatabase extends _$KonataDatabase {
   factory KonataDatabase.openDefault() => KonataDatabase(_openConnection());
 
   @override
-  int get schemaVersion => 14;
+  int get schemaVersion => 15;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -515,6 +593,16 @@ class KonataDatabase extends _$KonataDatabase {
       if (from < 14) {
         await m.createTable(lyricCacheEntries);
       }
+      if (from < 15) {
+        await m.addColumn(works, works.updatedAtMs);
+        // v7 之前的库已在 `from < 7` 重建 playbackRecords（已包含该列），仅 v7..v14 追加。
+        if (from >= 7) {
+          await m.addColumn(playbackRecords, playbackRecords.updatedAtMs);
+        }
+        await m.createTable(syncTombstones);
+        await m.createTable(syncKvMeta);
+        await m.createTable(bangumiSyncQueue);
+      }
     },
     beforeOpen: (details) async {
       await customStatement('PRAGMA foreign_keys = ON');
@@ -563,6 +651,10 @@ class KonataDatabase extends _$KonataDatabase {
         'ON ignored_folders (source_id)',
     'CREATE INDEX IF NOT EXISTS idx_lyric_cache_song '
         'ON lyric_cache_entries (song_key)',
+    'CREATE INDEX IF NOT EXISTS idx_sync_tombstones_type '
+        'ON sync_tombstones (entity_type, deleted_at_ms DESC)',
+    'CREATE INDEX IF NOT EXISTS idx_bangumi_sync_queue_next '
+        'ON bangumi_sync_queue (next_retry_at_ms ASC)',
   ];
 }
 

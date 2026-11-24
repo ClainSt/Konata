@@ -1,12 +1,19 @@
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:konata/bootstrap/app_bootstrap.dart';
 import 'package:konata/bootstrap/feature_registry.dart';
 import 'package:konata_contracts/konata_contracts.dart';
+import 'package:konata_design_system/konata_design_system.dart';
 import 'package:konata_storage/konata_storage.dart';
 
 void main() {
   group('apps/konata 双端极薄组装壳', () {
-    testWidgets('可完成内存底座初始化并挂载根壳且保持 cache.db 惰性未打开', (tester) async {
+    testWidgets('可完成内存底座初始化、挂载三端同源主题外壳且保持 cache.db 惰性未打开', (tester) async {
+      tester.view.physicalSize = const Size(1280, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
       final bootstrap = await KonataBootstrapContext.initialize(
         platform: KonataPlatform.windows,
         storageRoot: const PortableStorageRootService(
@@ -26,7 +33,9 @@ void main() {
           platformLabel: 'Windows',
         ),
       );
+      await tester.pumpAndSettle();
 
+      expect(find.byType(KonataAdaptiveShell), findsOneWidget);
       expect(find.text('Konata v3 (Windows)'), findsOneWidget);
       expect(find.textContaining('缓存库惰性态=未开'), findsOneWidget);
     });

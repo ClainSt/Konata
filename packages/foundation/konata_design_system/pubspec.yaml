@@ -1,0 +1,20 @@
+name: konata_design_system
+description: "Konata v3 三端同源视觉设计系统（Tokens、26+ 标准控件与三端自适应胶囊外壳，严格 0 Riverpod、0 业务依赖）"
+publish_to: none
+
+environment:
+  sdk: ^3.12.2
+
+resolution: workspace
+
+dependencies:
+  cupertino_ui: ^1.1.7
+  flutter:
+    sdk: flutter
+  konata_contracts:
+  material_ui: ^1.11.1
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter

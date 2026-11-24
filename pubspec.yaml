@@ -8,6 +8,7 @@ environment:
 workspace:
   - apps/konata
   - packages/foundation/konata_contracts
+  - packages/foundation/konata_design_system
   - packages/foundation/konata_storage
 
 dev_dependencies:

@@ -1,0 +1,26 @@
+name: feature_lyrics
+description: "Konata v3 多源歌词竞速合并、逐字扫白、三级偏移校准、双语对齐与分级预取业务包"
+publish_to: none
+
+environment:
+  sdk: ^3.12.2
+
+resolution: workspace
+
+dependencies:
+  crypto: ^3.0.8
+  engine_playback:
+  engine_scraping:
+  engine_sources:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^3.5.0
+  http: ^1.6.0
+  konata_contracts:
+  konata_design_system:
+  konata_storage:
+  path: ^1.9.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter

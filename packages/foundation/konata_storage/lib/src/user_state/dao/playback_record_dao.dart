@@ -211,6 +211,33 @@ ON CONFLICT(${PlaybackRecordsSchema.colId}) DO UPDATE SET
     );
   }
 
+  /// 查询含软删除墓碑在内的全部播放记录（供同步切片与备份导出）。
+  List<PlaybackRecordEntity> listAllWithTombstones() {
+    final rs = _engine.select(
+      'SELECT * FROM ${PlaybackRecordsSchema.table} '
+      'ORDER BY ${PlaybackRecordsSchema.colUpdatedAtMs} DESC, '
+      '${PlaybackRecordsSchema.colId} ASC;',
+    );
+    return <PlaybackRecordEntity>[for (final row in rs) _mapRow(row)];
+  }
+
+  /// 软删除全部未删除播放记录并保留同步墓碑。
+  void clearAll({required int deletedAtMs, String sourceDeviceId = ''}) {
+    _engine.runTransaction((tx) {
+      tx.execute(
+        '''
+UPDATE ${PlaybackRecordsSchema.table}
+SET ${PlaybackRecordsSchema.colDeletedAtMs} = ?,
+    ${PlaybackRecordsSchema.colUpdatedAtMs} = ?,
+    ${PlaybackRecordsSchema.colSourceDeviceId} = ?
+WHERE ${PlaybackRecordsSchema.colDeletedAtMs} IS NULL;
+''',
+        <Object?>[deletedAtMs, deletedAtMs, sourceDeviceId],
+        _tables,
+      );
+    });
+  }
+
   /// 软删除指定播放记录并保留同步墓碑。
   void softDelete(
     String id, {

@@ -1,0 +1,25 @@
+name: feature_sync
+description: "Konata v3 同软件跨设备 WebDAV 分片同步与本地 .konata 选择性备份恢复业务包"
+publish_to: none
+
+environment:
+  sdk: ^3.12.2
+
+resolution: workspace
+
+dependencies:
+  crypto: ^3.0.8
+  engine_scraping:
+  engine_sources:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^3.5.0
+  http: ^1.6.0
+  konata_contracts:
+  konata_storage:
+  konata_design_system:
+  path: ^1.9.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter

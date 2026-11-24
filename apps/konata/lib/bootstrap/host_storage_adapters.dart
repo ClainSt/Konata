@@ -1,3 +1,6 @@
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:konata_contracts/konata_contracts.dart';
@@ -40,8 +43,8 @@ final class FlutterSecureStorageAdapter implements SecureStoragePort {
   }
 }
 
-/// 基于系统文件选择器插件的跨端目录与文件选取端口实现（实现 [FilePickerPort]）。
-final class HostFilePickerAdapter implements FilePickerPort {
+/// 基于系统文件选择器插件的跨端目录、文件选取与导出保存端口实现。
+final class HostFilePickerAdapter implements FilePickerPort, BackupFilePort {
   /// 创建宿主文件选择器适配器。
   const HostFilePickerAdapter();
 
@@ -72,6 +75,44 @@ final class HostFilePickerAdapter implements FilePickerPort {
       allowedExtensions: KonataMediaExtensions.subtitleExtensionsNoDot,
     );
     return picked?.path;
+  }
+
+  @override
+  Future<String?> pickBackupFile({
+    String? dialogTitle,
+    List<String> allowedExtensions = const <String>['konata', 'json'],
+  }) async {
+    final picked = await FilePicker.pickFile(
+      dialogTitle: dialogTitle,
+      type: FileType.custom,
+      allowedExtensions: allowedExtensions,
+    );
+    return picked?.path;
+  }
+
+  @override
+  Future<String?> saveFile({
+    required String fileName,
+    required Uint8List bytes,
+    String? dialogTitle,
+  }) async {
+    final outputUri = await FilePicker.saveFile(
+      dialogTitle: dialogTitle,
+      fileName: fileName,
+      bytes: bytes,
+    );
+    if (outputUri == null) {
+      return null;
+    }
+    if (outputUri.scheme == 'file') {
+      final path = outputUri.toFilePath();
+      final file = File(path);
+      if (!file.existsSync() || file.lengthSync() != bytes.length) {
+        await file.writeAsBytes(bytes, flush: true);
+      }
+      return path;
+    }
+    return outputUri.toString();
   }
 }
 

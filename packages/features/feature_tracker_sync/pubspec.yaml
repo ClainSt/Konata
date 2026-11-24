@@ -1,0 +1,23 @@
+name: feature_tracker_sync
+description: "Konata v3 第三方追番平台进度同步框架与 Bangumi PAT 提供者业务包"
+publish_to: none
+
+environment:
+  sdk: ^3.12.2
+
+resolution: workspace
+
+dependencies:
+  engine_scraping:
+  engine_sources:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^3.5.0
+  http: ^1.6.0
+  konata_contracts:
+  konata_design_system:
+  konata_storage:
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter

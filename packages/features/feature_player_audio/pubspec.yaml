@@ -1,0 +1,23 @@
+name: feature_player_audio
+description: "Konata v3 全屏流光音乐舞台、队列抽屉、发烧安全音量、悬浮圆盘小窗与桌面接力业务包"
+publish_to: none
+
+environment:
+  sdk: ^3.12.2
+
+resolution: workspace
+
+dependencies:
+  engine_playback:
+  engine_sources:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^3.5.0
+  konata_contracts:
+  konata_design_system:
+  konata_storage:
+  path: ^1.9.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter

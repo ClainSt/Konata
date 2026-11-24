@@ -144,6 +144,11 @@ ON CONFLICT(${LyricUserOverridesSchema.colOverrideKey}) DO UPDATE SET
     return _mapRow(rs.first);
   }
 
+  /// 查询全部用户歌词覆盖记录（可含软删除墓碑，供同步切片导出）。
+  List<LyricUserOverrideRecord> listAll({bool includeDeleted = false}) {
+    return _queryAll(_engine.select, includeDeleted: includeDeleted);
+  }
+
   /// 响应式监听全部有效用户歌词覆盖记录。
   Stream<List<LyricUserOverrideRecord>> watchAll({bool includeDeleted = false}) {
     return _engine.watchQuery<List<LyricUserOverrideRecord>>(

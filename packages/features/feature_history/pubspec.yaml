@@ -1,0 +1,21 @@
+name: feature_history
+description: "Konata v3 日记式播放记录时间轴与断点续播入口业务包"
+publish_to: none
+
+environment:
+  sdk: ^3.12.2
+
+resolution: workspace
+
+dependencies:
+  engine_playback:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^3.5.0
+  konata_contracts:
+  konata_design_system:
+  konata_storage:
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter

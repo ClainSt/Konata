@@ -11,6 +11,7 @@ export 'src/ports/artwork_cache_port.dart';
 export 'src/ports/diagnostic_log_port.dart';
 export 'src/ports/domain_event_bus.dart';
 export 'src/ports/file_picker_port.dart';
+export 'src/ports/playback_bridge_ports.dart';
 export 'src/ports/read_query_ports.dart';
 export 'src/ports/storage_ports.dart';
 export 'src/sources/source_gateway_ports.dart';

@@ -14,9 +14,16 @@ workspace:
   - packages/engines/engine_scraping
   - packages/engines/engine_playback
   - packages/features/feature_detail
+  - packages/features/feature_history
   - packages/features/feature_library
+  - packages/features/feature_lyrics
+  - packages/features/feature_player_audio
+  - packages/features/feature_player_video
   - packages/features/feature_scan_viewer
+  - packages/features/feature_settings
   - packages/features/feature_sources
+  - packages/features/feature_sync
+  - packages/features/feature_tracker_sync
 
 dev_dependencies:
   crypto: ^3.0.8

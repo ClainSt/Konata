@@ -1,0 +1,23 @@
+name: feature_player_video
+description: "Konata v3 全屏原画视频舞台、触控手势、侧栏扩展、16:9 悬浮小窗与桌面置顶迷你窗业务包"
+publish_to: none
+
+environment:
+  sdk: ^3.12.2
+
+resolution: workspace
+
+dependencies:
+  engine_playback:
+  engine_sources:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^3.5.0
+  konata_contracts:
+  konata_design_system:
+  konata_storage:
+  path: ^1.9.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter

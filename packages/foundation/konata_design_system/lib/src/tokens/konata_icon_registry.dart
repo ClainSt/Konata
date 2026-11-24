@@ -22,8 +22,15 @@ abstract final class KonataIconRegistry {
       'review' || 'warning' => Icons.fact_check_outlined,
       'search' => Icons.search_rounded,
       'play' => Icons.play_arrow_rounded,
-      'sync' => Icons.sync_rounded,
-      'info' => Icons.info_outline_rounded,
+      'sync' || 'backup' => Icons.sync_rounded,
+      'tracker' || 'bangumi' => Icons.track_changes_rounded,
+      'lyrics' || 'subtitles' => Icons.subtitles_outlined,
+      'player' || 'video_stage' => Icons.smart_display_outlined,
+      'audio_stage' || 'headphones' => Icons.headphones_rounded,
+      'appearance' || 'palette' => Icons.palette_outlined,
+      'network' || 'cloud' => Icons.cloud_outlined,
+      'storage' || 'disk' => Icons.storage_rounded,
+      'about' || 'info' => Icons.info_outline_rounded,
       _ => Icons.extension_outlined,
     };
   }

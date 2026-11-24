@@ -318,50 +318,6 @@ class ScrapeCandidateSummary {
   final List<String> reasons;
 }
 
-/// 网络连通性与测速诊断结果。
-class ConnectivityReport {
-  /// 创建测速诊断报告。
-  const ConnectivityReport({
-    required this.reachable,
-    required this.latencyMs,
-    this.usedBackup = false,
-    this.resolvedAddress,
-    this.errorMessage,
-    this.statusSummary,
-  });
-
-  /// 是否成功连通目标服务。
-  final bool reachable;
-
-  /// 往返耗时（毫秒）。
-  final int latencyMs;
-
-  /// 是否通过备用地址自动回退连通。
-  final bool usedBackup;
-
-  /// 实际命中的地址。
-  final String? resolvedAddress;
-
-  /// 失败原因说明（成功时为 null）。
-  final String? errorMessage;
-
-  /// 面向界面的简明测试结论（如 `官方直连成功 (180ms)`）。
-  final String? statusSummary;
-
-  /// 格式化用于 UI 展示的结果文本。
-  String get displayText {
-    if (statusSummary != null && statusSummary!.isNotEmpty) {
-      return statusSummary!;
-    }
-    if (reachable) {
-      return usedBackup
-          ? '官方不可达，已自动回退备用地址连通 (${latencyMs}ms)'
-          : '官方直连成功 (${latencyMs}ms)';
-    }
-    return errorMessage ?? '官方与备用地址均无法连接（请检查密钥/备用地址或代理）';
-  }
-}
-
 /// TMDB 图片物理分辨率档位。
 enum TmdbImageSize {
   /// 列表与海报缩略图（w342）。

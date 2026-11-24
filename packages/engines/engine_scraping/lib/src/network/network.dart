@@ -1,8 +1,25 @@
-/// 多源元数据 HTTP 客户端、双通道调度与 TMDB/Bangumi/Fanart 服务导出。
+/// 多源元数据服务导出，并统一复用 `engine_sources` 的网络传输底座。
 library;
+
+export 'package:engine_sources/engine_sources.dart'
+    show
+        ConnectivityReport,
+        DomainCooldownRegistry,
+        KonataHttpClient,
+        PriorityHttpScheduler,
+        TmdbHttpClient;
+export 'package:konata_contracts/konata_contracts.dart'
+    show
+        KonataHttpClientPort,
+        KonataHttpResponse,
+        KonataNetworkConfig,
+        ProxyMode,
+        RateLimitedHttpException,
+        RequestPriority,
+        SystemProxyResolver,
+        TmdbCredentialKind,
+        TmdbNetworkConfig;
 
 export 'bangumi_service.dart';
 export 'fanart_service.dart';
-export 'priority_http_scheduler.dart';
-export 'tmdb_http_client.dart';
 export 'tmdb_service.dart';

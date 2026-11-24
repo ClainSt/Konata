@@ -5,13 +5,12 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
+import 'package:engine_sources/engine_sources.dart';
 import 'package:http/http.dart' as http;
 import 'package:konata_contracts/konata_contracts.dart';
 import 'package:konata_storage/konata_storage.dart';
 import 'package:path/path.dart' as p;
 
-import '../network/priority_http_scheduler.dart';
-import '../network/tmdb_http_client.dart';
 import '../scraping/bangumi_tmdb_index.dart';
 
 /// 映射表热更新轻量状态快照（仅存储本机最近检查时间、ETag 与首选镜像）。

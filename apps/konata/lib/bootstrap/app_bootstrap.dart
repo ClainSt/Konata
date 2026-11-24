@@ -142,9 +142,12 @@ final class HostAppNavigator implements AppNavigator {
     await nav.push<void>(
       CupertinoPageRoute<void>(
         settings: RouteSettings(name: 'work_detail/${workId.value}'),
-        builder: (_) => buildWorkDetailRoutePage(
-          workId: workId,
-          initialTabId: initialTabId,
+        builder: (_) => Material(
+          type: MaterialType.transparency,
+          child: buildWorkDetailRoutePage(
+            workId: workId,
+            initialTabId: initialTabId,
+          ),
         ),
       ),
     );
@@ -163,14 +166,17 @@ final class HostAppNavigator implements AppNavigator {
       await nav.push<void>(
         CupertinoPageRoute<void>(
           settings: RouteSettings(name: 'video_player/${workId.value}'),
-          builder: (_) => buildVideoPlayerRoutePage(
-            workId: workId,
-            episodeId: episodeId,
-            variantId: variantId,
-            hasAudioFeature: hasAudioFeature,
-            onClosePage: () {
-              unawaited(pop());
-            },
+          builder: (_) => Material(
+            type: MaterialType.transparency,
+            child: buildVideoPlayerRoutePage(
+              workId: workId,
+              episodeId: episodeId,
+              variantId: variantId,
+              hasAudioFeature: hasAudioFeature,
+              onClosePage: () {
+                unawaited(pop());
+              },
+            ),
           ),
         ),
       );
@@ -204,13 +210,16 @@ final class HostAppNavigator implements AppNavigator {
                 ? 'audio_player/active'
                 : 'audio_player/${workId.value}',
           ),
-          builder: (_) => buildAudioPlayerRoutePage(
-            workId: workId,
-            variantId: variantId,
-            hasVideoFeature: hasVideoFeature,
-            onClosePage: () {
-              unawaited(pop());
-            },
+          builder: (_) => Material(
+            type: MaterialType.transparency,
+            child: buildAudioPlayerRoutePage(
+              workId: workId,
+              variantId: variantId,
+              hasVideoFeature: hasVideoFeature,
+              onClosePage: () {
+                unawaited(pop());
+              },
+            ),
           ),
         ),
       );
@@ -1130,37 +1139,41 @@ final class _KonataBootstrapRootState
                               return ValueListenableBuilder<bool>(
                                 valueListenable: widget.audioStageOpen,
                                 builder: (context, audioOpened, _) {
-                                  return buildHostFloatingPlaybackOverlay(
-                                    registry: registry,
-                                    platform: platform,
-                                    videoStageOpen: videoOpened,
-                                    audioStageOpen: audioOpened,
-                                    androidAudioFocusPort:
-                                        widget.bootstrap.androidAudioFocusPort,
-                                    androidPipPort:
-                                        widget.bootstrap.androidPipPort,
-                                    onActiveMiniKindChanged: (kind) {
-                                      if (_activeMiniKind.value != kind) {
-                                        _activeMiniKind.value = kind;
-                                      }
-                                    },
-                                    onExpandVideoStage:
-                                        (workId, episodeId, variantId) {
-                                          unawaited(
-                                            widget.hostNavigator
-                                                .openVideoPlayer(
-                                                  workId: workId,
-                                                  episodeId: episodeId,
-                                                  variantId: variantId,
-                                                ),
-                                          );
-                                        },
-                                    onExpandAudioStage: () {
-                                      unawaited(
-                                        widget.hostNavigator
-                                            .expandActiveAudioStage(),
-                                      );
-                                    },
+                                  return Material(
+                                    type: MaterialType.transparency,
+                                    child: buildHostFloatingPlaybackOverlay(
+                                      registry: registry,
+                                      platform: platform,
+                                      videoStageOpen: videoOpened,
+                                      audioStageOpen: audioOpened,
+                                      androidAudioFocusPort: widget
+                                          .bootstrap
+                                          .androidAudioFocusPort,
+                                      androidPipPort:
+                                          widget.bootstrap.androidPipPort,
+                                      onActiveMiniKindChanged: (kind) {
+                                        if (_activeMiniKind.value != kind) {
+                                          _activeMiniKind.value = kind;
+                                        }
+                                      },
+                                      onExpandVideoStage:
+                                          (workId, episodeId, variantId) {
+                                            unawaited(
+                                              widget.hostNavigator
+                                                  .openVideoPlayer(
+                                                    workId: workId,
+                                                    episodeId: episodeId,
+                                                    variantId: variantId,
+                                                  ),
+                                            );
+                                          },
+                                      onExpandAudioStage: () {
+                                        unawaited(
+                                          widget.hostNavigator
+                                              .expandActiveAudioStage(),
+                                        );
+                                      },
+                                    ),
                                   );
                                 },
                               );

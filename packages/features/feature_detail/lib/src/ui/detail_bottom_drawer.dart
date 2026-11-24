@@ -419,7 +419,7 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
     final b = widget.bundle;
     final showRawFileName = widget.displayPreferences.showRawVideoFilename;
     final cardWidth = widget.compact ? 196.0 : 228.0;
-    final cardHeight = cardWidth * 9 / 16 + (showRawFileName ? 56.0 : 38.0);
+    final cardHeight = cardWidth * 9 / 16 + (showRawFileName ? 66.0 : 46.0);
 
     return Listener(
       onPointerSignal: _handleTrackPointerSignal,
@@ -476,7 +476,7 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
     final b = widget.bundle;
     final showRawFileName = widget.displayPreferences.showRawVideoFilename;
     final cardWidth = widget.compact ? 132.0 : 148.0;
-    final cardHeight = cardWidth + (showRawFileName ? 64.0 : 44.0);
+    final cardHeight = cardWidth + (showRawFileName ? 84.0 : 62.0);
     final subdirHints = DetailSupplementaryHelper.buildCdSubdirHints(cds);
 
     return Listener(

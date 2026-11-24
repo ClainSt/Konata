@@ -141,7 +141,7 @@ FeatureManifest _buildManifest({
     settingsSections: <SettingsSectionContribution>[
       SettingsSectionContribution(
         id: 'lyrics_sources',
-        title: '在线歌词来源与注音',
+        title: '歌词与注音',
         subtitle: '管理多源歌词竞速库与罗马音注音显示',
         iconKey: 'lyrics',
         order: 30,

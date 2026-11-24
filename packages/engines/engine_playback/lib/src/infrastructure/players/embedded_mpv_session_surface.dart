@@ -9,10 +9,36 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
         onEvicted: () async {
           await _eventSub?.cancel();
           _eventSub = null;
+          await _desktopSurfaceChangeSub?.cancel();
+          _desktopSurfaceChangeSub = null;
+          final surfaceSessionId = _desktopSurfaceSessionId;
+          final wasGpuNextUnderlay = _usingGpuNextUnderlay;
+          if (surfaceSessionId != null &&
+              surfaceSessionId > 0 &&
+              desktopSurfaceBridge != null) {
+            if (wasGpuNextUnderlay) {
+              // vo=gpu-next 持有底层子窗口，先隐藏视口并解绑 wid，待引擎销毁 libmpv 后再清理子窗口。
+              await desktopSurfaceBridge!.setViewportRect(
+                sessionId: surfaceSessionId,
+                leftPx: 0,
+                topPx: 0,
+                rightPx: 0,
+                bottomPx: 0,
+                visible: false,
+              );
+            } else {
+              // vo=libmpv 的 C++ 渲染上下文绑定在 mpv_handle 上，必须在 mpv_terminate_destroy 前释放，
+              // 否则 libmpv 会触发致命断言导致 ucrtbase.dll 0xc0000409 闪退。
+              _desktopSurfaceSessionId = null;
+              _setTextureId(null);
+              _setUnderlayActive(false);
+              await desktopSurfaceBridge!.disposeSession(surfaceSessionId);
+            }
+          }
           final active = _client;
           _client = null;
           if (active != null && !active.isDisposed && active.isInitialized) {
-            if (_usingGpuNextUnderlay || _useAndroidSurfaceSession) {
+            if (wasGpuNextUnderlay || _useAndroidSurfaceSession) {
               active.setPropertyString('vo', 'null');
               active.setPropertyString('wid', '0');
             }

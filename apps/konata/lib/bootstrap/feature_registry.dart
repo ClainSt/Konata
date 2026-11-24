@@ -824,11 +824,13 @@ final class _HostAudioStageRouteState
     }
     if (!mounted) return;
     if (widget.hasVideoFeature) {
-      final videoCtrl = ref.read(activeVideoSessionManagerProvider).controller;
-      if (videoCtrl != null && videoCtrl.state.isPlaying) {
-        unawaited(videoCtrl.setPlaying(false));
+      final videoMgr = ref.read(activeVideoSessionManagerProvider);
+      if (videoMgr.hasActiveSession) {
+        // 启动独立音乐会话前先有序释放既有视频会话及其桌面渲染表面，避免残留失效悬浮视频小窗。
+        await videoMgr.closeActiveSession();
       }
     }
+    if (!mounted) return;
     final controller = ref.read(audioPlaybackControllerProvider);
     await controller.playCdCollection(
       work: work,

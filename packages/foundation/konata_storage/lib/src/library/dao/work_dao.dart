@@ -330,6 +330,58 @@ ON CONFLICT(${WorksSchema.colId}) DO UPDATE SET
     );
   }
 
+  /// 查询全部未软删除作品（包含已隐藏作品）。
+  List<WorkRecord> listAll({bool includeDeleted = false}) {
+    return _queryAll(_engine.select, includeDeleted: includeDeleted);
+  }
+
+  /// 响应式监听全部未软删除作品（包含已隐藏作品）。
+  Stream<List<WorkRecord>> watchAll({bool includeDeleted = false}) {
+    return _engine.watchQuery<List<WorkRecord>>(
+      tables: _tables,
+      query: (db) => _queryAll(db.select, includeDeleted: includeDeleted),
+    );
+  }
+
+  /// 查询全部已隐藏且未软删除作品。
+  List<WorkRecord> listHidden() {
+    return _queryHidden(_engine.select);
+  }
+
+  /// 响应式监听全部已隐藏且未软删除作品。
+  Stream<List<WorkRecord>> watchHidden() {
+    return _engine.watchQuery<List<WorkRecord>>(
+      tables: _tables,
+      query: (db) => _queryHidden(db.select),
+    );
+  }
+
+  /// 查询全部待复核或未匹配作品（不含隐藏与软删除）。
+  List<WorkRecord> listNeedsReview() {
+    return _queryNeedsReview(_engine.select);
+  }
+
+  /// 响应式监听待复核与未匹配作品列表变化。
+  Stream<List<WorkRecord>> watchNeedsReview() {
+    return _engine.watchQuery<List<WorkRecord>>(
+      tables: _tables,
+      query: (db) => _queryNeedsReview(db.select),
+    );
+  }
+
+  /// 按系列编组主键查询有效成员作品（按系列顺序与标题排序）。
+  List<WorkRecord> listBySeries(SeriesGroupId seriesId) {
+    final rs = _engine.select(
+      'SELECT * FROM ${WorksSchema.table} '
+      'WHERE ${WorksSchema.colSeriesId} = ? '
+      'AND ${WorksSchema.colDeletedAtMs} IS NULL '
+      'ORDER BY ${WorksSchema.colSeriesOrder} ASC, '
+      '${WorksSchema.colYear} ASC, ${WorksSchema.colTitle} ASC;',
+      <Object?>[seriesId.value],
+    );
+    return <WorkRecord>[for (final row in rs) _mapRow(row)];
+  }
+
   /// 查询含已软删除墓碑在内的全部作品（供增量同步切片导出）。
   List<WorkRecord> listAllWithTombstones() {
     final rs = _engine.select(
@@ -379,6 +431,46 @@ WHERE ${WorksSchema.colId} = ?;
       'WHERE ${WorksSchema.colDeletedAtMs} IS NULL '
       'AND ${WorksSchema.colIsHidden} = 0 '
       'ORDER BY ${WorksSchema.colTitle} ASC, ${WorksSchema.colId} ASC;',
+    );
+    return <WorkRecord>[for (final row in rs) _mapRow(row)];
+  }
+
+  List<WorkRecord> _queryAll(
+    ResultSet Function(String, [List<Object?>]) selectFn, {
+    required bool includeDeleted,
+  }) {
+    final whereClause = includeDeleted
+        ? ''
+        : 'WHERE ${WorksSchema.colDeletedAtMs} IS NULL ';
+    final rs = selectFn(
+      'SELECT * FROM ${WorksSchema.table} '
+      '${whereClause}ORDER BY ${WorksSchema.colTitle} ASC, ${WorksSchema.colId} ASC;',
+    );
+    return <WorkRecord>[for (final row in rs) _mapRow(row)];
+  }
+
+  List<WorkRecord> _queryHidden(
+    ResultSet Function(String, [List<Object?>]) selectFn,
+  ) {
+    final rs = selectFn(
+      'SELECT * FROM ${WorksSchema.table} '
+      'WHERE ${WorksSchema.colDeletedAtMs} IS NULL '
+      'AND ${WorksSchema.colIsHidden} = 1 '
+      'ORDER BY ${WorksSchema.colTitle} ASC, ${WorksSchema.colId} ASC;',
+    );
+    return <WorkRecord>[for (final row in rs) _mapRow(row)];
+  }
+
+  List<WorkRecord> _queryNeedsReview(
+    ResultSet Function(String, [List<Object?>]) selectFn,
+  ) {
+    final rs = selectFn(
+      'SELECT * FROM ${WorksSchema.table} '
+      'WHERE ${WorksSchema.colDeletedAtMs} IS NULL '
+      'AND ${WorksSchema.colIsHidden} = 0 '
+      'AND ${WorksSchema.colScrapeStatus} != ? '
+      'ORDER BY ${WorksSchema.colUpdatedAtMs} DESC, ${WorksSchema.colTitle} ASC;',
+      <Object?>[ScrapeStatus.matched.name],
     );
     return <WorkRecord>[for (final row in rs) _mapRow(row)];
   }

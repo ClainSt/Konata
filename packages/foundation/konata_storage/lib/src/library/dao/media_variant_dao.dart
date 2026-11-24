@@ -205,6 +205,50 @@ ON CONFLICT(${MediaVariantsSchema.colId}) DO UPDATE SET
     );
   }
 
+  /// 按主键查询单条物理版本记录。
+  MediaVariantRecord? findById(VariantId id, {bool includeDeleted = false}) {
+    final deletedClause = includeDeleted
+        ? ''
+        : ' AND ${MediaVariantsSchema.colDeletedAtMs} IS NULL';
+    final rs = _engine.select(
+      'SELECT * FROM ${MediaVariantsSchema.table} '
+      'WHERE ${MediaVariantsSchema.colId} = ?$deletedClause LIMIT 1;',
+      <Object?>[id.value],
+    );
+    if (rs.isEmpty) return null;
+    return _mapRow(rs.first);
+  }
+
+  /// 查询指定媒体源下的全部物理版本记录。
+  List<MediaVariantRecord> listBySource(
+    SourceId sourceId, {
+    bool includeDeleted = false,
+  }) {
+    final deletedClause = includeDeleted
+        ? ''
+        : ' AND ${MediaVariantsSchema.colDeletedAtMs} IS NULL';
+    final rs = _engine.select(
+      'SELECT * FROM ${MediaVariantsSchema.table} '
+      'WHERE ${MediaVariantsSchema.colSourceId} = ?$deletedClause '
+      'ORDER BY ${MediaVariantsSchema.colRelativePath} ASC, ${MediaVariantsSchema.colId} ASC;',
+      <Object?>[sourceId.value],
+    );
+    return <MediaVariantRecord>[for (final row in rs) _mapRow(row)];
+  }
+
+  /// 查询全库全部有效物理版本记录。
+  List<MediaVariantRecord> listAll({bool includeDeleted = false}) {
+    final whereClause = includeDeleted
+        ? ''
+        : 'WHERE ${MediaVariantsSchema.colDeletedAtMs} IS NULL ';
+    final rs = _engine.select(
+      'SELECT * FROM ${MediaVariantsSchema.table} '
+      '${whereClause}ORDER BY ${MediaVariantsSchema.colWorkId} ASC, '
+      '${MediaVariantsSchema.colRelativePath} ASC;',
+    );
+    return <MediaVariantRecord>[for (final row in rs) _mapRow(row)];
+  }
+
   /// 查询指定作品的全部物理版本记录。
   List<MediaVariantRecord> listByWork(
     WorkId workId, {

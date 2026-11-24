@@ -1,0 +1,23 @@
+name: feature_scan_viewer
+description: "Konata v3 独立扫图画廊、按源并发微缩图调度与有界 96MB 内存滑窗灯箱纵向业务包"
+publish_to: none
+
+environment:
+  sdk: ^3.12.2
+
+resolution: workspace
+
+dependencies:
+  engine_scraping:
+  engine_sources:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^3.5.0
+  konata_contracts:
+  konata_design_system:
+  konata_storage:
+  path: ^1.9.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter

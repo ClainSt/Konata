@@ -13,6 +13,10 @@ workspace:
   - packages/engines/engine_sources
   - packages/engines/engine_scraping
   - packages/engines/engine_playback
+  - packages/features/feature_detail
+  - packages/features/feature_library
+  - packages/features/feature_scan_viewer
+  - packages/features/feature_sources
 
 dev_dependencies:
   crypto: ^3.0.8

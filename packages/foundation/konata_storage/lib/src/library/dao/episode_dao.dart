@@ -152,6 +152,20 @@ ON CONFLICT(${EpisodesSchema.colId}) DO UPDATE SET
     );
   }
 
+  /// 按主键查询单条逻辑剧集记录。
+  EpisodeRecord? findById(EpisodeId id, {bool includeDeleted = false}) {
+    final deletedClause = includeDeleted
+        ? ''
+        : ' AND ${EpisodesSchema.colDeletedAtMs} IS NULL';
+    final rs = _engine.select(
+      'SELECT * FROM ${EpisodesSchema.table} '
+      'WHERE ${EpisodesSchema.colId} = ?$deletedClause LIMIT 1;',
+      <Object?>[id.value],
+    );
+    if (rs.isEmpty) return null;
+    return _mapRow(rs.first);
+  }
+
   /// 查询指定作品下的有效剧集列表。
   List<EpisodeRecord> listByWork(
     WorkId workId, {

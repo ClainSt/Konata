@@ -2,6 +2,7 @@
 library;
 
 export 'konata_adaptive_tokens.dart';
+export 'konata_icon_registry.dart';
 export 'konata_palette.dart';
 export 'konata_playback_tokens.dart';
 export 'konata_theme.dart';

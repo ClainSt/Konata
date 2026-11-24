@@ -978,6 +978,42 @@ class EmbeddedMpvSession {
   /// 读取最新原生轨道并刷新侧栏列表。
   void refreshMetadata() => _emitMediaMetadataSnapshot();
 
+  double _subtitleHudLiftPercent = 0.0;
+
+  /// 当前由底部播控胶囊触发的字幕上抬百分比（`0.0` 表示恢复用户原始基线位置）。
+  double get subtitleHudLiftPercent => _subtitleHudLiftPercent;
+
+  /// 按底部播控胶囊与视频显示矩形的重叠百分比动态抬升常规字幕（`sub-pos`），
+  /// 不修改 `sub-ass-override`，严禁干扰 ASS `\pos()` 绝对坐标屏幕字；传入 `0` 即刻复原。
+  void setSubtitleHudLiftPercent(double liftPercent) {
+    final normalized = liftPercent.isFinite
+        ? liftPercent.clamp(0.0, 45.0).toDouble()
+        : 0.0;
+    if ((_subtitleHudLiftPercent - normalized).abs() < 0.05) return;
+    _subtitleHudLiftPercent = normalized;
+    final client = _client;
+    if (_disposed || _closingSilenced || client == null || client.isDisposed) {
+      return;
+    }
+    _applyCurrentSubtitleHudLift(client);
+  }
+
+  void _applyCurrentSubtitleHudLift(LibMpvClient client) {
+    final subParams = MpvQualityProfile.resolveSubtitleParameters(
+      _lastQualityConfig,
+      hasSecondarySubtitle: _hasSecondarySubtitle,
+    );
+    final liftedPrimary = (subParams.subPos - _subtitleHudLiftPercent)
+        .clamp(15.0, 100.0)
+        .toDouble();
+    final liftedSecondary =
+        (subParams.secondarySubPos - _subtitleHudLiftPercent)
+            .clamp(15.0, 100.0)
+            .toDouble();
+    client.setPropertyDouble('sub-pos', liftedPrimary);
+    client.setPropertyDouble('secondary-sub-pos', liftedSecondary);
+  }
+
   /// 应用播放/画质/字幕/着色器/音频设备实时更新（异步校验着色器路径，避免主线程同步盘检）。
   void applyLiveQualityConfig(PlaybackQualityConfig config) {
     _lastQualityConfig = config;
@@ -1002,6 +1038,9 @@ class EmbeddedMpvSession {
       config: config,
       verifiedShaders: verifiedShaders,
     );
+    if (_subtitleHudLiftPercent > 0.0) {
+      _applyCurrentSubtitleHudLift(client);
+    }
     onApplyAudiophileSafetyChain?.call(client);
     _emitMediaMetadataSnapshot();
   }

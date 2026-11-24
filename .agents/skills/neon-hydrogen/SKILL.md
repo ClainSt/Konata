@@ -26,11 +26,10 @@ description: >-
 
 | 角色 | 职责边界 | 指定模型 ID | `workspace` 策略 |
 | :--- | :--- | :--- | :--- |
-| **Coordinator（你 / Neon）** | 需求拆解、契约审查、按包切分无重叠边界、派单、分支合入主干、冲突裁决与向用户汇报。**不亲自编写大段业务代码或跑耗时构建。** | 当前主会话（`gemini-4-neon-high` / `gemini-4-neon-xhigh` / `gemini-pro-orchestrator-neon`） | 主工作区（`main`） |
-| **Author Worker（常规包开发）** | 负责 1 个或多个无交叉独立包的实现、迁移与本包单元测试。 | `gemini-4-hydrogen-high` | 单人改码用 `inherit`；多人并行改码必须用 `share` |
-| **Author Worker（攻坚引擎/状态机）** | 负责 `engine_scraping` 复杂规则、`engine_playback` FFI/四维代数隔离、并发状态机或棘手性能攻坚。 | `gemini-4-hydrogen-xhigh` | 同上 |
-| **Verifier Worker（独立验收）** | **只读审查** Diff、运行 `dart run tool/verify.dart guard` / `changed` / `check_comments.ps1`、核验 `AGENTS.md` 与 `PACKAGE.md`。发现问题直接 `@author` 退回，**绝不自己改码**。 | `gemini-4-hydrogen-high` | `inherit` |
-| **配额降级兜底** | 某 Hydrogen Worker 触发配额耗尽时无损切模型，严禁 `kill` 重建。 | `gemini-4-hydrogen-medium` | 保持原工作区 |
+| **Coordinator（你 / Neon）** | 需求拆解、契约审查、按包切分无重叠边界、派单、分支合入主干、冲突裁决与向用户汇报。**不亲自编写大段业务代码或跑耗时构建。** | 当前主会话（`gemini-4-neon-xhigh` / `gemini-4-neon-high` / `gemini-pro-orchestrator-neon`） | 主工作区（`main`） |
+| **Author Worker（全量编码/攻坚）** | 负责分配包的架构实现、迁移、复杂算法、并发状态机与本包单元测试。 | `gemini-4-hydrogen-xhigh` | 单人改码用 `inherit`；多人并行改码必须用 `share` |
+| **Verifier Worker（独立验收）** | **只读审查** Diff、运行 `dart run tool/verify.dart guard` / `changed` / `check_comments.ps1`、核验 `AGENTS.md` 与 `PACKAGE.md`。发现问题直接 `@author` 退回，**绝不自己改码**。 | `gemini-4-hydrogen-xhigh` | `inherit` |
+| **配额降级兜底** | 仅当某 Worker 触发配额耗尽时无损切模型续跑（优先 `high`，次选 `medium`），严禁 `kill` 重建。 | `gemini-4-hydrogen-high` | 保持原工作区 |
 
 ---
 

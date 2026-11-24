@@ -50,6 +50,9 @@ abstract final class WorksSchema {
   /// 横版无字背景 `ArtworkRef` 序列化 JSON。
   static const String colBackdropRefJson = 'backdrop_ref_json';
 
+  /// 竖版无字原画 `ArtworkRef` 序列化 JSON（供手机与平板竖屏详情页展示）。
+  static const String colPortraitBackdropRefJson = 'portrait_backdrop_ref_json';
+
   /// 透明 PNG 标题徽标 `ArtworkRef` 序列化 JSON。
   static const String colLogoRefJson = 'logo_ref_json';
 
@@ -119,6 +122,7 @@ CREATE TABLE IF NOT EXISTS $table (
   $colPosterFallback TEXT,
   $colBangumiPosterPath TEXT,
   $colBackdropRefJson TEXT,
+  $colPortraitBackdropRefJson TEXT,
   $colLogoRefJson TEXT,
   $colVoteAverage REAL,
   $colBangumiScore REAL,

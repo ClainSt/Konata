@@ -9,6 +9,7 @@ import 'data/pip_recovery_store.dart';
 import 'data/shader_discovery_service.dart';
 import 'data/video_playback_preferences.dart';
 import 'data/video_session_models.dart';
+import 'state/active_video_session_manager.dart';
 import 'state/video_playback_controller.dart';
 import 'state/video_playback_state.dart';
 
@@ -155,18 +156,19 @@ final videoPlaybackPreferencesStoreProvider =
     });
 
 /// 着色器目录异步扫描与导入服务提供器。
-final videoShaderDiscoveryServiceProvider =
-    Provider.autoDispose<ShaderDiscoveryService>((ref) {
-      final deps = ref.watch(featurePlayerVideoDependenciesProvider);
-      final prefsStore = ref.watch(videoPlaybackPreferencesStoreProvider);
-      final service = ShaderDiscoveryService(
-        storageRoot: deps.storageRoot,
-        preferencesStore: prefsStore,
-        logStore: deps.diagnosticLog,
-      );
-      ref.onDispose(service.dispose);
-      return service;
-    });
+final videoShaderDiscoveryServiceProvider = Provider<ShaderDiscoveryService>((
+  ref,
+) {
+  final deps = ref.watch(featurePlayerVideoDependenciesProvider);
+  final prefsStore = ref.watch(videoPlaybackPreferencesStoreProvider);
+  final service = ShaderDiscoveryService(
+    storageRoot: deps.storageRoot,
+    preferencesStore: prefsStore,
+    logStore: deps.diagnosticLog,
+  );
+  ref.onDispose(service.dispose);
+  return service;
+});
 
 /// 画中画断点恢复存储仓储提供器。
 final videoPipRecoveryStoreProvider = Provider<PipRecoveryStore>((ref) {
@@ -174,54 +176,77 @@ final videoPipRecoveryStoreProvider = Provider<PipRecoveryStore>((ref) {
   return deps.pipRecoveryStore ?? ScopedPrefsPipRecoveryStore(deps.scopedPrefs);
 });
 
+VideoPlaybackController _createVideoPlaybackController(Ref ref) {
+  final deps = ref.read(featurePlayerVideoDependenciesProvider);
+  final prefsStore = ref.read(videoPlaybackPreferencesStoreProvider);
+  final shaderService = ref.read(videoShaderDiscoveryServiceProvider);
+  final pipStore = ref.read(videoPipRecoveryStoreProvider);
+
+  final engine = deps.playbackEngine ?? UnifiedPlaybackEngine();
+  final safetyCoordinator =
+      deps.audiophileCoordinator ??
+      AudiophileSafetyCoordinator(
+        engine: engine,
+        logStore: deps.diagnosticLog,
+        isWindowsOverride: deps.platform == KonataPlatform.windows,
+        isAndroidOverride: deps.platform != KonataPlatform.windows,
+      );
+
+  return VideoPlaybackController(
+    env: VideoPlaybackEnvironment(
+      databases: deps.databases,
+      storageRoot: deps.storageRoot,
+      domainEventBus: deps.domainEventBus,
+      hostWindow: deps.hostWindow,
+      filePicker: deps.filePicker,
+      streamBridge: deps.streamBridge,
+      preferencesStore: prefsStore,
+      shaderDiscoveryService: shaderService,
+      pipRecoveryStore: pipStore,
+      playbackEngine: engine,
+      audiophileCoordinator: safetyCoordinator,
+      platform: deps.platform,
+      navigator: deps.navigator,
+      gatewayFactory: deps.gatewayFactory,
+      subtitleDirectoryIndex: deps.subtitleDirectoryIndex,
+      cloudSubsetCoordinator: deps.cloudSubsetCoordinator,
+      legacyCodePageDecoder: deps.legacyCodePageDecoder,
+      desktopRelayGateway: deps.desktopRelayGateway,
+      desktopSurfaceBridge: deps.desktopSurfaceBridge,
+      desktopProfileDelegate: deps.desktopProfileDelegate,
+      androidSurfacePort: deps.androidSurfacePort,
+      mediaStorePublisher: deps.mediaStorePublisher,
+      diagnosticLog: deps.diagnosticLog,
+      libMpvClientFactory: deps.libMpvClientFactory,
+      sourceDeviceId: deps.sourceDeviceId,
+    ),
+  );
+}
+
+/// 跨路由常驻活跃视频会话总管（脱离路由局部 `autoDispose`，支撑跨页 16:9 悬浮视频小窗零重建解码）。
+final activeVideoSessionManagerProvider = Provider<ActiveVideoSessionManager>((
+  ref,
+) {
+  ref.watch(featurePlayerVideoDependenciesProvider);
+  ref.watch(videoPlaybackPreferencesStoreProvider);
+  ref.watch(videoShaderDiscoveryServiceProvider);
+  ref.watch(videoPipRecoveryStoreProvider);
+  final manager = ActiveVideoSessionManager(
+    controllerFactory: () => _createVideoPlaybackController(ref),
+  );
+  ref.onDispose(manager.dispose);
+  return manager;
+});
+
 /// 内置全屏视频播放核心状态控制器按需族提供器（与请求键绑定，关闭舞台自动销毁）。
 final videoPlaybackControllerProvider = Provider.autoDispose
     .family<VideoPlaybackController, VideoLaunchRequest>((ref, request) {
-      final deps = ref.watch(featurePlayerVideoDependenciesProvider);
-      final prefsStore = ref.watch(videoPlaybackPreferencesStoreProvider);
-      final shaderService = ref.watch(videoShaderDiscoveryServiceProvider);
-      final pipStore = ref.watch(videoPipRecoveryStoreProvider);
+      ref.watch(featurePlayerVideoDependenciesProvider);
+      ref.watch(videoPlaybackPreferencesStoreProvider);
+      ref.watch(videoShaderDiscoveryServiceProvider);
+      ref.watch(videoPipRecoveryStoreProvider);
 
-      final engine = deps.playbackEngine ?? UnifiedPlaybackEngine();
-      final safetyCoordinator =
-          deps.audiophileCoordinator ??
-          AudiophileSafetyCoordinator(
-            engine: engine,
-            logStore: deps.diagnosticLog,
-            isWindowsOverride: deps.platform == KonataPlatform.windows,
-            isAndroidOverride: deps.platform != KonataPlatform.windows,
-          );
-
-      final controller = VideoPlaybackController(
-        env: VideoPlaybackEnvironment(
-          databases: deps.databases,
-          storageRoot: deps.storageRoot,
-          domainEventBus: deps.domainEventBus,
-          hostWindow: deps.hostWindow,
-          filePicker: deps.filePicker,
-          streamBridge: deps.streamBridge,
-          preferencesStore: prefsStore,
-          shaderDiscoveryService: shaderService,
-          pipRecoveryStore: pipStore,
-          playbackEngine: engine,
-          audiophileCoordinator: safetyCoordinator,
-          platform: deps.platform,
-          navigator: deps.navigator,
-          gatewayFactory: deps.gatewayFactory,
-          subtitleDirectoryIndex: deps.subtitleDirectoryIndex,
-          cloudSubsetCoordinator: deps.cloudSubsetCoordinator,
-          legacyCodePageDecoder: deps.legacyCodePageDecoder,
-          desktopRelayGateway: deps.desktopRelayGateway,
-          desktopSurfaceBridge: deps.desktopSurfaceBridge,
-          desktopProfileDelegate: deps.desktopProfileDelegate,
-          androidSurfacePort: deps.androidSurfacePort,
-          mediaStorePublisher: deps.mediaStorePublisher,
-          diagnosticLog: deps.diagnosticLog,
-          libMpvClientFactory: deps.libMpvClientFactory,
-          sourceDeviceId: deps.sourceDeviceId,
-        ),
-      );
-
+      final controller = _createVideoPlaybackController(ref);
       unawaited(controller.initialize(request));
       ref.onDispose(controller.dispose);
       return controller;

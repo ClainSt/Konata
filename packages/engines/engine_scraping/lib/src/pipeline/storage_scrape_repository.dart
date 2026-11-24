@@ -235,6 +235,10 @@ ON CONFLICT(${MediaSourcesSchema.colId}) DO UPDATE SET
       work.backdropPath,
       locked: work.backdropLocked,
     );
+    final portraitBackdropRef = ArtworkRefCodec.fromPath(
+      work.portraitBackdropPath,
+      locked: work.portraitBackdropLocked,
+    );
     final logoRef = ArtworkRefCodec.fromPath(
       work.logoPath,
       locked: work.logoLocked,
@@ -258,6 +262,7 @@ INSERT INTO ${WorksSchema.table} (
   ${WorksSchema.colPosterFallback},
   ${WorksSchema.colBangumiPosterPath},
   ${WorksSchema.colBackdropRefJson},
+  ${WorksSchema.colPortraitBackdropRefJson},
   ${WorksSchema.colLogoRefJson},
   ${WorksSchema.colVoteAverage},
   ${WorksSchema.colBangumiScore},
@@ -275,7 +280,7 @@ INSERT INTO ${WorksSchema.table} (
   ${WorksSchema.colUpdatedAtMs},
   ${WorksSchema.colSourceDeviceId},
   ${WorksSchema.colDeletedAtMs}
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
 ON CONFLICT(${WorksSchema.colId}) DO UPDATE SET
   ${WorksSchema.colCanonicalKey} = excluded.${WorksSchema.colCanonicalKey},
   ${WorksSchema.colTmdbId} = excluded.${WorksSchema.colTmdbId},
@@ -291,6 +296,7 @@ ON CONFLICT(${WorksSchema.colId}) DO UPDATE SET
   ${WorksSchema.colPosterFallback} = excluded.${WorksSchema.colPosterFallback},
   ${WorksSchema.colBangumiPosterPath} = excluded.${WorksSchema.colBangumiPosterPath},
   ${WorksSchema.colBackdropRefJson} = excluded.${WorksSchema.colBackdropRefJson},
+  ${WorksSchema.colPortraitBackdropRefJson} = excluded.${WorksSchema.colPortraitBackdropRefJson},
   ${WorksSchema.colLogoRefJson} = excluded.${WorksSchema.colLogoRefJson},
   ${WorksSchema.colVoteAverage} = excluded.${WorksSchema.colVoteAverage},
   ${WorksSchema.colBangumiScore} = excluded.${WorksSchema.colBangumiScore},
@@ -325,6 +331,9 @@ ON CONFLICT(${WorksSchema.colId}) DO UPDATE SET
           work.posterFallback,
           work.bangumiPosterPath,
           backdropRef == null ? null : jsonEncode(backdropRef.toLocalJson()),
+          portraitBackdropRef == null
+              ? null
+              : jsonEncode(portraitBackdropRef.toLocalJson()),
           logoRef == null ? null : jsonEncode(logoRef.toLocalJson()),
           work.voteAverage,
           work.bangumiScore,
@@ -1221,6 +1230,7 @@ ON CONFLICT(${SeriesGroupsSchema.colId}) DO UPDATE SET
     final artworks = ArtworkRefCodec.unpackWorkArtworks(
       posterRef: rec.posterRef,
       backdropRef: rec.backdropRef,
+      portraitBackdropRef: rec.portraitBackdropRef,
       logoRef: rec.logoRef,
     );
     return Work(
@@ -1238,6 +1248,7 @@ ON CONFLICT(${SeriesGroupsSchema.colId}) DO UPDATE SET
       posterFallback: rec.posterFallback,
       bangumiPosterPath: rec.bangumiPosterPath,
       backdropPath: artworks.backdropPath,
+      portraitBackdropPath: artworks.portraitBackdropPath,
       logoPath: artworks.logoPath,
       voteAverage: rec.voteAverage,
       bangumiScore: rec.bangumiScore,
@@ -1246,6 +1257,7 @@ ON CONFLICT(${SeriesGroupsSchema.colId}) DO UPDATE SET
       metadataLocked: rec.metadataLocked,
       posterLocked: artworks.posterLocked,
       backdropLocked: artworks.backdropLocked,
+      portraitBackdropLocked: artworks.portraitBackdropLocked,
       logoLocked: artworks.logoLocked,
       logoNegativeUntil: logoNeg != null && logoNeg.negativeUntilMs > 0
           ? DateTime.fromMillisecondsSinceEpoch(logoNeg.negativeUntilMs)
@@ -1268,10 +1280,14 @@ ON CONFLICT(${SeriesGroupsSchema.colId}) DO UPDATE SET
   ) {
     final posterRef = _decodeArtworkRef(row[WorksSchema.colPosterRefJson]);
     final backdropRef = _decodeArtworkRef(row[WorksSchema.colBackdropRefJson]);
+    final portraitBackdropRef = _decodeArtworkRef(
+      row[WorksSchema.colPortraitBackdropRefJson],
+    );
     final logoRef = _decodeArtworkRef(row[WorksSchema.colLogoRefJson]);
     final artworks = ArtworkRefCodec.unpackWorkArtworks(
       posterRef: posterRef,
       backdropRef: backdropRef,
+      portraitBackdropRef: portraitBackdropRef,
       logoRef: logoRef,
     );
     return Work(
@@ -1291,6 +1307,7 @@ ON CONFLICT(${SeriesGroupsSchema.colId}) DO UPDATE SET
       posterFallback: row[WorksSchema.colPosterFallback] as String?,
       bangumiPosterPath: row[WorksSchema.colBangumiPosterPath] as String?,
       backdropPath: artworks.backdropPath,
+      portraitBackdropPath: artworks.portraitBackdropPath,
       logoPath: artworks.logoPath,
       voteAverage: (row[WorksSchema.colVoteAverage] as num?)?.toDouble(),
       bangumiScore: (row[WorksSchema.colBangumiScore] as num?)?.toDouble(),
@@ -1299,6 +1316,7 @@ ON CONFLICT(${SeriesGroupsSchema.colId}) DO UPDATE SET
       metadataLocked: (row[WorksSchema.colMetadataLocked] as int? ?? 0) != 0,
       posterLocked: artworks.posterLocked,
       backdropLocked: artworks.backdropLocked,
+      portraitBackdropLocked: artworks.portraitBackdropLocked,
       logoLocked: artworks.logoLocked,
       logoNegativeUntil: logoNeg != null && logoNeg.negativeUntilMs > 0
           ? DateTime.fromMillisecondsSinceEpoch(logoNeg.negativeUntilMs)

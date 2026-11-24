@@ -8,3 +8,4 @@ export 'konata_playback_tokens.dart';
 export 'konata_theme.dart';
 export 'konata_ui_platform.dart';
 export 'konata_ui_primitives.dart';
+export 'konata_window_material.dart';

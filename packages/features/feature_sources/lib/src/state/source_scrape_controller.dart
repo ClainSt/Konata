@@ -98,6 +98,8 @@ class SourceScrapeController extends ChangeNotifier {
 
   ScrapeTaskPhase _phase = const ScrapeIdlePhase();
   bool _isRunning = false;
+  bool _ongoingAutoSyncRunning = false;
+  DateTime? _lastOngoingAutoSyncAt;
   bool _cancelRequested = false;
   int _lastWorkEventMs = 0;
 
@@ -106,6 +108,105 @@ class SourceScrapeController extends ChangeNotifier {
 
   /// 是否正在执行单源或全源扫描。
   bool get isBusy => _isRunning;
+
+  /// 应用启动与切回前台时对近期活跃/连载中作品执行受控后台自动巡检（最多 12 部、10 分钟冷静期）。
+  Future<int> runOngoingWorksAutoSyncIfDue({bool force = false}) async {
+    if (_isRunning || _ongoingAutoSyncRunning) return 0;
+    final now = DateTime.fromMillisecondsSinceEpoch(_nowMs());
+    if (!force &&
+        _lastOngoingAutoSyncAt != null &&
+        now.difference(_lastOngoingAutoSyncAt!) <
+            OngoingWorkAutoSyncConfig.minAutoSyncInterval) {
+      return 0;
+    }
+    _ongoingAutoSyncRunning = true;
+    var changedWorks = 0;
+    try {
+      final sources = await _repository.getMediaSources();
+      if (sources.isEmpty) return 0;
+      final works = await _repository.getAllWorks();
+      if (works.isEmpty) return 0;
+      final recentPlaybacks = await _repository.getPlaybackHistory(limit: 40);
+      final allVariants = await _repository.getAllVariants();
+      final episodeSetByWork = <String, Set<String>>{};
+      for (final v in allVariants) {
+        if (v.assetKind != AssetKind.video) continue;
+        final epId = v.episodeId;
+        if (epId == null || epId.isEmpty) continue;
+        episodeSetByWork.putIfAbsent(v.workId, () => <String>{}).add(epId);
+      }
+      final mainCountByWork = <String, int>{
+        for (final entry in episodeSetByWork.entries)
+          entry.key: entry.value.length,
+      };
+      final targetIds = OngoingWorkAutoSyncPlanner.selectCandidateWorkIds(
+        works: works,
+        recentPlaybacks: recentPlaybacks,
+        mainEpisodeCountByWorkId: mainCountByWork,
+        now: now,
+      );
+      if (targetIds.isEmpty) return 0;
+
+      final mappingIndex = await _resolveMappingIndexSafely();
+      final pipeline =
+          pipelineBuilder?.call(
+            repository: _repository,
+            mappingIndex: mappingIndex,
+          ) ??
+          _buildDefaultPipeline(mappingIndex: mappingIndex);
+      for (var i = 0; i < targetIds.length; i++) {
+        if (_isRunning) break;
+        final workId = targetIds[i];
+        try {
+          final result = await pipeline.syncSingleWorkDirectory(
+            workId,
+            isCancelled: () => _isRunning,
+          );
+          if (result.changed) {
+            changedWorks++;
+            eventBus.publish(
+              LibraryWorkChangedEvent(
+                workId: WorkId.trusted(workId),
+                reason: 'ongoing_auto_sync',
+                occurredAtMs: _nowMs(),
+              ),
+            );
+          }
+        } catch (error, stackTrace) {
+          diagnosticLog?.logError(
+            subsystem: DiagnosticSubsystem.scraper,
+            code: 'ONGOING_AUTO_SYNC_WORK_SKIPPED',
+            message: '后台追更巡检单部作品失败，已跳过继续',
+            error: error,
+            stackTrace: stackTrace,
+            severity: DiagnosticSeverity.warn,
+            source: 'SourceScrapeController.runOngoingWorksAutoSyncIfDue',
+            context: <String, Object?>{'workId': workId},
+          );
+        }
+        if (i + 1 < targetIds.length && !_isRunning) {
+          await Future<void>.delayed(
+            OngoingWorkAutoSyncConfig.betweenWorksPacing,
+          );
+        }
+      }
+      _lastOngoingAutoSyncAt = DateTime.fromMillisecondsSinceEpoch(_nowMs());
+      return changedWorks;
+    } catch (error, stackTrace) {
+      diagnosticLog?.logError(
+        subsystem: DiagnosticSubsystem.scraper,
+        code: 'ONGOING_AUTO_SYNC_FAILED',
+        message: '后台追更自动巡检异常，等待下一周期重试',
+        error: error,
+        stackTrace: stackTrace,
+        severity: DiagnosticSeverity.warn,
+        source: 'SourceScrapeController.runOngoingWorksAutoSyncIfDue',
+      );
+      return changedWorks;
+    } finally {
+      _ongoingAutoSyncRunning = false;
+    }
+  }
 
   /// 对指定媒体源发起一次完整或选定子目录的扫库刮削。
   Future<ScrapeTaskPhase> scanSource(

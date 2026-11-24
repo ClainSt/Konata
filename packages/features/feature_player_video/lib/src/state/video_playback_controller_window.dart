@@ -175,13 +175,17 @@ extension VideoPlaybackControllerWindowAndPersistence on VideoPlaybackController
   }
 
   /// 进入可拖拽悬浮小窗或桌面迷你窗口模式并保存画中画断点恢复快照。
+  ///
+  /// [desktopAlwaysOnTop] 为 `true` 时同步将桌面窗口收拢为置顶迷你窗；
+  /// 为 `false` 时仅在应用窗口内部挂载跨页可拖拽 16:9 悬浮视频小窗，不缩放宿主窗口。
   Future<void> enterMiniPlayer({
     double width = 360.0,
     double height = 202.5,
+    bool desktopAlwaysOnTop = true,
   }) async {
     if (_disposed || _closing) return;
     await persistPipRecoverySnapshot();
-    if (env.platform == KonataPlatform.windows) {
+    if (desktopAlwaysOnTop && env.platform == KonataPlatform.windows) {
       await env.hostWindow.enterDesktopMiniWindow(
         width: width,
         height: height,

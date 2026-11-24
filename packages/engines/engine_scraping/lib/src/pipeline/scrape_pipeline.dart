@@ -1501,6 +1501,7 @@ class ScrapePipeline {
         tvdbId: bgmWall.tvdbId,
         posterPathOverride: bgmWall.fanartPoster,
         backdropPath: bgmWall.fanartBackdrop,
+        portraitBackdropPath: bgmWall.fanartPortraitBackdrop,
         logoPath: bgmWall.fanartLogo,
         isManualLocked: false,
         isHidden: existing?.keepHidden == true
@@ -1562,6 +1563,7 @@ class ScrapePipeline {
         posterPath: coverFallback.posterPath!,
         tvdbId: coverFallback.tvdbId,
         backdropPath: coverFallback.backdropPath,
+        portraitBackdropPath: coverFallback.portraitBackdropPath,
         logoPath: coverFallback.logoPath,
         isHidden: existing?.keepHidden == true
             ? true
@@ -1723,6 +1725,7 @@ class ScrapePipeline {
       fanartPosterOverride: fanartEnrich.posterOverride,
       fanartPosterFallback: fanartEnrich.posterFallback,
       fanartBackdropOverride: fanartEnrich.backdropOverride,
+      fanartPortraitBackdropOverride: fanartEnrich.portraitBackdropOverride,
       fanartLogoOverride: fanartEnrich.logoOverride,
       localPosterFallback: folder.localPosterPath,
       fallbackYear: folder.year,
@@ -2212,6 +2215,8 @@ class ScrapePipeline {
               fanartPosterOverride: sliceEnrich.posterOverride,
               fanartPosterFallback: sliceEnrich.posterFallback,
               fanartBackdropOverride: sliceEnrich.backdropOverride,
+              fanartPortraitBackdropOverride:
+                  sliceEnrich.portraitBackdropOverride,
               fanartLogoOverride: sliceEnrich.logoOverride,
               fallbackYear: slice.bangumiCandidate.subject.year ?? existing.year,
               folderTmdbHint: tmdbId,
@@ -2337,6 +2342,7 @@ class ScrapePipeline {
         fanartPosterOverride: fanartEnrich.posterOverride,
         fanartPosterFallback: fanartEnrich.posterFallback,
         fanartBackdropOverride: fanartEnrich.backdropOverride,
+        fanartPortraitBackdropOverride: fanartEnrich.portraitBackdropOverride,
         fanartLogoOverride: fanartEnrich.logoOverride,
         fallbackYear: existing.year,
         folderTmdbHint: tmdbId,
@@ -2478,6 +2484,7 @@ class ScrapePipeline {
       fanartPosterOverride: fanartFallback.posterOverride,
       fanartPosterFallback: fanartFallback.posterFallback,
       fanartBackdropOverride: fanartFallback.backdropOverride,
+      fanartPortraitBackdropOverride: fanartFallback.portraitBackdropOverride,
       fanartLogoOverride: fanartFallback.logoOverride,
       fallbackYear: existing.year,
       folderTmdbHint: tmdbId,
@@ -3454,6 +3461,7 @@ class ScrapePipeline {
         tvdbId: bgmWall.tvdbId,
         posterPathOverride: bgmWall.fanartPoster,
         backdropPath: bgmWall.fanartBackdrop,
+        portraitBackdropPath: bgmWall.fanartPortraitBackdrop,
         logoPath: bgmWall.fanartLogo,
         isManualLocked: existing.isManualLocked,
         isHidden: existing.isHidden,

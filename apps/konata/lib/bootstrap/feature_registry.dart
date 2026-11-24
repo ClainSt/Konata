@@ -20,6 +20,8 @@ import 'package:konata_contracts/konata_contracts.dart';
 import 'package:konata_design_system/konata_design_system.dart';
 import 'package:konata_storage/konata_storage.dart';
 
+import 'host_storage_adapters.dart';
+
 /// 宿主向业务模块装配层传递的运行时底座与引擎句柄集合。
 ///
 /// 所有可选业务模块的包级导入与依赖覆写均集中收口于本文件，
@@ -52,12 +54,20 @@ final class FeatureRuntimeWiring {
     required this.hostWindow,
     required this.autoStartDetailWarmupAndBackfill,
     this.desktopSurfaceBridge,
+    this.desktopRelayGateway,
+    this.externalPlayerStore,
+    this.desktopProfileDelegate,
+    this.legacyCodePageDecoder,
+    this.cloudSubsetCoordinator,
     this.androidSurfacePort,
     this.androidMediaSessionPort,
     this.mediaStorePublisher,
     this.customScanStreamOpener,
+    this.pickExecutableFile,
+    this.pickShaderFiles,
     this.onThemeModeChanged,
     this.onAmbientBackdropChanged,
+    this.onWindowMaterialChanged,
     this.onAudioSeekRequested,
   });
 
@@ -136,6 +146,21 @@ final class FeatureRuntimeWiring {
   /// 桌面端 D3D11 视频纹理共享桥接器（仅 Windows 注入）。
   final KonataVideoTextureBridge? desktopSurfaceBridge;
 
+  /// 桌面端外部播放器接力网关（仅 Windows 注入）。
+  final DesktopRelayGateway? desktopRelayGateway;
+
+  /// 桌面端外部播放器持久化配置仓储（仅 Windows 注入）。
+  final DesktopExternalPlayerStore? externalPlayerStore;
+
+  /// 桌面端 `libmpv` 专属驱动与独占音频策略委托（仅 Windows 注入）。
+  final MpvPlatformProfileDelegate? desktopProfileDelegate;
+
+  /// 桌面端传统代码页字幕字节解码回调（仅 Windows 注入）。
+  final LegacyCodePageDecoder? legacyCodePageDecoder;
+
+  /// 跨端按域隔离的云端字幕字体子集化协调器。
+  final CloudSubsetCoordinator? cloudSubsetCoordinator;
+
   /// 移动端底层视频表面控制器（仅 Android 注入）。
   final AndroidVideoSurfacePort? androidSurfacePort;
 
@@ -148,15 +173,112 @@ final class FeatureRuntimeWiring {
   /// 可选自定义扫图原图流读取器（供离线端到端集成测试注入）。
   final Object? customScanStreamOpener;
 
+  /// 可选桌面外部播放器可执行文件选择回调。
+  final Future<String?> Function({String? dialogTitle})? pickExecutableFile;
+
+  /// 可选自定义渲染着色器脚本多选回调。
+  final Future<List<HostPickedFile>> Function()? pickShaderFiles;
+
   /// 主题模式变更通知宿主根壳回调。
   final ValueChanged<ThemeMode>? onThemeModeChanged;
 
   /// 流光氛围背景开关变更回调。
   final ValueChanged<bool>? onAmbientBackdropChanged;
 
+  /// Windows 桌面窗口 DWM 材质变更回调。
+  final ValueChanged<KonataWindowMaterial>? onWindowMaterialChanged;
+
   /// 歌词点选跳转回传至音频播放控制器的桥接回调。
   final void Function(double targetSeconds, {bool resumePlayback})?
   onAudioSeekRequested;
+}
+
+/// 启动阶段预加载已保存的 TMDB / Fanart 密钥、代理模式与备用镜像至全局网络客户端。
+///
+/// 确保应用冷启动后无需先打开设置页即可直接执行刮削、补图与追番巡检。
+Future<KonataNetworkConfig> preloadFeatureRuntimeSettings({
+  required ScopedPrefsStore scopedPrefs,
+  required SecureStoragePort secureStorage,
+  required KonataHttpClientPort httpClient,
+  DiagnosticLogPort? diagnosticLog,
+}) async {
+  final repo = SettingsNetworkRepository(
+    scopedPrefs: scopedPrefs,
+    secureStorage: secureStorage,
+  );
+  try {
+    final config = await repo.load();
+    httpClient.updateConfig(config);
+    return config;
+  } catch (error, stackTrace) {
+    diagnosticLog?.logError(
+      subsystem: DiagnosticSubsystem.network,
+      code: 'STARTUP_NETWORK_PRELOAD_FAILED',
+      message: '启动预加载网络与元数据凭据配置失败，已保持默认网络参数',
+      error: error,
+      stackTrace: stackTrace,
+      severity: DiagnosticSeverity.warn,
+      source: 'apps/konata/lib/bootstrap/feature_registry.dart:preloadFeatureRuntimeSettings',
+    );
+    return httpClient.config;
+  }
+}
+
+/// 宿主壳层共享外观状态值对象（严格隔绝 `feature_settings` 内部类型，供 `app_bootstrap.dart` 使用）。
+final class HostAppearanceState {
+  /// 创建宿主外观状态快照。
+  const HostAppearanceState({
+    this.themeMode = ThemeMode.dark,
+    this.ambientBackdropEnabled = true,
+    this.windowMaterial = KonataWindowMaterial.acrylic,
+  });
+
+  /// 当前应用主题模式。
+  final ThemeMode themeMode;
+
+  /// 是否启用流光氛围画布。
+  final bool ambientBackdropEnabled;
+
+  /// Windows 原生 DWM 窗口材质。
+  final KonataWindowMaterial windowMaterial;
+
+  /// 复制并修改部分外观状态字段。
+  HostAppearanceState copyWith({
+    ThemeMode? themeMode,
+    bool? ambientBackdropEnabled,
+    KonataWindowMaterial? windowMaterial,
+  }) {
+    return HostAppearanceState(
+      themeMode: themeMode ?? this.themeMode,
+      ambientBackdropEnabled:
+          ambientBackdropEnabled ?? this.ambientBackdropEnabled,
+      windowMaterial: windowMaterial ?? this.windowMaterial,
+    );
+  }
+}
+
+/// 统一经由 `feature_settings` 完整外观切片读取初始外观与桌面材质偏好（严禁在宿主重复定义不全切片）。
+HostAppearanceState readInitialAppearancePrefs(ScopedPrefsStore scopedPrefs) {
+  final prefs = SettingsAppearanceRepository(scopedPrefs).read();
+  return HostAppearanceState(
+    themeMode: prefs.themeMode,
+    ambientBackdropEnabled: prefs.ambientBackdropEnabled,
+    windowMaterial: prefs.windowMaterial,
+  );
+}
+
+/// 统一经由 `feature_settings` 完整外观切片持久化外观与桌面材质偏好，避免主题切换覆盖其他字段。
+void saveAppearancePrefs(
+  ScopedPrefsStore scopedPrefs,
+  HostAppearanceState state,
+) {
+  SettingsAppearanceRepository(scopedPrefs).save(
+    SettingsAppearancePrefs(
+      themeMode: state.themeMode,
+      ambientBackdropEnabled: state.ambientBackdropEnabled,
+      windowMaterial: state.windowMaterial,
+    ),
+  );
 }
 
 /// Konata v3 全仓按字母序显式注册的 11 大业务模块清单。
@@ -223,6 +345,23 @@ List<Override> buildFeatureProviderOverrides(FeatureRuntimeWiring wiring) {
       if (!builtInSyncSliceIds.contains(slice.sliceId)) slice,
   ];
   final hasLyrics = registry.containsFeature('feature_lyrics');
+  final hasAudio = registry.containsFeature('feature_player_audio');
+
+  Future<List<ShaderImportSource>> Function()? shaderPicker;
+  if (wiring.pickShaderFiles != null) {
+    final hostPicker = wiring.pickShaderFiles!;
+    shaderPicker = () async {
+      final picked = await hostPicker();
+      return <ShaderImportSource>[
+        for (final file in picked)
+          ShaderImportSource(
+            name: file.name,
+            sourcePath: file.path,
+            bytes: file.bytes,
+          ),
+      ];
+    };
+  }
 
   return <Override>[
     featureDetailDependenciesProvider.overrideWithValue(
@@ -269,17 +408,33 @@ List<Override> buildFeatureProviderOverrides(FeatureRuntimeWiring wiring) {
         platform: platform,
       ),
     ),
-    featureLyricsDependenciesProvider.overrideWithValue(
-      FeatureLyricsDependencies(
+    featureLyricsDependenciesProvider.overrideWith((ref) {
+      // 歌词点选跳转回调惰性读取音频控制器，彻底避免与 audioPlaybackControllerProvider 产生环形依赖。
+      final seekCallback =
+          wiring.onAudioSeekRequested ??
+          (hasAudio
+              ? (double targetSeconds, {bool resumePlayback = false}) {
+                  final audioCtrl = ref.read(audioPlaybackControllerProvider);
+                  unawaited(
+                    audioCtrl.seekToTrackPosition(
+                      Duration(milliseconds: (targetSeconds * 1000.0).round()),
+                    ),
+                  );
+                  if (resumePlayback && !audioCtrl.playingListenable.value) {
+                    unawaited(audioCtrl.setPlaying(true));
+                  }
+                }
+              : null);
+      return FeatureLyricsDependencies(
         databases: wiring.databases,
         scopedPrefs: wiring.scopedPrefs,
         httpClient: wiring.httpClient,
         diagnosticLog: wiring.diagnosticLog,
         domainEventBus: wiring.domainEventBus,
         playbackEngine: wiring.playbackEngine,
-        onSeekRequested: wiring.onAudioSeekRequested,
-      ),
-    ),
+        onSeekRequested: seekCallback,
+      );
+    }),
     featurePlayerAudioDependenciesProvider.overrideWith((ref) {
       final lyricPort = hasLyrics ? ref.watch(lyricDisplayPortProvider) : null;
       final lyricController = hasLyrics
@@ -310,6 +465,8 @@ List<Override> buildFeatureProviderOverrides(FeatureRuntimeWiring wiring) {
         artworkCacheStore: wiring.artworkCache,
         storageRoot: wiring.storageRoot,
         domainEventBus: wiring.domainEventBus,
+        desktopRelayGateway: wiring.desktopRelayGateway,
+        desktopMpvDelegate: wiring.desktopProfileDelegate,
         androidMediaSessionPort: wiring.androidMediaSessionPort,
         logPort: wiring.diagnosticLog,
         platform: platform,
@@ -332,10 +489,17 @@ List<Override> buildFeatureProviderOverrides(FeatureRuntimeWiring wiring) {
         subtitleDirectoryIndex: wiring.warmupService,
         playbackEngine: wiring.playbackEngine,
         audiophileCoordinator: wiring.audiophileCoordinator,
+        desktopRelayGateway: wiring.desktopRelayGateway,
+        externalPlayerStore: wiring.externalPlayerStore,
         desktopSurfaceBridge: wiring.desktopSurfaceBridge,
+        desktopProfileDelegate: wiring.desktopProfileDelegate,
         androidSurfacePort: wiring.androidSurfacePort,
         mediaStorePublisher: wiring.mediaStorePublisher,
+        cloudSubsetCoordinator: wiring.cloudSubsetCoordinator,
+        legacyCodePageDecoder: wiring.legacyCodePageDecoder,
         playerSidePanels: videoSidePanels,
+        pickExecutableFile: wiring.pickExecutableFile,
+        pickShaderFiles: shaderPicker,
       ),
     ),
     featureScanViewerDependenciesProvider.overrideWithValue(
@@ -369,6 +533,7 @@ List<Override> buildFeatureProviderOverrides(FeatureRuntimeWiring wiring) {
         sections: settingsSections,
         onThemeModeChanged: wiring.onThemeModeChanged,
         onAmbientBackdropChanged: wiring.onAmbientBackdropChanged,
+        onWindowMaterialChanged: wiring.onWindowMaterialChanged,
       ),
     ),
     featureSourcesDependenciesProvider.overrideWithValue(
@@ -414,11 +579,49 @@ List<Override> buildFeatureProviderOverrides(FeatureRuntimeWiring wiring) {
   ];
 }
 
-/// 激活需要随应用生命周期常驻事件订阅的已注册后台业务协调器。
+/// 激活需要随应用生命周期常驻事件订阅与启动自动同步的已注册后台业务协调器。
 void activateRegisteredFeatureServices(WidgetRef ref, FeatureRegistry registry) {
   if (registry.containsFeature('feature_tracker_sync')) {
     ref.watch(trackerSyncCoordinatorProvider);
   }
+  if (registry.containsFeature('feature_sync')) {
+    ref.watch(syncBackupControllerProvider);
+  }
+}
+
+/// 按节流策略触发连载与近期活跃作品的后台静默追更巡检。
+void triggerOngoingWorksAutoSync(
+  WidgetRef ref,
+  FeatureRegistry registry, {
+  bool force = false,
+}) {
+  if (!registry.containsFeature('feature_sources')) return;
+  unawaited(
+    ref.read(sourceScrapeControllerProvider).runOngoingWorksAutoSyncIfDue(
+      force: force,
+    ),
+  );
+}
+
+/// 尝试将当前全屏视频舞台切入跨页悬浮小窗或优雅退场（供 Android 根返回门控调用）。
+Future<bool> handleFullscreenMediaBackIntercept(
+  WidgetRef ref,
+  FeatureRegistry registry, {
+  required bool videoStageOpen,
+  required bool audioStageOpen,
+  required VoidCallback onPopCurrentRoute,
+}) async {
+  if (videoStageOpen && registry.containsFeature('feature_player_video')) {
+    final manager = ref.read(activeVideoSessionManagerProvider);
+    await manager.closeActiveSession();
+    onPopCurrentRoute();
+    return true;
+  }
+  if (audioStageOpen && registry.containsFeature('feature_player_audio')) {
+    onPopCurrentRoute();
+    return true;
+  }
+  return false;
 }
 
 /// 构建作品详情页路由组件。
@@ -429,62 +632,154 @@ Widget buildWorkDetailRoutePage({
   return WorkDetailPage(workId: workId, initialTabId: initialTabId);
 }
 
-/// 构建全屏视频播放舞台路由组件（桌面端注入共享纹理视图，无纹理时由舞台自身优雅兜底）。
+/// 构建全屏视频播放舞台路由组件（复用跨页活跃视频会话总管，收拢小窗时不销毁解码会话）。
 Widget buildVideoPlayerRoutePage({
   required WorkId workId,
   EpisodeId? episodeId,
   VariantId? variantId,
+  bool hasAudioFeature = true,
+  required VoidCallback onClosePage,
 }) {
-  return EmbeddedVideoPage(
+  return _HostVideoStageRoute(
     request: VideoLaunchRequest(
       workId: workId,
       episodeId: episodeId,
       variantId: variantId,
     ),
-    videoSurfaceBuilder: (context, textureId) {
-      if (textureId != null && textureId >= 0) {
-        return Texture(textureId: textureId);
-      }
-      return const SizedBox.expand();
-    },
+    hasAudioFeature: hasAudioFeature,
+    onClosePage: onClosePage,
   );
 }
 
 /// 构建全屏流光音频播放舞台路由组件，并按需启动指定作品的音频队列会话。
+///
+/// 当 [workId] 为 `null` 时表示从悬浮迷你唱片回弹展开当前活跃音频会话，绝不重建解码流。
 Widget buildAudioPlayerRoutePage({
-  required WorkId workId,
+  WorkId? workId,
   VariantId? variantId,
+  bool hasVideoFeature = true,
   required VoidCallback onClosePage,
 }) {
   return _HostAudioStageRoute(
     workId: workId,
     variantId: variantId,
+    hasVideoFeature: hasVideoFeature,
     onClosePage: onClosePage,
   );
 }
 
-/// 构建常驻应用根层的可拖拽迷你悬浮音频条（全屏音频舞台覆盖时自动隐藏）。
-Widget buildFloatingAudioMiniBar({
-  required bool hidden,
+/// 从悬浮视频小窗回弹展开全屏舞台的定位回调签名。
+typedef ExpandVideoStageCallback =
+    void Function(WorkId workId, EpisodeId? episodeId, VariantId? variantId);
+
+/// 构建常驻应用根层的音视频悬浮小窗与系统桥接层（含 16:9 跨页悬浮视频小窗、迷你音频条与 Android 音频焦点/PiP 联动）。
+Widget buildHostFloatingPlaybackOverlay({
+  required FeatureRegistry registry,
   required KonataPlatform platform,
-  required VoidCallback onExpandFullStage,
+  required bool videoStageOpen,
+  required bool audioStageOpen,
+  required ValueChanged<FloatingMiniPlayerKind> onActiveMiniKindChanged,
+  required ExpandVideoStageCallback onExpandVideoStage,
+  required VoidCallback onExpandAudioStage,
+  AndroidAudioFocusPort? androidAudioFocusPort,
+  AndroidPipPort? androidPipPort,
 }) {
-  return _HostFloatingAudioMiniBar(
-    hidden: hidden,
+  return _HostFloatingPlaybackOverlay(
+    registry: registry,
     platform: platform,
-    onExpandFullStage: onExpandFullStage,
+    videoStageOpen: videoStageOpen,
+    audioStageOpen: audioStageOpen,
+    onActiveMiniKindChanged: onActiveMiniKindChanged,
+    onExpandVideoStage: onExpandVideoStage,
+    onExpandAudioStage: onExpandAudioStage,
+    androidAudioFocusPort: androidAudioFocusPort,
+    androidPipPort: androidPipPort,
   );
+}
+
+Widget _buildSharedVideoTextureSurface(BuildContext context, int? textureId) {
+  if (textureId != null && textureId >= 0) {
+    return Texture(textureId: textureId);
+  }
+  return const SizedBox.expand();
+}
+
+final class _HostVideoStageRoute extends ConsumerStatefulWidget {
+  const _HostVideoStageRoute({
+    required this.request,
+    required this.hasAudioFeature,
+    required this.onClosePage,
+  });
+
+  final VideoLaunchRequest request;
+  final bool hasAudioFeature;
+  final VoidCallback onClosePage;
+
+  @override
+  ConsumerState<_HostVideoStageRoute> createState() =>
+      _HostVideoStageRouteState();
+}
+
+final class _HostVideoStageRouteState
+    extends ConsumerState<_HostVideoStageRoute> {
+  late final ActiveVideoSessionManager _sessionManager;
+  late final VideoPlaybackController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _sessionManager = ref.read(activeVideoSessionManagerProvider);
+    if (widget.hasAudioFeature) {
+      unawaited(ref.read(audioPlaybackControllerProvider).pauseForVideoSession());
+    }
+    _controller = _sessionManager.openOrReuseSession(widget.request);
+  }
+
+  @override
+  void dispose() {
+    _sessionManager.handleStageRoutePopped();
+    super.dispose();
+  }
+
+  Future<void> _collapseToMini() async {
+    await _sessionManager.collapseToFloatingMini();
+    if (mounted) {
+      widget.onClosePage();
+    }
+  }
+
+  Future<void> _closeAndPop() async {
+    await _sessionManager.closeActiveSession();
+    if (mounted) {
+      widget.onClosePage();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final deps = ref.watch(featurePlayerVideoDependenciesProvider);
+    return EmbeddedVideoPage(
+      request: widget.request,
+      controller: _controller,
+      playerSidePanels: deps.playerSidePanels,
+      videoSurfaceBuilder: _buildSharedVideoTextureSurface,
+      onClose: () => unawaited(_closeAndPop()),
+      onEnterMiniPlayer: () => unawaited(_collapseToMini()),
+    );
+  }
 }
 
 final class _HostAudioStageRoute extends ConsumerStatefulWidget {
   const _HostAudioStageRoute({
-    required this.workId,
+    this.workId,
     this.variantId,
+    required this.hasVideoFeature,
     required this.onClosePage,
   });
 
-  final WorkId workId;
+  final WorkId? workId;
   final VariantId? variantId;
+  final bool hasVideoFeature;
   final VoidCallback onClosePage;
 
   @override
@@ -499,20 +794,24 @@ final class _HostAudioStageRouteState
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _launched) return;
-      _launched = true;
-      unawaited(_startAudioSession());
-    });
+    if (widget.workId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _launched) return;
+        _launched = true;
+        unawaited(_startAudioSession());
+      });
+    }
   }
 
   Future<void> _startAudioSession() async {
+    final targetWorkId = widget.workId;
+    if (targetWorkId == null) return;
     final deps = ref.read(featurePlayerAudioDependenciesProvider);
     final databases = deps.database;
     if (databases == null) return;
-    final work = databases.library.works.findById(widget.workId);
+    final work = databases.library.works.findById(targetWorkId);
     if (work == null) return;
-    final variants = databases.library.mediaVariants.listByWork(widget.workId);
+    final variants = databases.library.mediaVariants.listByWork(targetWorkId);
     final sources = await databases.library.createReadPort().listMediaSources();
     MediaVariantRecord? initialVariant;
     if (widget.variantId != null) {
@@ -524,6 +823,12 @@ final class _HostAudioStageRouteState
       }
     }
     if (!mounted) return;
+    if (widget.hasVideoFeature) {
+      final videoCtrl = ref.read(activeVideoSessionManagerProvider).controller;
+      if (videoCtrl != null && videoCtrl.state.isPlaying) {
+        unawaited(videoCtrl.setPlaying(false));
+      }
+    }
     final controller = ref.read(audioPlaybackControllerProvider);
     await controller.playCdCollection(
       work: work,
@@ -554,33 +859,304 @@ final class _HostAudioStageRouteState
   }
 }
 
-final class _HostFloatingAudioMiniBar extends ConsumerWidget {
-  const _HostFloatingAudioMiniBar({
-    required this.hidden,
+final class _HostFloatingPlaybackOverlay extends ConsumerStatefulWidget {
+  const _HostFloatingPlaybackOverlay({
+    required this.registry,
     required this.platform,
-    required this.onExpandFullStage,
+    required this.videoStageOpen,
+    required this.audioStageOpen,
+    required this.onActiveMiniKindChanged,
+    required this.onExpandVideoStage,
+    required this.onExpandAudioStage,
+    this.androidAudioFocusPort,
+    this.androidPipPort,
   });
 
-  final bool hidden;
+  final FeatureRegistry registry;
   final KonataPlatform platform;
-  final VoidCallback onExpandFullStage;
+  final bool videoStageOpen;
+  final bool audioStageOpen;
+  final ValueChanged<FloatingMiniPlayerKind> onActiveMiniKindChanged;
+  final ExpandVideoStageCallback onExpandVideoStage;
+  final VoidCallback onExpandAudioStage;
+  final AndroidAudioFocusPort? androidAudioFocusPort;
+  final AndroidPipPort? androidPipPort;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final controller = ref.watch(audioPlaybackControllerProvider);
-    return ValueListenableBuilder<bool>(
-      valueListenable: controller.activeListenable,
-      builder: (context, isActive, _) {
-        if (!isActive || hidden) {
-          return const SizedBox.shrink();
+  ConsumerState<_HostFloatingPlaybackOverlay> createState() =>
+      _HostFloatingPlaybackOverlayState();
+}
+
+final class _HostFloatingPlaybackOverlayState
+    extends ConsumerState<_HostFloatingPlaybackOverlay> {
+  ActiveVideoSessionManager? _videoManager;
+  AudioPlaybackController? _audioController;
+  FloatingMiniPlayerKind _lastNotifiedMiniKind = FloatingMiniPlayerKind.none;
+
+  bool _audioFocusHeld = false;
+  bool _duckedAudio = false;
+  bool _duckedVideo = false;
+  double? _savedAudioVolume;
+  double? _savedVideoVolume;
+
+  @override
+  void initState() {
+    super.initState();
+    _bindControllers();
+  }
+
+  @override
+  void didUpdateWidget(covariant _HostFloatingPlaybackOverlay oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.videoStageOpen != widget.videoStageOpen ||
+        oldWidget.audioStageOpen != widget.audioStageOpen) {
+      _syncPlaybackSideEffects();
+    }
+  }
+
+  void _bindControllers() {
+    if (widget.registry.containsFeature('feature_player_video')) {
+      _videoManager = ref.read(activeVideoSessionManagerProvider);
+      _videoManager!.addListener(_syncPlaybackSideEffects);
+    }
+    if (widget.registry.containsFeature('feature_player_audio')) {
+      _audioController = ref.read(audioPlaybackControllerProvider);
+      _audioController!.activeListenable.addListener(_syncPlaybackSideEffects);
+      _audioController!.playingListenable.addListener(_syncPlaybackSideEffects);
+    }
+    widget.androidPipPort?.bindCallbacks(
+      onPipModeChanged: (_) {},
+      onRemoteAction: _handleAndroidPipAction,
+      onPipDismissed: () {
+        final mgr = _videoManager;
+        if (mgr != null && mgr.hasActiveSession) {
+          unawaited(mgr.closeActiveSession());
         }
-        return MiniAudioBar(
-          controller: controller,
-          visible: true,
-          desktopMiniWindowSupported: platform == KonataPlatform.windows,
-          onExpandFullStage: onExpandFullStage,
-        );
       },
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _syncPlaybackSideEffects();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _videoManager?.removeListener(_syncPlaybackSideEffects);
+    _audioController?.activeListenable.removeListener(_syncPlaybackSideEffects);
+    _audioController?.playingListenable.removeListener(_syncPlaybackSideEffects);
+    widget.androidPipPort?.unbindCallbacks();
+    if (_audioFocusHeld) {
+      unawaited(widget.androidAudioFocusPort?.abandonAudioFocus());
+      _audioFocusHeld = false;
+    }
+    super.dispose();
+  }
+
+  void _handleAndroidPipAction(String action) {
+    final videoCtrl = _videoManager?.controller;
+    if (videoCtrl == null) return;
+    switch (action) {
+      case 'previous':
+        unawaited(videoCtrl.playPreviousEpisode());
+      case 'togglePlayPause':
+        unawaited(videoCtrl.togglePlayPause());
+      case 'next':
+        unawaited(videoCtrl.playNextEpisode());
+    }
+  }
+
+  void _handleAudioFocusLoss() {
+    final videoCtrl = _videoManager?.controller;
+    if (videoCtrl != null && videoCtrl.state.isPlaying) {
+      unawaited(videoCtrl.setPlaying(false));
+    }
+    final audioCtrl = _audioController;
+    if (audioCtrl != null && audioCtrl.playingListenable.value) {
+      unawaited(audioCtrl.setPlaying(false));
+    }
+  }
+
+  void _handleAudioFocusDuck() {
+    final videoCtrl = _videoManager?.controller;
+    if (videoCtrl != null && videoCtrl.state.isPlaying && !_duckedVideo) {
+      _savedVideoVolume = videoCtrl.state.volume;
+      _duckedVideo = true;
+      videoCtrl.setVolume((_savedVideoVolume! * 0.3).clamp(5.0, 100.0));
+    }
+    final audioCtrl = _audioController;
+    if (audioCtrl != null &&
+        audioCtrl.playingListenable.value &&
+        !_duckedAudio) {
+      _savedAudioVolume = audioCtrl.snapshot.volume;
+      _duckedAudio = true;
+      unawaited(
+        audioCtrl.setVolume((_savedAudioVolume! * 0.3).clamp(5.0, 100.0)),
+      );
+    }
+  }
+
+  void _handleAudioFocusGain() {
+    if (_duckedVideo && _savedVideoVolume != null) {
+      _videoManager?.controller?.setVolume(_savedVideoVolume!);
+    }
+    _duckedVideo = false;
+    _savedVideoVolume = null;
+    if (_duckedAudio && _savedAudioVolume != null) {
+      final audioCtrl = _audioController;
+      if (audioCtrl != null) {
+        unawaited(audioCtrl.setVolume(_savedAudioVolume!));
+      }
+    }
+    _duckedAudio = false;
+    _savedAudioVolume = null;
+  }
+
+  void _syncPlaybackSideEffects() {
+    if (!mounted) return;
+    final videoMgr = _videoManager;
+    final videoCtrl = videoMgr?.controller;
+    final audioCtrl = _audioController;
+
+    final showVideoMini =
+        videoMgr != null &&
+        videoMgr.shouldShowFloatingMiniPlayer &&
+        !widget.videoStageOpen;
+    final showAudioMini =
+        audioCtrl != null &&
+        audioCtrl.activeListenable.value &&
+        !widget.audioStageOpen &&
+        !widget.videoStageOpen;
+
+    final nextMiniKind = showVideoMini
+        ? FloatingMiniPlayerKind.video
+        : (showAudioMini
+              ? FloatingMiniPlayerKind.audio
+              : FloatingMiniPlayerKind.none);
+    if (nextMiniKind != _lastNotifiedMiniKind) {
+      _lastNotifiedMiniKind = nextMiniKind;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          widget.onActiveMiniKindChanged(nextMiniKind);
+        }
+      });
+    }
+
+    final videoPlaying = videoCtrl?.state.isPlaying ?? false;
+    final audioPlaying = audioCtrl?.playingListenable.value ?? false;
+    final anyPlaying = videoPlaying || audioPlaying;
+
+    final focusPort = widget.androidAudioFocusPort;
+    if (focusPort != null) {
+      if (anyPlaying && !_audioFocusHeld) {
+        _audioFocusHeld = true;
+        unawaited(
+          focusPort.requestAudioFocus(
+            onLoss: _handleAudioFocusLoss,
+            onDuck: _handleAudioFocusDuck,
+            onGain: _handleAudioFocusGain,
+          ),
+        );
+      } else if (!anyPlaying && _audioFocusHeld) {
+        _audioFocusHeld = false;
+        _handleAudioFocusGain();
+        unawaited(focusPort.abandonAudioFocus());
+      }
+    }
+
+    final pipPort = widget.androidPipPort;
+    if (pipPort != null) {
+      final hasVideo = videoCtrl != null && !videoCtrl.state.isClosing;
+      unawaited(
+        pipPort.syncState(
+          AndroidPipState(
+            eligible: hasVideo && videoPlaying,
+            isPlaying: videoPlaying,
+            canPrevious: videoCtrl?.hasPreviousEpisode ?? false,
+            canNext: videoCtrl?.hasNextEpisode ?? false,
+          ),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasVideo = widget.registry.containsFeature('feature_player_video');
+    final hasAudio = widget.registry.containsFeature('feature_player_audio');
+    final videoManager = hasVideo
+        ? ref.watch(activeVideoSessionManagerProvider)
+        : null;
+    final audioController = hasAudio
+        ? ref.watch(audioPlaybackControllerProvider)
+        : null;
+
+    return Stack(
+      children: <Widget>[
+        if (videoManager != null)
+          ListenableBuilder(
+            listenable: videoManager,
+            builder: (context, _) {
+              final ctrl = videoManager.controller;
+              if (ctrl == null ||
+                  widget.videoStageOpen ||
+                  !videoManager.shouldShowFloatingMiniPlayer) {
+                return const SizedBox.shrink();
+              }
+              final size = MediaQuery.sizeOf(context);
+              final miniWidth = widget.platform == KonataPlatform.androidPhone
+                  ? KonataPlaybackTokens.floatingMiniVideoLongSidePhone
+                  : KonataPlaybackTokens.floatingMiniVideoWidth;
+              final miniHeight = miniWidth * 9.0 / 16.0;
+              const margin = KonataPlaybackTokens.floatingMiniEdgeMargin;
+              final bottomClearance =
+                  widget.platform == KonataPlatform.androidPhone ? 96.0 : 28.0;
+              final defaultOffset = Offset(
+                (size.width - miniWidth - margin).clamp(margin, double.infinity),
+                (size.height - miniHeight - bottomClearance).clamp(
+                  KonataPlaybackTokens.floatingMiniDesktopTopBarClearance,
+                  double.infinity,
+                ),
+              );
+              return VideoFloatingMiniPlayer(
+                controller: ctrl,
+                width: miniWidth,
+                viewportSize: size,
+                initialOffset: defaultOffset,
+                videoSurfaceBuilder: _buildSharedVideoTextureSurface,
+                onExpand: () {
+                  final req = videoManager.activeRequest;
+                  unawaited(videoManager.expandFromFloatingMini());
+                  if (req != null) {
+                    widget.onExpandVideoStage(
+                      req.workId,
+                      req.episodeId,
+                      req.variantId,
+                    );
+                  }
+                },
+                onClose: () => unawaited(videoManager.closeActiveSession()),
+              );
+            },
+          ),
+        if (audioController != null)
+          ValueListenableBuilder<bool>(
+            valueListenable: audioController.activeListenable,
+            builder: (context, isActive, _) {
+              if (!isActive || widget.audioStageOpen || widget.videoStageOpen) {
+                return const SizedBox.shrink();
+              }
+              return MiniAudioBar(
+                controller: audioController,
+                visible: true,
+                desktopMiniWindowSupported:
+                    widget.platform == KonataPlatform.windows,
+                onExpandFullStage: widget.onExpandAudioStage,
+              );
+            },
+          ),
+      ],
     );
   }
 }

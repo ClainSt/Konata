@@ -24,6 +24,7 @@ final class WorkRecord {
     this.posterFallback,
     this.bangumiPosterPath,
     this.backdropRef,
+    this.portraitBackdropRef,
     this.logoRef,
     this.voteAverage,
     this.bangumiScore,
@@ -87,6 +88,9 @@ final class WorkRecord {
 
   /// 横版背景强类型引用。
   final ArtworkRef? backdropRef;
+
+  /// 竖版无字原画强类型引用。
+  final ArtworkRef? portraitBackdropRef;
 
   /// 透明标题徽标强类型引用。
   final ArtworkRef? logoRef;
@@ -154,6 +158,7 @@ final class WorkRecord {
     bangumiId: bangumiId,
     posterRef: posterRef,
     backdropRef: backdropRef,
+    portraitBackdropRef: portraitBackdropRef,
     logoRef: logoRef,
     seriesGroupId: seriesId,
     isHidden: isHidden,
@@ -194,6 +199,7 @@ INSERT INTO ${WorksSchema.table} (
   ${WorksSchema.colPosterFallback},
   ${WorksSchema.colBangumiPosterPath},
   ${WorksSchema.colBackdropRefJson},
+  ${WorksSchema.colPortraitBackdropRefJson},
   ${WorksSchema.colLogoRefJson},
   ${WorksSchema.colVoteAverage},
   ${WorksSchema.colBangumiScore},
@@ -212,7 +218,7 @@ INSERT INTO ${WorksSchema.table} (
   ${WorksSchema.colSourceDeviceId},
   ${WorksSchema.colDeletedAtMs}
 ) VALUES (
-  ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+  ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
   ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
 )
 ON CONFLICT(${WorksSchema.colId}) DO UPDATE SET
@@ -230,6 +236,7 @@ ON CONFLICT(${WorksSchema.colId}) DO UPDATE SET
   ${WorksSchema.colPosterFallback} = excluded.${WorksSchema.colPosterFallback},
   ${WorksSchema.colBangumiPosterPath} = excluded.${WorksSchema.colBangumiPosterPath},
   ${WorksSchema.colBackdropRefJson} = excluded.${WorksSchema.colBackdropRefJson},
+  ${WorksSchema.colPortraitBackdropRefJson} = excluded.${WorksSchema.colPortraitBackdropRefJson},
   ${WorksSchema.colLogoRefJson} = excluded.${WorksSchema.colLogoRefJson},
   ${WorksSchema.colVoteAverage} = excluded.${WorksSchema.colVoteAverage},
   ${WorksSchema.colBangumiScore} = excluded.${WorksSchema.colBangumiScore},
@@ -264,6 +271,7 @@ ON CONFLICT(${WorksSchema.colId}) DO UPDATE SET
         record.posterFallback,
         record.bangumiPosterPath,
         SqliteRowCodec.encodeArtworkRef(record.backdropRef),
+        SqliteRowCodec.encodeArtworkRef(record.portraitBackdropRef),
         SqliteRowCodec.encodeArtworkRef(record.logoRef),
         record.voteAverage,
         record.bangumiScore,
@@ -499,6 +507,9 @@ WHERE ${WorksSchema.colId} = ?;
       bangumiPosterPath: row[WorksSchema.colBangumiPosterPath] as String?,
       backdropRef: SqliteRowCodec.decodeArtworkRef(
         row[WorksSchema.colBackdropRefJson],
+      ),
+      portraitBackdropRef: SqliteRowCodec.decodeArtworkRef(
+        row[WorksSchema.colPortraitBackdropRefJson],
       ),
       logoRef: SqliteRowCodec.decodeArtworkRef(row[WorksSchema.colLogoRefJson]),
       voteAverage: (row[WorksSchema.colVoteAverage] as num?)?.toDouble(),

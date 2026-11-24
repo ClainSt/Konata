@@ -10,7 +10,8 @@ import 'host_storage_adapters.dart';
 /// 启动 Konata v3 Android 专用极薄组装壳（严禁引入任何桌面端插件与 Win32 依赖）。
 ///
 /// 根据当前屏幕最短边自动识别手机（`< 600dp`）或平板（`>= 600dp`）形态，
-/// 注入应用支持目录及 Android 底层视频表面、音频路由、系统通知栏媒体会话与相册发布桥接器。
+/// 注入应用支持目录及 Android 底层视频表面、音频路由、音频焦点、原生画中画、
+/// 系统通知栏媒体会话与相册发布桥接器。
 Future<void> runAndroidKonataApp() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -27,7 +28,10 @@ Future<void> runAndroidKonataApp() async {
     androidSurfacePort: AndroidVideoSurfaceAdapter(),
     androidAudioRoutePort: AndroidAudioRouteAdapter(),
     androidMediaSessionPort: AndroidMediaSessionAdapter(),
+    androidAudioFocusPort: AndroidAudioFocusAdapter(),
+    androidPipPort: AndroidPipAdapter(),
     mediaStorePublisher: const AndroidMediaStorePublisher(),
+    pickShaderFiles: filePicker.pickShaderFiles,
   );
 
   runApp(

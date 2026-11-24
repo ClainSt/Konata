@@ -23,6 +23,7 @@ class Work {
     this.posterFallback,
     this.bangumiPosterPath,
     this.backdropPath,
+    this.portraitBackdropPath,
     this.logoPath,
     this.voteAverage,
     this.bangumiScore,
@@ -31,6 +32,7 @@ class Work {
     this.metadataLocked = false,
     this.posterLocked = false,
     this.backdropLocked = false,
+    this.portraitBackdropLocked = false,
     this.logoLocked = false,
     this.logoNegativeUntil,
     this.logoNegativeMask = 0,
@@ -86,6 +88,9 @@ class Work {
   /// 背景图路径或远程路径标识。
   final String? backdropPath;
 
+  /// 竖版无字原画路径或远程路径标识（供手机与平板竖屏详情页全宽展示）。
+  final String? portraitBackdropPath;
+
   /// 官方透明 PNG 标题 Logo 路径。
   final String? logoPath;
 
@@ -109,6 +114,9 @@ class Work {
 
   /// 横版背景原画是否已人工锁定。
   final bool backdropLocked;
+
+  /// 竖版无字原画是否已人工锁定。
+  final bool portraitBackdropLocked;
 
   /// 透明标题徽标是否已人工锁定（锁定后自动刮削与补全不得覆盖）。
   final bool logoLocked;
@@ -159,6 +167,7 @@ class Work {
     String? posterFallback,
     String? bangumiPosterPath,
     String? backdropPath,
+    String? portraitBackdropPath,
     String? logoPath,
     bool clearLogoPath = false,
     double? voteAverage,
@@ -168,6 +177,7 @@ class Work {
     bool? metadataLocked,
     bool? posterLocked,
     bool? backdropLocked,
+    bool? portraitBackdropLocked,
     bool? logoLocked,
     DateTime? logoNegativeUntil,
     bool clearLogoNegative = false,
@@ -183,6 +193,7 @@ class Work {
     bool clearReviewReason = false,
     bool clearBangumiPosterPath = false,
     bool clearBackdropPath = false,
+    bool clearPortraitBackdropPath = false,
     bool clearSeries = false,
   }) {
     return Work(
@@ -204,6 +215,9 @@ class Work {
       backdropPath: clearBackdropPath
           ? null
           : (backdropPath ?? this.backdropPath),
+      portraitBackdropPath: clearPortraitBackdropPath
+          ? null
+          : (portraitBackdropPath ?? this.portraitBackdropPath),
       logoPath: clearLogoPath ? null : (logoPath ?? this.logoPath),
       voteAverage: voteAverage ?? this.voteAverage,
       bangumiScore: bangumiScore ?? this.bangumiScore,
@@ -212,6 +226,8 @@ class Work {
       metadataLocked: metadataLocked ?? this.metadataLocked,
       posterLocked: posterLocked ?? this.posterLocked,
       backdropLocked: backdropLocked ?? this.backdropLocked,
+      portraitBackdropLocked:
+          portraitBackdropLocked ?? this.portraitBackdropLocked,
       logoLocked: logoLocked ?? this.logoLocked,
       logoNegativeUntil: clearLogoNegative
           ? null
@@ -239,6 +255,12 @@ class Work {
   /// 当前背景图对应的强类型 [ArtworkRef]。
   ArtworkRef? get backdropRef =>
       ArtworkRefCodec.fromPath(backdropPath, locked: backdropLocked);
+
+  /// 当前竖版无字原画对应的强类型 [ArtworkRef]。
+  ArtworkRef? get portraitBackdropRef => ArtworkRefCodec.fromPath(
+    portraitBackdropPath,
+    locked: portraitBackdropLocked,
+  );
 
   /// 当前标题徽标对应的强类型 [ArtworkRef]。
   ArtworkRef? get logoRef =>

@@ -24,6 +24,7 @@ final class FeatureSettingsDependencies {
     this.appVersion = '3.0.0',
     this.onThemeModeChanged,
     this.onAmbientBackdropChanged,
+    this.onWindowMaterialChanged,
     this.onNetworkConfigChanged,
     this.connectivityProbeOverride,
     this.onDetailVisibilityChanged,
@@ -71,6 +72,9 @@ final class FeatureSettingsDependencies {
   /// 柔和流光背景开关变更后通知宿主壳层刷新的回调。
   final ValueChanged<bool>? onAmbientBackdropChanged;
 
+  /// Windows 桌面窗口材质变更后通知宿主 DWM 控制器刷新的回调。
+  final ValueChanged<KonataWindowMaterial>? onWindowMaterialChanged;
+
   /// 网络配置保存后通知宿主额外监听器的回调。
   final ValueChanged<KonataNetworkConfig>? onNetworkConfigChanged;
 
@@ -104,6 +108,7 @@ final settingsControllerProvider = Provider<SettingsController>((ref) {
     appVersion: deps.appVersion,
     onThemeModeChanged: deps.onThemeModeChanged,
     onAmbientBackdropChanged: deps.onAmbientBackdropChanged,
+    onWindowMaterialChanged: deps.onWindowMaterialChanged,
     onNetworkConfigChanged: deps.onNetworkConfigChanged,
     connectivityProbeOverride: deps.connectivityProbeOverride,
   );

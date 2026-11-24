@@ -212,6 +212,9 @@ class TmdbService {
                 primaryDefaultPath: rawBackdropPath,
               )
             : rawBackdropPath;
+        final preferredPortraitBackdrop = includeImages
+            ? ArtworkRanker.selectBestTextlessPortraitBackdrop(candidatePosters)
+            : null;
         final rawCollection = json['belongs_to_collection'];
         int? collectionId;
         String? collectionName;
@@ -234,6 +237,7 @@ class TmdbService {
           overview: json['overview']?.toString(),
           posterPath: preferredPoster,
           backdropPath: preferredBackdrop,
+          portraitBackdropPath: preferredPortraitBackdrop,
           logoPath: logoPath,
           voteAverage: voteAverage,
           voteCount: (json['vote_count'] as num?)?.toInt(),
@@ -301,6 +305,8 @@ class TmdbService {
           seasonPosters,
           primaryDefaultPath: rawSeasonPoster,
         );
+        final preferredSeasonPortraitBackdrop =
+            ArtworkRanker.selectBestTextlessPortraitBackdrop(seasonPosters);
 
         return TmdbSeasonDetail(
           seasonNumber: seasonNumber,
@@ -308,6 +314,7 @@ class TmdbService {
           overview: json['overview']?.toString(),
           airDate: json['air_date']?.toString(),
           posterPath: preferredSeasonPoster,
+          portraitBackdropPath: preferredSeasonPortraitBackdrop,
           candidatePosters: seasonPosters,
           episodes: list,
         );

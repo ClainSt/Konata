@@ -2,7 +2,8 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart'
+    hide WindowsOptions;
 import 'package:konata_contracts/konata_contracts.dart';
 import 'package:konata_storage/konata_storage.dart';
 import 'package:path_provider/path_provider.dart';
@@ -43,14 +44,36 @@ final class FlutterSecureStorageAdapter implements SecureStoragePort {
   }
 }
 
+/// 宿主文件选择器返回的跨平台着色器或外部文件描述（解耦具体业务包数据模型）。
+final class HostPickedFile {
+  /// 创建已选取文件描述。
+  const HostPickedFile({required this.name, this.path, this.bytes});
+
+  /// 文件名（含扩展名）。
+  final String name;
+
+  /// 本地文件系统绝对路径（移动端文档句柄场景可为空）。
+  final String? path;
+
+  /// 可选内存字节内容。
+  final Uint8List? bytes;
+}
+
 /// 基于系统文件选择器插件的跨端目录、文件选取与导出保存端口实现。
 final class HostFilePickerAdapter implements FilePickerPort, BackupFilePort {
   /// 创建宿主文件选择器适配器。
   const HostFilePickerAdapter();
 
+  static const WindowsOptions _windowsPickerOptions = WindowsOptions(
+    lockParentWindow: false,
+  );
+
   @override
   Future<String?> pickDirectory({String? dialogTitle}) async {
-    final uri = await FilePicker.pickDirectory(dialogTitle: dialogTitle);
+    final uri = await FilePicker.pickDirectory(
+      dialogTitle: dialogTitle,
+      windowsOptions: _windowsPickerOptions,
+    );
     if (uri == null) return null;
     if (uri.scheme == 'file') {
       return uri.toFilePath();
@@ -63,6 +86,7 @@ final class HostFilePickerAdapter implements FilePickerPort, BackupFilePort {
     final picked = await FilePicker.pickFile(
       dialogTitle: dialogTitle,
       type: FileType.image,
+      windowsOptions: _windowsPickerOptions,
     );
     return picked?.path;
   }
@@ -73,6 +97,7 @@ final class HostFilePickerAdapter implements FilePickerPort, BackupFilePort {
       dialogTitle: dialogTitle,
       type: FileType.custom,
       allowedExtensions: KonataMediaExtensions.subtitleExtensionsNoDot,
+      windowsOptions: _windowsPickerOptions,
     );
     return picked?.path;
   }
@@ -86,8 +111,34 @@ final class HostFilePickerAdapter implements FilePickerPort, BackupFilePort {
       dialogTitle: dialogTitle,
       type: FileType.custom,
       allowedExtensions: allowedExtensions,
+      windowsOptions: _windowsPickerOptions,
     );
     return picked?.path;
+  }
+
+  /// 选择桌面端外部播放器可执行程序（`.exe`）。
+  Future<String?> pickExecutableFile({String? dialogTitle}) async {
+    final picked = await FilePicker.pickFile(
+      dialogTitle: dialogTitle ?? '选择外部播放器可执行文件',
+      type: FileType.custom,
+      allowedExtensions: const <String>['exe'],
+      windowsOptions: _windowsPickerOptions,
+    );
+    return picked?.path;
+  }
+
+  /// 批量选择自定义渲染着色器脚本文件（`.glsl` / `.hook`）。
+  Future<List<HostPickedFile>> pickShaderFiles() async {
+    final picked = await FilePicker.pickFiles(
+      dialogTitle: '导入自定义着色器 (.glsl / .hook)',
+      type: FileType.custom,
+      allowedExtensions: const <String>['glsl', 'hook'],
+      windowsOptions: _windowsPickerOptions,
+    );
+    return <HostPickedFile>[
+      for (final file in picked)
+        HostPickedFile(name: file.name, path: file.path),
+    ];
   }
 
   @override
@@ -100,6 +151,7 @@ final class HostFilePickerAdapter implements FilePickerPort, BackupFilePort {
       dialogTitle: dialogTitle,
       fileName: fileName,
       bytes: bytes,
+      windowsOptions: _windowsPickerOptions,
     );
     if (outputUri == null) {
       return null;

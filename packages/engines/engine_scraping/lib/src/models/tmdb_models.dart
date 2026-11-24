@@ -115,6 +115,7 @@ class TmdbSeasonDetail {
     this.overview,
     this.airDate,
     this.posterPath,
+    this.portraitBackdropPath,
     this.candidatePosters = const [],
     this.episodes = const [],
   });
@@ -133,6 +134,9 @@ class TmdbSeasonDetail {
 
   /// 单季专属海报相对路径。
   final String? posterPath;
+
+  /// 单季专属无字竖版原画路径（直接筛选自 `posters` 数组中 `iso_639_1 == null` 条目）。
+  final String? portraitBackdropPath;
 
   /// 单季专属候选海报列表（按清晰度、中日无字优先级与贝叶斯热度排序）。
   final List<TmdbArtworkImage> candidatePosters;
@@ -188,6 +192,7 @@ class TmdbWorkDetail {
     this.overview,
     this.posterPath,
     this.backdropPath,
+    this.portraitBackdropPath,
     this.logoPath,
     this.voteAverage,
     this.voteCount,
@@ -212,7 +217,7 @@ class TmdbWorkDetail {
   /// 首选展示标题（优先简体中文）。
   final String title;
 
-  /// 原始语言标题。
+  /// 原始语言标题（通常为日文或英文）。
   final String? originalTitle;
 
   /// 首播或上映年份。
@@ -226,6 +231,9 @@ class TmdbWorkDetail {
 
   /// 背景图路径。
   final String? backdropPath;
+
+  /// 竖版无字原画路径（复用 `posters` 数组中 `iso_639_1 == null` 候选，零新增请求）。
+  final String? portraitBackdropPath;
 
   /// 官方透明 PNG 标题 Logo 路径。
   final String? logoPath;

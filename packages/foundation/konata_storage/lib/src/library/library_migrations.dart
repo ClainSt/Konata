@@ -9,7 +9,7 @@ import 'schema/works_schema.dart';
 /// `library.db` 独立版本迁移脚本与索引清单。
 abstract final class LibraryMigrations {
   /// 当前 `library.db` 模式版本号。
-  static const int currentVersion = 1;
+  static const int currentVersion = 2;
 
   /// 按版本号递增排列的迁移步骤列表。
   static final List<SqliteMigration> steps = <SqliteMigration>[
@@ -22,6 +22,21 @@ abstract final class LibraryMigrations {
         db.execute(EpisodesSchema.createTableSql);
         db.execute(MediaVariantsSchema.createTableSql);
         db.execute(IgnoredFoldersSchema.createTableSql);
+      },
+    ),
+    SqliteMigration(
+      targetVersion: 2,
+      migrate: (db) {
+        final columns = db.select('PRAGMA table_info(${WorksSchema.table});');
+        final hasPortraitBackdrop = columns.any(
+          (row) => row['name'] == WorksSchema.colPortraitBackdropRefJson,
+        );
+        if (!hasPortraitBackdrop) {
+          db.execute(
+            'ALTER TABLE ${WorksSchema.table} '
+            'ADD COLUMN ${WorksSchema.colPortraitBackdropRefJson} TEXT;',
+          );
+        }
       },
     ),
   ];

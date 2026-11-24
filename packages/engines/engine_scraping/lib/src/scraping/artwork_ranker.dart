@@ -408,6 +408,52 @@ abstract final class ArtworkRanker {
     return _nonEmpty(primaryDefaultPath);
   }
 
+  /// 从已拉取的 TMDB `posters` 数组中直接筛选最优无字竖版原画（`iso_639_1 == null` / 无语言）。
+  ///
+  /// 零额外网络请求：优先清晰标准竖版比例（`>= 680px`）、全高清宽度与贝叶斯热度最高者；
+  /// 若候选集中不存在无字竖版海报，则返回 `null`（交由 Fanart `00` 兜底或前端溶底常规海报）。
+  static String? selectBestTextlessPortraitBackdrop(
+    Iterable<TmdbArtworkImage> candidatePosters,
+  ) {
+    final textless = <TmdbArtworkImage>[];
+    final seen = <String>{};
+    for (final item in candidatePosters) {
+      final path = item.filePath.trim();
+      if (path.isEmpty || !seen.add(path)) continue;
+      if (!isTextlessLanguage(item.isoLanguage)) continue;
+      textless.add(item);
+    }
+    if (textless.isEmpty) return null;
+    textless.sort((a, b) => compareTmdbPosters(a, b));
+    return textless.first.filePath.trim();
+  }
+
+  /// 从已拉取的 Fanart.tv 整包海报中挑选无字竖版原画（`lang == '00'` 或空），优先命中当前季。
+  static String? selectFanartTextlessPortraitBackdrop(
+    FanartArtworkResult bundle, {
+    int? matchedSeason,
+  }) {
+    if (bundle.posters.isEmpty) return null;
+    if (matchedSeason != null) {
+      for (final item in bundle.posters) {
+        if (item.season == matchedSeason && isTextlessLanguage(item.lang)) {
+          return item.url;
+        }
+      }
+    }
+    for (final item in bundle.posters) {
+      if (!item.isSeasonPoster && isTextlessLanguage(item.lang)) {
+        return item.url;
+      }
+    }
+    for (final item in bundle.posters) {
+      if (isTextlessLanguage(item.lang)) {
+        return item.url;
+      }
+    }
+    return null;
+  }
+
   /// 判断当前选中的 TMDB 封面是否欠佳（缺图、低清模糊 `< 680px`、异常比例，或仅有非中日无字的欧美英文版封面）。
   static bool isTmdbPosterSuboptimal({
     required String? selectedPosterPath,

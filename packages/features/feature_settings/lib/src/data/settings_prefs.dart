@@ -8,6 +8,7 @@ final class SettingsAppearancePrefs {
   const SettingsAppearancePrefs({
     this.themeMode = ThemeMode.dark,
     this.ambientBackdropEnabled = true,
+    this.windowMaterial = KonataWindowMaterial.acrylic,
   });
 
   /// 当前主题外观模式。
@@ -16,15 +17,20 @@ final class SettingsAppearancePrefs {
   /// 是否启用全局柔和流光氛围背景。
   final bool ambientBackdropEnabled;
 
+  /// Windows 桌面端原生 DWM 窗口材质。
+  final KonataWindowMaterial windowMaterial;
+
   /// 复制并修改部分外观配置。
   SettingsAppearancePrefs copyWith({
     ThemeMode? themeMode,
     bool? ambientBackdropEnabled,
+    KonataWindowMaterial? windowMaterial,
   }) {
     return SettingsAppearancePrefs(
       themeMode: themeMode ?? this.themeMode,
       ambientBackdropEnabled:
           ambientBackdropEnabled ?? this.ambientBackdropEnabled,
+      windowMaterial: windowMaterial ?? this.windowMaterial,
     );
   }
 
@@ -32,6 +38,7 @@ final class SettingsAppearancePrefs {
   Map<String, Object?> toJson() => <String, Object?>{
     'themeMode': themeMode.name,
     'ambientBackdropEnabled': ambientBackdropEnabled,
+    'windowMaterial': windowMaterial.name,
   };
 
   /// 从持久化 JSON 反序列化。
@@ -44,9 +51,15 @@ final class SettingsAppearancePrefs {
     final ambient = json['ambientBackdropEnabled'] is bool
         ? json['ambientBackdropEnabled']! as bool
         : true;
+    final materialRaw = (json['windowMaterial'] ?? '').toString().trim();
+    final material = KonataWindowMaterial.values.firstWhere(
+      (candidate) => candidate.name == materialRaw,
+      orElse: () => KonataWindowMaterial.acrylic,
+    );
     return SettingsAppearancePrefs(
       themeMode: mode,
       ambientBackdropEnabled: ambient,
+      windowMaterial: material,
     );
   }
 }

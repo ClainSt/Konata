@@ -37,6 +37,11 @@ class WorkDetailTopBar extends StatelessWidget {
         ? KonataTheme.overlayWhiteBorderStrong
         : p.hairline;
 
+    final desktopControls = KonataDesktopWindowChromeScope.buildWindowControls(
+      context,
+      showGlassPill: true,
+    );
+
     return Row(
       children: [
         Semantics(
@@ -70,8 +75,17 @@ class WorkDetailTopBar extends StatelessWidget {
             ),
           ),
         ),
-        const Spacer(),
+        Expanded(
+          child: KonataDesktopWindowChromeScope.wrapDragToMove(
+            context,
+            child: const SizedBox(height: 40),
+          ),
+        ),
         ?trailing,
+        if (desktopControls != null) ...[
+          if (trailing != null) const SizedBox(width: 8),
+          desktopControls,
+        ],
       ],
     );
   }

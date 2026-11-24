@@ -240,31 +240,34 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
                                   ),
                                 const SizedBox(width: 8),
                                 Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        currentItem?.album ?? '沉浸式 CD 音乐舞台',
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                      if (snap.errorMessage != null)
+                                  child: KonataDesktopWindowChromeScope.wrapDragToMove(
+                                    context,
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
                                         Text(
-                                          snap.errorMessage!,
+                                          currentItem?.album ?? '沉浸式 CD 音乐舞台',
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
                                           style: const TextStyle(
-                                            color: Color(0xFFFFB4AB),
-                                            fontSize: 11.5,
+                                            color: Colors.white,
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w600,
                                           ),
                                         ),
-                                    ],
+                                        if (snap.errorMessage != null)
+                                          Text(
+                                            snap.errorMessage!,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              color: Color(0xFFFFB4AB),
+                                              fontSize: 11.5,
+                                            ),
+                                          ),
+                                      ],
+                                    ),
                                   ),
                                 ),
                                 if (snap.audiophilePlan.safetyLimiterEngaged)
@@ -299,6 +302,14 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
                                       widget.onClosePage?.call();
                                     },
                                   ),
+                                if (KonataDesktopWindowChromeScope.buildWindowControls(
+                                      context,
+                                      forceLightIcons: true,
+                                    )
+                                    case final desktopControls?) ...[
+                                  const SizedBox(width: 8),
+                                  desktopControls,
+                                ],
                               ],
                             ),
                           ),

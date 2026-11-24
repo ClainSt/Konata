@@ -463,6 +463,11 @@ class _TopBar extends StatelessWidget {
       if (res.isNotEmpty) res,
     ].join(' · ');
 
+    final desktopControls = KonataDesktopWindowChromeScope.buildWindowControls(
+      context,
+      forceLightIcons: true,
+    );
+
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 16),
       decoration: const BoxDecoration(
@@ -487,14 +492,20 @@ class _TopBar extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(
-              title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: fg,
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
+            child: KonataDesktopWindowChromeScope.wrapDragToMove(
+              context,
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: fg,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
             ),
           ),
@@ -533,6 +544,10 @@ class _TopBar extends StatelessWidget {
             color: fg,
             onTap: onEnterMini,
           ),
+          if (desktopControls != null) ...[
+            const SizedBox(width: 8),
+            desktopControls,
+          ],
         ],
       ),
     );

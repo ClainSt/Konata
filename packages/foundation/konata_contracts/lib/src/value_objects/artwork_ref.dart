@@ -18,6 +18,9 @@ enum ArtworkSlot {
   /// 横版无字背景图。
   backdrop,
 
+  /// 竖版无字原画（供手机与平板竖屏详情页全宽展示）。
+  portraitBackdrop,
+
   /// 透明 PNG 标题徽标。
   logo,
 }

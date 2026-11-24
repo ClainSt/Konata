@@ -646,6 +646,123 @@ void main() {
       expect(variantsB.single.workLocked, isTrue);
       expect(variantsB.single.scopeLocked, isTrue);
     });
+
+    test('portraitBackdropRef 支持远程同步往返、本地自定义图脱敏剔除与旧版 JSON 兼容', () async {
+      final remoteWorkId = WorkId('work-portrait-remote');
+      final localWorkId = WorkId('work-portrait-local');
+
+      dbA.library.works.upsert(
+        WorkRecord(
+          id: remoteWorkId,
+          canonicalKey: 'tmdb:tv:1001:s1',
+          tmdbId: 1001,
+          tmdbMediaType: TmdbMediaType.tv,
+          matchedSeason: 1,
+          title: '远程竖版原画作品',
+          portraitBackdropRef: const ArtworkRef.remote(
+            source: ArtworkSource.tmdb,
+            uri: '/textless_portrait_2k.jpg',
+            locked: true,
+          ),
+          scrapeStatus: ScrapeStatus.matched,
+          updatedAtMs: 3000,
+          sourceDeviceId: 'dev-a',
+        ),
+      );
+      dbA.library.works.upsert(
+        WorkRecord(
+          id: localWorkId,
+          canonicalKey: 'tmdb:tv:1002:s1',
+          tmdbId: 1002,
+          tmdbMediaType: TmdbMediaType.tv,
+          matchedSeason: 1,
+          title: '本地自定义竖版原画作品',
+          portraitBackdropRef: const ArtworkRef.localCustom(
+            localPath: 'photos/secret_portrait_custom.jpg',
+            locked: true,
+          ),
+          scrapeStatus: ScrapeStatus.matched,
+          updatedAtMs: 3000,
+          sourceDeviceId: 'dev-a',
+        ),
+      );
+
+      final exported = await sliceA.exportSlice(localDeviceId: 'dev-a');
+      final encoded = jsonEncode(exported.toJson());
+      expect(encoded, contains('/textless_portrait_2k.jpg'));
+      expect(encoded, isNot(contains('secret_portrait_custom.jpg')));
+
+      final localB = await sliceB.exportSlice(localDeviceId: 'dev-b');
+      final plan = sliceB.planMerge(local: localB, remote: exported);
+      dbB.library.engine.runTransaction((libTx) {
+        sliceB.applyMergePlan(
+          DatabaseBundleSyncTransactionContext(
+            localDeviceId: 'dev-b',
+            appliedAtMs: 5000,
+            libraryTx: libTx,
+          ),
+          plan,
+        );
+      });
+
+      final remoteMerged = dbB.library.works.findById(remoteWorkId);
+      expect(remoteMerged, isNotNull);
+      expect(remoteMerged!.portraitBackdropRef, isA<RemoteArtworkRef>());
+      final remoteRef = remoteMerged.portraitBackdropRef! as RemoteArtworkRef;
+      expect(remoteRef.uri, '/textless_portrait_2k.jpg');
+      expect(remoteRef.locked, isTrue);
+
+      final localMerged = dbB.library.works.findById(localWorkId);
+      expect(localMerged, isNotNull);
+      expect(localMerged!.portraitBackdropRef, isNull);
+
+      // 兼容旧版未包含 portraitBackdropRef 字段的同步载荷。
+      const legacyPayload = SyncSlicePayload(
+        sliceId: LibraryCatalogSyncSlice.id,
+        schemaVersion: 1,
+        exportedAtMs: 6000,
+        sourceDeviceId: 'dev-legacy',
+        data: <String, Object?>{
+          'sources': const <Object?>[],
+          'seriesGroups': const <Object?>[],
+          'works': <Map<String, Object?>>[
+            <String, Object?>{
+              'id': 'work-legacy-no-portrait',
+              'canonicalKey': 'tmdb:tv:1003:s1',
+              'tmdbId': 1003,
+              'tmdbMediaType': 'tv',
+              'title': '旧版载荷作品',
+              'scrapeStatus': 'matched',
+              'updatedAtMs': 6000,
+            },
+          ],
+          'episodes': const <Object?>[],
+          'variants': const <Object?>[],
+        },
+      );
+      final localBeforeLegacy = await sliceB.exportSlice(
+        localDeviceId: 'dev-b',
+      );
+      final legacyPlan = sliceB.planMerge(
+        local: localBeforeLegacy,
+        remote: legacyPayload,
+      );
+      dbB.library.engine.runTransaction((libTx) {
+        sliceB.applyMergePlan(
+          DatabaseBundleSyncTransactionContext(
+            localDeviceId: 'dev-b',
+            appliedAtMs: 7000,
+            libraryTx: libTx,
+          ),
+          legacyPlan,
+        );
+      });
+      final legacyWork = dbB.library.works.findById(
+        WorkId('work-legacy-no-portrait'),
+      );
+      expect(legacyWork, isNotNull);
+      expect(legacyWork!.portraitBackdropRef, isNull);
+    });
   });
 
   group('KonataBackupService .konata 选择性导出、干跑预览、原子事务与扩展切片', () {

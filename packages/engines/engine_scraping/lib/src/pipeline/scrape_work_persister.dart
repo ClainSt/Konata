@@ -68,6 +68,7 @@ class ScrapeWorkPersister {
     String? fanartPosterOverride,
     String? fanartPosterFallback,
     String? fanartBackdropOverride,
+    String? fanartPortraitBackdropOverride,
     String? fanartLogoOverride,
     String? localPosterFallback,
     int? fallbackYear,
@@ -76,6 +77,7 @@ class ScrapeWorkPersister {
     bool metadataLocked = false,
     bool posterLocked = false,
     bool backdropLocked = false,
+    bool portraitBackdropLocked = false,
     bool logoLocked = false,
     int logoNegativeMask = 0,
     bool isHidden = false,
@@ -154,6 +156,15 @@ class ScrapeWorkPersister {
 
     final effectiveMatchedSeason =
         detail.mediaType == TmdbMediaType.movie ? null : matchedSeason;
+    final tmdbPortraitBackdrop =
+        _nonEmpty(seasonDetail?.portraitBackdropPath) ??
+        _nonEmpty(detail.portraitBackdropPath) ??
+        ArtworkRanker.selectBestTextlessPortraitBackdrop(
+          seasonDetail?.candidatePosters ?? const <TmdbArtworkImage>[],
+        ) ??
+        ArtworkRanker.selectBestTextlessPortraitBackdrop(detail.candidatePosters);
+    final effectivePortraitBackdrop =
+        tmdbPortraitBackdrop ?? _nonEmpty(fanartPortraitBackdropOverride);
 
     return Work(
       id: id,
@@ -171,6 +182,7 @@ class ScrapeWorkPersister {
       bangumiPosterPath: resolved.bangumiPosterPath,
       backdropPath:
           _nonEmpty(fanartBackdropOverride) ?? _nonEmpty(detail.backdropPath),
+      portraitBackdropPath: effectivePortraitBackdrop,
       logoPath: _nonEmpty(fanartLogoOverride) ?? _nonEmpty(detail.logoPath),
       voteAverage: detail.voteAverage,
       bangumiScore: bgmSubject?.score,
@@ -179,6 +191,7 @@ class ScrapeWorkPersister {
       metadataLocked: metadataLocked,
       posterLocked: posterLocked,
       backdropLocked: backdropLocked,
+      portraitBackdropLocked: portraitBackdropLocked,
       logoLocked: logoLocked,
       logoNegativeMask: logoNegativeMask,
       isHidden: isHidden,
@@ -230,6 +243,9 @@ class ScrapeWorkPersister {
       backdropPath: existing.backdropLocked
           ? existing.backdropPath
           : (candidate.backdropPath ?? existing.backdropPath),
+      portraitBackdropPath: existing.portraitBackdropLocked
+          ? existing.portraitBackdropPath
+          : (candidate.portraitBackdropPath ?? existing.portraitBackdropPath),
       logoPath: nextLogoPath,
       clearLogoPath: !hasResolvedLogo,
       clearLogoNegative: hasResolvedLogo && nextLogoNegativeMask == 0,
@@ -259,10 +275,12 @@ class ScrapeWorkPersister {
           existing.metadataLocked ||
           existing.posterLocked ||
           existing.backdropLocked ||
+          existing.portraitBackdropLocked ||
           existing.logoLocked,
       metadataLocked: existing.metadataLocked,
       posterLocked: existing.posterLocked,
       backdropLocked: existing.backdropLocked,
+      portraitBackdropLocked: existing.portraitBackdropLocked,
       logoLocked: existing.logoLocked,
     );
   }
@@ -277,11 +295,13 @@ class ScrapeWorkPersister {
     int? tvdbId,
     String? posterPathOverride,
     String? backdropPath,
+    String? portraitBackdropPath,
     String? logoPath,
     required bool isManualLocked,
     bool metadataLocked = false,
     bool posterLocked = false,
     bool backdropLocked = false,
+    bool portraitBackdropLocked = false,
     bool logoLocked = false,
     bool isHidden = false,
     bool keepHidden = false,
@@ -319,6 +339,7 @@ class ScrapeWorkPersister {
       posterFallback: effectiveFallback,
       bangumiPosterPath: resolved.bangumiPosterPath,
       backdropPath: _nonEmpty(backdropPath),
+      portraitBackdropPath: _nonEmpty(portraitBackdropPath),
       logoPath: _nonEmpty(logoPath),
       bangumiScore: subject.score,
       folderTmdbHint: folder.explicitTmdbId,
@@ -326,6 +347,7 @@ class ScrapeWorkPersister {
       metadataLocked: metadataLocked,
       posterLocked: posterLocked,
       backdropLocked: backdropLocked,
+      portraitBackdropLocked: portraitBackdropLocked,
       logoLocked: logoLocked,
       isHidden: isHidden,
       keepHidden: keepHidden,
@@ -341,6 +363,7 @@ class ScrapeWorkPersister {
     required String posterPath,
     int? tvdbId,
     String? backdropPath,
+    String? portraitBackdropPath,
     String? logoPath,
     bool isManualLocked = false,
     bool isHidden = false,
@@ -354,6 +377,7 @@ class ScrapeWorkPersister {
       year: folder.year,
       posterPath: posterPath.trim(),
       backdropPath: _nonEmpty(backdropPath),
+      portraitBackdropPath: _nonEmpty(portraitBackdropPath),
       logoPath: _nonEmpty(logoPath),
       folderTmdbHint: folder.explicitTmdbId,
       isManualLocked: isManualLocked,

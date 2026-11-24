@@ -288,6 +288,60 @@ void main() {
       );
       expect(phoneSections.map((s) => s.id), equals(<String>['common']));
     });
+
+    test('启动预加载网络密钥与完整外观切片，且绝不覆盖其他外观字段', () async {
+      final tempRoot = Directory.systemTemp.createTempSync('konata_preload_');
+      addTearDown(() {
+        if (tempRoot.existsSync()) {
+          tempRoot.deleteSync(recursive: true);
+        }
+      });
+
+      final secureStorage = InMemorySecureStorage();
+      await secureStorage.write(
+        SettingsNetworkRepository.tmdbCredentialKey,
+        'tmdb-startup-key-test',
+      );
+      await secureStorage.write(
+        SettingsNetworkRepository.fanartClientKeyStorageKey,
+        'fanart-startup-key-test',
+      );
+
+      final bootstrap = await KonataBootstrapContext.initialize(
+        platform: KonataPlatform.windows,
+        storageRoot: PortableStorageRootService(
+          overrideRootPath: tempRoot.path,
+        ),
+        secureStorage: secureStorage,
+        filePicker: const NoopFilePickerPort(),
+        backupFilePort: const NoopBackupFilePort(),
+        urlOpener: const NoopUrlOpenerPort(),
+        useInMemoryDatabases: true,
+        autoStartDetailWarmupAndBackfill: false,
+      );
+      addTearDown(bootstrap.dispose);
+
+      // 1. 启动即预加载 TMDB / Fanart 凭据至全局网络客户端。
+      expect(bootstrap.httpClient.config.credential, 'tmdb-startup-key-test');
+      expect(
+        bootstrap.httpClient.config.fanartClientKey,
+        'fanart-startup-key-test',
+      );
+
+      // 2. 完整外观切片保存与读取保留全部字段（themeMode / ambientBackdropEnabled / windowMaterial）。
+      saveAppearancePrefs(
+        bootstrap.scopedPrefs,
+        const HostAppearanceState(
+          themeMode: ThemeMode.light,
+          ambientBackdropEnabled: false,
+          windowMaterial: KonataWindowMaterial.mica,
+        ),
+      );
+      final loaded = readInitialAppearancePrefs(bootstrap.scopedPrefs);
+      expect(loaded.themeMode, ThemeMode.light);
+      expect(loaded.ambientBackdropEnabled, isFalse);
+      expect(loaded.windowMaterial, KonataWindowMaterial.mica);
+    });
   });
 }
 

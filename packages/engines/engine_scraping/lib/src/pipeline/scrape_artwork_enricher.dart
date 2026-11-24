@@ -34,6 +34,7 @@ class TmdbFanartEnrichOutcome {
     this.posterFallback,
     this.posterOverride,
     this.backdropOverride,
+    this.portraitBackdropOverride,
     this.logoOverride,
     this.logoNegativeMask = 0,
     this.selectedLogo,
@@ -62,6 +63,9 @@ class TmdbFanartEnrichOutcome {
 
   /// TMDB 背景图缺失、低清、带字、非标零头分辨率或低票疑似截帧时由 Fanart 整包升级的无字 1080p 横图。
   final String? backdropOverride;
+
+  /// TMDB 缺失无字竖版原画时从本次顺带拉取的 Fanart 整包选出的无字（`00`）竖版原画。
+  final String? portraitBackdropOverride;
 
   /// 跨源排序后应覆写至作品的透明徽标路径（`null` 表示沿用 TMDB 原值）。
   final String? logoOverride;
@@ -109,6 +113,7 @@ class BangumiOnlyWallOutcome {
     this.tvdbIdSource = TvdbIdSource.missing,
     this.fanartPoster,
     this.fanartBackdrop,
+    this.fanartPortraitBackdrop,
     this.fanartLogo,
     this.fanartTopLogo,
     this.effectiveCover,
@@ -130,6 +135,9 @@ class BangumiOnlyWallOutcome {
 
   /// Fanart 整包提供的无字 1080p 横图。
   final String? fanartBackdrop;
+
+  /// Fanart 整包提供的无字（`00`）竖版原画。
+  final String? fanartPortraitBackdrop;
 
   /// Fanart 整包提供的最优透明徽标地址。
   final String? fanartLogo;
@@ -156,6 +164,7 @@ class CoverFallbackWallOutcome {
     this.tvdbIdSource = TvdbIdSource.missing,
     this.posterPath,
     this.backdropPath,
+    this.portraitBackdropPath,
     this.logoPath,
     this.fanartTopLogo,
     this.coverSource = 'none',
@@ -176,6 +185,9 @@ class CoverFallbackWallOutcome {
 
   /// Fanart 提供的无字横图。
   final String? backdropPath;
+
+  /// Fanart 提供的无字（`00`）竖版原画。
+  final String? portraitBackdropPath;
 
   /// Fanart 提供的透明徽标地址。
   final String? logoPath;
@@ -401,6 +413,19 @@ class ScrapeArtworkEnricher {
     final backdropOverride = backdropSuboptimal
         ? bundle.bestBackgroundUrl
         : null;
+    final tmdbPortraitBackdrop =
+        _nonEmpty(seasonDetail?.portraitBackdropPath) ??
+        _nonEmpty(detail.portraitBackdropPath) ??
+        ArtworkRanker.selectBestTextlessPortraitBackdrop(
+          seasonDetail?.candidatePosters ?? const <TmdbArtworkImage>[],
+        ) ??
+        ArtworkRanker.selectBestTextlessPortraitBackdrop(detail.candidatePosters);
+    final portraitBackdropOverride = tmdbPortraitBackdrop == null
+        ? ArtworkRanker.selectFanartTextlessPortraitBackdrop(
+            bundle,
+            matchedSeason: matchedSeason,
+          )
+        : null;
 
     String? logoOverride;
     RankedLogoCandidate? selectedLogo = tmdbTopLogo;
@@ -437,6 +462,7 @@ class ScrapeArtworkEnricher {
       posterFallback: posterFallback,
       posterOverride: posterOverride,
       backdropOverride: backdropOverride,
+      portraitBackdropOverride: portraitBackdropOverride,
       logoOverride: logoOverride,
       logoNegativeMask: nextMask,
       selectedLogo: selectedLogo,
@@ -483,6 +509,12 @@ class ScrapeArtworkEnricher {
 
     final fanartPoster = fanartBundle?.bestPosterUrlForSeason(folder.seasonHint);
     final fanartBackdrop = fanartBundle?.bestBackgroundUrl;
+    final fanartPortraitBackdrop = fanartBundle == null
+        ? null
+        : ArtworkRanker.selectFanartTextlessPortraitBackdrop(
+            fanartBundle,
+            matchedSeason: folder.seasonHint,
+          );
     final rankedFanartLogos = ClearLogoResolver.toRankedFanartLogos(
       fanartBundle?.logos ?? const [],
       tmdbId: folder.explicitTmdbId,
@@ -517,6 +549,7 @@ class ScrapeArtworkEnricher {
       tvdbIdSource: tvdbSource,
       fanartPoster: fanartPoster,
       fanartBackdrop: fanartBackdrop,
+      fanartPortraitBackdrop: fanartPortraitBackdrop,
       fanartLogo: fanartLogo,
       fanartTopLogo: rankedFanartLogos.isEmpty ? null : rankedFanartLogos.first,
       effectiveCover: effectiveCover,
@@ -570,6 +603,12 @@ class ScrapeArtworkEnricher {
     final fanartPoster = _nonEmpty(
       fallbackFanart?.bestPosterUrlForSeason(folder.seasonHint),
     );
+    final fanartPortraitBackdrop = fallbackFanart == null
+        ? null
+        : ArtworkRanker.selectFanartTextlessPortraitBackdrop(
+            fallbackFanart,
+            matchedSeason: folder.seasonHint,
+          );
     final localCover = _nonEmpty(folder.localPosterPath);
     final fallbackCover = fanartPoster ?? localCover;
     final coverSource = fanartPoster != null
@@ -596,6 +635,7 @@ class ScrapeArtworkEnricher {
       tvdbIdSource: tvdbSource,
       posterPath: fallbackCover,
       backdropPath: fallbackFanart?.bestBackgroundUrl,
+      portraitBackdropPath: fanartPortraitBackdrop,
       logoPath: rankedFanartLogos.isEmpty
           ? fallbackFanart?.bestLogoUrl
           : rankedFanartLogos.first.filePath,

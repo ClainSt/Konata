@@ -515,10 +515,19 @@ final class AndroidMediaStorePublisher implements MediaStorePublisherPort {
   }
 }
 
-/// Android 全屏沉浸系统栏与横竖屏方向控制适配器。
+/// Android 全屏沉浸系统栏与横竖屏方向控制适配器（直连原生 `konata/playback_window` 通道）。
 final class AndroidPlaybackWindowAdapter implements PlaybackHostWindowPort {
   /// 创建移动端窗口播控适配器。
-  AndroidPlaybackWindowAdapter();
+  AndroidPlaybackWindowAdapter({
+    MethodChannel? channel,
+    bool Function()? isSupported,
+  }) : _channel = channel ?? const MethodChannel('konata/playback_window'),
+       _isSupported =
+           isSupported ??
+           (() => !kIsWeb && defaultTargetPlatform == TargetPlatform.android);
+
+  final MethodChannel _channel;
+  final bool Function() _isSupported;
 
   bool _fullScreen = false;
 
@@ -528,6 +537,16 @@ final class AndroidPlaybackWindowAdapter implements PlaybackHostWindowPort {
   @override
   Future<void> setFullScreen(bool enable) async {
     _fullScreen = enable;
+    if (_isSupported()) {
+      try {
+        await _channel.invokeMethod<void>('fullscreen', enable);
+        return;
+      } on MissingPluginException {
+        // 测试或无原生通道环境自动回退至框架系统栏控制。
+      } on PlatformException {
+        // 忽略瞬态窗口状态异常并回退框架控制。
+      }
+    }
     await SystemChrome.setEnabledSystemUIMode(
       enable ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
     );
@@ -558,6 +577,16 @@ final class AndroidPlaybackWindowAdapter implements PlaybackHostWindowPort {
 
   @override
   Future<void> setPreferredLandscape(bool landscape) async {
+    if (_isSupported()) {
+      try {
+        await _channel.invokeMethod<void>('setLandscape', landscape);
+        return;
+      } on MissingPluginException {
+        // 测试或无原生通道环境自动回退框架方向控制。
+      } on PlatformException {
+        // 忽略瞬态方向切换异常并回退框架方向控制。
+      }
+    }
     await SystemChrome.setPreferredOrientations(
       landscape
           ? const <DeviceOrientation>[
@@ -566,5 +595,208 @@ final class AndroidPlaybackWindowAdapter implements PlaybackHostWindowPort {
             ]
           : const <DeviceOrientation>[],
     );
+  }
+}
+
+/// Android 原生音频焦点管理适配器（直连 `MainActivity.kt` 的 `konata/audio_focus` 通道）。
+final class AndroidAudioFocusAdapter implements AndroidAudioFocusPort {
+  /// 创建 Android 音频焦点适配器。
+  AndroidAudioFocusAdapter({
+    MethodChannel? channel,
+    bool Function()? isSupported,
+  }) : _channel = channel ?? const MethodChannel('konata/audio_focus'),
+       _isSupported =
+           isSupported ??
+           (() => !kIsWeb && defaultTargetPlatform == TargetPlatform.android);
+
+  final MethodChannel _channel;
+  final bool Function() _isSupported;
+
+  bool _handlerBound = false;
+  void Function()? _onLoss;
+  void Function()? _onDuck;
+  void Function()? _onGain;
+
+  @override
+  Future<void> requestAudioFocus({
+    void Function()? onLoss,
+    void Function()? onDuck,
+    void Function()? onGain,
+  }) async {
+    _onLoss = onLoss;
+    _onDuck = onDuck;
+    _onGain = onGain;
+    if (!_isSupported()) return;
+    _ensureHandlerBound();
+    try {
+      await _channel.invokeMethod<bool>('request');
+    } on MissingPluginException {
+      // 无原生通道时静默忽略。
+    } on PlatformException catch (error) {
+      developer.log(
+        '请求 Android 音频焦点失败',
+        name: 'konata.android_audio_focus',
+        error: error,
+      );
+    }
+  }
+
+  @override
+  Future<void> abandonAudioFocus() async {
+    _onLoss = null;
+    _onDuck = null;
+    _onGain = null;
+    if (!_isSupported()) return;
+    try {
+      await _channel.invokeMethod<void>('abandon');
+    } on MissingPluginException {
+      // 无原生通道时静默忽略。
+    } on PlatformException catch (error) {
+      developer.log(
+        '释放 Android 音频焦点失败',
+        name: 'konata.android_audio_focus',
+        error: error,
+      );
+    }
+  }
+
+  void _ensureHandlerBound() {
+    if (_handlerBound) return;
+    try {
+      ServicesBinding.instance;
+      _handlerBound = true;
+      _channel.setMethodCallHandler(_handleNativeCall);
+    } catch (_) {
+      // 测试环境未初始化绑定时跳过通道回调注册。
+    }
+  }
+
+  Future<Object?> _handleNativeCall(MethodCall call) async {
+    if (call.method != 'focusChange') return null;
+    switch (call.arguments?.toString()) {
+      case 'loss':
+      case 'lossTransient':
+        _onLoss?.call();
+      case 'duck':
+        _onDuck?.call();
+      case 'gain':
+        _onGain?.call();
+    }
+    return null;
+  }
+
+  @override
+  void dispose() {
+    if (_handlerBound) {
+      try {
+        _channel.setMethodCallHandler(null);
+      } catch (_) {
+        // 忽略关闭期通道解绑异常。
+      }
+      _handlerBound = false;
+    }
+    _onLoss = null;
+    _onDuck = null;
+    _onGain = null;
+  }
+}
+
+/// Android 原生画中画通道适配器（直连 `MainActivity.kt` 的 `konata/pip` 通道）。
+final class AndroidPipAdapter implements AndroidPipPort {
+  /// 创建 Android 画中画适配器。
+  AndroidPipAdapter({
+    MethodChannel? channel,
+    bool Function()? isSupported,
+  }) : _channel = channel ?? const MethodChannel('konata/pip'),
+       _isSupported =
+           isSupported ??
+           (() => !kIsWeb && defaultTargetPlatform == TargetPlatform.android);
+
+  final MethodChannel _channel;
+  final bool Function() _isSupported;
+
+  bool _handlerBound = false;
+  AndroidPipState? _lastSyncedState;
+  void Function(bool active)? _onPipModeChanged;
+  void Function(String action)? _onRemoteAction;
+  void Function()? _onPipDismissed;
+
+  @override
+  void bindCallbacks({
+    required void Function(bool active) onPipModeChanged,
+    required void Function(String action) onRemoteAction,
+    void Function()? onPipDismissed,
+  }) {
+    _onPipModeChanged = onPipModeChanged;
+    _onRemoteAction = onRemoteAction;
+    _onPipDismissed = onPipDismissed;
+    if (!_isSupported() || _handlerBound) return;
+    try {
+      ServicesBinding.instance;
+      _handlerBound = true;
+      _channel.setMethodCallHandler(_handleNativeCall);
+    } catch (_) {
+      // 测试环境未初始化绑定时跳过通道回调注册。
+    }
+  }
+
+  @override
+  void unbindCallbacks() {
+    _onPipModeChanged = null;
+    _onRemoteAction = null;
+    _onPipDismissed = null;
+    if (_handlerBound) {
+      try {
+        _channel.setMethodCallHandler(null);
+      } catch (_) {
+        // 忽略关闭期通道解绑异常。
+      }
+      _handlerBound = false;
+    }
+  }
+
+  Future<Object?> _handleNativeCall(MethodCall call) async {
+    switch (call.method) {
+      case 'pipChanged':
+        _onPipModeChanged?.call(call.arguments == true);
+      case 'pipDismissed':
+        _onPipDismissed?.call();
+      case 'action':
+        final cmd = call.arguments?.toString() ?? '';
+        if (cmd.isNotEmpty) {
+          _onRemoteAction?.call(cmd);
+        }
+    }
+    return null;
+  }
+
+  @override
+  Future<void> syncState(AndroidPipState state) async {
+    if (!_isSupported() || _lastSyncedState == state) return;
+    _lastSyncedState = state;
+    try {
+      await _channel.invokeMethod<void>('syncState', state.toChannelMap());
+    } on MissingPluginException {
+      // 无原生通道时静默忽略。
+    } on PlatformException catch (error) {
+      developer.log(
+        '同步 Android 画中画状态失败',
+        name: 'konata.android_pip',
+        error: error,
+      );
+    }
+  }
+
+  @override
+  Future<bool> enterPipNow() async {
+    if (!_isSupported()) return false;
+    try {
+      final entered = await _channel.invokeMethod<bool>('enter');
+      return entered == true;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
   }
 }

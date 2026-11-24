@@ -834,4 +834,118 @@ void main() {
     });
   });
 
+  group('竖版无字原画 portraitBackdropRef 零额外请求优选与锁定保护', () {
+    test('仅采纳 TMDB iso_639_1 == null 的无字竖版海报，严禁误选带字海报', () {
+      const textedZh = TmdbArtworkImage(
+        filePath: '/texted_zh_2k.jpg',
+        isoLanguage: 'zh',
+        isoCountry: 'CN',
+        width: 2000,
+        height: 3000,
+        voteAverage: 9.0,
+        voteCount: 30,
+      );
+      const textlessLowRes = TmdbArtworkImage(
+        filePath: '/textless_low.jpg',
+        isoLanguage: null,
+        width: 500,
+        height: 750,
+        voteAverage: 8.5,
+        voteCount: 20,
+      );
+      const textless2k = TmdbArtworkImage(
+        filePath: '/textless_2k.jpg',
+        isoLanguage: null,
+        width: 2000,
+        height: 3000,
+        voteAverage: 5.8,
+        voteCount: 6,
+      );
+
+      expect(
+        ArtworkRanker.selectBestTextlessPortraitBackdrop(const [textedZh]),
+        isNull,
+      );
+      expect(
+        ArtworkRanker.selectBestTextlessPortraitBackdrop(const [
+          textedZh,
+          textlessLowRes,
+          textless2k,
+        ]),
+        '/textless_2k.jpg',
+      );
+    });
+
+    test('Fanart 整包优先挑选当前季 00 无字竖图，次选系列主无字竖图', () {
+      const bundle = FanartArtworkResult(
+        posters: [
+          FanartPosterCandidate(
+            id: 'p_ja',
+            url: 'https://assets.fanart.tv/ja.jpg',
+            lang: 'ja',
+            likes: 20,
+          ),
+          FanartPosterCandidate(
+            id: 'p_series_00',
+            url: 'https://assets.fanart.tv/series_00.jpg',
+            lang: '00',
+            likes: 10,
+          ),
+          FanartPosterCandidate(
+            id: 'p_s2_00',
+            url: 'https://assets.fanart.tv/s2_00.jpg',
+            lang: '00',
+            season: 2,
+            likes: 3,
+          ),
+        ],
+      );
+
+      expect(
+        ArtworkRanker.selectFanartTextlessPortraitBackdrop(
+          bundle,
+          matchedSeason: 2,
+        ),
+        'https://assets.fanart.tv/s2_00.jpg',
+      );
+      expect(
+        ArtworkRanker.selectFanartTextlessPortraitBackdrop(
+          bundle,
+          matchedSeason: 1,
+        ),
+        'https://assets.fanart.tv/series_00.jpg',
+      );
+    });
+
+    test('mergeWorkWithLocks 严格保护 portraitBackdropLocked 人工锁定原画不被重扫覆盖', () {
+      const existing = Work(
+        id: 'w_lock_portrait',
+        title: '测试作品',
+        portraitBackdropPath: 'photos/custom_portrait.jpg',
+        portraitBackdropLocked: true,
+        scrapeStatus: ScrapeStatus.matched,
+      );
+      const candidate = Work(
+        id: 'w_lock_portrait',
+        title: '测试作品',
+        portraitBackdropPath: '/new_remote_textless.jpg',
+        portraitBackdropLocked: false,
+        scrapeStatus: ScrapeStatus.matched,
+      );
+
+      final merged = ScrapeWorkPersister.mergeWorkWithLocks(
+        existing: existing,
+        candidate: candidate,
+      );
+      expect(merged.portraitBackdropPath, 'photos/custom_portrait.jpg');
+      expect(merged.portraitBackdropLocked, isTrue);
+
+      final resetMerged = ScrapeWorkPersister.mergeWorkWithLocks(
+        existing: existing,
+        candidate: candidate,
+        resetManualLocks: true,
+      );
+      expect(resetMerged.portraitBackdropPath, '/new_remote_textless.jpg');
+    });
+  });
 }

@@ -136,3 +136,153 @@ final class NoopPlaybackHostWindowPort implements PlaybackHostWindowPort {
   @override
   Future<void> setPreferredLandscape(bool landscape) async {}
 }
+
+/// Android 原生音频焦点管理抽象端口（纯 Dart 契约，由宿主按平台注入）。
+abstract interface class AndroidAudioFocusPort {
+  /// 请求媒体播放音频焦点并绑定失去/闪避/恢复回调。
+  Future<void> requestAudioFocus({
+    void Function()? onLoss,
+    void Function()? onDuck,
+    void Function()? onGain,
+  });
+
+  /// 释放已持有的音频焦点并清理监听回调。
+  Future<void> abandonAudioFocus();
+
+  /// 销毁底层通道监听。
+  void dispose();
+}
+
+/// 默认空 Android 音频焦点实现（桌面端与纯单元测试兜底）。
+final class NoopAndroidAudioFocusPort implements AndroidAudioFocusPort {
+  /// 创建空音频焦点适配器。
+  const NoopAndroidAudioFocusPort();
+
+  @override
+  Future<void> requestAudioFocus({
+    void Function()? onLoss,
+    void Function()? onDuck,
+    void Function()? onGain,
+  }) async {}
+
+  @override
+  Future<void> abandonAudioFocus() async {}
+
+  @override
+  void dispose() {}
+}
+
+/// Android 原生画中画（PiP）状态快照载荷。
+final class AndroidPipState {
+  /// 创建画中画同步状态载荷。
+  const AndroidPipState({
+    required this.eligible,
+    required this.isPlaying,
+    required this.canPrevious,
+    required this.canNext,
+    this.aspectNumerator = 16,
+    this.aspectDenominator = 9,
+    this.sourceRect,
+  });
+
+  /// 当前是否允许切后台自动进入画中画。
+  final bool eligible;
+
+  /// 当前是否处于播放态。
+  final bool isPlaying;
+
+  /// 是否允许上一话操作。
+  final bool canPrevious;
+
+  /// 是否允许下一话操作。
+  final bool canNext;
+
+  /// 画中画宽高比分子。
+  final int aspectNumerator;
+
+  /// 画中画宽高比分母。
+  final int aspectDenominator;
+
+  /// 可选视频渲染视口物理边界。
+  final ({int left, int top, int right, int bottom})? sourceRect;
+
+  /// 序列化为平台通道参数字典。
+  Map<String, Object?> toChannelMap() => <String, Object?>{
+    'eligible': eligible,
+    'isPlaying': isPlaying,
+    'canPrevious': canPrevious,
+    'canNext': canNext,
+    'aspectNumerator': aspectNumerator,
+    'aspectDenominator': aspectDenominator,
+    if (sourceRect != null) ...<String, Object?>{
+      'left': sourceRect!.left,
+      'top': sourceRect!.top,
+      'right': sourceRect!.right,
+      'bottom': sourceRect!.bottom,
+    },
+  };
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AndroidPipState &&
+          other.eligible == eligible &&
+          other.isPlaying == isPlaying &&
+          other.canPrevious == canPrevious &&
+          other.canNext == canNext &&
+          other.aspectNumerator == aspectNumerator &&
+          other.aspectDenominator == aspectDenominator &&
+          other.sourceRect == sourceRect;
+
+  @override
+  int get hashCode => Object.hash(
+    eligible,
+    isPlaying,
+    canPrevious,
+    canNext,
+    aspectNumerator,
+    aspectDenominator,
+    sourceRect,
+  );
+}
+
+/// Android 原生画中画通道抽象端口（纯 Dart 契约，隔离平台通道实现）。
+abstract interface class AndroidPipPort {
+  /// 绑定原生画中画状态切换、远程操作按钮与用户滑走关闭回调。
+  void bindCallbacks({
+    required void Function(bool active) onPipModeChanged,
+    required void Function(String action) onRemoteAction,
+    void Function()? onPipDismissed,
+  });
+
+  /// 解绑通道监听。
+  void unbindCallbacks();
+
+  /// 向原生宿主同步当前画中画可用资格与远程按钮状态。
+  Future<void> syncState(AndroidPipState state);
+
+  /// 主动请求立即进入系统画中画。
+  Future<bool> enterPipNow();
+}
+
+/// 默认空 Android 画中画实现（桌面端与无原生宿主测试兜底）。
+final class NoopAndroidPipPort implements AndroidPipPort {
+  /// 创建空画中画适配器。
+  const NoopAndroidPipPort();
+
+  @override
+  void bindCallbacks({
+    required void Function(bool active) onPipModeChanged,
+    required void Function(String action) onRemoteAction,
+    void Function()? onPipDismissed,
+  }) {}
+
+  @override
+  void unbindCallbacks() {}
+
+  @override
+  Future<void> syncState(AndroidPipState state) async {}
+
+  @override
+  Future<bool> enterPipNow() async => false;
+}

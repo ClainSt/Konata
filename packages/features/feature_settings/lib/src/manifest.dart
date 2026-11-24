@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show ValueChanged;
 import 'package:konata_contracts/konata_contracts.dart';
 
 import 'ui/settings_about_panel.dart';
@@ -16,7 +17,13 @@ final FeatureManifest featureSettingsManifest = FeatureManifest(
       label: '设置',
       iconKey: 'settings',
       order: 40,
-      viewBuilder: (_) => const SettingsPage(),
+      viewBuilder: (ctx) => SettingsPage(
+        initialSectionId: ctx.arguments['initialSectionId'] as String?,
+        deepLinkPulse: (ctx.arguments['deepLinkPulse'] as int?) ?? 0,
+        onDetailVisibilityChanged:
+            ctx.arguments['onDetailVisibilityChanged']
+                as ValueChanged<bool>?,
+      ),
     ),
   ],
   settingsSections: <SettingsSectionContribution>[

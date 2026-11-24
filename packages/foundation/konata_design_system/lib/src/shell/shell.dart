@@ -6,5 +6,8 @@ export 'android_scroll_capture_bridge.dart';
 export 'capsule_navigation.dart';
 export 'konata_adaptive_shell.dart';
 export 'konata_bottom_clearance_scope.dart';
+export 'konata_desktop_window_chrome_scope.dart';
 export 'konata_modal_layer_registry.dart';
+export 'konata_root_back_gate.dart';
+export 'konata_scroll_behavior.dart';
 export 'konata_top_nav_bar.dart';

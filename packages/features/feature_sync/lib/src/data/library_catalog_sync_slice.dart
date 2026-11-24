@@ -236,6 +236,7 @@ final class SyncLibraryWorkItem {
     this.posterFallback,
     this.bangumiPosterPath,
     this.backdropRef,
+    this.portraitBackdropRef,
     this.logoRef,
     this.voteAverage,
     this.bangumiScore,
@@ -270,6 +271,9 @@ final class SyncLibraryWorkItem {
     final safeBackdropRef = ArtworkRef.tryFromJson(
       rec.backdropRef?.toSyncJson(),
     );
+    final safePortraitBackdropRef = ArtworkRef.tryFromJson(
+      rec.portraitBackdropRef?.toSyncJson(),
+    );
     final safeLogoRef = ArtworkRef.tryFromJson(rec.logoRef?.toSyncJson());
 
     return SyncLibraryWorkItem(
@@ -291,6 +295,7 @@ final class SyncLibraryWorkItem {
         rec.bangumiPosterPath,
       ),
       backdropRef: safeBackdropRef,
+      portraitBackdropRef: safePortraitBackdropRef,
       logoRef: safeLogoRef,
       voteAverage: rec.voteAverage,
       bangumiScore: rec.bangumiScore,
@@ -329,6 +334,7 @@ final class SyncLibraryWorkItem {
   final String? posterFallback;
   final String? bangumiPosterPath;
   final ArtworkRef? backdropRef;
+  final ArtworkRef? portraitBackdropRef;
   final ArtworkRef? logoRef;
   final double? voteAverage;
   final double? bangumiScore;
@@ -378,6 +384,7 @@ final class SyncLibraryWorkItem {
       posterFallback: posterFallback,
       bangumiPosterPath: bangumiPosterPath,
       backdropRef: backdropRef,
+      portraitBackdropRef: portraitBackdropRef,
       logoRef: logoRef,
       voteAverage: voteAverage,
       bangumiScore: bangumiScore,
@@ -403,6 +410,7 @@ final class SyncLibraryWorkItem {
     String? overrideSeriesId,
     ArtworkRef? preservePosterRef,
     ArtworkRef? preserveBackdropRef,
+    ArtworkRef? preservePortraitBackdropRef,
     ArtworkRef? preserveLogoRef,
   }) {
     return WorkRecord(
@@ -421,6 +429,7 @@ final class SyncLibraryWorkItem {
       posterFallback: posterFallback,
       bangumiPosterPath: bangumiPosterPath,
       backdropRef: preserveBackdropRef ?? backdropRef,
+      portraitBackdropRef: preservePortraitBackdropRef ?? portraitBackdropRef,
       logoRef: preserveLogoRef ?? logoRef,
       voteAverage: voteAverage,
       bangumiScore: bangumiScore,
@@ -461,6 +470,7 @@ final class SyncLibraryWorkItem {
     if (posterFallback != null) 'posterFallback': posterFallback,
     if (bangumiPosterPath != null) 'bangumiPosterPath': bangumiPosterPath,
     'backdropRef': backdropRef?.toSyncJson(),
+    'portraitBackdropRef': portraitBackdropRef?.toSyncJson(),
     'logoRef': logoRef?.toSyncJson(),
     if (voteAverage != null) 'voteAverage': voteAverage,
     if (bangumiScore != null) 'bangumiScore': bangumiScore,
@@ -532,6 +542,7 @@ final class SyncLibraryWorkItem {
         json['bangumiPosterPath']?.toString(),
       ),
       backdropRef: parseSyncArtwork(json['backdropRef']),
+      portraitBackdropRef: parseSyncArtwork(json['portraitBackdropRef']),
       logoRef: parseSyncArtwork(json['logoRef']),
       voteAverage: (json['voteAverage'] as num?)?.toDouble(),
       bangumiScore: (json['bangumiScore'] as num?)?.toDouble(),
@@ -1738,6 +1749,7 @@ final class LibraryCatalogSyncSlice
             posterFallback: w.posterFallback,
             bangumiPosterPath: w.bangumiPosterPath,
             backdropRef: w.backdropRef,
+            portraitBackdropRef: w.portraitBackdropRef,
             logoRef: w.logoRef,
             voteAverage: w.voteAverage,
             bangumiScore: w.bangumiScore,
@@ -1817,6 +1829,11 @@ final class LibraryCatalogSyncSlice
               existing?.backdropRef is LocalCustomArtworkRef
           ? existing!.backdropRef
           : null;
+      final preservePortraitBackdrop = !data.clearExistingBeforeApply &&
+              work.portraitBackdropRef == null &&
+              existing?.portraitBackdropRef is LocalCustomArtworkRef
+          ? existing!.portraitBackdropRef
+          : null;
       final preserveLogo = !data.clearExistingBeforeApply &&
               work.logoRef == null &&
               existing?.logoRef is LocalCustomArtworkRef
@@ -1827,6 +1844,7 @@ final class LibraryCatalogSyncSlice
         work.toRecord(
           preservePosterRef: preservePoster,
           preserveBackdropRef: preserveBackdrop,
+          preservePortraitBackdropRef: preservePortraitBackdrop,
           preserveLogoRef: preserveLogo,
         ),
       );
@@ -2023,6 +2041,10 @@ final class LibraryCatalogSyncSlice
         loser.bangumiPosterPath,
       ),
       backdropRef: pickArtwork(winner.backdropRef, loser.backdropRef),
+      portraitBackdropRef: pickArtwork(
+        winner.portraitBackdropRef,
+        loser.portraitBackdropRef,
+      ),
       logoRef: pickArtwork(winner.logoRef, loser.logoRef),
       voteAverage: winner.voteAverage ?? loser.voteAverage,
       bangumiScore: winner.bangumiScore ?? loser.bangumiScore,
@@ -2168,6 +2190,7 @@ final class LibraryCatalogSyncSlice
     if (w.isManualLocked || w.metadataLocked) score += 3;
     if (w.posterRef != null) score += 2;
     if (w.backdropRef != null) score += 2;
+    if (w.portraitBackdropRef != null) score += 1;
     if (w.logoRef != null) score += 2;
     if (w.overview != null && w.overview!.isNotEmpty) score += 1;
     if (w.seriesId != null && w.seriesId!.isNotEmpty) score += 1;
@@ -2218,6 +2241,7 @@ final class LibraryCatalogSyncSlice
         a.posterFallback != b.posterFallback ||
         a.bangumiPosterPath != b.bangumiPosterPath ||
         a.backdropRef != b.backdropRef ||
+        a.portraitBackdropRef != b.portraitBackdropRef ||
         a.logoRef != b.logoRef ||
         a.voteAverage != b.voteAverage ||
         a.bangumiScore != b.bangumiScore ||

@@ -54,6 +54,7 @@ final class SettingsController extends ChangeNotifier {
     this._appVersion = '3.0.0',
     this._onThemeModeChanged,
     this._onAmbientBackdropChanged,
+    this._onWindowMaterialChanged,
     this._onNetworkConfigChanged,
     this._connectivityProbeOverride,
   }) : _appearanceRepo = SettingsAppearanceRepository(scopedPrefs),
@@ -81,6 +82,7 @@ final class SettingsController extends ChangeNotifier {
   final String _appVersion;
   final ValueChanged<ThemeMode>? _onThemeModeChanged;
   final ValueChanged<bool>? _onAmbientBackdropChanged;
+  final ValueChanged<KonataWindowMaterial>? _onWindowMaterialChanged;
   final ValueChanged<KonataNetworkConfig>? _onNetworkConfigChanged;
   final NetworkConnectivityProbe? _connectivityProbeOverride;
 
@@ -113,6 +115,9 @@ final class SettingsController extends ChangeNotifier {
 
   /// 当前是否开启柔和流光背景。
   bool get ambientBackdropEnabled => _appearance.ambientBackdropEnabled;
+
+  /// 当前 Windows 桌面原生 DWM 窗口材质。
+  KonataWindowMaterial get windowMaterial => _appearance.windowMaterial;
 
   /// 当前加载的网络与元数据配置。
   KonataNetworkConfig get networkConfig => _networkConfig;
@@ -174,6 +179,17 @@ final class SettingsController extends ChangeNotifier {
     _appearance = _appearance.copyWith(ambientBackdropEnabled: enabled);
     _appearanceRepo.save(_appearance);
     _onAmbientBackdropChanged?.call(enabled);
+    _safeNotify();
+  }
+
+  /// 切换并持久化 Windows 桌面原生窗口材质，同时通知宿主 DWM 控制器生效。
+  void setWindowMaterial(KonataWindowMaterial next) {
+    if (_appearance.windowMaterial == next) {
+      return;
+    }
+    _appearance = _appearance.copyWith(windowMaterial: next);
+    _appearanceRepo.save(_appearance);
+    _onWindowMaterialChanged?.call(next);
     _safeNotify();
   }
 

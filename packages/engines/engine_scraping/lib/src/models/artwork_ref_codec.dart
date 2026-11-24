@@ -56,11 +56,14 @@ abstract final class ArtworkRefCodec {
     bool posterLocked,
     String? backdropPath,
     bool backdropLocked,
+    String? portraitBackdropPath,
+    bool portraitBackdropLocked,
     String? logoPath,
     bool logoLocked,
   }) unpackWorkArtworks({
     ArtworkRef? posterRef,
     ArtworkRef? backdropRef,
+    ArtworkRef? portraitBackdropRef,
     ArtworkRef? logoRef,
   }) {
     return (
@@ -68,6 +71,8 @@ abstract final class ArtworkRefCodec {
       posterLocked: posterRef?.locked ?? false,
       backdropPath: toPath(backdropRef),
       backdropLocked: backdropRef?.locked ?? false,
+      portraitBackdropPath: toPath(portraitBackdropRef),
+      portraitBackdropLocked: portraitBackdropRef?.locked ?? false,
       logoPath: toPath(logoRef),
       logoLocked: logoRef?.locked ?? false,
     );

@@ -16,6 +16,7 @@ final class WorkSummaryView {
     this.bangumiId,
     this.posterRef,
     this.backdropRef,
+    this.portraitBackdropRef,
     this.logoRef,
     this.seriesGroupId,
     this.isHidden = false,
@@ -50,6 +51,9 @@ final class WorkSummaryView {
 
   /// 无字横版背景引用。
   final ArtworkRef? backdropRef;
+
+  /// 无字竖版原画引用（供手机与平板竖屏详情页展示）。
+  final ArtworkRef? portraitBackdropRef;
 
   /// 透明标题徽标引用。
   final ArtworkRef? logoRef;

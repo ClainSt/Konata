@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:konata_contracts/konata_contracts.dart';
 import 'package:konata_storage/konata_storage.dart';
@@ -100,6 +101,11 @@ void main() {
           backdropRef: const ArtworkRef.localCustom(
             localPath: 'photos/k_on_bg.png',
           ),
+          portraitBackdropRef: const ArtworkRef.remote(
+            source: ArtworkSource.tmdb,
+            uri: '/portrait_textless.jpg',
+            locked: true,
+          ),
           logoRef: const ArtworkRef.remote(
             source: ArtworkSource.fanart,
             uri: 'https://assets.fanart.tv/k_on_logo.png',
@@ -122,6 +128,12 @@ void main() {
       expect((loaded.posterRef! as RemoteArtworkRef).locked, isTrue);
       expect(loaded.backdropRef, isA<LocalCustomArtworkRef>());
       expect(loaded.backdropRef!.toSyncJson(), isNull);
+      expect(loaded.portraitBackdropRef, isA<RemoteArtworkRef>());
+      expect(
+        (loaded.portraitBackdropRef! as RemoteArtworkRef).uri,
+        '/portrait_textless.jpg',
+      );
+      expect(loaded.toSummaryView().portraitBackdropRef, loaded.portraitBackdropRef);
       expect(loaded.seriesId?.value, seriesId.value);
 
       // 软删除后可见视图过滤，但全量墓碑查询仍保留。
@@ -207,6 +219,103 @@ void main() {
       expect(
         db.mediaVariants.listByWork(workId, includeDeleted: true),
         isEmpty,
+      );
+    });
+
+    test('library.db 支持从 v1 增量迁移至 v2 并补齐 portrait_backdrop_ref_json 列', () async {
+      final tempDir = Directory.systemTemp.createTempSync('konata_lib_v1_v2_');
+      addTearDown(() {
+        if (tempDir.existsSync()) {
+          tempDir.deleteSync(recursive: true);
+        }
+      });
+      final dbPath = '${tempDir.path}${Platform.pathSeparator}library.db';
+
+      final v1Steps = LibraryMigrations.steps
+          .where((step) => step.targetVersion == 1)
+          .toList(growable: false);
+      final v1Engine = KonataSqliteEngine.openFile(
+        filePath: dbPath,
+        databaseName: 'library_v1_upgrade',
+        migrations: v1Steps,
+      );
+
+      // 模拟旧版 v1 works 表（不含 portrait_backdrop_ref_json 列）并写入历史作品行。
+      v1Engine.execute('PRAGMA foreign_keys = OFF;');
+      v1Engine.execute('DROP TABLE ${WorksSchema.table};');
+      v1Engine.execute('''
+CREATE TABLE ${WorksSchema.table} (
+  ${WorksSchema.colId} TEXT NOT NULL PRIMARY KEY,
+  ${WorksSchema.colCanonicalKey} TEXT,
+  ${WorksSchema.colTmdbId} INTEGER,
+  ${WorksSchema.colTmdbMediaType} TEXT,
+  ${WorksSchema.colBangumiId} INTEGER,
+  ${WorksSchema.colTvdbId} INTEGER,
+  ${WorksSchema.colMatchedSeason} INTEGER,
+  ${WorksSchema.colTitle} TEXT NOT NULL,
+  ${WorksSchema.colOriginalTitle} TEXT,
+  ${WorksSchema.colYear} INTEGER,
+  ${WorksSchema.colOverview} TEXT,
+  ${WorksSchema.colPosterRefJson} TEXT,
+  ${WorksSchema.colPosterFallback} TEXT,
+  ${WorksSchema.colBangumiPosterPath} TEXT,
+  ${WorksSchema.colBackdropRefJson} TEXT,
+  ${WorksSchema.colLogoRefJson} TEXT,
+  ${WorksSchema.colVoteAverage} REAL,
+  ${WorksSchema.colBangumiScore} REAL,
+  ${WorksSchema.colFolderTmdbHint} INTEGER,
+  ${WorksSchema.colIsManualLocked} INTEGER NOT NULL DEFAULT 0,
+  ${WorksSchema.colMetadataLocked} INTEGER NOT NULL DEFAULT 0,
+  ${WorksSchema.colIsHidden} INTEGER NOT NULL DEFAULT 0,
+  ${WorksSchema.colKeepHidden} INTEGER NOT NULL DEFAULT 0,
+  ${WorksSchema.colScrapeStatus} TEXT NOT NULL DEFAULT 'unmatched',
+  ${WorksSchema.colReviewReason} TEXT,
+  ${WorksSchema.colSeriesId} TEXT,
+  ${WorksSchema.colSeriesOrder} INTEGER,
+  ${WorksSchema.colSeriesLabel} TEXT,
+  ${WorksSchema.colSeriesLocked} INTEGER NOT NULL DEFAULT 0,
+  ${WorksSchema.colUpdatedAtMs} INTEGER NOT NULL DEFAULT 0,
+  ${WorksSchema.colSourceDeviceId} TEXT NOT NULL DEFAULT '',
+  ${WorksSchema.colDeletedAtMs} INTEGER
+);
+''');
+      v1Engine.execute(
+        "INSERT INTO ${WorksSchema.table} (${WorksSchema.colId}, ${WorksSchema.colTitle}) VALUES ('legacy-1', '旧版作品');",
+      );
+      v1Engine.execute('PRAGMA user_version = 1;');
+      await v1Engine.close();
+
+      // 重新以生产路径打开 library.db，自动触发 v1 -> v2 增量迁移。
+      final upgradedDb = LibraryDatabase.openFile(dbPath);
+      addTearDown(upgradedDb.close);
+
+      final versionRows = upgradedDb.engine.select('PRAGMA user_version;');
+      expect(versionRows.single.values.first, LibraryMigrations.currentVersion);
+
+      final legacy = upgradedDb.works.findById(const WorkId.trusted('legacy-1'));
+      expect(legacy, isNotNull);
+      expect(legacy!.title, '旧版作品');
+      expect(legacy.portraitBackdropRef, isNull);
+
+      upgradedDb.works.upsert(
+        const WorkRecord(
+          id: WorkId.trusted('legacy-1'),
+          title: '旧版作品',
+          portraitBackdropRef: ArtworkRef.remote(
+            source: ArtworkSource.tmdb,
+            uri: '/v2_portrait.jpg',
+          ),
+        ),
+      );
+      final updated = upgradedDb.works.findById(
+        const WorkId.trusted('legacy-1'),
+      );
+      expect(
+        updated?.portraitBackdropRef,
+        const ArtworkRef.remote(
+          source: ArtworkSource.tmdb,
+          uri: '/v2_portrait.jpg',
+        ),
       );
     });
   });

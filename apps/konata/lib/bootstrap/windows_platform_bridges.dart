@@ -5,7 +5,10 @@ import 'dart:ui' as ui;
 import 'package:engine_playback/engine_playback.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:konata_contracts/konata_contracts.dart';
+import 'package:konata_design_system/konata_design_system.dart';
+import 'package:konata_storage/konata_storage.dart';
 import 'package:window_manager/window_manager.dart' as wm;
 
 /// Windows 桌面端高色深 D3D11 / DirectComposition 视频渲染桥接器。
@@ -219,12 +222,15 @@ final class WindowsD3d11VideoBridge implements KonataVideoTextureBridge {
   }
 }
 
-/// Windows 桌面端窗口全屏、置顶与迷你窗口几何切换适配器。
+/// Windows 桌面端窗口全屏、置顶与迷你窗口几何切换适配器（支持主窗口完整边界保存与恢复）。
 final class WindowsPlaybackWindowAdapter implements PlaybackHostWindowPort {
   /// 创建桌面窗口播控适配器。
   WindowsPlaybackWindowAdapter();
 
-  ui.Size? _savedMainSize;
+  ui.Rect? _savedNormalBounds;
+  ui.Offset? _lastMiniWindowOrigin;
+  bool _savedNormalMaximized = false;
+  bool _savedNormalFullScreen = false;
   bool _inMiniWindow = false;
 
   wm.Window? _currentWindow() {
@@ -235,6 +241,15 @@ final class WindowsPlaybackWindowAdapter implements PlaybackHostWindowPort {
       return wm.WindowManager.instance.getCurrent();
     } catch (_) {
       return null;
+    }
+  }
+
+  Future<void> _ensureNativeControlsHidden() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.windows) return;
+    try {
+      await Window.hideWindowControls();
+    } catch (_) {
+      // 窗口未就绪时忽略隐藏标题栏控制键异常。
     }
   }
 
@@ -255,6 +270,7 @@ final class WindowsPlaybackWindowAdapter implements PlaybackHostWindowPort {
     if (win == null) return;
     try {
       win.isFullScreen = enable;
+      await _ensureNativeControlsHidden();
     } catch (_) {
       // 窗口未就绪时忽略全屏切换异常。
     }
@@ -280,32 +296,88 @@ final class WindowsPlaybackWindowAdapter implements PlaybackHostWindowPort {
     if (win == null) return;
     try {
       if (!_inMiniWindow) {
-        _savedMainSize = win.size.toSize();
+        _savedNormalFullScreen = win.isFullScreen;
+        _savedNormalMaximized = win.isMaximized;
+        if (win.isFullScreen) {
+          win.isFullScreen = false;
+        }
+        if (win.isMaximized) {
+          win.unmaximize();
+        }
+        final currentBounds = win.bounds.toRect();
+        _savedNormalBounds =
+            (currentBounds.width >= 600 && currentBounds.height >= 400)
+            ? currentBounds
+            : KonataPlaybackTokens.desktopNormalWindowFallbackBounds;
+        _inMiniWindow = true;
       }
-      if (win.isFullScreen) {
-        win.isFullScreen = false;
-      }
-      win.setSize(ui.Size(width, height).toNative(), false);
+
+      final targetSize = ui.Size(width, height);
+      final minSize = (width - height).abs() <= 24.0
+          ? KonataPlaybackTokens.desktopAlwaysOnTopAudioMinSize
+          : KonataPlaybackTokens.desktopAlwaysOnTopVideoMinSize;
+      win.minimumSize = wm.SizeToNative(minSize).toNative();
+      win.setSize(wm.SizeToNative(targetSize).toNative(), false);
+      final saved =
+          _savedNormalBounds ??
+          KonataPlaybackTokens.desktopNormalWindowFallbackBounds;
+      final desiredOrigin =
+          _lastMiniWindowOrigin ??
+          ui.Offset(
+            (saved.right -
+                    targetSize.width -
+                    KonataPlaybackTokens.desktopAlwaysOnTopMiniEdgeOffset)
+                .clamp(0.0, double.infinity),
+            (saved.bottom -
+                    targetSize.height -
+                    KonataPlaybackTokens.desktopAlwaysOnTopMiniEdgeOffset)
+                .clamp(0.0, double.infinity),
+          );
+      win.position = wm.OffsetToNative(desiredOrigin).toNative();
       win.isAlwaysOnTop = true;
-      _inMiniWindow = true;
-    } catch (_) {
-      // 窗口尺寸调整失败时保持当前状态。
+      await _ensureNativeControlsHidden();
+    } catch (error) {
+      developer.log(
+        '进入桌面置顶迷你窗失败，已保持当前窗口态',
+        name: 'konata.windows_playback_window',
+        error: error,
+      );
     }
   }
 
   @override
   Future<void> exitDesktopMiniWindow() async {
+    if (!_inMiniWindow) return;
     final win = _currentWindow();
-    if (win == null) return;
     try {
-      win.isAlwaysOnTop = false;
-      final restored = _savedMainSize;
-      if (_inMiniWindow && restored != null) {
-        win.setSize(restored.toNative(), false);
+      if (win != null) {
+        _lastMiniWindowOrigin = win.position.toOffset();
+        win.isAlwaysOnTop = false;
+        win.minimumSize = wm.SizeToNative(
+          KonataPlaybackTokens.desktopNormalWindowMinSize,
+        ).toNative();
+        final restoreBounds =
+            _savedNormalBounds ??
+            KonataPlaybackTokens.desktopNormalWindowFallbackBounds;
+        win.bounds = wm.RectToNative(restoreBounds).toNative();
+        if (_savedNormalMaximized) {
+          win.maximize();
+        }
+        if (_savedNormalFullScreen) {
+          win.isFullScreen = true;
+        }
       }
+      await _ensureNativeControlsHidden();
+    } catch (error) {
+      developer.log(
+        '还原桌面主窗口边界失败，已尝试恢复默认态',
+        name: 'konata.windows_playback_window',
+        error: error,
+      );
+    } finally {
       _inMiniWindow = false;
-    } catch (_) {
-      // 恢复主窗口几何尺寸失败时忽略异常。
+      _savedNormalMaximized = false;
+      _savedNormalFullScreen = false;
     }
   }
 
@@ -319,3 +391,36 @@ final class WindowsPlaybackWindowAdapter implements PlaybackHostWindowPort {
     // 桌面端无需屏幕旋转锁定。
   }
 }
+
+/// 构造 Windows 桌面专属外部播放器 SQLite 持久化配置仓储（隔离于 Android 裁剪入口之外）。
+DesktopExternalPlayerStore createWindowsExternalPlayerStore(
+  KonataDatabaseBundle databases,
+) {
+  return SqliteDesktopExternalPlayerStore(databases.userState.engine);
+}
+
+/// 构造 Windows 桌面专属外部播放器接力网关（支持 MPV IPC / PotPlayer Win32 / Foobar Beefweb）。
+DesktopRelayGateway createWindowsDesktopRelayGateway({
+  required DesktopExternalPlayerStore store,
+  required LocalStreamBridgePort streamBridge,
+  required MediaSourceGatewayFactoryPort gatewayFactory,
+  required StorageRootPort storageRoot,
+}) {
+  return WindowsDesktopRelayGateway(
+    store: store,
+    launcher: RealExternalPlayerLauncher(
+      streamBridge: streamBridge,
+      gatewayFactory: gatewayFactory,
+      storageRoot: storageRoot,
+    ),
+  );
+}
+
+/// 构造 Windows 桌面专属 `libmpv` 渲染与 WASAPI 独占音频参数策略委托。
+MpvPlatformProfileDelegate createWindowsMpvProfileDelegate() {
+  return const WindowsMpvProfileDelegate();
+}
+
+/// Windows 桌面专属传统代码页字幕字节解码回调（支持 Shift-JIS / GB18030 / Big5）。
+LegacyCodePageDecoder get windowsLegacyCodePageDecoder =>
+    WindowsCodePageDecoder.decode;

@@ -1,10 +1,29 @@
 # feature_scan_viewer
 
-Konata v3 独立扫图画廊与有界内存滑窗灯箱业务包。
+Konata v3 独立扫图画廊、按源并发微缩图调度与有界 96 MiB 内存滑窗灯箱纵向业务包。
 
 ## 职责边界
 
-- 独立拆包并通过 `DetailTabContribution` 动态挂载至作品详情页（删除本包目录与壳层 1 行清单注册即可零报错编译）。
-- 仅依赖 `flutter/widgets.dart`、`konata_design_system`、`konata_contracts`、`konata_storage`、`engine_sources`、`engine_scraping`，严禁直接导入 `material.dart`/`material_ui` 或横向依赖其他 Feature。
-- `lib/src/state/` 与 `lib/src/data/` 保持 0 Riverpod 纯 Dart 构造函数注入。
-- 核心能力：64KB 帧头宽高比探测、按源严格并发限流微缩图调度（Local 4 / SMB 2 / WebDAV 严格 1 + LIFO 抢占）、双模式画廊（自适应瀑布流 / 整齐网格）、有界 96MB 内存滑窗原图灯箱（原图零落盘）。
+- **独立可插拔切片**：严禁导入 `feature_detail`、`feature_library`、`feature_sources` 等任意横向 Feature；仅通过 `DetailTabContribution(id: 'scan_viewer', label: '扫图', iconKey: 'scan_viewer', order: 40, ...)` 向详情页声明挂载能力（删除本包与壳层 1 行清单注册即可零报错编译）。
+- **UI 框架与状态严格隔离**：
+  - 全包仅导入 `package:flutter/widgets.dart`、`dart:ui` 与 `package:konata_design_system/konata_design_system.dart`，严禁直接导入 `material.dart`、`cupertino.dart`、`material_ui` 或 `cupertino_ui`；
+  - `lib/src/data/` 与 `lib/src/state/` 保持零 Riverpod 纯构造函数注入，Riverpod 仅留在 `lib/src/providers.dart`、`lib/src/manifest.dart` 与 `lib/src/ui/`。
+- **按源分级并发与原图零落盘红线**：
+  - 微缩图生成并发上限严格锁定：`Local 4 / SMB 2 / WebDAV 严格串行 1 + LIFO 抢占取消`（卡片划走立即 `subscription.cancel()` + `close()`）；
+  - 宽高比帧头预热仅读取已缓存 `.webp` 前 32 字节或本地磁盘文件前 64 KB（`ImageHeaderParser`），对未缓存远程源零探测请求；
+  - 微缩图经 `CompactWebpEncoder` 压缩后由 `PhotosStorage` 落盘 `photos/<作品>/scans/<hash>.webp`；
+  - 灯箱高清原图严格零落盘，受单帧 64 MiB 安全护栏与有界 96 MiB 内存滑窗（`ScanLightboxMemoryWindow`，按最远距离淘汰）约束，关闭灯箱即同步全量驱逐释放内存。
+
+## 公开出口符号
+
+- **清单与可用性**：`featureScanViewerManifest`、`createFeatureScanViewerManifest`、`ScanViewerAvailability`
+- **依赖注入**：`FeatureScanViewerDependencies`、`ScanWindowFullscreenPort`、`featureScanViewerDependenciesProvider`、`scanThumbnailSchedulerProvider`、`scanLightboxLoaderProvider`
+- **数据与调度**：`ScanThumbnailScheduler`、`ScanThumbnailTicket`、`ScanSourceStreamOpener`、`ScanLightboxLoader`、`ScanImageLoadHandle`、`ScanLightboxMemoryWindow`、`ScanMemoryWindowEntry`、`ScanGalleryRepository`、`ScanWorkDataset`、`ScanGalleryMode`、`ScanGalleryDensity`、`ScanGalleryPrefs`、`scanGalleryPrefsSlice`
+- **状态控制**：`ScanGalleryController`、`ScanGalleryState`
+- **界面组件**：`ScanGalleryTabHost`、`ScanGalleryView`、`ScanThumbnailCard`、`ScanLightboxDialog`、`showScanLightboxDialog`、`ScanTapCallback`
+
+## 依赖关系
+
+- 底座：`konata_contracts`、`konata_storage`、`konata_design_system`
+- 引擎：`engine_sources`、`engine_scraping`
+- 工具：`flutter`、`flutter_riverpod`、`path`

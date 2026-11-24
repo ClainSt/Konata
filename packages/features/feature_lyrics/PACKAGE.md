@@ -1,9 +1,28 @@
-# feature_lyrics
+# `feature_lyrics`
 
-Konata v3 多源竞速歌词引擎、逐字扫白渲染、双语对齐、三级偏移校准与离线评测业务包。
+Konata 歌词解析、多源竞速、双语与罗马音对齐、三级时间轴校准及卡拉 OK 逐字扫白业务包。
 
-## 职责边界
+## 能力职责
 
-- 完整承接 `4ee643f` 含双语修复 `93b7ac6` 的歌词清洗、合并、QRC/YRC/TTML 解析与多源竞速，持久化切换至 `konata_storage`（`lyric_cache_entries` + `lyric_user_overrides`）。
-- 仅依赖 `flutter/widgets.dart`、`konata_design_system`、`konata_contracts`、`konata_storage`、`engine_*`，严禁横向导入 `feature_player_audio` 或直引 `material.dart`/`material_ui`。
-- 注册 `PlayerSidePanelContribution(mode: audio)`、`LyricSourceProviderContribution`、`SyncSliceContributor(lyric_overrides_slice)` 与 `SettingsSectionContribution`，含离线评测 `tool/lyric_bench.dart`。
+- **领域层（`lib/src/domain/`）**：
+  - 歌词候选项与评分模型（`lyric_candidate.dart`、`lyric_candidate_scorer.dart`）；
+  - 检索请求生成与标题/歌手相似度（`lyric_search_query.dart`）；
+  - 清洗与异常时间轴校验（`lyric_cleaner.dart`）；
+  - 同源/跨源动态规划合并与倒排最长公共子序列交叉验证（`lyric_merger.dart`、`lyric_merger_cross_source.dart`）；
+  - 逐字解析器与转换器（`ttml_lyric_converter.dart`、`yrc_lyric_parser.dart`、`qrc_lyric_parser.dart`）；
+  - 三级偏移解析（单曲 > 专辑 > 有线/蓝牙路由，`lyric_offset_resolver.dart`）；
+  - Bangumi 关联音乐曲目表别名补全（`bangumi_track_enricher.dart`）；
+  - 帧同步时钟单调外推与 60 毫秒内柔性纠偏状态机（`karaoke_clock_extrapolator.dart`）。
+- **数据层（`lib/src/data/`，0 Riverpod）**：
+  - `KonataHttpClientPort` 传输适配（`lyric_http_transport.dart`）；
+  - AMLL / 网易云 / QQ 音乐（含 `QrcDecryptor`）/ LRCLIB 多源适配器与竞速会话（`lyric_candidate_sources.dart`、`lyric_race_engine.dart`）；
+  - 双库隔离持久化（`lyric_cache_store.dart`：在线检索与负缓存写入惰性 `cache.db`，用户手选与偏移落盘 `user_state.db`）；
+  - 分命名空间设置存取（`lyrics_preferences.dart`，命名空间 `lyrics`）；
+  - 多设备同步切片（`lyric_overrides_sync_slice.dart`，`sliceId: 'lyric_overrides_slice'`）；
+  - 分级预取与解析协调器（`lyrics_resolver.dart`，非计量网络 2 首 / 计量网络 1 首）。
+- **状态与界面（`lib/src/state/`、`lib/src/ui/`）**：
+  - `LyricDisplayController`（0 Riverpod）：实现 `LyricDisplayPort` 与句边界安全热替换；
+  - `ImmersiveKaraokeSweepText`、`ImmersiveLyricLineLeaf`、`ImmersiveLyricsViewport`、`ImmersiveLyricControlSheet`、`SettingsLyricsCard`（全量复用 `konata_design_system`，零空闲帧时钟空转）。
+- **清单与离线基准**：
+  - `featureLyricsManifest` 与 `createFeatureLyricsManifest`（声明播放侧栏 `lyrics_control`、设置分区、歌词源提供者与同步切片）；
+  - `dart run packages/features/feature_lyrics/tool/lyric_bench.dart` 执行 70 首离线夹具评测。

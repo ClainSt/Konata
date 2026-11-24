@@ -20,6 +20,7 @@ dependencies:
   konata_design_system:
   konata_storage:
   path: ^1.9.1
+  xml: ^7.1.0
 
 dev_dependencies:
   flutter_test:

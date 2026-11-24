@@ -10,6 +10,9 @@ workspace:
   - packages/foundation/konata_contracts
   - packages/foundation/konata_design_system
   - packages/foundation/konata_storage
+  - packages/engines/engine_sources
+  - packages/engines/engine_scraping
+  - packages/engines/engine_playback
 
 dev_dependencies:
   crypto: ^3.0.8

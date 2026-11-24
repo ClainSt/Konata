@@ -45,8 +45,29 @@ abstract final class StoragePathNames {
   /// 可丢弃缓存总目录名（`<Root>/cache`）。
   static const String cacheDir = 'cache';
 
-  /// 隔离临时目录名（`<Root>/cache/tmp`，严禁写入系统 `%TEMP%`）。
+  /// 隔离临时目录名（`<Root>/cache/tmp`，严禁写入系统临时目录）。
   static const String tempSubdir = 'tmp';
+
+  /// 远程外挂字幕暂存子目录名（`<Root>/cache/tmp/konata_subs`）。
+  static const String subtitleStageSubdir = 'konata_subs';
+
+  /// 字幕解压字体哈希池子目录名（`<Root>/cache/font_pool`）。
+  static const String fontPoolSubdir = 'font_pool';
+
+  /// 云端字体子集化缓存子目录名（`<Root>/cache/cloud_subset`）。
+  static const String cloudSubsetSubdir = 'cloud_subset';
+
+  /// 目录扫描快照缓存子目录名（`<Root>/cache/scan_snapshots`）。
+  static const String scanSnapshotsSubdir = 'scan_snapshots';
+
+  /// 映射表热更新落盘子目录名（`<Root>/userdata/mapping`）。
+  static const String mappingSubdir = 'mapping';
+
+  /// 播放器着色器编译缓存子目录名（`<Root>/cache/mpv_shader_cache`）。
+  static const String gpuShaderCacheSubdir = 'mpv_shader_cache';
+
+  /// 播放器色彩配置文件缓存子目录名（`<Root>/cache/mpv_icc_cache`）。
+  static const String iccCacheSubdir = 'mpv_icc_cache';
 
   /// 作品本地艺术图与截图总目录名（`<Root>/photos`）。
   static const String photosDir = 'photos';

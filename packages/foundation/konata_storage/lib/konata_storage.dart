@@ -9,6 +9,7 @@ export 'src/engine/konata_sqlite_engine.dart';
 export 'src/engine/table_change_bus.dart';
 export 'src/library/library.dart';
 export 'src/logging/diagnostic_log_store.dart';
+export 'src/paths/atomic_file_writer.dart';
 export 'src/paths/portable_storage_root_service.dart';
 export 'src/prefs/scoped_prefs_store.dart';
 export 'src/user_state/user_state.dart';

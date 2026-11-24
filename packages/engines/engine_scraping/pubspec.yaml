@@ -1,0 +1,19 @@
+name: engine_scraping
+description: "Konata v3 纯 Dart 番剧文件解析、合集拆簇、多源元数据刮削与离线评测引擎"
+publish_to: none
+
+environment:
+  sdk: ^3.12.2
+
+resolution: workspace
+
+dependencies:
+  crypto: ^3.0.8
+  engine_sources:
+  http: ^1.6.0
+  konata_contracts:
+  konata_storage:
+  path: ^1.9.1
+
+dev_dependencies:
+  test: ^1.26.0

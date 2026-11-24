@@ -1,0 +1,21 @@
+name: engine_sources
+description: "Konata v3 纯 Dart 媒体源协议网关、统一网络底座、206 回环流网桥与目录扫描预热引擎"
+publish_to: none
+
+environment:
+  sdk: ^3.12.2
+
+resolution: workspace
+
+dependencies:
+  crypto: ^3.0.8
+  http: ^1.6.0
+  konata_contracts:
+  konata_storage:
+  path: ^1.9.1
+  smb_connect:
+    path: ../../native_plugins/smb_connect
+  xml: ^7.1.0
+
+dev_dependencies:
+  test: ^1.26.0

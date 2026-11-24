@@ -6,216 +6,288 @@ import '../data/library_models.dart';
 import '../providers.dart';
 import 'managed_image.dart';
 
-/// 2:3 番剧海报墙核心卡片组件（集成惰性悬停缩放、无毛玻璃静止降载与防误触工具提示）。
-///
-/// 遵循高速滚动性能契约：
-/// - 仅在鼠标悬停且 [suppressHoverCheck] 返回 `false` 时惰性分配 `AnimationController`；
-/// - 评分微标毛玻璃效果（`BackdropFilter`）仅在激活悬停瞬间开启，静止网格零模糊层开销；
-/// - 海报内存解码宽度按卡片几何与 DPR 吸附分档，避免全屏大图挤爆纹理池。
+/// 媒体库作品网格的单张 2:3 海报卡片组件。
 class PosterCard extends StatefulWidget {
-  /// 创建番剧海报卡片。
+  /// 创建海报卡片组件。
   const PosterCard({
     super.key,
     required this.item,
-    required this.cardWidth,
-    this.devicePixelRatio = 1.0,
-    this.textScaler = TextScaler.noScaling,
-    this.suppressHoverCheck,
-    this.imageLoaderOverride,
     required this.onTap,
+    this.cardWidth,
     this.onOpenMenu,
+    this.imageLoaderOverride,
+    this.suppressHoverCheck,
+    this.compactText = false,
+    this.badgeFontSize = KonataTheme.fontSizeBadge,
+    this.titleFontSize = KonataTheme.fontSizeBody,
+    this.subtitleFontSize = KonataTheme.fontSizeCaptionSm,
   });
 
-  /// 聚合后的媒体库作品条目。
+  /// 媒体库作品展示聚合项。
   final WorkLibraryItem item;
 
-  /// 当前网格列分配的卡片逻辑宽度。
-  final double cardWidth;
-
-  /// 外层提前缓存的屏幕像素密度（避免在海量 `itemBuilder` 中高频查 `MediaQuery`）。
-  final double devicePixelRatio;
-
-  /// 外层提前缓存的字体缩放器。
-  final TextScaler textScaler;
-
-  /// 返回 `true` 时表示列表处于高速滚动冷却期，禁止激活动效与延迟 Tooltip。
-  final bool Function()? suppressHoverCheck;
-
-  /// 可选图像字节加载覆盖回调（主要用于测试注入）。
-  final LibraryArtworkLoader? imageLoaderOverride;
-
-  /// 点击海报卡片跳转到作品详情页的回调。
+  /// 点击卡片主体跳转详情页回调。
   final VoidCallback onTap;
 
-  /// 可选右键/更多操作菜单呼出回调。
-  final ValueChanged<BuildContext>? onOpenMenu;
+  /// 外层自适应网格传入的当前列宽提示（可选）。
+  final double? cardWidth;
+
+  /// 右键或长按触发管理菜单回调。
+  final void Function(BuildContext anchorContext)? onOpenMenu;
+
+  /// 可选图像加载器覆盖（用于测试环境无网注入伪图字节）。
+  final LibraryArtworkLoader? imageLoaderOverride;
+
+  /// 快速滚动或后台视频播放期间抑制桌面端悬停状态切换，避免闪烁与无谓模糊合成。
+  final bool Function()? suppressHoverCheck;
+
+  /// 是否启用手机窄屏紧凑排布尺寸。
+  final bool compactText;
+
+  /// 顶角来源与多版本玻璃徽标字号。
+  final double badgeFontSize;
+
+  /// 底部主标题字号。
+  final double titleFontSize;
+
+  /// 底部年份与话数副标题字号。
+  final double subtitleFontSize;
 
   @override
   State<PosterCard> createState() => _PosterCardState();
 }
 
 class _PosterCardState extends State<PosterCard> {
-  bool _hovered = false;
+  bool _pointerInside = false;
 
-  void _handleHoverChanged(bool hovered) {
-    final suppressed = widget.suppressHoverCheck?.call() ?? false;
-    final effective = hovered && !suppressed;
-    if (_hovered == effective) return;
-    setState(() => _hovered = effective);
+  bool get _isHoverSuppressed => widget.suppressHoverCheck?.call() ?? false;
+
+  void _setPointerInside(bool inside) {
+    if (_pointerInside == inside) return;
+    setState(() => _pointerInside = inside);
+  }
+
+  void _syncHoverOnPointerMove() {
+    if (!_pointerInside) {
+      setState(() => _pointerInside = true);
+    } else {
+      setState(() {});
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
     final work = widget.item.work;
-    final score = work.bangumiScore ?? work.voteAverage;
-    final decodeWidth = quantizeManagedImageWidth(
-      widget.cardWidth,
-      widget.devicePixelRatio,
-    );
-    final showOriginal = MediaDisplayFormatter.shouldShowOriginalSubtitle(
-      title: work.title,
-      originalTitle: work.originalTitle,
-    );
+    final score = work.bangumiScore;
+    final effectiveHover = _pointerInside && !_isHoverSuppressed;
     final subtitleText = _buildSubtitleText(work);
-    final compactCard = widget.cardWidth < 136;
+    final hasSourceBadge =
+        widget.item.crossSourceBadgeLabel != null &&
+        widget.item.crossSourceBadgeLabel!.isNotEmpty;
+    final hasMultiVersion = widget.item.maxEpisodeVariantCount > 1;
+    final posterPath = work.posterPath?.trim();
+    final hasPoster = posterPath != null && posterPath.isNotEmpty;
 
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => _handleHoverChanged(true),
-      onHover: (_) => _handleHoverChanged(true),
-      onExit: (_) => _handleHoverChanged(false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: widget.onTap,
-        onLongPress: widget.onOpenMenu == null
-            ? null
-            : () => widget.onOpenMenu!(context),
-        onSecondaryTapDown: widget.onOpenMenu == null
-            ? null
-            : (_) => widget.onOpenMenu!(context),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            AspectRatio(
-              aspectRatio: 2 / 3,
-              child: _LazyHoverScale(
-                hovered: _hovered,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(KonataTheme.radiusCard),
-                    border: Border.all(
-                      color: _hovered ? p.hoverBorder : p.posterBorder,
-                      width: _hovered ? 1.4 : 1.0,
-                    ),
-                    boxShadow: _hovered
-                        ? [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.28),
-                              blurRadius: 16,
-                              offset: const Offset(0, 8),
-                            ),
-                          ]
-                        : const <BoxShadow>[],
+    final posterFrame = DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: KonataTheme.borderRadiusCard,
+        color: p.surface,
+        boxShadow: effectiveHover
+            ? <BoxShadow>[
+                BoxShadow(
+                  color: KonataTheme.pureBlack.withValues(
+                    alpha: p.isDark ? 0.42 : 0.16,
                   ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(KonataTheme.radiusCard),
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        ManagedImage(
-                          path: work.posterPath ?? work.bangumiPosterPath,
-                          targetWidth: decodeWidth,
-                          imageSize: TmdbImageSize.w500,
-                          ownerWorkId: work.id,
-                          subfolder: PhotoSubfolder.posters,
-                          imageLoaderOverride: widget.imageLoaderOverride,
-                          errorWidget: _FallbackPosterPlaceholder(
-                            title: work.title,
+                  blurRadius: 18,
+                  offset: const Offset(0, 8),
+                ),
+              ]
+            : null,
+      ),
+      child: ClipRRect(
+        borderRadius: KonataTheme.borderRadiusCard,
+        child: Stack(
+          fit: StackFit.expand,
+          children: <Widget>[
+            if (hasPoster)
+              ManagedImage(
+                path: posterPath,
+                ownerWorkId: work.id,
+                targetWidth: 360,
+                fit: BoxFit.cover,
+                imageLoaderOverride: widget.imageLoaderOverride,
+                errorWidget: _FallbackPosterPlaceholder(title: work.title),
+              )
+            else
+              _FallbackPosterPlaceholder(title: work.title),
+            if (hasSourceBadge || hasMultiVersion)
+              Positioned(
+                top: 8,
+                right: 8,
+                child: IgnorePointer(
+                  child: Wrap(
+                    spacing: 4,
+                    runSpacing: 4,
+                    alignment: WrapAlignment.end,
+                    children: <Widget>[
+                      if (hasSourceBadge)
+                        _PosterGlassBadge(
+                          label: widget.item.crossSourceBadgeLabel!,
+                          fontSize: widget.badgeFontSize,
+                          compact: widget.compactText,
+                        ),
+                      if (hasMultiVersion)
+                        _PosterGlassBadge(
+                          label: '${widget.item.maxEpisodeVariantCount}版本',
+                          fontSize: widget.badgeFontSize,
+                          compact: widget.compactText,
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            if (score != null && score > 0)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                height: 64,
+                child: IgnorePointer(
+                  child: AnimatedOpacity(
+                    opacity: effectiveHover ? 1.0 : 0.0,
+                    duration: KonataTheme.motionFast,
+                    curve: Curves.easeOutCubic,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.bottomCenter,
+                          end: Alignment.topCenter,
+                          colors: <Color>[
+                            KonataTheme.pureBlack.withValues(alpha: 0.72),
+                            KonataTheme.pureBlack.withValues(alpha: 0.0),
+                          ],
+                        ),
+                      ),
+                      child: Align(
+                        alignment: Alignment.bottomLeft,
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(9, 0, 9, 9),
+                          child: BangumiScoreWordmarkBadge(
+                            score: score,
+                            wordmarkHeight: widget.compactText ? 10.5 : 12.5,
+                            enableBackdropBlur: effectiveHover,
                           ),
                         ),
-                        if (score != null && score > 0)
-                          Positioned(
-                            top: 8,
-                            left: 8,
-                            child: BangumiScoreWordmarkBadge(
-                              score: score,
-                              wordmarkHeight: compactCard ? 10.5 : 12.5,
-                              enableBackdropBlur: _hovered,
-                            ),
-                          ),
-                        if (widget.item.crossSourceBadgeLabel != null)
-                          Positioned(
-                            top: 8,
-                            right: 8,
-                            child: _SourceTagChip(
-                              label: widget.item.crossSourceBadgeLabel!,
-                            ),
-                          ),
-                        if (widget.item.episodeCount > 0)
-                          Positioned(
-                            right: 8,
-                            bottom: 8,
-                            child: _EpisodeCountChip(
-                              count: widget.item.episodeCount,
-                            ),
-                          ),
-                      ],
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
-            const SizedBox(height: 8),
-            EllipsisTextWithTooltip(
-              text: work.title,
-              maxLines: 1,
-              maxWidth: widget.cardWidth,
-              textScaler: widget.textScaler,
-              deferTooltipToHover: true,
-              suppressHoverCheck: widget.suppressHoverCheck,
-              style: TextStyle(
-                fontSize: compactCard ? 12.5 : 13.5,
-                fontWeight: FontWeight.w600,
-                color: p.textPrimary,
-                height: 1.25,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              showOriginal && subtitleText.isEmpty
-                  ? (work.originalTitle?.trim() ?? '')
-                  : subtitleText,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 11.5,
-                color: p.textMuted,
-                height: 1.2,
+            Positioned.fill(
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: KonataTheme.borderRadiusCard,
+                    border: Border.all(
+                      color: effectiveHover ? p.hoverBorder : p.posterBorder,
+                      width: 1,
+                    ),
+                  ),
+                ),
               ),
             ),
           ],
         ),
       ),
     );
+
+    final titleWidget = Text(
+      work.title,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: KonataTheme.textStyle(
+        color: effectiveHover
+            ? p.textPrimary
+            : p.textPrimary.withValues(alpha: 0.94),
+        fontSize: widget.titleFontSize,
+        weight: KonataTheme.weightActive,
+        height: 1.25,
+      ),
+    );
+
+    final subtitleWidget = Text(
+      subtitleText,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: KonataTheme.textStyle(
+        color: p.textSecondary,
+        fontSize: widget.subtitleFontSize,
+        height: 1.25,
+      ),
+    );
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => _setPointerInside(true),
+      onHover: (_) => _syncHoverOnPointerMove(),
+      onExit: (_) => _setPointerInside(false),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onTap,
+        onSecondaryTapDown: widget.onOpenMenu == null
+            ? null
+            : (_) => widget.onOpenMenu!(context),
+        onLongPress: widget.onOpenMenu == null
+            ? null
+            : () => widget.onOpenMenu!(context),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final scaled = _LazyHoverScale(
+              hovered: effectiveHover,
+              child: posterFrame,
+            );
+            if (constraints.hasBoundedHeight) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  Expanded(child: scaled),
+                  SizedBox(height: widget.compactText ? 6 : 8),
+                  titleWidget,
+                  const SizedBox(height: 2),
+                  subtitleWidget,
+                ],
+              );
+            }
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                AspectRatio(aspectRatio: 2 / 3, child: scaled),
+                SizedBox(height: widget.compactText ? 6 : 8),
+                titleWidget,
+                const SizedBox(height: 2),
+                subtitleWidget,
+              ],
+            );
+          },
+        ),
+      ),
+    );
   }
 
   String _buildSubtitleText(Work work) {
-    final parts = <String>[
-      if (work.year != null && work.year! > 0) '${work.year}',
-      if (widget.item.releaseGroups.isNotEmpty) widget.item.releaseGroups.first,
-    ];
-    return parts.join(' · ');
+    final ep = widget.item.episodeCount;
+    if (work.year != null && ep > 0) return '${work.year} · $ep 话';
+    if (work.year != null) return '${work.year}';
+    if (ep > 0) return '$ep 话';
+    return '待完善元数据';
   }
 }
 
-/// 懒初始化悬停微浮起容器：未发生真实悬停前绝不分配 `AnimationController` 与 `Ticker`。
+/// 惰性分配动画控制器的微缩悬停容器，防止长列表静止状态产生多余的合成层开销。
 class _LazyHoverScale extends StatefulWidget {
-  const _LazyHoverScale({
-    required this.hovered,
-    required this.child,
-  });
+  const _LazyHoverScale({required this.hovered, required this.child});
 
   final bool hovered;
   final Widget child;
@@ -229,22 +301,35 @@ class _LazyHoverScaleState extends State<_LazyHoverScale>
   AnimationController? _controller;
   Animation<double>? _scale;
 
+  void _ensureController({required bool initiallyExpanded}) {
+    if (_controller != null) return;
+    _controller = AnimationController(
+      vsync: this,
+      duration: KonataTheme.motionFast,
+      value: initiallyExpanded ? 1.0 : 0.0,
+    );
+    _scale = Tween<double>(begin: 1.0, end: 1.025).animate(
+      CurvedAnimation(parent: _controller!, curve: Curves.easeOutCubic),
+    );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.hovered) {
+      _ensureController(initiallyExpanded: true);
+    }
+  }
+
   @override
   void didUpdateWidget(covariant _LazyHoverScale oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.hovered == oldWidget.hovered) return;
     if (widget.hovered) {
-      final ctrl =
-          _controller ??= AnimationController(
-            vsync: this,
-            duration: const Duration(milliseconds: 140),
-          );
-      _scale ??= Tween<double>(begin: 1.0, end: 1.028).animate(
-        CurvedAnimation(parent: ctrl, curve: Curves.easeOutCubic),
-      );
-      ctrl.forward();
-    } else {
-      _controller?.reverse();
+      _ensureController(initiallyExpanded: false);
+      _controller!.forward();
+    } else if (_controller != null) {
+      _controller!.reverse();
     }
   }
 
@@ -258,13 +343,11 @@ class _LazyHoverScaleState extends State<_LazyHoverScale>
   Widget build(BuildContext context) {
     final scale = _scale;
     if (scale == null) return widget.child;
-    return ScaleTransition(
-      scale: scale,
-      child: widget.child,
-    );
+    return ScaleTransition(scale: scale, child: widget.child);
   }
 }
 
+/// 缺省封面海报占位视图。
 class _FallbackPosterPlaceholder extends StatelessWidget {
   const _FallbackPosterPlaceholder({required this.title});
 
@@ -273,81 +356,75 @@ class _FallbackPosterPlaceholder extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    return Container(
-      color: p.elevatedSurface,
-      padding: const EdgeInsets.all(12),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.local_movies_outlined, size: 30, color: p.textMuted),
-          const SizedBox(height: 8),
-          Text(
-            title,
-            maxLines: 3,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-              color: p.textSecondary,
-              height: 1.35,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SourceTagChip extends StatelessWidget {
-  const _SourceTagChip({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      constraints: const BoxConstraints(maxWidth: 88),
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+    return DecoratedBox(
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.68),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: <Color>[p.elevatedSurface, p.surface],
+        ),
       ),
-      child: Text(
-        label,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(
-          fontSize: 10.5,
-          fontWeight: FontWeight.w600,
-          color: Colors.white,
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(Icons.movie_outlined, size: 32, color: p.textMuted),
+              const SizedBox(height: 10),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: KonataTheme.textStyle(
+                  color: p.textSecondary,
+                  fontSize: KonataTheme.fontSizeCaption,
+                  height: 1.3,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-class _EpisodeCountChip extends StatelessWidget {
-  const _EpisodeCountChip({required this.count});
+/// 海报右上角磨砂来源或版本数角标胶囊。
+class _PosterGlassBadge extends StatelessWidget {
+  const _PosterGlassBadge({
+    required this.label,
+    required this.fontSize,
+    required this.compact,
+  });
 
-  final int count;
+  final String label;
+  final double fontSize;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 6 : 7,
+        vertical: compact ? 2.5 : 3,
+      ),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.68),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+        color: p.glassOverlay,
+        borderRadius: KonataTheme.borderRadiusChip,
+        border: Border.all(color: p.posterBorder),
       ),
       child: Text(
-        '$count 话',
-        style: const TextStyle(
-          fontSize: 10.5,
-          fontWeight: FontWeight.w600,
-          color: Colors.white,
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: KonataTheme.textStyle(
+          color: p.textPrimary,
+          fontSize: fontSize,
+          weight: KonataTheme.weightActive,
+          height: 1.1,
         ),
       ),
     );

@@ -4,214 +4,178 @@ import 'package:konata_design_system/konata_design_system.dart';
 import '../state/scrape_task_phase.dart';
 import '../state/source_scrape_controller.dart';
 
-/// 扫库弹窗「实时进度」标签页内容。
-class ScanProgressLiveTab extends StatelessWidget {
-  /// 构造扫库实时进度视图。
-  const ScanProgressLiveTab({
-    super.key,
-    required this.phase,
-    required this.onJumpToPendingReview,
-  });
+/// 扫描进度弹窗内复用的数据统计胶囊。
+class ScanProgressStatChip extends StatelessWidget {
+  /// 创建统计胶囊。
+  const ScanProgressStatChip({super.key, required this.label, this.badge});
 
-  /// 当前扫库阶段快照。
-  final ScrapeTaskPhase phase;
+  /// 胶囊文本。
+  final String label;
 
-  /// 点击跳转本弹窗「本源待复核」标签页的回调。
-  final VoidCallback onJumpToPendingReview;
+  /// 可选语义徽章高对比度配色令牌。
+  final KonataBadgeColors? badge;
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final ratio = phase.progressRatio;
-    final accentColor = switch (phase.stage) {
-      ScrapeTaskStage.completed => p.success,
-      ScrapeTaskStage.cancelled => p.warning,
-      ScrapeTaskStage.failed => p.danger,
-      _ => p.accent,
-    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: badge?.bg ?? p.softFill,
+        borderRadius: KonataTheme.borderRadiusPill,
+        border: Border.all(
+          color: badge?.border ?? p.hairline,
+          width: 1,
+        ),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: badge?.fg ?? p.textSecondary,
+          fontSize: KonataTheme.fontSizeCaptionSm,
+          fontWeight: FontWeight.w600,
+          fontFeatures: const [FontFeature.tabularFigures()],
+        ),
+      ),
+    );
+  }
+}
 
-    return KonataDraggableScrollbar(
-      builder: (context, scrollCtrl) => ListView(
-        controller: scrollCtrl,
-        padding: const EdgeInsets.only(right: 6),
-        children: [
+/// 实时展示已勾选范围及每个已遍历目录视频统计的页签面板。
+class ScanVisitedFoldersPane extends StatelessWidget {
+  /// 创建已扫描目录列表面板。
+  const ScanVisitedFoldersPane({
+    super.key,
+    required this.phase,
+    required this.visitedFolders,
+  });
+
+  /// 当前实时扫描阶段快照。
+  final ScrapeTaskPhase phase;
+
+  /// 排序后的已访问目录路径集合。
+  final List<String> visitedFolders;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    if (visitedFolders.isEmpty && phase.selectedRoots.isEmpty) {
+      return Center(
+        child: Text(
+          phase.isActive ? '正在连接媒体源并读取目录...' : '暂无目录遍历记录',
+          style: TextStyle(
+            color: p.textSecondary,
+            fontSize: KonataTheme.fontSizeBodySm,
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (phase.selectedRoots.isNotEmpty) ...[
           Container(
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: BoxDecoration(
-              color: accentColor.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: accentColor.withValues(alpha: 0.25)),
+              color: p.softFill,
+              borderRadius: KonataTheme.borderRadiusControl,
             ),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
+                Text(
+                  '已勾选扫描作用域 (${phase.selectedRoots.length})',
+                  style: TextStyle(
+                    color: p.textPrimary,
+                    fontSize: KonataTheme.fontSizeCaption,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
                   children: [
-                    if (phase.isActive)
-                      Padding(
-                        padding: const EdgeInsets.only(right: 10),
-                        child: SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              accentColor,
-                            ),
-                          ),
-                        ),
-                      ),
-                    Expanded(
-                      child: Text(
-                        phase.statusLabel,
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: p.textPrimary,
-                        ),
-                      ),
-                    ),
-                    if (ratio != null)
-                      Text(
-                        '${(ratio * 100).round()}%',
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w600,
-                          color: accentColor,
-                        ),
+                    for (final root in phase.selectedRoots)
+                      ScanProgressStatChip(
+                        label: '$root · ${phase.videosUnderRoot(root)} 视频',
                       ),
                   ],
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  phase.detailLabel,
-                  style: TextStyle(
-                    fontSize: 12.5,
-                    color: p.textSecondary,
-                    height: 1.4,
-                  ),
-                ),
-                if (phase.isActive || ratio != null) ...[
-                  const SizedBox(height: 10),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(999),
-                    child: LinearProgressIndicator(
-                      value: ratio,
-                      minHeight: 6,
-                      backgroundColor: p.hairline,
-                      valueColor: AlwaysStoppedAnimation<Color>(accentColor),
-                    ),
-                  ),
-                ],
               ],
             ),
           ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              _MetricTile(label: '已扫描目录', value: '${phase.scannedDirectories}'),
-              _MetricTile(label: '发现文件', value: '${phase.foundFiles}'),
-              _MetricTile(label: '识别作品', value: '${phase.totalWorks}'),
-              _MetricTile(
-                label: '自动匹配',
-                value: '${phase.matchedWorks}',
-                valueColor: p.success,
-              ),
-              _MetricTile(
-                label: '待复核',
-                value: '${phase.reviewWorks}',
-                valueColor: phase.reviewWorks > 0 ? p.warning : null,
-                onTap: phase.reviewWorks > 0 ? onJumpToPendingReview : null,
-              ),
-              _MetricTile(
-                label: '未匹配',
-                value: '${phase.unmatchedWorks}',
-                valueColor: phase.unmatchedWorks > 0 ? p.danger : null,
-              ),
-            ],
-          ),
-          if (phase.easyWorks > 0 ||
-              phase.mediumWorks > 0 ||
-              phase.hardWorks > 0) ...[
-            const SizedBox(height: 14),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: p.elevatedSurface.withValues(alpha: 0.4),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: p.hairline),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '刮削难度分层统计',
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w600,
-                      color: p.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    '简单直出：${phase.easyWorks} · 中等消歧：${phase.mediumWorks} · 困难纠偏：${phase.hardWorks}（联合救回 ${phase.hardRescuedWorks}）',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: p.textSecondary,
-                      height: 1.45,
-                    ),
-                  ),
-                  if (phase.lastMatchedTitle != null &&
-                      phase.lastMatchedTitle!.isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      '最近匹配：${phase.lastMatchedTitle}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 12, color: p.accent),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ],
-          if (phase.selectedRoots.isNotEmpty) ...[
-            const SizedBox(height: 14),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: p.elevatedSurface.withValues(alpha: 0.35),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: p.hairline),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '本次扫描限定子目录 (${phase.selectedRoots.length})',
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w600,
-                      color: p.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: [
-                      for (final root in phase.selectedRoots)
-                        KonataSpecBadge(label: root),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
+          const SizedBox(height: 10),
         ],
-      ),
+        Expanded(
+          child: visitedFolders.isEmpty
+              ? Center(
+                  child: Text(
+                    '目录枚举等待中...',
+                    style: TextStyle(
+                      color: p.textSecondary,
+                      fontSize: KonataTheme.fontSizeBodySm,
+                    ),
+                  ),
+                )
+              : KonataDraggableScrollbar(
+                  builder: (_, ctrl) => ListView.separated(
+                    controller: ctrl,
+                    padding: const EdgeInsets.only(right: 14),
+                    itemCount: visitedFolders.length,
+                    separatorBuilder: (_, _) =>
+                        Divider(height: 1, color: p.hairline),
+                    itemBuilder: (_, index) {
+                      final folder = visitedFolders[index];
+                      final done = phase.completedFolders.contains(folder);
+                      final count = phase.folderVideoCounts[folder] ?? 0;
+                      final display = folder.isEmpty ? '根目录' : folder;
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 8,
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              done
+                                  ? Icons.check_circle_outline_rounded
+                                  : Icons.sync_rounded,
+                              size: 16,
+                              color: done ? p.accent : p.textSecondary,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: EllipsisTextWithTooltip(
+                                text: display,
+                                maxLines: 1,
+                                style: TextStyle(
+                                  color: p.textPrimary,
+                                  fontSize: KonataTheme.fontSizeBodyXs,
+                                  fontFamily: 'Consolas',
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              '$count 视频',
+                              style: TextStyle(
+                                color: count > 0 ? p.textSecondary : p.textMuted,
+                                fontSize: KonataTheme.fontSizeCaptionSm,
+                                fontFeatures: const [
+                                  FontFeature.tabularFigures(),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+        ),
+      ],
     );
   }
 }
@@ -235,6 +199,31 @@ class ScanPendingReviewTab extends StatelessWidget {
   /// 前往媒体库统一批量复核的回调。
   final VoidCallback onGoToLibrary;
 
+  static const Map<String, String> _reasonLabels = <String, String>{
+    'ambiguous_candidates': '多个候选分数接近，需人工核实',
+    'close_candidates': '多个候选分数接近，需人工核实',
+    'low_confidence': '整体匹配置信度不足',
+    'no_match': '候选得分过低，需手动指定',
+    'no_candidates': '未找到匹配候选',
+    'media_type_mismatch': '剧集 / 剧场版类型冲突',
+    'media_type_conflict': '剧集 / 剧场版类型冲突',
+    'anthology_conflict': '目录含多作品合集冲突',
+    'explicit_tmdb_mismatch': '与目录显式 TMDB 编号冲突',
+    'explicit_id_mismatch': '与显式指定的 TMDB ID 不符',
+  };
+
+  static String _formatReason(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return '待人工复核确认';
+    final mapped = _reasonLabels[trimmed];
+    if (mapped != null) return mapped;
+    // 若底层已生成可读中文说明则直接保留，避免覆盖详细原因。
+    if (RegExp(r'[\u4E00-\u9FFF]').hasMatch(trimmed)) {
+      return trimmed;
+    }
+    return '候选匹配度待确认，请核对后锁定';
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
@@ -252,18 +241,21 @@ class ScanPendingReviewTab extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                '本媒体源暂无待复核作品',
+                '当前媒体源下暂无需要人工复核的作品',
                 style: TextStyle(
-                  fontSize: 13.5,
+                  fontSize: KonataTheme.fontSizeBodySm,
                   fontWeight: FontWeight.w600,
                   color: p.textPrimary,
                 ),
               ),
               const SizedBox(height: 4),
               Text(
-                '当前媒体源下所有已扫描目录均已完成自动匹配或处于其他队列。',
+                '所有已扫描目录均已完成自动匹配或处于其他队列。',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12, color: p.textSecondary),
+                style: TextStyle(
+                  fontSize: KonataTheme.fontSizeCaption,
+                  color: p.textSecondary,
+                ),
               ),
             ],
           ),
@@ -274,90 +266,93 @@ class ScanPendingReviewTab extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                '共 ${items.length} 部待确认条目，可前往详情或媒体库集中人工纠偏',
-                style: TextStyle(fontSize: 12, color: p.textSecondary),
-              ),
+        AdaptiveResponsiveRow(
+          minLeadingWidth: 160,
+          estimatedTrailingWidth: 120,
+          leading: Text(
+            '共 ${items.length} 部待确认条目，可打开详情核对或前往媒体库批量处置',
+            style: TextStyle(
+              fontSize: KonataTheme.fontSizeCaption,
+              color: p.textSecondary,
             ),
-            const SizedBox(width: 8),
-            KonataPillButton.secondary(
-              label: '去媒体库处理',
-              icon: Icons.grid_view_rounded,
-              compact: true,
-              onPressed: onGoToLibrary,
-            ),
-          ],
+          ),
+          trailing: KonataPillButton.secondary(
+            label: '去媒体库处理',
+            icon: Icons.grid_view_rounded,
+            compact: true,
+            onPressed: onGoToLibrary,
+          ),
         ),
         const SizedBox(height: 10),
         Expanded(
           child: KonataDraggableScrollbar(
             builder: (context, scrollCtrl) => ListView.separated(
               controller: scrollCtrl,
-              padding: const EdgeInsets.only(right: 6),
+              padding: const EdgeInsets.only(right: 12),
               itemCount: items.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 8),
+              separatorBuilder: (_, _) => const SizedBox(height: 10),
               itemBuilder: (context, index) {
                 final item = items[index];
-                final reason = item.work.reviewReason?.trim();
-                return Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: p.elevatedSurface.withValues(alpha: 0.45),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: p.hairline),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                final rawReason = item.work.reviewReason;
+                final reasonText = rawReason != null && rawReason.trim().isNotEmpty
+                    ? _formatReason(rawReason)
+                    : null;
+
+                return KonataSurfaceCard(
+                  padding: const EdgeInsets.all(14),
+                  enableHover: true,
+                  child: AdaptiveResponsiveRow(
+                    minLeadingWidth: 180,
+                    estimatedTrailingWidth: 94,
+                    leading: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
                           children: [
-                            Text(
-                              item.work.title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 13.5,
-                                fontWeight: FontWeight.w600,
-                                color: p.textPrimary,
-                              ),
-                            ),
-                            if (reason != null && reason.isNotEmpty) ...[
-                              const SizedBox(height: 3),
-                              Text(
-                                reason,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: p.warning,
+                            Expanded(
+                              child: EllipsisTextWithTooltip(
+                                text: item.work.title,
+                                maxLines: 1,
+                                style: KonataTheme.cardTitleStyle(
+                                  p,
+                                  fontSize: KonataTheme.fontSizeBody,
                                 ),
                               ),
-                            ],
-                            const SizedBox(height: 4),
-                            Text(
-                              item.sampleRelativePath ??
-                                  '${item.variantCount} 个物理文件',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 11.5,
-                                color: p.textMuted,
-                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            ScanProgressStatChip(
+                              label: '${item.variantCount} 个文件',
                             ),
                           ],
                         ),
-                      ),
-                      const SizedBox(width: 10),
-                      KonataPillButton.secondary(
-                        label: '查看详情',
-                        compact: true,
-                        onPressed: () => onOpenWorkDetail(item.work.id),
-                      ),
-                    ],
+                        if (reasonText != null) ...[
+                          const SizedBox(height: 6),
+                          ScanProgressStatChip(
+                            label: reasonText,
+                            badge: p.warningBadge,
+                          ),
+                        ],
+                        if (item.sampleRelativePath != null &&
+                            item.sampleRelativePath!.trim().isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          EllipsisTextWithTooltip(
+                            text: item.sampleRelativePath!,
+                            maxLines: 1,
+                            style: TextStyle(
+                              fontSize: KonataTheme.fontSizeCaptionSm,
+                              color: p.textMuted,
+                              fontFamily: 'Consolas',
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    trailing: KonataPillButton.secondary(
+                      label: '查看详情',
+                      compact: true,
+                      onPressed: () => onOpenWorkDetail(item.work.id),
+                    ),
                   ),
                 );
               },
@@ -365,59 +360,6 @@ class ScanPendingReviewTab extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _MetricTile extends StatelessWidget {
-  const _MetricTile({
-    required this.label,
-    required this.value,
-    this.valueColor,
-    this.onTap,
-  });
-
-  final String label;
-  final String value;
-  final Color? valueColor;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-    final box = Container(
-      constraints: const BoxConstraints(minWidth: 112),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: p.elevatedSurface.withValues(alpha: 0.42),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: p.hairline),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            label,
-            style: TextStyle(fontSize: 11.5, color: p.textMuted),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 17,
-              fontWeight: FontWeight.w700,
-              color: valueColor ?? p.textPrimary,
-            ),
-          ),
-        ],
-      ),
-    );
-    if (onTap == null) return box;
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
-      onTap: onTap,
-      child: box,
     );
   }
 }

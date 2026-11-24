@@ -1,4 +1,4 @@
-import 'package:flutter/widgets.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:konata_contracts/konata_contracts.dart';
 import 'package:konata_design_system/konata_design_system.dart';
@@ -22,6 +22,7 @@ final class FeatureSettingsDependencies {
     required this.currentPlatform,
     this.sections = const <SettingsSectionContribution>[],
     this.appVersion = '3.0.0',
+    this.storageRoot,
     this.onThemeModeChanged,
     this.onAmbientBackdropChanged,
     this.onWindowMaterialChanged,
@@ -66,6 +67,9 @@ final class FeatureSettingsDependencies {
   /// 应用当前语义化版本号展示字符串。
   final String appVersion;
 
+  /// 可选存储根目录端口（供离线映射表更新读取便携目录）。
+  final StorageRootPort? storageRoot;
+
   /// 主题模式变更后通知宿主壳层刷新主题的回调。
   final ValueChanged<ThemeMode>? onThemeModeChanged;
 
@@ -106,6 +110,15 @@ final settingsControllerProvider = Provider<SettingsController>((ref) {
     urlOpener: deps.urlOpener,
     diagnosticLog: deps.diagnosticLog,
     appVersion: deps.appVersion,
+    storageRoot: deps.storageRoot,
+    bundledMappingAssetLoader: (assetPath) async {
+      try {
+        final data = await rootBundle.load(assetPath);
+        return data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+      } catch (_) {
+        return null;
+      }
+    },
     onThemeModeChanged: deps.onThemeModeChanged,
     onAmbientBackdropChanged: deps.onAmbientBackdropChanged,
     onWindowMaterialChanged: deps.onWindowMaterialChanged,

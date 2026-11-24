@@ -1,13 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:engine_sources/engine_sources.dart';
+import 'package:engine_scraping/engine_scraping.dart';
 import 'package:flutter/foundation.dart';
 import 'package:konata_contracts/konata_contracts.dart';
 import 'package:konata_design_system/konata_design_system.dart';
 import 'package:konata_storage/konata_storage.dart';
 
 import '../data/photos_cleanup_scanner.dart';
+import '../data/settings_display_prefs.dart';
 import '../data/settings_network_repository.dart';
 import '../data/settings_prefs.dart';
 
@@ -38,8 +39,8 @@ typedef NetworkConnectivityProbe =
 
 /// 通用设置控制器（状态层严格保持零 Riverpod）。
 ///
-/// 统筹外观与主题持久化、网络与元数据凭据存取、图片占用统计清理、
-/// 脱敏诊断日志导出与关于页外链打开。
+/// 统筹外观与主题持久化、详情展示偏好持久化、网络与元数据凭据存取、
+/// 离线动画映射表检查、图片占用统计清理、脱敏诊断日志导出与外链打开。
 final class SettingsController extends ChangeNotifier {
   /// 创建通用设置控制器。
   SettingsController({
@@ -57,7 +58,10 @@ final class SettingsController extends ChangeNotifier {
     this._onWindowMaterialChanged,
     this._onNetworkConfigChanged,
     this._connectivityProbeOverride,
+    StorageRootPort? storageRoot,
+    Future<Uint8List?> Function(String assetPath)? bundledMappingAssetLoader,
   }) : _appearanceRepo = SettingsAppearanceRepository(scopedPrefs),
+       _displayRepo = SettingsDisplayRepository(scopedPrefs),
        _networkRepo = SettingsNetworkRepository(
          scopedPrefs: scopedPrefs,
          secureStorage: secureStorage,
@@ -65,11 +69,21 @@ final class SettingsController extends ChangeNotifier {
        _photosScanner = PhotosCleanupScanner(
          photosStorage: photosStorage,
          workDao: databases.library.works,
+       ),
+       _mappingUpdater = BangumiTmdbMapUpdater(
+         storageRoot: storageRoot ?? const PortableStorageRootService(),
+         prefsStore: scopedPrefs,
+         bundledAssetLoader: bundledMappingAssetLoader,
        ) {
     _appearance = _appearanceRepo.read();
+    _displayPrefs = _displayRepo.read();
     _networkConfig = _httpClient.config;
     _appearanceSub = _appearanceRepo.watch().listen((next) {
       _appearance = next;
+      _safeNotify();
+    });
+    _displaySub = _displayRepo.watch().listen((next) {
+      _displayPrefs = next;
       _safeNotify();
     });
     unawaited(initialize());
@@ -87,19 +101,27 @@ final class SettingsController extends ChangeNotifier {
   final NetworkConnectivityProbe? _connectivityProbeOverride;
 
   final SettingsAppearanceRepository _appearanceRepo;
+  final SettingsDisplayRepository _displayRepo;
   final SettingsNetworkRepository _networkRepo;
   final PhotosCleanupScanner _photosScanner;
+  final BangumiTmdbMapUpdater _mappingUpdater;
 
   StreamSubscription<SettingsAppearancePrefs>? _appearanceSub;
+  StreamSubscription<SettingsDisplayPrefs>? _displaySub;
   bool _disposed = false;
 
   late SettingsAppearancePrefs _appearance;
+  late SettingsDisplayPrefs _displayPrefs;
   late KonataNetworkConfig _networkConfig;
   bool _isLoadingNetwork = true;
   bool _isSavingNetwork = false;
   bool _isScanningPhotos = false;
   bool _isExportingDiagnostics = false;
+  bool _isUpdatingMapping = false;
+  String? _photosRootPath;
   PhotosCleanupSnapshot? _photosSnapshot;
+  BangumiTmdbSnapshot? _mappingSnapshot;
+  BangumiTmdbUpdateResult? _mappingUpdateResult;
   final Map<String, ConnectivityReport> _probeReports =
       <String, ConnectivityReport>{};
   final Set<String> _probingTargets = <String>{};
@@ -109,6 +131,9 @@ final class SettingsController extends ChangeNotifier {
 
   /// 当前主题外观配置。
   SettingsAppearancePrefs get appearance => _appearance;
+
+  /// 当前详情展示偏好配置。
+  SettingsDisplayPrefs get displayPrefs => _displayPrefs;
 
   /// 当前生效的主题模式。
   ThemeMode get themeMode => _appearance.themeMode;
@@ -134,8 +159,20 @@ final class SettingsController extends ChangeNotifier {
   /// 是否正在生成并导出脱敏诊断日志。
   bool get isExportingDiagnostics => _isExportingDiagnostics;
 
+  /// 是否正在检查离线动画映射表增量更新。
+  bool get isUpdatingMapping => _isUpdatingMapping;
+
+  /// 最近解析到的本地图片存储根目录路径。
+  String? get photosRootPath => _photosRootPath;
+
   /// 最近一次图片磁盘占用扫描快照。
   PhotosCleanupSnapshot? get photosSnapshot => _photosSnapshot;
+
+  /// 当前已加载的离线动画映射表快照。
+  BangumiTmdbSnapshot? get mappingSnapshot => _mappingSnapshot;
+
+  /// 最近一次离线映射表检查更新结果。
+  BangumiTmdbUpdateResult? get mappingUpdateResult => _mappingUpdateResult;
 
   /// 各个探测目标的最新连通性测速报告。
   Map<String, ConnectivityReport> get probeReports =>
@@ -154,9 +191,10 @@ final class SettingsController extends ChangeNotifier {
   List<DiagnosticFaultSummary> get diagnosticFaults =>
       _diagnosticLog.summarizeFaults();
 
-  /// 初始化异步状态：载入安全凭据区与本地图片统计。
+  /// 初始化异步状态：载入安全凭据区、映射表快照与本地图片统计。
   Future<void> initialize() async {
     await loadNetworkConfig();
+    await loadMappingSnapshot();
     await refreshPhotosStorage();
   }
 
@@ -193,6 +231,43 @@ final class SettingsController extends ChangeNotifier {
     _safeNotify();
   }
 
+  /// 切换详情页文字标题显示。
+  void setShowTitleText(bool enabled) => _updateDisplayPrefs(
+    (current) => current.copyWith(showTitleText: enabled),
+  );
+
+  /// 切换详情页透明标题徽标显示。
+  void setShowTitleLogo(bool enabled) => _updateDisplayPrefs(
+    (current) => current.copyWith(showTitleLogo: enabled),
+  );
+
+  /// 切换详情页作品简介显示。
+  void setShowOverview(bool enabled) => _updateDisplayPrefs(
+    (current) => current.copyWith(showOverview: enabled),
+  );
+
+  /// 切换选集与特典卡片原始视频文件名显示。
+  void setShowRawVideoFilename(bool enabled) => _updateDisplayPrefs(
+    (current) => current.copyWith(showRawVideoFilename: enabled),
+  );
+
+  /// 切换详情页「CD」分类页签显示。
+  void setShowCdTab(bool enabled) => _updateDisplayPrefs(
+    (current) => current.copyWith(showCdTab: enabled),
+  );
+
+  /// 切换详情页「Scan」分类页签显示。
+  void setShowScanTab(bool enabled) => _updateDisplayPrefs(
+    (current) => current.copyWith(showScanTab: enabled),
+  );
+
+  void _updateDisplayPrefs(
+    SettingsDisplayPrefs Function(SettingsDisplayPrefs current) transform,
+  ) {
+    _displayPrefs = _displayRepo.update(transform);
+    _safeNotify();
+  }
+
   /// 重新加载安全凭据与非敏感网络配置。
   Future<void> loadNetworkConfig() async {
     _isLoadingNetwork = true;
@@ -206,6 +281,40 @@ final class SettingsController extends ChangeNotifier {
       _httpClient.updateConfig(loaded);
     } finally {
       _isLoadingNetwork = false;
+      _safeNotify();
+    }
+  }
+
+  /// 载入当前生效的 Bangumi ↔ TMDB 离线映射表快照。
+  Future<void> loadMappingSnapshot() async {
+    try {
+      final snapshot = await _mappingUpdater.loadActiveSnapshot();
+      if (_disposed) {
+        return;
+      }
+      _mappingSnapshot = snapshot;
+      _safeNotify();
+    } catch (_) {
+      // 无内置资产或离线环境保持空态兜底，不阻断设置页初始化。
+    }
+  }
+
+  /// 手动检查并更新离线动画映射表增量快照。
+  Future<BangumiTmdbUpdateResult> checkBangumiTmdbMappingUpdate() async {
+    _isUpdatingMapping = true;
+    _safeNotify();
+    try {
+      final result = await _mappingUpdater.checkAndUpdateIfDue(
+        force: true,
+        networkConfig: _networkConfig,
+      );
+      if (!_disposed) {
+        _mappingUpdateResult = result;
+        _mappingSnapshot = result.snapshot;
+      }
+      return result;
+    } finally {
+      _isUpdatingMapping = false;
       _safeNotify();
     }
   }
@@ -291,8 +400,12 @@ final class SettingsController extends ChangeNotifier {
     _isScanningPhotos = true;
     _safeNotify();
     try {
+      _photosRootPath ??= await _photosScanner.resolveRootPath();
       final snapshot = await _photosScanner.scanSnapshot();
-      _photosSnapshot = snapshot;
+      if (!_disposed) {
+        _photosSnapshot = snapshot;
+        _photosRootPath = snapshot.globalStats.rootPath;
+      }
       return snapshot;
     } finally {
       _isScanningPhotos = false;
@@ -324,6 +437,31 @@ final class SettingsController extends ChangeNotifier {
     return removed;
   }
 
+  /// 按指定作品目录集合与图片分类精确清理缓存，返回清理文件数与释放字节数。
+  Future<({int removedFiles, int freedBytes})> clearCustomPhotos({
+    required Set<String> workDirKeys,
+    required Set<PhotoStorageCategory> categories,
+  }) async {
+    final result = await _photosScanner.clearCustomPhotos(
+      workDirKeys: workDirKeys,
+      categories: categories,
+    );
+    await refreshPhotosStorage();
+    _diagnosticLog.logEvent(
+      subsystem: DiagnosticSubsystem.storage,
+      code: 'PHOTOS_CUSTOM_CLEANUP',
+      message: '已清理 ${result.removedFiles} 张图片',
+      source: 'SettingsController',
+      context: <String, Object?>{
+        'removedFiles': result.removedFiles,
+        'freedBytes': result.freedBytes,
+        'works': workDirKeys.length,
+        'categories': categories.map((c) => c.dirName).toList(),
+      },
+    );
+    return result;
+  }
+
   /// 一键清理所有可再生缓存图片（剧照与扫图微缩图）。
   Future<int> clearRegenerableCaches() async {
     final removed = await _photosScanner.clearRegenerableCaches();
@@ -343,6 +481,38 @@ final class SettingsController extends ChangeNotifier {
     _safeNotify();
   }
 
+  /// 生成严格脱敏后的精简诊断定位摘要（供一键复制到剪贴板）。
+  Future<String> buildCompactDiagnosticSummary() async {
+    final counts = _diagnosticLog.summaryCounts;
+    final faults = _diagnosticLog.summarizeFaults();
+    final events = _diagnosticLog.snapshotEvents();
+    final secrets = await _networkRepo.readCurrentSecretsForRedaction();
+
+    final buf = StringBuffer()
+      ..writeln('Konata $_appVersion 诊断定位摘要')
+      ..writeln(
+        '事件统计：异常 ${counts.errorCount} · 警告 ${counts.warningCount} · '
+        '总事件 ${counts.totalEvents} · 轨迹 ${counts.breadcrumbCount}',
+      );
+    if (faults.isNotEmpty) {
+      buf.writeln('最近故障分诊：');
+      for (final fault in faults.take(5)) {
+        buf.writeln(
+          '- [${fault.severity.badge}][${fault.subsystem.code}][${fault.code}] '
+          'x${fault.count} ${fault.sampleMessage}',
+        );
+      }
+    }
+    if (events.isNotEmpty) {
+      final start = events.length > 12 ? events.length - 12 : 0;
+      buf.writeln('最近事件轨迹：');
+      for (final ev in events.sublist(start)) {
+        buf.writeln('- ${ev.formatCompactLine()}');
+      }
+    }
+    return _redactDiagnosticText(buf.toString(), secrets);
+  }
+
   /// 生成严格脱敏后的诊断报告并经 [BackupFilePort.saveFile] 写入磁盘。
   ///
   /// 返回保存的文件路径；若用户取消保存则返回 `null`。
@@ -354,17 +524,7 @@ final class SettingsController extends ChangeNotifier {
           ? await _diagnosticLog.buildJsonBundle()
           : await _diagnosticLog.buildTextReport();
       final secrets = await _networkRepo.readCurrentSecretsForRedaction();
-      var sanitized = DiagnosticTextSanitizer.redactForExport(rawReport);
-      // 同步兼容 JSON 转义双反斜杠形式的本地用户目录路径脱敏。
-      sanitized = sanitized.replaceAll(
-        RegExp(r'[A-Za-z]:\\\\Users\\\\[^\\/\s"\x27]+'),
-        '<USER_HOME>',
-      );
-      for (final secret in secrets) {
-        if (secret.isNotEmpty) {
-          sanitized = sanitized.replaceAll(secret, '[REDACTED]');
-        }
-      }
+      final sanitized = _redactDiagnosticText(rawReport, secrets);
 
       final now = DateTime.now();
       final stamp =
@@ -372,14 +532,15 @@ final class SettingsController extends ChangeNotifier {
           '${now.month.toString().padLeft(2, '0')}'
           '${now.day.toString().padLeft(2, '0')}_'
           '${now.hour.toString().padLeft(2, '0')}'
-          '${now.minute.toString().padLeft(2, '0')}';
+          '${now.minute.toString().padLeft(2, '0')}'
+          '${now.second.toString().padLeft(2, '0')}';
       final ext = asJson ? 'json' : 'txt';
-      final fileName = 'konata_diagnostic_$stamp.$ext';
+      final fileName = 'konata_diagnostics_$stamp.$ext';
       final bytes = Uint8List.fromList(utf8.encode(sanitized));
       return await _backupFilePort.saveFile(
         fileName: fileName,
         bytes: bytes,
-        dialogTitle: '导出脱敏诊断报告',
+        dialogTitle: asJson ? '导出结构化诊断包 (JSON)' : '导出诊断日志报告 (TXT)',
       );
     } finally {
       _isExportingDiagnostics = false;
@@ -387,8 +548,23 @@ final class SettingsController extends ChangeNotifier {
     }
   }
 
-  /// 通过宿主注入的外链端口在浏览器中打开目标链接。
+  /// 通过宿主注入的外链端口在浏览器或文件管理器中打开目标链接。
   Future<bool> openExternalUrl(Uri uri) => _urlOpener.openExternalUrl(uri);
+
+  String _redactDiagnosticText(String raw, List<String> secrets) {
+    var sanitized = DiagnosticTextSanitizer.redactForExport(raw);
+    // 同步兼容 JSON 转义双反斜杠形式的本地用户目录路径脱敏。
+    sanitized = sanitized.replaceAll(
+      RegExp(r'[A-Za-z]:\\\\Users\\\\[^\\/\s"\x27]+'),
+      '<USER_HOME>',
+    );
+    for (final secret in secrets) {
+      if (secret.isNotEmpty) {
+        sanitized = sanitized.replaceAll(secret, '[REDACTED]');
+      }
+    }
+    return sanitized;
+  }
 
   Future<ConnectivityReport> _probeWithGenericPort(String targetId) async {
     final primaryUri = switch (targetId) {
@@ -440,6 +616,7 @@ final class SettingsController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _appearanceSub?.cancel();
+    _displaySub?.cancel();
     super.dispose();
   }
 

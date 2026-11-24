@@ -1,11 +1,12 @@
 import 'package:flutter/widgets.dart';
+import 'package:konata_contracts/konata_contracts.dart';
 import 'package:konata_design_system/konata_design_system.dart';
 
 import '../state/scrape_task_phase.dart';
 
-/// 媒体源页面顶部常驻或按需收起的扫库刮削进度横幅。
+/// 媒体源页面顶部的后台扫描与刮削实时进度条横幅。
 class ScrapeProgressBanner extends StatelessWidget {
-  /// 创建扫库进度横幅。
+  /// 创建扫描进度横幅。
   const ScrapeProgressBanner({
     super.key,
     required this.phase,
@@ -35,33 +36,39 @@ class ScrapeProgressBanner extends StatelessWidget {
     final p = context.palette;
     final compact = MediaQuery.sizeOf(context).width < 640;
     final isFailed = phase is ScrapeFailedPhase;
-    final isCompleted = phase is ScrapeCompletedPhase;
-    final isCancelled = phase is ScrapeCancelledPhase;
+    final rawSummary = phase is ScrapeFailedPhase
+        ? '扫描失败: ${NetworkErrorSanitizer.toUserMessage(phase.errorMessage ?? '')}'
+        : phase.bannerSummaryLabel;
+    final phaseLabel = phase.sourceLabel.isEmpty
+        ? rawSummary
+        : '${phase.sourceLabel} · $rawSummary';
 
-    final accentColor = isFailed
-        ? p.danger
-        : isCompleted
-        ? p.success
-        : isCancelled
-        ? p.warning
-        : p.accent;
-
-    final ratio = phase.progressRatio;
-    final statusTitle = phase.sourceLabel.isEmpty
-        ? phase.statusLabel
-        : '${phase.sourceLabel} · ${phase.statusLabel}';
+    final actions = <Widget>[
+      if (phase.isActive)
+        KonataPillButton.ghost(
+          label: phase.cancelRequested ? '正在取消' : '取消',
+          compact: true,
+          onPressed: phase.cancelRequested ? null : onCancelScan,
+        ),
+      KonataPillButton.secondary(
+        label: '查看详情',
+        icon: Icons.open_in_new_rounded,
+        compact: true,
+        onPressed: onInspectDetail,
+      ),
+      if (!phase.isActive) _BannerDismissButton(onPressed: onDismissTerminal),
+    ];
 
     return KonataSurfaceCard(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      backgroundColor: accentColor.withValues(alpha: 0.08),
-      borderColor: accentColor.withValues(alpha: 0.28),
+      padding: const EdgeInsets.all(16),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+        crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              _buildLeadingIcon(accentColor),
+              _buildLeadingIndicator(p, isFailed: isFailed),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
@@ -69,43 +76,49 @@ class ScrapeProgressBanner extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      statusTitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.w600,
-                        color: p.textPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      phase.detailLabel,
+                      phaseLabel,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontSize: 12,
-                        color: p.textSecondary,
+                        color: isFailed ? p.danger : p.textPrimary,
+                        fontSize: KonataTheme.fontSizeBody,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
+                    if (phase.currentItemName.isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        phase.currentItemName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: p.textSecondary,
+                          fontSize: KonataTheme.fontSizeCaption,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
               if (!compact) ...[
-                const SizedBox(width: 12),
-                _buildActions(),
+                const SizedBox(width: 10),
+                ..._withHorizontalGaps(actions),
               ],
             ],
           ),
-          if (phase.isActive || ratio != null) ...[
+          if (phase.isActive) ...[
             const SizedBox(height: 10),
             ClipRRect(
-              borderRadius: BorderRadius.circular(999),
+              borderRadius: KonataTheme.borderRadiusPill,
               child: LinearProgressIndicator(
-                value: ratio,
-                minHeight: 5,
-                backgroundColor: p.hairline,
-                valueColor: AlwaysStoppedAnimation<Color>(accentColor),
+                value:
+                    phase.stage == ScrapeTaskStage.running &&
+                        phase.totalWorks > 0
+                    ? phase.progressRatio
+                    : null,
+                minHeight: 3,
+                backgroundColor: p.progressTrack,
+                valueColor: AlwaysStoppedAnimation<Color>(p.progressFill),
               ),
             ),
           ],
@@ -113,7 +126,12 @@ class ScrapeProgressBanner extends StatelessWidget {
             const SizedBox(height: 10),
             Align(
               alignment: Alignment.centerRight,
-              child: _buildActions(),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: actions,
+              ),
             ),
           ],
         ],
@@ -121,14 +139,14 @@ class ScrapeProgressBanner extends StatelessWidget {
     );
   }
 
-  Widget _buildLeadingIcon(Color color) {
+  Widget _buildLeadingIndicator(KonataPalette p, {required bool isFailed}) {
     if (phase.isActive) {
       return SizedBox(
-        width: 18,
-        height: 18,
+        width: 16,
+        height: 16,
         child: CircularProgressIndicator(
-          strokeWidth: 2.2,
-          valueColor: AlwaysStoppedAnimation<Color>(color),
+          strokeWidth: 2,
+          valueColor: AlwaysStoppedAnimation<Color>(p.progressFill),
         ),
       );
     }
@@ -139,34 +157,82 @@ class ScrapeProgressBanner extends StatelessWidget {
         ScrapeTaskStage.failed => Icons.error_outline_rounded,
         _ => Icons.radar_rounded,
       },
-      size: 20,
-      color: color,
+      size: 18,
+      color: switch (phase.stage) {
+        ScrapeTaskStage.completed => p.success,
+        ScrapeTaskStage.cancelled => p.warning,
+        ScrapeTaskStage.failed => p.danger,
+        _ => isFailed ? p.danger : p.accent,
+      },
     );
   }
 
-  Widget _buildActions() {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 6,
-      children: [
-        KonataPillButton.secondary(
-          label: '查看详情',
-          compact: true,
-          onPressed: onInspectDetail,
+  List<Widget> _withHorizontalGaps(List<Widget> items) {
+    final result = <Widget>[];
+    for (var i = 0; i < items.length; i++) {
+      if (i > 0) result.add(const SizedBox(width: 8));
+      result.add(items[i]);
+    }
+    return result;
+  }
+}
+
+class _BannerDismissButton extends StatefulWidget {
+  const _BannerDismissButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  State<_BannerDismissButton> createState() => _BannerDismissButtonState();
+}
+
+class _BannerDismissButtonState extends State<_BannerDismissButton> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    final visual = AnimatedContainer(
+      duration: KonataTheme.motionFast,
+      width: 28,
+      height: 28,
+      decoration: BoxDecoration(
+        color: _hovered ? p.surfaceHover : p.softFill,
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: _hovered ? p.hoverBorder : p.hairline,
+          width: 1,
         ),
-        if (phase.isActive)
-          KonataPillButton.ghost(
-            label: phase.cancelRequested ? '正在停止' : '取消扫描',
-            compact: true,
-            onPressed: phase.cancelRequested ? null : onCancelScan,
+      ),
+      child: Icon(
+        Icons.close_rounded,
+        size: 16,
+        color: _hovered ? p.textPrimary : p.textSecondary,
+      ),
+    );
+
+    final button = KonataAdaptiveTokens.isAndroid
+        ? ConstrainedBox(
+            constraints: const BoxConstraints(
+              minWidth: KonataAdaptiveTokens.touchTarget,
+              minHeight: KonataAdaptiveTokens.touchTarget,
+            ),
+            child: Center(widthFactor: 1, heightFactor: 1, child: visual),
           )
-        else
-          KonataPillButton.ghost(
-            label: '收起',
-            compact: true,
-            onPressed: onDismissTerminal,
-          ),
-      ],
+        : visual;
+
+    return Tooltip(
+      message: '关闭提示',
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.onPressed,
+          child: button,
+        ),
+      ),
     );
   }
 }

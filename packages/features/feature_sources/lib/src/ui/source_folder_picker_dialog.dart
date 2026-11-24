@@ -1,14 +1,20 @@
+import 'dart:math' as math;
+
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:konata_contracts/konata_contracts.dart';
 import 'package:konata_design_system/konata_design_system.dart';
 
 import '../providers.dart';
+import '../state/sources_controller.dart';
 import 'source_selected_scope_panel.dart';
 
-/// 媒体源目录范围选择弹窗，返回勾选后的相对路径列表；取消时返回 `null`。
+enum _FolderPickerViewMode { browse, selectedManage }
+
+/// 媒体源目录浏览、搜索与多选范围毛玻璃弹窗（支持本地 / WebDAV / SMB 统一浏览）。
 ///
-/// 支持本地目录、WebDAV 与 SMB 逐级浏览，空勾选集合代表扫描媒体源全部根目录。
+/// 当提供 [onScanSelected] 时，确认扫描将先回传已选作用域并直接启动局部/全库扫库；
+/// 未提供 [onScanSelected] 时（如源编辑器内预选作用域），确认即返回所选相对路径列表。
 Future<List<String>?> showSourceFolderPickerDialog(
   BuildContext context, {
   String? sourceId,
@@ -18,6 +24,8 @@ Future<List<String>?> showSourceFolderPickerDialog(
   String? password,
   bool clearPassword = false,
   List<String> initialSelected = const <String>[],
+  String? sourceLabel,
+  Future<void> Function(List<String> selectedPaths)? onScanSelected,
 }) {
   return showKonataGlassDialog<List<String>>(
     context: context,
@@ -29,6 +37,8 @@ Future<List<String>?> showSourceFolderPickerDialog(
       password: password,
       clearPassword: clearPassword,
       initialSelected: initialSelected,
+      sourceLabel: sourceLabel,
+      onScanSelected: onScanSelected,
     ),
   );
 }
@@ -42,6 +52,8 @@ class _SourceFolderPickerDialog extends ConsumerStatefulWidget {
     required this.password,
     required this.clearPassword,
     required this.initialSelected,
+    this.sourceLabel,
+    this.onScanSelected,
   });
 
   final String? sourceId;
@@ -51,6 +63,8 @@ class _SourceFolderPickerDialog extends ConsumerStatefulWidget {
   final String? password;
   final bool clearPassword;
   final List<String> initialSelected;
+  final String? sourceLabel;
+  final Future<void> Function(List<String> selectedPaths)? onScanSelected;
 
   @override
   ConsumerState<_SourceFolderPickerDialog> createState() =>
@@ -59,11 +73,20 @@ class _SourceFolderPickerDialog extends ConsumerStatefulWidget {
 
 class _SourceFolderPickerDialogState
     extends ConsumerState<_SourceFolderPickerDialog> {
-  final Set<String> _selected = <String>{};
+  static final RegExp _edgeSlashes = RegExp(r'^/+|/+$');
+
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+  final ScrollController _listScrollCtrl = ScrollController();
+  final Set<String> _selectedPaths = <String>{};
+
+  _FolderPickerViewMode _viewMode = _FolderPickerViewMode.browse;
   String _currentPath = '';
-  bool _loading = true;
-  String? _errorText;
+  String _searchQuery = '';
   List<RemoteEntry> _entries = const <RemoteEntry>[];
+  bool _loading = true;
+  bool _busy = false;
+  String? _errorText;
 
   @override
   void initState() {
@@ -71,7 +94,7 @@ class _SourceFolderPickerDialogState
     for (final item in widget.initialSelected) {
       final clean = _normalizeRel(item);
       if (clean.isNotEmpty) {
-        _selected.add(clean);
+        _selectedPaths.add(clean);
       }
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -81,11 +104,16 @@ class _SourceFolderPickerDialogState
     });
   }
 
+  @override
+  void dispose() {
+    _listScrollCtrl.dispose();
+    _searchFocusNode.dispose();
+    _searchController.dispose();
+    super.dispose();
+  }
+
   String _normalizeRel(String raw) {
-    return raw
-        .trim()
-        .replaceAll('\\', '/')
-        .replaceAll(RegExp(r'^/+|/+$'), '');
+    return raw.trim().replaceAll('\\', '/').replaceAll(_edgeSlashes, '');
   }
 
   Future<void> _loadDirectory(String relPath) async {
@@ -94,6 +122,8 @@ class _SourceFolderPickerDialogState
       _loading = true;
       _errorText = null;
       _currentPath = normalized;
+      _searchQuery = '';
+      _searchController.clear();
     });
     try {
       final controller = ref.read(sourcesControllerProvider);
@@ -105,6 +135,7 @@ class _SourceFolderPickerDialogState
         password: widget.password,
         clearPassword: widget.clearPassword,
         relativePath: normalized,
+        includeFiles: true,
       );
       if (!mounted) return;
       setState(() {
@@ -116,164 +147,509 @@ class _SourceFolderPickerDialogState
       setState(() {
         _entries = const <RemoteEntry>[];
         _loading = false;
-        _errorText = DiagnosticTextSanitizer.redactSecrets('$error');
+        _errorText = '读取目录失败: ${DiagnosticTextSanitizer.redactSecrets('$error')}';
       });
     }
   }
 
-  void _toggleSelected(String relPath) {
-    final normalized = _normalizeRel(relPath);
-    if (normalized.isEmpty) return;
+  void _navigateUp() {
+    if (_currentPath.isEmpty) return;
+    final parts = _currentPath.split('/')..removeLast();
+    _loadDirectory(parts.join('/'));
+  }
+
+  void _togglePath(String relativePath) {
+    final norm = _normalizeRel(relativePath);
+    if (norm.isEmpty) return;
     setState(() {
-      if (!_selected.add(normalized)) {
-        _selected.remove(normalized);
+      if (!_selectedPaths.remove(norm)) {
+        _selectedPaths.add(norm);
       }
     });
+  }
+
+  List<String> get _currentRootDirectoryPaths {
+    return _entries
+        .where((e) => e.isDirectory)
+        .map((e) => _normalizeRel(e.relativePath))
+        .where((s) => s.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  void _toggleAllRootDirectories() {
+    final rootDirs = _currentRootDirectoryPaths;
+    if (rootDirs.isEmpty) return;
+    final allSelected = rootDirs.every(_selectedPaths.contains);
+    setState(() {
+      if (allSelected) {
+        _selectedPaths.removeAll(rootDirs);
+      } else {
+        _selectedPaths.addAll(rootDirs);
+      }
+    });
+  }
+
+  void _handleRootCrumbTap() {
+    if (_loading) return;
+    if (_currentPath.isNotEmpty) {
+      _loadDirectory('');
+      return;
+    }
+    if (_currentRootDirectoryPaths.isNotEmpty) {
+      _toggleAllRootDirectories();
+    } else {
+      _loadDirectory('');
+    }
+  }
+
+  void _removePathsBatch(List<String> paths) {
+    if (paths.isEmpty) return;
+    setState(() {
+      for (final raw in paths) {
+        _selectedPaths.remove(_normalizeRel(raw));
+      }
+    });
+  }
+
+  List<String> get _sortedSelected {
+    final list = _selectedPaths.toList()
+      ..sort(SourcesController.compareNaturalFolderName);
+    return list;
+  }
+
+  Future<void> _scanNow() async {
+    final callback = widget.onScanSelected;
+    if (callback == null) return;
+    setState(() => _busy = true);
+    final targets = _sortedSelected;
+    Navigator.of(context).pop(targets);
+    await callback(targets);
+  }
+
+  List<RemoteEntry> get _filteredEntries {
+    final q = _searchQuery.trim().toLowerCase();
+    if (q.isEmpty) return _entries;
+    return _entries
+        .where((e) => e.name.toLowerCase().contains(q))
+        .toList(growable: false);
+  }
+
+  Widget _buildSearchField(KonataPalette p) {
+    return KonataSearchField(
+      controller: _searchController,
+      focusNode: _searchFocusNode,
+      dense: true,
+      onClear: () {
+        _searchController.clear();
+        setState(() => _searchQuery = '');
+      },
+      onChanged: (v) => setState(() => _searchQuery = v),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
     final screen = MediaQuery.sizeOf(context);
-    final isWide = screen.width >= 680;
-    final dialogHeight = (screen.height * 0.72).clamp(320.0, 560.0);
-    final orderedSelected = _selected.toList(growable: false)..sort();
+    final isPhoneLandscape =
+        screen.shortestSide < KonataAdaptiveTokens.tabletBreakpoint &&
+        screen.width > screen.height;
+    final sortedSelected = _sortedSelected;
+    final filtered = _filteredEntries;
+    final title = (widget.sourceLabel != null &&
+            widget.sourceLabel!.trim().isNotEmpty)
+        ? widget.sourceLabel!.trim()
+        : '选择扫库目录作用域';
 
     return KonataGlassDialog(
-      title: '选择扫库目录作用域',
-      width: isWide ? 760 : (screen.width - 28).clamp(300.0, 520.0),
+      width: 940,
+      maxHeight: 640,
+      title: title,
+      inlineHeaderTrailing: isPhoneLandscape,
+      headerBottomSpacing: isPhoneLandscape ? 4 : null,
+      headerTrailing: isPhoneLandscape
+          ? SizedBox(
+              width: math.min(240.0, screen.width * 0.36),
+              child: _buildSearchField(p),
+            )
+          : null,
+      onClose: _busy ? () {} : () => Navigator.of(context).pop(),
       actions: [
         KonataPillButton.ghost(
           label: '取消',
-          onPressed: () => Navigator.of(context).pop(),
+          compact: true,
+          onPressed: _busy ? null : () => Navigator.of(context).pop(),
         ),
-        KonataPillButton.primary(
-          label: orderedSelected.isEmpty
-              ? '使用全盘根目录'
-              : '确认 (${orderedSelected.length})',
-          onPressed: () => Navigator.of(context).pop(orderedSelected),
-        ),
+        if (widget.onScanSelected != null) ...[
+          KonataPillButton.secondary(
+            label: '仅保存范围',
+            compact: true,
+            onPressed: _busy ? null : () => Navigator.of(context).pop(sortedSelected),
+          ),
+          KonataPillButton.primary(
+            label: sortedSelected.isNotEmpty
+                ? '扫描所选目录 (${sortedSelected.length})'
+                : '扫描全库',
+            icon: Icons.radar_rounded,
+            compact: true,
+            onPressed: _busy ? null : _scanNow,
+          ),
+        ] else
+          KonataPillButton.primary(
+            label: sortedSelected.isEmpty
+                ? '使用全盘根目录'
+                : '确认 (${sortedSelected.length})',
+            compact: true,
+            onPressed: () => Navigator.of(context).pop(sortedSelected),
+          ),
       ],
-      child: SizedBox(
-        height: dialogHeight,
-        child: isWide
-            ? Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(
-                    flex: 3,
-                    child: _buildBrowserColumn(p),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    flex: 2,
-                    child: SourceSelectedScopePanel(
-                      selectedPaths: orderedSelected,
-                      onRemovePath: (path) =>
-                          setState(() => _selected.remove(path)),
-                      onClearAll: () => setState(_selected.clear),
+      child: LayoutBuilder(
+        builder: (dialogCtx, outerConstraints) {
+          final targetH = outerConstraints.maxHeight.isFinite
+              ? math.min(488.0, outerConstraints.maxHeight)
+              : 488.0;
+          final landscapeCompact =
+              KonataGlassDialog.isLandscapeCompactInputActive(dialogCtx);
+
+          if (isPhoneLandscape) {
+            return SizedBox(
+              height: targetH,
+              child: Offstage(
+                offstage: landscapeCompact,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      flex: 58,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _buildPathNavigationRow(p, filtered.length),
+                          const SizedBox(height: 6),
+                          Expanded(
+                            child: KonataSurfaceCard(
+                              padding: const EdgeInsets.symmetric(vertical: 4),
+                              child: _buildEntryList(p, filtered),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
-              )
-            : Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(
-                    flex: 3,
-                    child: _buildBrowserColumn(p),
-                  ),
-                  const SizedBox(height: 10),
-                  SizedBox(
-                    height: 132,
-                    child: SourceSelectedScopePanel(
-                      selectedPaths: orderedSelected,
-                      onRemovePath: (path) =>
-                          setState(() => _selected.remove(path)),
-                      onClearAll: () => setState(_selected.clear),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      flex: 42,
+                      child: SourceSelectedScopePanel(
+                        selectedPaths: sortedSelected,
+                        busy: _busy,
+                        showBackButton: false,
+                        onBackToBrowse: () {},
+                        onRemovePathsBatch: _removePathsBatch,
+                        onShowHelp: () => showSourceBrowserHelpDialog(dialogCtx),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
+            );
+          }
+
+          return SizedBox(
+            height: targetH,
+            child: _viewMode == _FolderPickerViewMode.selectedManage
+                ? SourceSelectedScopePanel(
+                    selectedPaths: sortedSelected,
+                    busy: _busy,
+                    onBackToBrowse: () => setState(
+                      () => _viewMode = _FolderPickerViewMode.browse,
+                    ),
+                    onRemovePathsBatch: _removePathsBatch,
+                    onShowHelp: () => showSourceBrowserHelpDialog(dialogCtx),
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _buildTopControls(
+                        p,
+                        filtered.length,
+                        landscapeCompact: landscapeCompact,
+                      ),
+                      Offstage(
+                        offstage: landscapeCompact,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const SizedBox(height: 8),
+                            _buildSelectedEntryBar(
+                              p,
+                              selectedCount: sortedSelected.length,
+                            ),
+                          ],
+                        ),
+                      ),
+                      SizedBox(height: landscapeCompact ? 6 : 8),
+                      Expanded(
+                        child: KonataSurfaceCard(
+                          padding: const EdgeInsets.symmetric(vertical: 6),
+                          child: _buildEntryList(p, filtered),
+                        ),
+                      ),
+                    ],
+                  ),
+          );
+        },
       ),
     );
   }
 
-  Widget _buildBrowserColumn(KonataPalette p) {
-    final segments = _currentPath.isEmpty
-        ? const <String>[]
-        : _currentPath.split('/');
-
-    return Container(
-      decoration: BoxDecoration(
-        color: p.elevatedSurface.withValues(alpha: 0.35),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: p.hairline),
-      ),
-      padding: const EdgeInsets.all(10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              KonataCapsuleIconButton(
-                icon: Icons.arrow_upward_rounded,
-                tooltip: '返回上级目录',
-                color: _currentPath.isEmpty ? p.textMuted : p.textPrimary,
-                size: 16,
-                padding: const EdgeInsets.all(6),
-                onTap: _currentPath.isEmpty
-                    ? () {}
-                    : () {
-                        final parent = segments.length <= 1
-                            ? ''
-                            : segments
-                                .sublist(0, segments.length - 1)
-                                .join('/');
-                        _loadDirectory(parent);
-                      },
+  Widget _buildSelectedEntryBar(
+    KonataPalette p, {
+    required int selectedCount,
+  }) {
+    final minH = KonataAdaptiveTokens.isAndroid
+        ? KonataAdaptiveTokens.touchTarget
+        : 40.0;
+    return MouseRegion(
+      cursor: _busy ? SystemMouseCursors.basic : SystemMouseCursors.click,
+      child: GestureDetector(
+        key: const ValueKey('source_selected_scope_entry'),
+        behavior: HitTestBehavior.opaque,
+        onTap: _busy
+            ? null
+            : () => setState(
+                () => _viewMode = _FolderPickerViewMode.selectedManage,
               ),
-              const SizedBox(width: 6),
+        child: Container(
+          constraints: BoxConstraints(minHeight: minH),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: selectedCount > 0
+                ? p.accent.withValues(alpha: 0.10)
+                : p.softFill,
+            borderRadius: KonataTheme.borderRadiusCard,
+            border: Border.all(
+              color: selectedCount > 0
+                  ? p.accent.withValues(alpha: 0.36)
+                  : p.hairline,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                Icons.folder_copy_outlined,
+                size: 18,
+                color: selectedCount > 0 ? p.accent : p.textSecondary,
+              ),
+              const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  _currentPath.isEmpty ? '/' : '/$_currentPath',
+                  '已选目录 · $selectedCount（点击管理）',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w500,
-                    color: p.textSecondary,
+                    color: p.textPrimary,
+                    fontSize: KonataTheme.fontSizeBodySm,
+                    fontWeight: FontWeight.w600,
+                    fontFeatures: const [FontFeature.tabularFigures()],
                   ),
                 ),
               ),
               KonataCapsuleIconButton(
-                icon: Icons.refresh_rounded,
-                tooltip: '刷新当前目录',
+                icon: Icons.help_outline_rounded,
+                tooltip: '多选扫描说明',
                 color: p.textSecondary,
-                size: 16,
-                padding: const EdgeInsets.all(6),
-                onTap: () => _loadDirectory(_currentPath),
+                size: 17,
+                fixedSize: KonataAdaptiveTokens.isAndroid
+                    ? KonataAdaptiveTokens.touchTarget
+                    : 30.0,
+                padding: const EdgeInsets.all(4),
+                onTap: () => showSourceBrowserHelpDialog(context),
+              ),
+              if (selectedCount > 0) ...[
+                KonataPillButton.ghost(
+                  label: '清空',
+                  compact: true,
+                  onPressed: _busy
+                      ? null
+                      : () => setState(() => _selectedPaths.clear()),
+                ),
+                const SizedBox(width: 2),
+              ],
+              Icon(
+                Icons.chevron_right_rounded,
+                size: 20,
+                color: p.textSecondary,
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          Expanded(
-            child: _buildDirectoryListBody(p),
-          ),
-        ],
+        ),
       ),
     );
   }
 
-  Widget _buildDirectoryListBody(KonataPalette p) {
-    if (_loading) {
-      return const Center(
-        child: SizedBox(
-          width: 24,
-          height: 24,
-          child: CircularProgressIndicator(strokeWidth: 2.2),
+  Widget _buildPathNavigationRow(KonataPalette p, int visibleCount) {
+    final crumbs = _currentPath.isEmpty
+        ? const <String>[]
+        : _currentPath.split('/').where((s) => s.isNotEmpty).toList();
+    final rootDirPaths = _currentRootDirectoryPaths;
+    final bool? checkboxValue;
+    if (_currentPath.isNotEmpty) {
+      checkboxValue = _selectedPaths.contains(_currentPath);
+    } else if (rootDirPaths.isEmpty) {
+      checkboxValue = false;
+    } else {
+      final selectedInRoot = rootDirPaths
+          .where(_selectedPaths.contains)
+          .length;
+      if (selectedInRoot == 0) {
+        checkboxValue = false;
+      } else if (selectedInRoot == rootDirPaths.length) {
+        checkboxValue = true;
+      } else {
+        checkboxValue = null;
+      }
+    }
+
+    return Row(
+      children: [
+        KonataPillButton.secondary(
+          label: '上级',
+          icon: Icons.arrow_upward_rounded,
+          compact: true,
+          onPressed: _loading || _currentPath.isEmpty ? null : _navigateUp,
         ),
-      );
+        const SizedBox(width: 6),
+        Tooltip(
+          message: _currentPath.isEmpty
+              ? '全选或取消全选根路径下的全部目录'
+              : '勾选或取消勾选当前目录',
+          child: Checkbox(
+            tristate: _currentPath.isEmpty,
+            value: checkboxValue,
+            onChanged: _loading
+                ? null
+                : (_currentPath.isEmpty
+                      ? (rootDirPaths.isEmpty
+                            ? null
+                            : (_) => _toggleAllRootDirectories())
+                      : (_) => _togglePath(_currentPath)),
+          ),
+        ),
+        Expanded(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _crumbButton(
+                  key: const ValueKey('source_picker_root_crumb'),
+                  p: p,
+                  label: '根目录',
+                  active: _currentPath.isEmpty,
+                  onTap: _loading ? null : _handleRootCrumbTap,
+                ),
+                for (var i = 0; i < crumbs.length; i++) ...[
+                  Text(
+                    '/',
+                    style: TextStyle(
+                      color: p.textMuted,
+                      fontSize: KonataTheme.fontSizeCaption,
+                    ),
+                  ),
+                  _crumbButton(
+                    p: p,
+                    label: crumbs[i],
+                    active: i == crumbs.length - 1,
+                    onTap: _loading
+                        ? null
+                        : () => _loadDirectory(
+                            crumbs.sublist(0, i + 1).join('/'),
+                          ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 6),
+        KonataCapsuleIconButton(
+          icon: Icons.refresh_rounded,
+          tooltip: '刷新当前目录',
+          color: p.textSecondary,
+          size: 16,
+          fixedSize: KonataAdaptiveTokens.isAndroid
+              ? KonataAdaptiveTokens.touchTarget
+              : 30.0,
+          padding: const EdgeInsets.all(4),
+          onTap: _loading ? null : () => _loadDirectory(_currentPath),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          _searchQuery.isEmpty
+              ? '${_entries.length} 项'
+              : '匹配 $visibleCount / ${_entries.length}',
+          style: TextStyle(
+            color: p.textSecondary,
+            fontSize: KonataTheme.fontSizeCaption,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTopControls(
+    KonataPalette p,
+    int visibleCount, {
+    bool landscapeCompact = false,
+  }) {
+    return Column(
+      children: [
+        Offstage(
+          offstage: landscapeCompact,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildPathNavigationRow(p, visibleCount),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+        _buildSearchField(p),
+      ],
+    );
+  }
+
+  Widget _crumbButton({
+    Key? key,
+    required KonataPalette p,
+    required String label,
+    required bool active,
+    required VoidCallback? onTap,
+  }) {
+    return MouseRegion(
+      cursor: onTap != null ? SystemMouseCursors.click : SystemMouseCursors.basic,
+      child: GestureDetector(
+        key: key,
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: active ? p.textPrimary : p.textSecondary,
+              fontSize: KonataTheme.fontSizeBodyXs,
+              fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEntryList(KonataPalette p, List<RemoteEntry> entries) {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
     }
     if (_errorText != null) {
       return Center(
@@ -282,12 +658,13 @@ class _SourceFolderPickerDialogState
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.folder_off_outlined, size: 28, color: p.danger),
-              const SizedBox(height: 8),
               Text(
-                '目录加载失败：$_errorText',
+                _errorText!,
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12.5, color: p.textSecondary),
+                style: TextStyle(
+                  color: p.danger,
+                  fontSize: KonataTheme.fontSizeBodySm,
+                ),
               ),
               const SizedBox(height: 10),
               KonataPillButton.secondary(
@@ -300,70 +677,48 @@ class _SourceFolderPickerDialogState
         ),
       );
     }
-    if (_entries.isEmpty) {
+    if (entries.isEmpty) {
       return Center(
         child: Text(
-          '当前目录下没有更多子文件夹',
-          style: TextStyle(fontSize: 12.5, color: p.textMuted),
+          _searchQuery.isNotEmpty ? '没有匹配当前筛选条件的条目' : '该目录为空',
+          style: TextStyle(
+            color: p.textSecondary,
+            fontSize: KonataTheme.fontSizeBodySm,
+          ),
         ),
       );
     }
 
-    return KonataDraggableScrollbar(
-      builder: (context, scrollCtrl) => ListView.builder(
-        controller: scrollCtrl,
-        itemCount: _entries.length,
-        itemBuilder: (context, index) {
-          final entry = _entries[index];
-          final rel = _normalizeRel(entry.relativePath);
-          final checked = _selected.contains(rel);
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(10),
-              onTap: () => _loadDirectory(rel),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                decoration: BoxDecoration(
-                  color: checked
-                      ? p.accent.withValues(alpha: 0.12)
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Row(
-                  children: [
-                    Checkbox(
-                      value: checked,
-                      onChanged: (_) => _toggleSelected(rel),
-                    ),
-                    Icon(
-                      Icons.folder_rounded,
-                      size: 18,
-                      color: checked ? p.accent : p.textSecondary,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        entry.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: p.textPrimary,
-                        ),
-                      ),
-                    ),
-                    Icon(
-                      Icons.chevron_right_rounded,
-                      size: 18,
-                      color: p.textMuted,
-                    ),
-                  ],
-                ),
+    // 列表视口独立重绘边界与局部透明材质，严格裁切滚动边缘与悬停响应，不触发外层毛玻璃重绘。
+    return RepaintBoundary(
+      child: ClipRect(
+        child: Material(
+          type: MaterialType.transparency,
+          child: KonataDraggableScrollbar(
+            controller: _listScrollCtrl,
+            builder: (_, ctrl) => ListView.separated(
+              controller: ctrl,
+              padding: const EdgeInsets.only(right: 12),
+              itemCount: entries.length,
+              separatorBuilder: (_, _) => Divider(
+                height: 1,
+                color: p.hairline,
+                indent: 14,
+                endIndent: 14,
               ),
+              itemBuilder: (_, index) {
+                final entry = entries[index];
+                final rel = _normalizeRel(entry.relativePath);
+                return SourceBrowserEntryRow(
+                  entry: entry,
+                  checked: entry.isDirectory && _selectedPaths.contains(rel),
+                  onEnterDirectory: () => _loadDirectory(rel),
+                  onToggleDirectory: () => _togglePath(rel),
+                );
+              },
             ),
-          );
-        },
+          ),
+        ),
       ),
     );
   }

@@ -156,10 +156,12 @@ class WorkManagementController {
 
   /// 将源作品 [sourceWorkId] 下全部物理文件与分集合并至 [targetWorkId] 并写入归属锁。
   ///
-  /// 合并完成后源作品空壳以软删除墓碑移出媒体库，绝不删除任何物理文件。
+  /// 合并完成后若源作品无剩余文件则以软删除墓碑移出媒体库，绝不删除任何物理文件。
   Future<WorkMergeOutcome> mergeWorkIntoTarget({
     required String sourceWorkId,
     required String targetWorkId,
+    MergeVideoCategoryMode categoryMode = MergeVideoCategoryMode.preserve,
+    List<String>? onlyVariantIds,
   }) async {
     if (sourceWorkId == targetWorkId) {
       throw ArgumentError('源作品与目标作品不能相同');
@@ -174,6 +176,22 @@ class WorkManagementController {
     final sourceEpisodes = await _repository.getEpisodesByWork(sourceWorkId);
     final sourceVariants = await _repository.getVariantsByWork(sourceWorkId);
     final targetEpisodes = await _repository.getEpisodesByWork(targetWorkId);
+    final selectedIdSet = onlyVariantIds?.toSet();
+    final variantsToMove = selectedIdSet == null
+        ? sourceVariants
+        : sourceVariants
+              .where((variant) => selectedIdSet.contains(variant.id))
+              .toList(growable: false);
+    if (variantsToMove.isEmpty) {
+      throw StateError('未选中任何可迁移的视频文件');
+    }
+
+    final remainingVariants = selectedIdSet == null
+        ? const <MediaVariant>[]
+        : sourceVariants
+              .where((variant) => !selectedIdSet.contains(variant.id))
+              .toList(growable: false);
+    final moveAllSource = remainingVariants.isEmpty;
 
     final targetEpBySlot = <String, Episode>{
       for (final ep in targetEpisodes) _episodeSlotKey(ep): ep,
@@ -181,11 +199,47 @@ class WorkManagementController {
     final sourceEpById = <String, Episode>{
       for (final ep in sourceEpisodes) ep.id: ep,
     };
+    final referencedEpIds = <String>{
+      for (final v in variantsToMove)
+        if (v.episodeId != null) v.episodeId!,
+    };
+    final episodesToMigrate = moveAllSource
+        ? sourceEpisodes
+        : sourceEpisodes
+              .where((ep) => referencedEpIds.contains(ep.id))
+              .toList(growable: false);
 
     var movedEpisodes = 0;
     final remappedEpisodeIds = <String, String>{};
-    for (final srcEp in sourceEpisodes) {
-      final slotKey = _episodeSlotKey(srcEp);
+    for (final srcEp in episodesToMigrate) {
+      final adjustedCategory = switch (categoryMode) {
+        MergeVideoCategoryMode.preserve => srcEp.category,
+        MergeVideoCategoryMode.asExtra => EpisodeCategory.extra,
+        MergeVideoCategoryMode.asMain => EpisodeCategory.main,
+      };
+      final adjustedExtraType = switch (categoryMode) {
+        MergeVideoCategoryMode.preserve => srcEp.extraType,
+        MergeVideoCategoryMode.asExtra => srcEp.extraType ?? ExtraKind.sp,
+        MergeVideoCategoryMode.asMain => null,
+      };
+      final adjustedSeason = switch (categoryMode) {
+        MergeVideoCategoryMode.preserve => srcEp.seasonNumber,
+        MergeVideoCategoryMode.asExtra => 0,
+        MergeVideoCategoryMode.asMain => targetWork.matchedSeason ?? 1,
+      };
+      final adjustedTemplate = Episode(
+        id: srcEp.id,
+        workId: targetWorkId,
+        seasonNumber: adjustedSeason,
+        episodeNumber: srcEp.episodeNumber,
+        episodeNumberEnd: srcEp.episodeNumberEnd,
+        category: adjustedCategory,
+        extraType: adjustedExtraType,
+        title: srcEp.title,
+        overview: srcEp.overview,
+        stillPath: srcEp.stillPath,
+      );
+      final slotKey = _episodeSlotKey(adjustedTemplate);
       final existingTarget = targetEpBySlot[slotKey];
       if (existingTarget != null) {
         remappedEpisodeIds[srcEp.id] = existingTarget.id;
@@ -196,11 +250,11 @@ class WorkManagementController {
         final copied = Episode(
           id: newEpId,
           workId: targetWorkId,
-          seasonNumber: srcEp.seasonNumber,
+          seasonNumber: adjustedSeason,
           episodeNumber: srcEp.episodeNumber,
           episodeNumberEnd: srcEp.episodeNumberEnd,
-          category: srcEp.category,
-          extraType: srcEp.extraType,
+          category: adjustedCategory,
+          extraType: adjustedExtraType,
           title: srcEp.title,
           overview: srcEp.overview,
           stillPath: srcEp.stillPath,
@@ -213,12 +267,36 @@ class WorkManagementController {
     }
 
     var movedVariants = 0;
-    for (final variant in sourceVariants) {
+    for (final variant in variantsToMove) {
       final oldEpId = variant.episodeId;
-      final newEpId = oldEpId != null
+      var newEpId = oldEpId != null
           ? (remappedEpisodeIds[oldEpId] ??
                 (sourceEpById.containsKey(oldEpId) ? null : oldEpId))
           : null;
+      if (newEpId == null && categoryMode != MergeVideoCategoryMode.preserve) {
+        final forcedCat = categoryMode == MergeVideoCategoryMode.asExtra
+            ? EpisodeCategory.extra
+            : EpisodeCategory.main;
+        final forcedSeason = forcedCat == EpisodeCategory.extra
+            ? 0
+            : (targetWork.matchedSeason ?? 1);
+        final forcedEp = Episode(
+          id: ScrapeWorkPersister.deterministicId(
+            '$targetWorkId::merged_var::${variant.id}',
+          ),
+          workId: targetWorkId,
+          seasonNumber: forcedSeason,
+          episodeNumber: forcedCat == EpisodeCategory.extra
+              ? null
+              : (movedVariants + 1),
+          category: forcedCat,
+          extraType: forcedCat == EpisodeCategory.extra ? ExtraKind.sp : null,
+          title: variant.fileName,
+        );
+        await _repository.upsertEpisode(forcedEp);
+        newEpId = forcedEp.id;
+        movedEpisodes++;
+      }
       await _repository.upsertMediaVariant(
         variant.copyWith(
           workId: targetWorkId,
@@ -258,24 +336,40 @@ class WorkManagementController {
     );
     await _repository.upsertWork(enrichedTarget);
 
-    for (final srcEp in sourceEpisodes) {
-      databases.library.episodes.softDelete(
-        EpisodeId.trusted(srcEp.id),
+    if (moveAllSource) {
+      for (final srcEp in sourceEpisodes) {
+        databases.library.episodes.softDelete(
+          EpisodeId.trusted(srcEp.id),
+          deletedAtMs: now,
+          sourceDeviceId: sourceDeviceId,
+        );
+      }
+      databases.library.works.softDelete(
+        WorkId.trusted(sourceWorkId),
         deletedAtMs: now,
         sourceDeviceId: sourceDeviceId,
       );
+      await _repository.clearScrapeCandidates(sourceWorkId);
+      await photosStorage.mergeWorkPhotos(
+        sourceWorkId: sourceWorkId,
+        targetWorkId: targetWorkId,
+        targetTitle: enrichedTarget.title,
+      );
+    } else {
+      final keptEpIds = <String>{
+        for (final v in remainingVariants)
+          if (v.episodeId != null) v.episodeId!,
+      };
+      for (final srcEp in sourceEpisodes) {
+        if (!keptEpIds.contains(srcEp.id)) {
+          databases.library.episodes.softDelete(
+            EpisodeId.trusted(srcEp.id),
+            deletedAtMs: now,
+            sourceDeviceId: sourceDeviceId,
+          );
+        }
+      }
     }
-    databases.library.works.softDelete(
-      WorkId.trusted(sourceWorkId),
-      deletedAtMs: now,
-      sourceDeviceId: sourceDeviceId,
-    );
-    await _repository.clearScrapeCandidates(sourceWorkId);
-    await photosStorage.mergeWorkPhotos(
-      sourceWorkId: sourceWorkId,
-      targetWorkId: targetWorkId,
-      targetTitle: enrichedTarget.title,
-    );
 
     try {
       await SeriesAutoLinker.reconcileAll(
@@ -288,7 +382,10 @@ class WorkManagementController {
     } catch (_) {}
 
     _publishWorkChanged(targetWorkId, 'merged_target');
-    _publishWorkChanged(sourceWorkId, 'merged_source_deleted');
+    _publishWorkChanged(
+      sourceWorkId,
+      moveAllSource ? 'merged_source_deleted' : 'merged_source_split',
+    );
 
     final latestTarget =
         (await _repository.findWorkById(targetWorkId)) ?? enrichedTarget;
@@ -296,8 +393,93 @@ class WorkManagementController {
       targetWork: latestTarget,
       movedVariantCount: movedVariants,
       movedEpisodeCount: movedEpisodes,
-      sourceDeleted: true,
+      sourceDeleted: moveAllSource,
     );
+  }
+
+  /// 将指定的部分视频文件从原作品拆分出来，创建待绑定独立作品并返回新作品主键。
+  Future<String> splitVariantsToIndependentWork({
+    required String sourceWorkId,
+    required List<String> variantIds,
+    String? initialTitle,
+  }) async {
+    final sourceWork = await _repository.findWorkById(sourceWorkId);
+    if (sourceWork == null) {
+      throw StateError('原作品不存在: $sourceWorkId');
+    }
+    final allVariants = await _repository.getVariantsByWork(sourceWorkId);
+    final selectedSet = variantIds.toSet();
+    final selectedVariants = allVariants
+        .where((v) => selectedSet.contains(v.id))
+        .toList(growable: false);
+    if (selectedVariants.isEmpty) {
+      throw StateError('请先选择至少一个视频文件');
+    }
+    final now = _nowMs();
+    final derivedDir = MediaDisplayFormatter.extractParentDirectory(
+      selectedVariants.first.relativePath,
+    );
+    final folderTail = derivedDir.contains('/')
+        ? derivedDir.split('/').last
+        : derivedDir;
+    final cleanTitle =
+        (initialTitle != null && initialTitle.trim().isNotEmpty)
+        ? initialTitle.trim()
+        : (folderTail.isNotEmpty ? folderTail : sourceWork.title);
+    final newWorkId = ScrapeWorkPersister.deterministicId(
+      '$sourceWorkId::split::$now::${variantIds.join(",")}',
+    );
+    final splitWork = Work(
+      id: newWorkId,
+      title: cleanTitle,
+      year: sourceWork.year,
+      isHidden: sourceWork.isHidden,
+      scrapeStatus: ScrapeStatus.needsReview,
+    );
+    await _repository.upsertWork(splitWork);
+    for (final v in selectedVariants) {
+      await _repository.upsertMediaVariant(
+        v.copyWith(workId: newWorkId, clearEpisodeId: true, workLocked: true),
+      );
+    }
+
+    final remaining = allVariants
+        .where((v) => !selectedSet.contains(v.id))
+        .toList(growable: false);
+    final sourceEpisodes = await _repository.getEpisodesByWork(sourceWorkId);
+    if (remaining.isEmpty) {
+      for (final ep in sourceEpisodes) {
+        databases.library.episodes.softDelete(
+          EpisodeId.trusted(ep.id),
+          deletedAtMs: now,
+          sourceDeviceId: sourceDeviceId,
+        );
+      }
+      databases.library.works.softDelete(
+        WorkId.trusted(sourceWorkId),
+        deletedAtMs: now,
+        sourceDeviceId: sourceDeviceId,
+      );
+      await _repository.clearScrapeCandidates(sourceWorkId);
+    } else {
+      final keptEpIds = <String>{
+        for (final v in remaining)
+          if (v.episodeId != null) v.episodeId!,
+      };
+      for (final ep in sourceEpisodes) {
+        if (!keptEpIds.contains(ep.id)) {
+          databases.library.episodes.softDelete(
+            EpisodeId.trusted(ep.id),
+            deletedAtMs: now,
+            sourceDeviceId: sourceDeviceId,
+          );
+        }
+      }
+    }
+
+    _publishWorkChanged(sourceWorkId, 'split_source');
+    _publishWorkChanged(newWorkId, 'split_created');
+    return newWorkId;
   }
 
   /// 将待复核条目人工确认放行（转为已匹配并锁定人工标记）。
@@ -322,6 +504,7 @@ class WorkManagementController {
     required String workId,
     required int tmdbId,
     required TmdbMediaType mediaType,
+    bool writeIdToFolderName = false,
     bool markManualLocked = true,
     bool resetManualLocks = false,
   }) async {
@@ -330,6 +513,7 @@ class WorkManagementController {
       workId,
       tmdbId,
       mediaType,
+      writeIdToFolderName: writeIdToFolderName,
       markManualLocked: markManualLocked,
       resetManualLocks: resetManualLocks,
     );
@@ -408,6 +592,19 @@ class WorkManagementController {
     return tmdb.getWorkDetail(
       tmdbId,
       mediaType,
+      priority: RequestPriority.interactive,
+    );
+  }
+
+  /// 获取 TMDB 指定季的分集列表与单季详情（供混合匹配选季拉取）。
+  Future<TmdbSeasonDetail?> fetchTmdbSeasonDetail(
+    int tmdbId,
+    int seasonNumber,
+  ) {
+    final tmdb = tmdbServiceOverride ?? TmdbService(httpClient: httpClient);
+    return tmdb.getSeasonDetail(
+      tmdbId,
+      seasonNumber,
       priority: RequestPriority.interactive,
     );
   }

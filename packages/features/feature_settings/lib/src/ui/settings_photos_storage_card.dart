@@ -1,5 +1,9 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:konata_contracts/konata_contracts.dart';
 import 'package:konata_design_system/konata_design_system.dart';
 import 'package:konata_storage/konata_storage.dart';
 
@@ -7,23 +11,41 @@ import '../data/photos_cleanup_scanner.dart';
 import '../providers.dart';
 import '../state/settings_controller.dart';
 import 'photo_custom_cleanup_dialog.dart';
-import 'settings_shared_widgets.dart';
 
-/// 本地图片存储统计清理与脱敏诊断日志导出面板（纯设计系统组件实现）。
+/// 显示设置页底部的统一 `photos/` 图片存储管理卡片：
+/// 展示根目录路径、五类图片分项占用统计，并支持打开存储目录与按「作品 × 分类」自定义清理。
 class SettingsPhotosStorageCard extends ConsumerWidget {
-  /// 创建存储与诊断日志设置卡片。
-  const SettingsPhotosStorageCard({super.key, this.controller});
+  /// 创建图片存储管理卡片。
+  const SettingsPhotosStorageCard({
+    super.key,
+    this.controller,
+    this.isWindowsOverride,
+  });
 
   /// 可选直传设置控制器；为空时从 [settingsControllerProvider] 获取。
   final SettingsController? controller;
 
-  Future<void> _onClearRegenerable(
+  /// 可选平台覆盖标记（用于直传控制器单测）。
+  final bool? isWindowsOverride;
+
+  Future<void> _openPhotosFolder(
     BuildContext context,
     SettingsController ctrl,
+    String rootPath,
   ) async {
-    final removed = await ctrl.clearRegenerableCaches();
-    if (context.mounted) {
-      showKonataToast(context, '已清理可再生缓存 $removed 个文件');
+    try {
+      final dir = Directory(rootPath);
+      if (!dir.existsSync()) {
+        dir.createSync(recursive: true);
+      }
+      final ok = await ctrl.openExternalUrl(Uri.file(dir.path));
+      if (!ok && context.mounted) {
+        showKonataToast(context, '无法打开本地图片目录', isError: true);
+      }
+    } catch (err) {
+      if (context.mounted) {
+        showKonataToast(context, '打开目录失败: $err', isError: true);
+      }
     }
   }
 
@@ -35,36 +57,24 @@ class SettingsPhotosStorageCard extends ConsumerWidget {
     if (!context.mounted) {
       return;
     }
-    final choice = await showPhotoCustomCleanupDialog(
+    await showPhotoCustomCleanupDialog(
       context,
       snapshot: snapshot,
+      onExecuteCleanup: (selection) => ctrl.clearCustomPhotos(
+        workDirKeys: selection.workDirKeys,
+        categories: selection.categories,
+      ),
     );
-    if (choice == null || choice.categories.isEmpty) {
-      return;
-    }
-    final removed = await ctrl.clearPhotoCategories(
-      choice.categories,
-      workId: choice.workId,
-    );
-    if (context.mounted) {
-      showKonataToast(context, '已精准清理 $removed 个图片文件');
-    }
   }
 
-  Future<void> _onExportDiagnostics(
-    BuildContext context,
-    SettingsController ctrl, {
-    required bool asJson,
-  }) async {
-    final savedPath = await ctrl.exportDiagnosticBundle(asJson: asJson);
-    if (!context.mounted) {
-      return;
-    }
-    if (savedPath == null) {
-      showKonataToast(context, '已取消导出诊断报告');
-    } else {
-      showKonataToast(context, '已导出脱敏诊断报告至：$savedPath');
-    }
+  static String _categoryTitle(PhotoSubfolder sub) {
+    return switch (sub) {
+      PhotoSubfolder.posters => PhotoStorageCategory.posters.displayLabel,
+      PhotoSubfolder.backdrops => PhotoStorageCategory.backdrops.displayLabel,
+      PhotoSubfolder.logos => PhotoStorageCategory.logos.displayLabel,
+      PhotoSubfolder.thumbnails => PhotoStorageCategory.thumbnails.displayLabel,
+      PhotoSubfolder.scans => PhotoStorageCategory.scans.displayLabel,
+    };
   }
 
   @override
@@ -72,293 +82,238 @@ class SettingsPhotosStorageCard extends ConsumerWidget {
     final direct = controller;
     final SettingsController effectiveController =
         direct ?? ref.watch(settingsControllerProvider);
-    final tokens = Theme.of(context).extension<KonataPalette>()!;
+    final bool showWindowsOpenFolder =
+        isWindowsOverride ??
+        (direct != null
+            ? KonataAdaptiveTokens.isWindows
+            : ref.watch(featureSettingsDependenciesProvider).currentPlatform ==
+                  KonataPlatform.windows);
+    final p = context.palette;
 
     return AnimatedBuilder(
       animation: effectiveController,
       builder: (context, _) {
         final snapshot = effectiveController.photosSnapshot;
         final stats = snapshot?.globalStats;
-        final diagCounts = effectiveController.diagnosticCounts;
+        final loading = effectiveController.isScanningPhotos;
+        final rootPath =
+            stats?.rootPath ?? effectiveController.photosRootPath ?? '--';
+        final regenerableBytes = stats?.regenerableBytes ?? 0;
+        final regenerableFiles = stats?.regenerableFiles ?? 0;
+        final canCustomizeClean =
+            snapshot != null &&
+            (snapshot.workEntries.isNotEmpty || (stats?.totalFiles ?? 0) > 0);
 
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            KonataSurfaceCard(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SettingsSectionHeader(
-                    icon: Icons.storage_rounded,
-                    title: '本地图片与缓存占用',
-                    subtitle: stats == null
-                        ? '正在扫描本地图片目录...'
-                        : '根目录：${stats.rootPath}',
-                    trailing: KonataPillButton.ghost(
-                      label: effectiveController.isScanningPhotos
-                          ? '刷新中...'
-                          : '重新扫描',
+        final summaryText = stats == null
+            ? '--'
+            : '${stats.workFolderCount} 部作品 · '
+                  '${stats.totalFiles} 张 · '
+                  '${PhotosCleanupScanner.formatBytes(stats.totalBytes)}';
+
+        return KonataSurfaceCard(
+          padding: EdgeInsets.zero,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 14, 14, 10),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '本地图片存储',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: p.textPrimary,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    KonataPillButton.ghost(
+                      label: loading ? '统计中...' : '刷新',
                       icon: Icons.refresh_rounded,
                       compact: true,
-                      onPressed: effectiveController.isScanningPhotos
+                      onPressed: loading
                           ? null
-                          : effectiveController.refreshPhotosStorage,
+                          : () => unawaited(
+                              effectiveController.refreshPhotosStorage(),
+                            ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  if (stats != null) ...[
-                    Row(
-                      children: [
-                        _MetricTile(
-                          label: '总占用空间',
-                          value: PhotosCleanupScanner.formatBytes(
-                            stats.totalBytes,
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 0, 18, 14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 9,
+                      ),
+                      decoration: BoxDecoration(
+                        color: p.softFill,
+                        borderRadius: KonataTheme.borderRadiusControl,
+                        border: Border.all(color: p.hairline),
+                      ),
+                      child: AdaptiveResponsiveRow(
+                        estimatedTrailingWidth: 165,
+                        minLeadingWidth: 140,
+                        verticalGap: 6,
+                        stackedTrailingAlignment: Alignment.centerLeft,
+                        leading: Row(
+                          children: [
+                            Icon(
+                              Icons.folder_outlined,
+                              size: 16,
+                              color: p.textSecondary,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: EllipsisTextWithTooltip(
+                                text: rootPath,
+                                maxLines: 1,
+                                style: TextStyle(
+                                  color: p.textPrimary,
+                                  fontSize: KonataTheme.fontSizeBodyXs,
+                                  fontFamily: 'Consolas',
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        trailing: Text(
+                          summaryText,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: p.textSecondary,
+                            fontSize: KonataTheme.fontSizeCaption,
+                            fontWeight: FontWeight.w600,
+                            fontFeatures: KonataPlaybackTokens.tabularNumbers,
                           ),
-                          tokens: tokens,
                         ),
-                        const SizedBox(width: 12),
-                        _MetricTile(
-                          label: '图片文件总数',
-                          value: '${stats.totalFiles} 张',
-                          tokens: tokens,
-                        ),
-                        const SizedBox(width: 12),
-                        _MetricTile(
-                          label: '作品目录数',
-                          value: '${stats.workFolderCount} 个',
-                          tokens: tokens,
-                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        for (final sub in PhotoSubfolder.values)
+                          _CategoryStatChip(
+                            label: _categoryTitle(sub),
+                            stat: stats?.byCategory[sub],
+                          ),
                       ],
                     ),
                     const SizedBox(height: 14),
-                    for (final cat in PhotoStorageCategory.values)
-                      _CategoryBreakdownRow(
-                        label: cat.displayLabel,
-                        stat:
-                            stats.byCategory[cat.toSubfolder()] ??
-                            PhotoCategoryStat.zero,
-                        isRegenerable: cat.isRegenerable,
-                        tokens: tokens,
+                    AdaptiveResponsiveRow(
+                      estimatedTrailingWidth: showWindowsOpenFolder ? 250 : 112,
+                      minLeadingWidth: 140,
+                      leading: Text(
+                        '可再生缓存 (scans + thumbnails)：'
+                        '${PhotosCleanupScanner.formatBytes(regenerableBytes)}'
+                        '（$regenerableFiles 张）',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: p.textMuted,
+                          fontSize: KonataTheme.fontSizeCaption,
+                          fontFeatures: KonataPlaybackTokens.tabularNumbers,
+                        ),
                       ),
-                    const SizedBox(height: 14),
+                      trailing: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          if (showWindowsOpenFolder && rootPath != '--')
+                            KonataPillButton.secondary(
+                              label: '打开 photos 文件夹',
+                              icon: Icons.folder_open_rounded,
+                              compact: true,
+                              onPressed: () => unawaited(
+                                _openPhotosFolder(
+                                  context,
+                                  effectiveController,
+                                  rootPath,
+                                ),
+                              ),
+                            ),
+                          KonataPillButton.secondary(
+                            key: const ValueKey(
+                              'settings_photos_custom_cleanup_button',
+                            ),
+                            label: '自定义清理',
+                            icon: Icons.cleaning_services_outlined,
+                            compact: true,
+                            onPressed: canCustomizeClean
+                                ? () => unawaited(
+                                    _onCustomCleanup(
+                                      context,
+                                      effectiveController,
+                                    ),
+                                  )
+                                : null,
+                          ),
+                        ],
+                      ),
+                    ),
                   ],
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 8,
-                    children: [
-                      KonataPillButton.primary(
-                        label: '清理可再生缩略缓存',
-                        icon: Icons.cleaning_services_outlined,
-                        compact: true,
-                        onPressed: effectiveController.isScanningPhotos
-                            ? null
-                            : () => _onClearRegenerable(
-                                context,
-                                effectiveController,
-                              ),
-                      ),
-                      KonataPillButton.secondary(
-                        label: '自定义精确清理',
-                        icon: Icons.tune_rounded,
-                        compact: true,
-                        onPressed: effectiveController.isScanningPhotos
-                            ? null
-                            : () => _onCustomCleanup(
-                                context,
-                                effectiveController,
-                              ),
-                      ),
-                    ],
-                  ),
-                ],
+                ),
               ),
-            ),
-            const SizedBox(height: 16),
-            KonataSurfaceCard(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SettingsSectionHeader(
-                    icon: Icons.bug_report_outlined,
-                    title: '运行诊断日志与脱敏导出',
-                    subtitle: '导出前自动剥离 API 密钥、PAT 凭据与本地用户主目录敏感路径',
-                  ),
-                  const SizedBox(height: 14),
-                  SettingsSwitchTile(
-                    title: '记录详细调试事件',
-                    subtitle: '开启后保留网络调度与任务细节以便排查疑难故障',
-                    value: effectiveController.verboseDiagnosticsEnabled,
-                    onChanged: effectiveController.setDiagnosticVerbose,
-                  ),
-                  const SizedBox(height: 14),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: tokens.softFill,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: tokens.hairline),
-                    ),
-                    child: Text(
-                      '当前累计记录 ${diagCounts.totalEvents} 条事件 · 告警 ${diagCounts.warningCount} 条 · 错误 ${diagCounts.errorCount} 条 · 面包屑 ${diagCounts.breadcrumbCount} 条',
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        color: tokens.textSecondary,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 8,
-                    children: [
-                      KonataPillButton.primary(
-                        label: effectiveController.isExportingDiagnostics
-                            ? '正在脱敏导出...'
-                            : '导出脱敏 JSON 诊断包',
-                        icon: Icons.download_outlined,
-                        compact: true,
-                        onPressed: effectiveController.isExportingDiagnostics
-                            ? null
-                            : () => _onExportDiagnostics(
-                                context,
-                                effectiveController,
-                                asJson: true,
-                              ),
-                      ),
-                      KonataPillButton.secondary(
-                        label: '导出脱敏文本报告',
-                        icon: Icons.description_outlined,
-                        compact: true,
-                        onPressed: effectiveController.isExportingDiagnostics
-                            ? null
-                            : () => _onExportDiagnostics(
-                                context,
-                                effectiveController,
-                                asJson: false,
-                              ),
-                      ),
-                      KonataPillButton.ghost(
-                        label: '清空内存日志',
-                        icon: Icons.delete_outline_rounded,
-                        compact: true,
-                        onPressed: () {
-                          effectiveController.clearDiagnosticLogs();
-                          showKonataToast(context, '已清空运行日志缓存');
-                        },
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
+            ],
+          ),
         );
       },
     );
   }
 }
 
-class _MetricTile extends StatelessWidget {
-  const _MetricTile({
-    required this.label,
-    required this.value,
-    required this.tokens,
-  });
+class _CategoryStatChip extends StatelessWidget {
+  const _CategoryStatChip({required this.label, required this.stat});
 
   final String label;
-  final String value;
-  final KonataPalette tokens;
+  final PhotoCategoryStat? stat;
 
   @override
   Widget build(BuildContext context) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: tokens.softFill,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: tokens.hairline),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              label,
-              style: TextStyle(fontSize: 11.5, color: tokens.textSecondary),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 14.5,
-                fontWeight: FontWeight.w700,
-                color: tokens.textPrimary,
-              ),
-            ),
-          ],
-        ),
+    final p = context.palette;
+    final bytes = stat?.bytes ?? 0;
+    final files = stat?.files ?? 0;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+      decoration: BoxDecoration(
+        color: p.softFill,
+        borderRadius: KonataTheme.borderRadiusControl,
+        border: Border.all(color: p.hairline),
       ),
-    );
-  }
-}
-
-class _CategoryBreakdownRow extends StatelessWidget {
-  const _CategoryBreakdownRow({
-    required this.label,
-    required this.stat,
-    required this.isRegenerable,
-    required this.tokens,
-  });
-
-  final String label;
-  final PhotoCategoryStat stat;
-  final bool isRegenerable;
-  final KonataPalette tokens;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Expanded(
-            child: Row(
-              children: [
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: tokens.textPrimary,
-                  ),
-                ),
-                if (isRegenerable) ...[
-                  const SizedBox(width: 6),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 1,
-                    ),
-                    decoration: BoxDecoration(
-                      color: tokens.accent.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      '可再生',
-                      style: TextStyle(fontSize: 10.5, color: tokens.accent),
-                    ),
-                  ),
-                ],
-              ],
+          Text(
+            label,
+            style: TextStyle(
+              color: p.textSecondary,
+              fontSize: KonataTheme.fontSizeCaptionSm,
+              fontWeight: FontWeight.w500,
             ),
           ),
+          const SizedBox(height: 2),
           Text(
-            '${stat.files} 个 · ${PhotosCleanupScanner.formatBytes(stat.bytes)}',
-            style: TextStyle(fontSize: 12.5, color: tokens.textSecondary),
+            '${PhotosCleanupScanner.formatBytes(bytes)} · $files 张',
+            style: TextStyle(
+              color: p.textPrimary,
+              fontSize: KonataTheme.fontSizeBodyXs,
+              fontWeight: FontWeight.w600,
+              fontFeatures: KonataPlaybackTokens.tabularNumbers,
+            ),
           ),
         ],
       ),

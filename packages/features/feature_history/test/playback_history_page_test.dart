@@ -243,4 +243,177 @@ void main() {
     expect(tombstones.length, equals(3));
     expect(tombstones.every((r) => r.isDeleted), isTrue);
   });
+
+  testWidgets('支持介质胶囊过滤、横向展开抽屉与批量标记已看已听状态持久化', (tester) async {
+    final db = KonataDatabaseBundle.openInMemory();
+    addTearDown(db.close);
+    final navigator = _FakeNavigator();
+    final now = DateTime.now();
+
+    db.library.works.upsert(
+      const WorkRecord(
+        id: WorkId.trusted('w_v'),
+        title: '葬送的芙莉莲',
+        year: 2023,
+        updatedAtMs: 100,
+      ),
+    );
+    db.library.works.upsert(
+      const WorkRecord(
+        id: WorkId.trusted('w_a'),
+        title: '孤独摇滚精选',
+        year: 2022,
+        updatedAtMs: 100,
+      ),
+    );
+    db.library.mediaSources.upsert(
+      const MediaSourceRecord(
+        id: SourceId.trusted('src_1'),
+        kind: MediaSourceKind.local,
+        label: '本地',
+        location: 'D:/Media',
+      ),
+    );
+    db.library.episodes.upsert(
+      const EpisodeRecord(
+        id: EpisodeId.trusted('ep_v1'),
+        workId: WorkId.trusted('w_v'),
+        seasonNumber: 1,
+        episodeNumber: 1,
+        category: EpisodeCategory.main,
+        title: '冒险的终点',
+        updatedAtMs: 100,
+      ),
+    );
+    db.library.mediaVariants.upsert(
+      const MediaVariantRecord(
+        id: VariantId.trusted('var_v1'),
+        workId: WorkId.trusted('w_v'),
+        episodeId: EpisodeId.trusted('ep_v1'),
+        sourceId: SourceId.trusted('src_1'),
+        relativePath: 'Frieren/01.mkv',
+        fileName: '01.mkv',
+        fileSize: 1024,
+        assetKind: AssetKind.video,
+        updatedAtMs: 100,
+      ),
+    );
+    db.library.mediaVariants.upsert(
+      const MediaVariantRecord(
+        id: VariantId.trusted('var_a1'),
+        workId: WorkId.trusted('w_a'),
+        sourceId: SourceId.trusted('src_1'),
+        relativePath: 'Bocchi/Disc 1/01.flac',
+        fileName: '01.flac',
+        fileSize: 512,
+        assetKind: AssetKind.cdAlbum,
+        updatedAtMs: 100,
+      ),
+    );
+
+    db.userState.playbackRecords.upsert(
+      PlaybackRecordEntity(
+        id: 'rec_v1',
+        workId: const WorkId.trusted('w_v'),
+        episodeId: const EpisodeId.trusted('ep_v1'),
+        variantId: const VariantId.trusted('var_v1'),
+        seasonNumber: 1,
+        episodeNumber: 1,
+        episodeTitle: '冒险的终点',
+        sourceKind: MediaSourceKind.local,
+        playedAtMs: now.toUtc().millisecondsSinceEpoch,
+        positionSeconds: 300,
+        durationSeconds: 1440,
+      ),
+    );
+    db.userState.playbackRecords.upsert(
+      PlaybackRecordEntity(
+        id: 'rec_a1',
+        workId: const WorkId.trusted('w_a'),
+        episodeId: const EpisodeId.trusted('ep_a1'),
+        variantId: const VariantId.trusted('var_a1'),
+        seasonNumber: 0,
+        episodeTitle: '青春コンプレックス',
+        sourceKind: MediaSourceKind.local,
+        playedAtMs: now
+            .subtract(const Duration(minutes: 10))
+            .toUtc()
+            .millisecondsSinceEpoch,
+        positionSeconds: 80,
+        durationSeconds: 200,
+      ),
+    );
+
+    final deps = FeatureHistoryDependencies(
+      databases: db,
+      navigator: navigator,
+      diagnosticLog: _FakeLog(),
+      platform: KonataPlatform.windows,
+    );
+    final toastController = KonataToastController();
+    addTearDown(toastController.dispose);
+
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [featureHistoryDependenciesProvider.overrideWithValue(deps)],
+        child: MaterialApp(
+          theme: KonataTheme.darkTheme(),
+          home: KonataToastScope(
+            controller: toastController,
+            child: Scaffold(
+              body: featureHistoryManifest.navSections.single.viewBuilder(
+                const ViewSlotContext(),
+              ) as Widget,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.byType(HistoryDaySectionView), findsOneWidget);
+    expect(find.byType(HistoryWorkTimelineCard), findsNWidgets(2));
+
+    // 在 1440px 宽屏下同日两张作品卡呈双栏水平并排。
+    final vTopLeft = tester.getTopLeft(find.byWidgetPredicate(
+      (w) => w is HistoryWorkTimelineCard && w.group.workTitle == '葬送的芙莉莲',
+    ));
+    final aTopLeft = tester.getTopLeft(find.byWidgetPredicate(
+      (w) => w is HistoryWorkTimelineCard && w.group.workTitle == '孤独摇滚精选',
+    ));
+    expect(vTopLeft.dy, equals(aTopLeft.dy));
+    expect(aTopLeft.dx, greaterThan(vTopLeft.dx));
+
+    // 切换介质胶囊只看音频，验证过滤后仅余光盘记录。
+    await tester.tap(find.text('音频'));
+    await tester.pumpAndSettle();
+    expect(find.text('孤独摇滚精选'), findsOneWidget);
+    expect(find.text('葬送的芙莉莲'), findsNothing);
+
+    await tester.tap(find.text('全部'));
+    await tester.pumpAndSettle();
+    expect(find.text('葬送的芙莉莲'), findsOneWidget);
+
+    // 进入标记完播多选模式并全选提交，验证已完播标签写回 UI 与数据库。
+    await tester.tap(find.byIcon(Icons.done_all_rounded));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('全选当前'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('标为已完播'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('已看完'), findsOneWidget);
+    expect(find.text('已听完'), findsOneWidget);
+    expect(
+      db.userState.playbackRecords
+          .listAllWithTombstones()
+          .every((r) => r.isCompleted),
+      isTrue,
+    );
+  });
 }

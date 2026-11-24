@@ -448,4 +448,167 @@ void main() {
     expect(rebound.title, '手工锁定新标题');
     expect(rebound.scrapeStatus, ScrapeStatus.matched);
   });
+
+  test('复核标签翻译、目录路径摘要、局部文件归类并入与独立作品拆包正确工作', () async {
+    expect(
+      ReviewReasonLabels.formatAll(const <String>[
+        'network_error',
+        'ambiguous_candidates',
+        'network_error',
+      ]),
+      equals(<String>[
+        '元数据网络请求异常',
+        '存在多个近似候选，需人工确认唯一条目',
+      ]),
+    );
+    expect(ReviewReasonLabels.isNetworkDegradedReason('api_timeout'), isTrue);
+    expect(ReviewReasonLabels.isNetworkDegradedReason('title_conflict'), isFalse);
+
+    final folderLabel = MediaDisplayFormatter.summarizeWorkFolderLabel(
+      const <MediaVariant>[
+        MediaVariant(
+          id: 'v_1',
+          workId: 'w_a',
+          sourceId: 'src_1',
+          relativePath: 'Season 1/01.mkv',
+          fileName: '01.mkv',
+          fileSize: 100,
+        ),
+        MediaVariant(
+          id: 'v_2',
+          workId: 'w_a',
+          sourceId: 'src_1',
+          relativePath: 'Season 1/SP/NCOP.mkv',
+          fileName: 'NCOP.mkv',
+          fileSize: 50,
+        ),
+      ],
+      sourcesById: const <String, MediaSource>{
+        'src_1': MediaSource(
+          id: 'src_1',
+          kind: MediaSourceKind.local,
+          label: '本机动画盘',
+          location: 'D:/Anime',
+        ),
+      },
+    );
+    expect(folderLabel, equals('[本机动画盘] Season 1'));
+
+    final repo = StorageScrapeRepository(db);
+    await repo.upsertMediaSource(
+      const MediaSource(
+        id: 'src_split',
+        kind: MediaSourceKind.local,
+        label: '本地',
+        location: 'D:/Media',
+      ),
+    );
+    await repo.upsertWork(
+      const Work(
+        id: 'w_mix',
+        title: '混合作品目录',
+        scrapeStatus: ScrapeStatus.needsReview,
+      ),
+    );
+    await repo.upsertWork(
+      const Work(
+        id: 'w_keep',
+        title: '目标收录作品',
+        matchedSeason: 1,
+        scrapeStatus: ScrapeStatus.matched,
+      ),
+    );
+    await repo.upsertEpisode(
+      const Episode(
+        id: 'ep_m1',
+        workId: 'w_mix',
+        seasonNumber: 1,
+        episodeNumber: 1,
+        category: EpisodeCategory.main,
+        title: '第 1 集',
+      ),
+    );
+    await repo.upsertEpisode(
+      const Episode(
+        id: 'ep_m2',
+        workId: 'w_mix',
+        seasonNumber: 1,
+        episodeNumber: 2,
+        category: EpisodeCategory.main,
+        title: '第 2 集',
+      ),
+    );
+    await repo.upsertMediaVariant(
+      const MediaVariant(
+        id: 'var_m1',
+        workId: 'w_mix',
+        episodeId: 'ep_m1',
+        sourceId: 'src_split',
+        relativePath: 'Mix/01.mkv',
+        fileName: '01.mkv',
+        fileSize: 100,
+      ),
+    );
+    await repo.upsertMediaVariant(
+      const MediaVariant(
+        id: 'var_m2',
+        workId: 'w_mix',
+        episodeId: 'ep_m2',
+        sourceId: 'src_split',
+        relativePath: 'Mix/SP01.mkv',
+        fileName: 'SP01.mkv',
+        fileSize: 80,
+      ),
+    );
+    await repo.upsertMediaVariant(
+      const MediaVariant(
+        id: 'var_m3',
+        workId: 'w_mix',
+        sourceId: 'src_split',
+        relativePath: 'Mix/OVA/01.mkv',
+        fileName: '01.mkv',
+        fileSize: 90,
+      ),
+    );
+
+    final mgmt = WorkManagementController(
+      databases: db,
+      storageRoot: _TestStorageRoot(tempRoot.path),
+      scopedPrefs: prefs,
+      eventBus: eventBus,
+      httpClient: _FakeHttpClient(),
+      photosStorage: photos,
+      nowMs: () => 55555,
+    );
+
+    // 部分文件按特典归类并入已有作品时，不删除仍有剩余文件的源作品。
+    final partialOutcome = await mgmt.mergeWorkIntoTarget(
+      sourceWorkId: 'w_mix',
+      targetWorkId: 'w_keep',
+      categoryMode: MergeVideoCategoryMode.asExtra,
+      onlyVariantIds: const <String>['var_m2'],
+    );
+    expect(partialOutcome.sourceDeleted, isFalse);
+    expect(partialOutcome.movedVariantCount, 1);
+    expect(await repo.findWorkById('w_mix'), isNotNull);
+    final keepEps = await repo.getEpisodesByWork('w_keep');
+    expect(
+      keepEps.any((e) => e.category == EpisodeCategory.extra),
+      isTrue,
+    );
+
+    // 拆出选中文件为独立待绑定作品。
+    final splitWorkId = await mgmt.splitVariantsToIndependentWork(
+      sourceWorkId: 'w_mix',
+      variantIds: const <String>['var_m3'],
+      initialTitle: '外传 OVA',
+    );
+    final splitWork = await repo.findWorkById(splitWorkId);
+    expect(splitWork, isNotNull);
+    expect(splitWork!.title, equals('外传 OVA'));
+    final splitVariants = await repo.getVariantsByWork(splitWorkId);
+    expect(splitVariants.length, 1);
+    expect(splitVariants.first.id, equals('var_m3'));
+    expect(splitVariants.first.workLocked, isTrue);
+  });
 }

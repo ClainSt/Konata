@@ -1,223 +1,436 @@
+import 'dart:math' as math;
+
 import 'package:engine_scraping/engine_scraping.dart';
 import 'package:flutter/widgets.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:konata_design_system/konata_design_system.dart';
 
 import '../data/library_models.dart';
-import '../data/library_search_matcher.dart';
+import '../providers.dart';
 import 'managed_image.dart';
 
-/// 弹出选择合并目标作品弹窗；用户选中并确认目标作品时返回对应 `Work`，取消返回 `null`。
-Future<Work?> showWorkMergeTargetDialog(
+/// 并入已有作品弹窗的选择结果（包含目标作品与正片/特典归类策略）。
+class WorkMergeSelection {
+  /// 构造合并选择结果。
+  const WorkMergeSelection({
+    required this.targetWork,
+    required this.categoryMode,
+  });
+
+  /// 接收合并文件的目标作品。
+  final Work targetWork;
+
+  /// 正片或特典归类模式。
+  final MergeVideoCategoryMode categoryMode;
+}
+
+/// 弹出并入已有作品目标选择框，返回目标作品及分类策略（取消返回空）。
+Future<WorkMergeSelection?> showWorkMergeSelectionDialog(
   BuildContext context, {
   required Work sourceWork,
-  required List<WorkLibraryItem> candidates,
+  int? overrideFileCount,
+  String? dialogTitle,
 }) {
-  return showKonataGlassDialog<Work>(
+  return showKonataGlassDialog<WorkMergeSelection>(
     context: context,
     builder: (_) => _WorkMergeTargetDialog(
       sourceWork: sourceWork,
-      candidates: candidates,
+      overrideFileCount: overrideFileCount,
+      dialogTitle: dialogTitle,
     ),
   );
 }
 
-class _WorkMergeTargetDialog extends StatefulWidget {
+/// 向后兼容入口：弹出目标选择框并仅返回所选目标作品。
+Future<Work?> showWorkMergeTargetDialog(
+  BuildContext context, {
+  required Work sourceWork,
+}) async {
+  final selection = await showWorkMergeSelectionDialog(
+    context,
+    sourceWork: sourceWork,
+  );
+  return selection?.targetWork;
+}
+
+class _WorkMergeTargetDialog extends ConsumerStatefulWidget {
   const _WorkMergeTargetDialog({
     required this.sourceWork,
-    required this.candidates,
+    this.overrideFileCount,
+    this.dialogTitle,
   });
 
   final Work sourceWork;
-  final List<WorkLibraryItem> candidates;
+  final int? overrideFileCount;
+  final String? dialogTitle;
 
   @override
-  State<_WorkMergeTargetDialog> createState() => _WorkMergeTargetDialogState();
+  ConsumerState<_WorkMergeTargetDialog> createState() =>
+      _WorkMergeTargetDialogState();
 }
 
-class _WorkMergeTargetDialogState extends State<_WorkMergeTargetDialog> {
-  final TextEditingController _searchCtrl = TextEditingController();
+class _WorkMergeTargetDialogState
+    extends ConsumerState<_WorkMergeTargetDialog> {
+  final ScrollController _scrollController = ScrollController();
+  final TextEditingController _searchController = TextEditingController();
   String _query = '';
-  String? _selectedId;
+  String? _selectedWorkId;
+  MergeVideoCategoryMode _categoryMode = MergeVideoCategoryMode.preserve;
 
   @override
   void dispose() {
-    _searchCtrl.dispose();
+    _scrollController.dispose();
+    _searchController.dispose();
     super.dispose();
+  }
+
+  List<Work> _buildSortedCandidates(List<Work> raw) {
+    final cleanQuery = _query.trim().toLowerCase();
+    final sourceTokens = _extractCompareTokens(widget.sourceWork);
+    final filtered = raw.where((w) {
+      if (w.id == widget.sourceWork.id) return false;
+      if (cleanQuery.isEmpty) return true;
+      final hay = <String>[
+        w.title,
+        w.originalTitle ?? '',
+        if (w.year != null) '${w.year}',
+        if (w.tmdbId != null) '${w.tmdbId}',
+        if (w.bangumiId != null) '${w.bangumiId}',
+      ].join('\n').toLowerCase();
+      return hay.contains(cleanQuery);
+    }).toList();
+
+    int scoreOf(Work candidate) {
+      var score = 0;
+      if (widget.sourceWork.tmdbId != null &&
+          candidate.tmdbId == widget.sourceWork.tmdbId) {
+        score += 1000;
+      }
+      if (widget.sourceWork.bangumiId != null &&
+          candidate.bangumiId == widget.sourceWork.bangumiId) {
+        score += 900;
+      }
+      if (widget.sourceWork.year != null &&
+          candidate.year == widget.sourceWork.year) {
+        score += 80;
+      }
+      final targetTokens = _extractCompareTokens(candidate);
+      for (final token in sourceTokens) {
+        if (targetTokens.contains(token)) {
+          score += 60;
+        }
+      }
+      final srcTitle = widget.sourceWork.title.trim().toLowerCase();
+      final dstTitle = candidate.title.trim().toLowerCase();
+      if (srcTitle.isNotEmpty &&
+          (dstTitle.contains(srcTitle) || srcTitle.contains(dstTitle))) {
+        score += 140;
+      }
+      return score;
+    }
+
+    filtered.sort((a, b) {
+      final cmp = scoreOf(b).compareTo(scoreOf(a));
+      if (cmp != 0) return cmp;
+      return a.title.compareTo(b.title);
+    });
+    return filtered;
+  }
+
+  static Set<String> _extractCompareTokens(Work work) {
+    final raw = '${work.title} ${work.originalTitle ?? ''}'.toLowerCase();
+    return raw
+        .split(RegExp(r'[\s\-_:：·,，。()（）\[\]【】/]+'))
+        .where((e) => e.trim().length >= 2)
+        .map((e) => e.trim())
+        .toSet();
   }
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final available = widget.candidates
-        .where((item) => item.work.id != widget.sourceWork.id)
-        .toList(growable: false);
-    final filtered = LibrarySearchMatcher.filterAndRank<WorkLibraryItem>(
-      items: available,
-      workOf: (item) => item.work,
-      releaseGroupsOf: (item) => item.releaseGroups,
-      rawQuery: _query,
-    );
-    Work? selectedTarget;
-    for (final item in available) {
-      if (item.work.id == _selectedId) {
-        selectedTarget = item.work;
-        break;
-      }
-    }
-
-    final screen = MediaQuery.sizeOf(context);
-    final bodyHeight = (screen.height * 0.62).clamp(240.0, 500.0);
+    final controller = ref.watch(libraryControllerProvider);
+    final allWorks = <Work>[
+      for (final item in controller.allVisibleItems) item.work,
+      ...controller.hiddenWorks,
+      ...controller.reviewWorks,
+    ];
+    final deduped = <String, Work>{
+      for (final w in allWorks) w.id: w,
+    }.values.toList(growable: false);
+    final candidates = _buildSortedCandidates(deduped);
+    final selectedWork = candidates
+        .where((w) => w.id == _selectedWorkId)
+        .firstOrNull;
 
     return KonataGlassDialog(
-      title: '合并「${widget.sourceWork.title}」到目标作品',
-      width: (screen.width - 28).clamp(300.0, 580.0),
-      actions: [
+      width: 660,
+      maxHeight: 590,
+      title: widget.dialogTitle ?? '并入已有作品',
+      onClose: () => Navigator.of(context).pop(),
+      actions: <Widget>[
         KonataPillButton.ghost(
           label: '取消',
           onPressed: () => Navigator.of(context).pop(),
         ),
         KonataPillButton.primary(
-          label: '确认合并',
-          icon: Icons.merge_rounded,
-          onPressed: selectedTarget == null
+          label: '确认并入',
+          onPressed: selectedWork == null
               ? null
-              : () => Navigator.of(context).pop(selectedTarget),
+              : () => Navigator.of(context).pop(
+                  WorkMergeSelection(
+                    targetWork: selectedWork,
+                    categoryMode: _categoryMode,
+                  ),
+                ),
         ),
       ],
-      child: SizedBox(
-        height: bodyHeight,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              '选中目标作品后，会将当前条目下全部物理视频文件迁移并归属锁定到目标作品中；绝不删改任何物理文件。',
-              style: TextStyle(
-                fontSize: 12.5,
-                color: p.textSecondary,
-                height: 1.45,
-              ),
-            ),
-            const SizedBox(height: 10),
-            KonataSoftTextField(
-              controller: _searchCtrl,
-              hintText: '搜索目标作品标题、年份或压制组…',
-              prefixIcon: Icons.search_rounded,
-              dense: true,
-              suffix: _query.isEmpty
-                  ? null
-                  : KonataCapsuleIconButton(
-                      icon: Icons.close_rounded,
-                      tooltip: '清空搜索词',
-                      color: p.textMuted,
-                      size: 14,
-                      padding: const EdgeInsets.all(4),
-                      onTap: () {
-                        _searchCtrl.clear();
-                        setState(() => _query = '');
-                      },
-                    ),
-              onChanged: (String v) => setState(() => _query = v),
-            ),
-            const SizedBox(height: 10),
-            Expanded(
-              child: filtered.isEmpty
-                  ? Center(
-                      child: Text(
-                        '没有找到可合并的目标作品',
-                        style: TextStyle(fontSize: 13, color: p.textMuted),
-                      ),
-                    )
-                  : KonataDraggableScrollbar(
-                      builder: (context, scrollCtrl) => ListView.separated(
-                        controller: scrollCtrl,
-                        padding: const EdgeInsets.only(right: 6),
-                        itemCount: filtered.length,
-                        separatorBuilder: (_, _) => const SizedBox(height: 6),
-                        itemBuilder: (context, index) {
-                          final item = filtered[index];
-                          final target = item.work;
-                          final isSelected = target.id == _selectedId;
-                          return InkWell(
-                            borderRadius: BorderRadius.circular(12),
-                            onTap: () => setState(() => _selectedId = target.id),
-                            child: Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: isSelected
-                                    ? p.accent.withValues(alpha: 0.14)
-                                    : p.elevatedSurface.withValues(alpha: 0.42),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: isSelected ? p.accent : p.hairline,
+      child: LayoutBuilder(
+        builder: (dialogCtx, outerConstraints) {
+          final targetH = outerConstraints.maxHeight.isFinite
+              ? math.min(430.0, outerConstraints.maxHeight)
+              : 430.0;
+          final compactIme =
+              KonataGlassDialog.isLandscapeCompactInputActive(dialogCtx);
+          return SizedBox(
+            height: targetH,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Offstage(
+                  offstage: compactIme,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: <Widget>[
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: p.softFill,
+                          borderRadius: KonataTheme.borderRadiusControl,
+                          border: Border.all(color: p.hairline),
+                        ),
+                        child: Row(
+                          children: <Widget>[
+                            Icon(
+                              Icons.merge_type_rounded,
+                              size: 16,
+                              color: p.accent,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                widget.overrideFileCount != null
+                                    ? '待并入来源：「${widget.sourceWork.title}」中选中的 ${widget.overrideFileCount} 个文件'
+                                    : '待合并来源：「${widget.sourceWork.title}」',
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: KonataTheme.bodyLabelStyle(
+                                  p,
+                                  fontSize: KonataTheme.fontSizeBodySm,
                                 ),
                               ),
-                              child: Row(
-                                children: [
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(8),
-                                    child: SizedBox(
-                                      width: 40,
-                                      height: 60,
-                                      child: ManagedImage(
-                                        path:
-                                            target.posterPath ??
-                                            target.bangumiPosterPath,
-                                        targetWidth: 256,
-                                        ownerWorkId: target.id,
-                                        subfolder: PhotoSubfolder.posters,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          target.title,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            fontSize: 13.5,
-                                            fontWeight: FontWeight.w600,
-                                            color: p.textPrimary,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          [
-                                            if (target.year != null)
-                                              '${target.year}',
-                                            '${item.variantCount} 个文件',
-                                            if (item.primarySourceLabel != null)
-                                              item.primarySourceLabel!,
-                                          ].join(' · '),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            fontSize: 11.5,
-                                            color: p.textMuted,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  if (isSelected)
-                                    Icon(
-                                      Icons.check_circle_rounded,
-                                      size: 20,
-                                      color: p.accent,
-                                    ),
-                                ],
-                              ),
                             ),
-                          );
-                        },
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: <Widget>[
+                          Text(
+                            '归类方式：',
+                            style: KonataTheme.captionStyle(
+                              p,
+                              fontSize: KonataTheme.fontSizeBodySm,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: KonataSegmentedCapsule<MergeVideoCategoryMode>(
+                              compact: true,
+                              selected: _categoryMode,
+                              onChanged: (mode) =>
+                                  setState(() => _categoryMode = mode),
+                              options:
+                                  <KonataSegmentOption<MergeVideoCategoryMode>>[
+                                    for (final m in MergeVideoCategoryMode.values)
+                                      KonataSegmentOption<MergeVideoCategoryMode>(
+                                        value: m,
+                                        label: m.label,
+                                      ),
+                                  ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                  ),
+                ),
+                KonataSearchField(
+                  controller: _searchController,
+                  onChanged: (v) => setState(() => _query = v),
+                  onClear: () {
+                    _searchController.clear();
+                    setState(() => _query = '');
+                  },
+                ),
+                const SizedBox(height: 10),
+                Expanded(
+                  child: candidates.isEmpty
+                      ? Center(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 28),
+                            child: Text(
+                              '未找到匹配的目标作品',
+                              style: KonataTheme.captionStyle(p),
+                            ),
+                          ),
+                        )
+                      : KonataDraggableScrollbar(
+                          controller: _scrollController,
+                          builder: (_, sc) => ListView.separated(
+                            controller: sc,
+                            padding: const EdgeInsets.only(right: 12),
+                            itemCount: candidates.length,
+                            separatorBuilder: (_, _) =>
+                                const SizedBox(height: 8),
+                            itemBuilder: (_, index) {
+                              final work = candidates[index];
+                              final selected = work.id == _selectedWorkId;
+                              return _MergeTargetRow(
+                                work: work,
+                                selected: selected,
+                                onTap: () =>
+                                    setState(() => _selectedWorkId = work.id),
+                              );
+                            },
+                          ),
+                        ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _MergeTargetRow extends StatefulWidget {
+  const _MergeTargetRow({
+    required this.work,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final Work work;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  State<_MergeTargetRow> createState() => _MergeTargetRowState();
+}
+
+class _MergeTargetRowState extends State<_MergeTargetRow> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    final work = widget.work;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: KonataTheme.motionMicro,
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: widget.selected
+                ? p.accentBadge.bg
+                : (_hovered ? p.surfaceHover : p.softFill),
+            borderRadius: KonataTheme.borderRadiusControl,
+            border: Border.all(
+              color: widget.selected
+                  ? KonataTheme.activeControlBorder(p)
+                  : (_hovered ? p.hoverBorder : p.hairline),
+            ),
+          ),
+          child: Row(
+            children: <Widget>[
+              ClipRRect(
+                borderRadius: KonataTheme.borderRadiusChipSm,
+                child: SizedBox(
+                  width: 44,
+                  height: 62,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: p.surface,
+                      borderRadius: KonataTheme.borderRadiusChipSm,
+                      border: Border.all(color: p.posterBorder),
+                    ),
+                    child: ManagedImage(
+                      path: work.posterPath,
+                      ownerWorkId: work.id,
+                      targetWidth: 120,
+                      fit: BoxFit.cover,
+                      errorWidget: Icon(
+                        Icons.movie_outlined,
+                        size: 18,
+                        color: p.textMuted,
                       ),
                     ),
-            ),
-          ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      work.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: KonataTheme.cardTitleStyle(
+                        p,
+                        fontSize: KonataTheme.fontSizeBody,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      [
+                        if (work.year != null) '${work.year}',
+                        if (work.tmdbId != null) 'TMDB #${work.tmdbId}',
+                        if (work.bangumiId != null) 'BGM #${work.bangumiId}',
+                        if (work.originalTitle != null &&
+                            work.originalTitle!.trim().isNotEmpty &&
+                            work.originalTitle != work.title)
+                          work.originalTitle!.trim(),
+                      ].join(' · '),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: KonataTheme.captionStyle(
+                        p,
+                        fontSize: KonataTheme.fontSizeCaptionSm,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (widget.selected) ...<Widget>[
+                const SizedBox(width: 8),
+                Icon(Icons.check_circle_rounded, size: 18, color: p.accent),
+              ],
+            ],
+          ),
         ),
       ),
     );

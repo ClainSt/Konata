@@ -169,6 +169,23 @@ class HybridMatchRequest {
   final Map<String, ({int season, int episode})>? customSlotsByVariantId;
 }
 
+/// 将源作品合并入目标作品时的正片或特典归类策略。
+enum MergeVideoCategoryMode {
+  /// 保持源文件原有分类。
+  preserve('保留原分类'),
+
+  /// 统一归入特典目录。
+  asExtra('全部归为特典/SP'),
+
+  /// 统一归入正片分集序列。
+  asMain('全部归为正片');
+
+  const MergeVideoCategoryMode(this.label);
+
+  /// 弹窗分段胶囊展示的中文标题。
+  final String label;
+}
+
 /// 将源作品合并入目标作品后的迁移统计结果。
 class WorkMergeOutcome {
   /// 创建作品合并结果快照。
@@ -192,44 +209,151 @@ class WorkMergeOutcome {
   final bool sourceDeleted;
 }
 
-/// 待复核原因标识翻译与网络异常判别工具。
+/// 待复核原因标识翻译、候选评分理由展示与网络异常判别工具。
 abstract final class ReviewReasonLabels {
+  static const Map<String, String> _labels = <String, String>{
+    'no_match_found': '未检索到匹配词条',
+    'unmatched': '未自动检索到高置信元数据，请手动搜索绑定',
+    'network_error': '元数据网络请求异常',
+    'ssl_handshake_failed': 'HTTPS 证书校验或握手失败',
+    'tls_error': 'HTTPS 证书校验或握手失败',
+    'api_timeout': 'TMDB 接口响应超时',
+    'api_rate_limited': '请求过于频繁（限流）',
+    'api_unauthorized': 'TMDB API 密钥无效或已失效',
+    'low_confidence_score': '匹配度偏低',
+    'low_confidence': '自动匹配置信度偏低，请核对封面与年份',
+    'ambiguous_candidates': '存在多个近似候选，需人工确认唯一条目',
+    'close_score_tie': '存在多个相近候选',
+    'title_conflict': '标题差异较大',
+    'year_mismatch': '年份存在偏差',
+    'folder_title_uncertain': '目录名包含干扰信息',
+    'mixed_season_hint': '检测到跨季或混杂分集信号，建议复核集数归属',
+    'season_ambiguous': '季别归属不够明确，建议核对 TMDB 季号',
+    'multi_season_ambiguous': '多季映射存在歧义',
+    'missing_tmdb_api_key': '未配置 TMDB API 密钥',
+    'bangumi_fallback_only': '仅命中 Bangumi，缺少 TMDB 映射',
+    'title_exact': '标题完全匹配',
+    'title_high': '标题高度相似',
+    'title_similar': '标题相近',
+    'alias_match': '别名命中',
+    'year_exact': '年份一致',
+    'year_match': '年份一致',
+    'year_close': '年份接近',
+    'season_match': '季数相符',
+    'episode_count_close': '集数接近',
+    'media_type_match': '体裁匹配',
+    'bangumi_link': 'Bangumi 关联匹配',
+    'vote_popularity': '高热度条目',
+    'weak_title_overlap': '标题重合度较弱',
+    'bgm_exact': 'Bangumi 精确标题',
+    'bgm_year': 'Bangumi 年份一致',
+  };
+
   /// 将存储层的复核原因文案或编码转换为可读中文说明。
   static String format(String? rawReason) {
     final clean = rawReason?.trim() ?? '';
     if (clean.isEmpty) return '存在多条相似候选，建议人工核对';
-    if (clean.startsWith('network_error:') || clean == 'network_error') {
-      final detail = clean.contains(':')
-          ? clean.substring(clean.indexOf(':') + 1).trim()
-          : '';
-      return detail.isEmpty ? '元数据网络请求异常，请检查网络或代理后重试' : '网络请求异常：$detail';
+    final prefix = clean.contains(':') ? clean.split(':').first.trim() : clean;
+    final detail = clean.contains(':')
+        ? clean.substring(clean.indexOf(':') + 1).trim()
+        : '';
+    final mapped = _labels[prefix] ?? _labels[clean];
+    if (mapped != null) {
+      return detail.isEmpty ? mapped : '$mapped：$detail';
     }
-    return switch (clean) {
-      'ambiguous_candidates' => '存在多个近似候选，需人工确认唯一条目',
-      'low_confidence' => '自动匹配置信度偏低，请核对封面与年份',
-      'unmatched' => '未自动检索到高置信元数据，请手动搜索绑定',
-      'mixed_season_hint' => '检测到跨季或混杂分集信号，建议复核集数归属',
-      'season_ambiguous' => '季别归属不够明确，建议核对 TMDB 季号',
-      _ => clean,
-    };
+    return clean;
   }
 
-  /// 判断当前复核原因是否由网络、限流或证书错误导致（适合批量重试）。
-  static bool isNetworkError(String? rawReason) {
+  /// 批量翻译复核与候选理由标签并去重保留原始顺序。
+  static List<String> formatAll(
+    Iterable<String> rawReasons, {
+    String? fallback,
+  }) {
+    final seen = <String>{};
+    final result = <String>[];
+    for (final raw in rawReasons) {
+      for (final token in raw.split(RegExp(r'[,;\n]'))) {
+        final trimmed = token.trim();
+        if (trimmed.isEmpty) continue;
+        final label = format(trimmed);
+        if (seen.add(label)) {
+          result.add(label);
+        }
+      }
+    }
+    if (result.isEmpty && fallback != null && fallback.trim().isNotEmpty) {
+      result.add(fallback.trim());
+    }
+    return result;
+  }
+
+  /// 判断当前复核原因是否由网络、限流、超时或证书错误导致。
+  static bool isNetworkDegradedReason(String? rawReason) {
     final clean = rawReason?.trim().toLowerCase() ?? '';
     if (clean.isEmpty) return false;
     return clean.startsWith('network_error') ||
+        clean.contains('ssl_handshake_failed') ||
+        clean.contains('tls_error') ||
+        clean.contains('api_timeout') ||
+        clean.contains('api_rate_limited') ||
         clean.contains('超时') ||
         clean.contains('socket') ||
         clean.contains('http ') ||
         clean.contains('429') ||
+        clean.contains('ssl') ||
+        clean.contains('certificate') ||
+        clean.contains('handshake') ||
         clean.contains('连接');
   }
+
+  /// 判断当前复核原因是否由网络波动引起（兼容旧调用方命名）。
+  static bool isNetworkError(String? rawReason) =>
+      isNetworkDegradedReason(rawReason);
 }
 
 /// 媒体文件与标题展示通用格式化工具（零状态纯函数）。
 abstract final class MediaDisplayFormatter {
   static final RegExp _hanziPattern = RegExp(r'[\u4E00-\u9FFF]');
+
+  /// 提取文件变体相对路径的所在目录文本（兼容斜杠与反斜杠）。
+  static String extractParentDirectory(String relativePath) {
+    final normalized = relativePath.replaceAll('\\', '/').trim();
+    if (normalized.isEmpty) return '';
+    final idx = normalized.lastIndexOf('/');
+    if (idx <= 0) return '';
+    return normalized.substring(0, idx);
+  }
+
+  /// 从同一作品的变体列表汇总最具代表性的最短父目录与来源文案。
+  static String summarizeWorkFolderLabel(
+    List<MediaVariant> variants, {
+    Map<String, MediaSource> sourcesById = const <String, MediaSource>{},
+  }) {
+    if (variants.isEmpty) return '未记录目录';
+    String? bestDir;
+    String? bestSourceId;
+    for (final v in variants) {
+      final dir = extractParentDirectory(v.relativePath);
+      final candidate = dir.isNotEmpty ? dir : v.fileName;
+      if (bestDir == null || candidate.length < bestDir.length) {
+        bestDir = candidate;
+        bestSourceId = v.sourceId;
+      }
+    }
+    final cleanDir = bestDir?.trim() ?? '';
+    final sourceLabel = bestSourceId != null
+        ? sourcesById[bestSourceId]?.label.trim()
+        : null;
+    if (cleanDir.isEmpty) {
+      return (sourceLabel != null && sourceLabel.isNotEmpty)
+          ? '[$sourceLabel]'
+          : '未记录目录';
+    }
+    if (sourceLabel != null && sourceLabel.isNotEmpty) {
+      return '[$sourceLabel] $cleanDir';
+    }
+    return cleanDir;
+  }
 
   /// 判断副标题（原名）与主标题存在足够信息增量时才展示，避免冗余重复。
   static bool shouldShowOriginalSubtitle({

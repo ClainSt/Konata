@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:engine_scraping/engine_scraping.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -5,9 +7,11 @@ import 'package:konata_design_system/konata_design_system.dart';
 
 import '../providers.dart';
 import '../state/scrape_task_phase.dart';
+import '../state/sources_controller.dart';
 import 'delete_source_dialog.dart';
 import 'scan_progress_dialog.dart';
 import 'scrape_progress_banner.dart';
+import 'source_card.dart';
 import 'source_editor_dialog.dart';
 import 'source_folder_picker_dialog.dart';
 import 'tmdb_scrape_guard.dart';
@@ -23,6 +27,10 @@ class SourcesPage extends ConsumerStatefulWidget {
 
 class _SourcesPageState extends ConsumerState<SourcesPage> {
   final ScrollController _scrollController = ScrollController();
+  String? _testingSourceId;
+  bool _bannerDismissed = false;
+  final Map<String, SourceTestResult> _recentTestResults =
+      <String, SourceTestResult>{};
 
   @override
   void dispose() {
@@ -39,6 +47,9 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
   Future<void> _openEditSource(MediaSource source) async {
     final saved = await showSourceEditorDialog(context, existingSource: source);
     if (!mounted || saved == null) return;
+    setState(() {
+      _recentTestResults.remove(source.id);
+    });
     showKonataToast(context, '已保存媒体源「${saved.label}」');
   }
 
@@ -50,20 +61,26 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
       kind: source.kind,
       location: source.location,
       username: source.username,
+      sourceLabel: source.label,
       initialSelected: sourcesController.readIncludedFolders(source.id),
+      onScanSelected: (selectedPaths) async {
+        if (!mounted) return;
+        await sourcesController.updateIncludedFolders(source.id, selectedPaths);
+        if (!mounted) return;
+        await _scanSingleSource(
+          source,
+          scanRootsOverride: selectedPaths,
+          openProgressDialog: true,
+        );
+      },
     );
     if (!mounted || selected == null) return;
     await sourcesController.updateIncludedFolders(source.id, selected);
-    if (!mounted) return;
-    showKonataToast(
-      context,
-      selected.isEmpty
-          ? '「${source.label}」已切换为全盘根目录扫描'
-          : '「${source.label}」已限定 ${selected.length} 个扫库子目录',
-    );
   }
 
   Future<void> _testSource(MediaSource source) async {
+    if (_testingSourceId != null) return;
+    setState(() => _testingSourceId = source.id);
     final res = await ref
         .read(sourcesControllerProvider)
         .testConnection(
@@ -73,6 +90,10 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
           username: source.username,
         );
     if (!mounted) return;
+    setState(() {
+      _testingSourceId = null;
+      _recentTestResults[source.id] = res;
+    });
     showKonataToast(
       context,
       res.success ? '「${source.label}」${res.message}' : res.message,
@@ -82,8 +103,16 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
 
   Future<void> _scanSingleSource(
     MediaSource source, {
+    List<String>? scanRootsOverride,
     bool forceFullRescan = false,
+    bool openProgressDialog = false,
   }) async {
+    final scrapeController = ref.read(sourceScrapeControllerProvider);
+    if (scrapeController.isBusy) {
+      await showScanProgressDialog(context, focusSourceId: source.id);
+      return;
+    }
+
     final deps = ref.read(featureSourcesDependenciesProvider);
     final proceed = await confirmScrapeWithoutTmdbIfNeeded(
       context,
@@ -95,9 +124,15 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
     );
     if (!mounted || !proceed) return;
 
-    final scrapeController = ref.read(sourceScrapeControllerProvider);
+    setState(() => _bannerDismissed = false);
+    if (openProgressDialog) {
+      // 不阻塞等待弹窗关闭，后台扫库状态机与进度弹窗实时联动。
+      unawaited(showScanProgressDialog(context, focusSourceId: source.id));
+    }
+
     final phase = await scrapeController.scanSource(
       source,
+      scanRootsOverride: scanRootsOverride,
       forceFullRescan: forceFullRescan,
     );
     if (!mounted) return;
@@ -133,6 +168,7 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
     );
     if (!mounted || !proceed) return;
 
+    setState(() => _bannerDismissed = false);
     await scrapeController.scanAllSources();
   }
 
@@ -141,28 +177,49 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
     if (!mounted || !confirmed) return;
     await ref.read(sourcesControllerProvider).deleteSource(source.id);
     if (!mounted) return;
-    showKonataToast(context, '已从媒体库移除「${source.label}」');
+    setState(() {
+      _recentTestResults.remove(source.id);
+    });
+    showKonataToast(context, '已移除媒体源「${source.label}」（原始媒体文件未受影响）');
   }
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     final deps = ref.watch(featureSourcesDependenciesProvider);
     final scrapeController = ref.watch(sourceScrapeControllerProvider);
     final sourcesAsync = ref.watch(mediaSourcesStreamProvider);
+    final statsMap =
+        ref.watch(sourceStatsStreamProvider).value ??
+        const <String, SourceLibraryStats>{};
     final sources = sourcesAsync.value ?? const <MediaSource>[];
     final isLoading = sourcesAsync.isLoading && !sourcesAsync.hasValue;
     final bottomClearance = KonataBottomClearanceScope.of(context);
-    final horizontalPad = MediaQuery.sizeOf(context).width < 600 ? 16.0 : 28.0;
+    final screenW = MediaQuery.sizeOf(context).width;
+    final padH = screenW < 620.0
+        ? KonataAdaptiveTokens.horizontalInset
+        : KonataTheme.pageHorizontalPadding;
+    final tmdbMissing =
+        deps.httpClient.config.credentialKind == TmdbCredentialKind.none;
 
-    return Padding(
-      padding: EdgeInsets.fromLTRB(horizontalPad, 16, horizontalPad, 0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          ListenableBuilder(
-            listenable: scrapeController,
-            builder: (context, _) => AdaptiveActionHeader(
-              title: '媒体源',
+    return ListenableBuilder(
+      listenable: scrapeController,
+      builder: (context, _) {
+        final phase = scrapeController.phase;
+        if (_bannerDismissed && phase.isActive) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted && _bannerDismissed) {
+              setState(() => _bannerDismissed = false);
+            }
+          });
+        }
+        final showBanner = phase is! ScrapeIdlePhase && !_bannerDismissed;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            AdaptiveActionHeader(
+              title: '媒体源管理',
               badge: sources.isEmpty
                   ? null
                   : KonataSpecBadge(label: '${sources.length} 个源'),
@@ -172,6 +229,13 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
                     buttonKey: const Key('sources_scan_all_button'),
                     icon: Icons.radar_rounded,
                     label: scrapeController.isBusy ? '查看进度' : '全部扫描',
+                    wideWidget: KonataPillButton.secondary(
+                      key: const Key('sources_scan_all_button'),
+                      label: scrapeController.isBusy ? '查看进度' : '全部扫描',
+                      icon: Icons.radar_rounded,
+                      compact: true,
+                      onPressed: _scanAllSources,
+                    ),
                     onPressed: _scanAllSources,
                   ),
                 AdaptiveHeaderAction(
@@ -179,481 +243,220 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
                   icon: Icons.add_rounded,
                   label: '添加媒体源',
                   highlighted: true,
+                  preserveWideWidgetOnNarrow: true,
+                  wideWidget: KonataPillButton.primary(
+                    key: const Key('sources_add_button'),
+                    label: '添加媒体源',
+                    icon: Icons.add_rounded,
+                    compact: true,
+                    onPressed: _openAddSource,
+                  ),
                   onPressed: _openAddSource,
                 ),
               ],
             ),
-          ),
-          const SizedBox(height: 14),
-          if (deps.httpClient.config.credentialKind == TmdbCredentialKind.none) ...[
-            TmdbScrapeGuardBanner(
-              onConfigureTap: () => deps.navigator.openSettings(
-                sectionId: 'network',
+            Expanded(
+              child: _buildBody(
+                context,
+                p: p,
+                sources: sources,
+                statsMap: statsMap,
+                phase: phase,
+                isLoading: isLoading,
+                hasLoadError: sourcesAsync.hasError,
+                loadError: sourcesAsync.error,
+                tmdbMissing: tmdbMissing,
+                showBanner: showBanner,
+                padH: padH,
+                bottomClearance: bottomClearance,
+                onOpenSettingsNetwork: () => deps.navigator.openSettings(
+                  sectionId: 'network',
+                ),
+                onInspectProgress: () => showScanProgressDialog(
+                  context,
+                  focusSourceId: phase.sourceId,
+                ),
+                onCancelScan: scrapeController.cancelActiveScan,
+                onDismissBanner: () {
+                  setState(() => _bannerDismissed = true);
+                  scrapeController.dismissTerminalBanner();
+                },
               ),
             ),
-            const SizedBox(height: 12),
           ],
-          ListenableBuilder(
-            listenable: scrapeController,
-            builder: (context, _) {
-              final phase = scrapeController.phase;
-              if (phase is ScrapeIdlePhase) {
-                return const SizedBox.shrink();
-              }
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: ScrapeProgressBanner(
-                  phase: phase,
-                  onInspectDetail: () => showScanProgressDialog(
-                    context,
-                    focusSourceId: phase.sourceId,
-                  ),
-                  onCancelScan: scrapeController.cancelActiveScan,
-                  onDismissTerminal: scrapeController.dismissTerminalBanner,
-                ),
-              );
-            },
-          ),
-          Expanded(
-            child: _buildBody(
-              context,
-              sources: sources,
-              isLoading: isLoading,
-              bottomPadding: 28 + bottomClearance,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBody(
-    BuildContext context, {
-    required List<MediaSource> sources,
-    required bool isLoading,
-    required double bottomPadding,
-  }) {
-    final p = context.palette;
-    if (isLoading) {
-      return const Center(
-        child: SizedBox(
-          width: 28,
-          height: 28,
-          child: CircularProgressIndicator(strokeWidth: 2.4),
-        ),
-      );
-    }
-    if (sources.isEmpty) {
-      return SingleChildScrollView(
-        padding: EdgeInsets.only(bottom: bottomPadding),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 460),
-            child: KonataSurfaceCard(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.drive_folder_upload_outlined,
-                    size: 42,
-                    color: p.accent,
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    '尚未添加任何动画媒体源',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: p.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    '支持添加本地磁盘文件夹、WebDAV 网盘或局域网 SMB 共享目录。所有媒体源均以严格只读方式索引，绝不改写你的原始文件。',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: p.textSecondary,
-                      height: 1.55,
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  KonataPillButton.primary(
-                    label: '立即添加媒体源',
-                    icon: Icons.add_rounded,
-                    onPressed: _openAddSource,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    return KonataDraggableScrollbar(
-      controller: _scrollController,
-      builder: (context, scrollCtrl) => ListView.separated(
-        controller: scrollCtrl,
-        padding: EdgeInsets.only(bottom: bottomPadding),
-        itemCount: sources.length,
-        separatorBuilder: (_, _) => const SizedBox(height: 12),
-        itemBuilder: (context, index) => _MediaSourceCard(
-          source: sources[index],
-          onEdit: () => _openEditSource(sources[index]),
-          onPickFolders: () => _pickSourceFolders(sources[index]),
-          onTestConnection: () => _testSource(sources[index]),
-          onScan: () => _scanSingleSource(sources[index]),
-          onForceRescan: () => _scanSingleSource(
-            sources[index],
-            forceFullRescan: true,
-          ),
-          onDelete: () => _deleteSource(sources[index]),
-        ),
-      ),
-    );
-  }
-}
-
-class _MediaSourceCard extends ConsumerWidget {
-  const _MediaSourceCard({
-    required this.source,
-    required this.onEdit,
-    required this.onPickFolders,
-    required this.onTestConnection,
-    required this.onScan,
-    required this.onForceRescan,
-    required this.onDelete,
-  });
-
-  final MediaSource source;
-  final VoidCallback onEdit;
-  final VoidCallback onPickFolders;
-  final VoidCallback onTestConnection;
-  final VoidCallback onScan;
-  final VoidCallback onForceRescan;
-  final VoidCallback onDelete;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final p = context.palette;
-    final sourcesController = ref.watch(sourcesControllerProvider);
-    final scrapeController = ref.watch(sourceScrapeControllerProvider);
-    final ignoredAsync = ref.watch(ignoredFoldersStreamProvider(source.id));
-    final ignoredFolders = ignoredAsync.value ?? const <String>[];
-    final compact = MediaQuery.sizeOf(context).width < 600;
-
-    return ListenableBuilder(
-      listenable: Listenable.merge(<Listenable>[
-        sourcesController,
-        scrapeController,
-      ]),
-      builder: (context, _) {
-        final isScanningThis =
-            scrapeController.phase.isActive &&
-            scrapeController.phase.sourceId == source.id;
-        final isAnyBusy = scrapeController.isBusy;
-        final includedFolders = sourcesController.readIncludedFolders(
-          source.id,
-        );
-        final lastScannedAt = sourcesController.readLastScannedAt(source.id);
-
-        return KonataSurfaceCard(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _ProtocolBadge(kind: source.kind),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          source.label,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                            color: p.textPrimary,
-                          ),
-                        ),
-                        const SizedBox(height: 3),
-                        Text(
-                          source.location,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 12.5,
-                            color: p.textSecondary,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  _SourceMoreMenuButton(
-                    onEdit: onEdit,
-                    onPickFolders: onPickFolders,
-                    onTestConnection: onTestConnection,
-                    onForceRescan: isAnyBusy ? null : onForceRescan,
-                    onDelete: onDelete,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 8,
-                runSpacing: 6,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  KonataSpecBadge(
-                    icon: Icons.account_tree_outlined,
-                    label: includedFolders.isEmpty
-                        ? '全盘根目录'
-                        : '已限定 ${includedFolders.length} 个目录',
-                  ),
-                  if (source.username != null &&
-                      source.username!.trim().isNotEmpty)
-                    KonataSpecBadge(
-                      icon: Icons.person_outline_rounded,
-                      label: source.username!,
-                    ),
-                  if (lastScannedAt != null)
-                    KonataSpecBadge(
-                      icon: Icons.schedule_rounded,
-                      label: '上次扫描：${_formatTime(lastScannedAt)}',
-                    ),
-                ],
-              ),
-              if (ignoredFolders.isNotEmpty) ...[
-                const SizedBox(height: 10),
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: p.elevatedSurface.withValues(alpha: 0.4),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: p.hairline),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '已忽略目录 (${ignoredFolders.length})',
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w600,
-                          color: p.textSecondary,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 6,
-                        children: [
-                          for (final folder in ignoredFolders)
-                            InkWell(
-                              borderRadius: BorderRadius.circular(999),
-                              onTap: () => ref
-                                  .read(sourcesControllerProvider)
-                                  .removeIgnoredFolder(source.id, folder),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: p.softFill,
-                                  borderRadius: BorderRadius.circular(999),
-                                  border: Border.all(color: p.hairline),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    ConstrainedBox(
-                                      constraints: const BoxConstraints(
-                                        maxWidth: 220,
-                                      ),
-                                      child: Text(
-                                        folder,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                          fontSize: 11.5,
-                                          color: p.textSecondary,
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Icon(
-                                      Icons.close_rounded,
-                                      size: 13,
-                                      color: p.textMuted,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                alignment: compact ? WrapAlignment.start : WrapAlignment.end,
-                children: [
-                  KonataPillButton.ghost(
-                    label: '范围',
-                    icon: Icons.folder_copy_outlined,
-                    compact: true,
-                    onPressed: onPickFolders,
-                  ),
-                  KonataPillButton.ghost(
-                    label: '测试',
-                    icon: Icons.wifi_tethering_rounded,
-                    compact: true,
-                    onPressed: onTestConnection,
-                  ),
-                  KonataPillButton.secondary(
-                    label: '编辑',
-                    icon: Icons.edit_outlined,
-                    compact: true,
-                    onPressed: onEdit,
-                  ),
-                  KonataPillButton.primary(
-                    label: isScanningThis ? '查看进度' : '扫库刮削',
-                    icon: isScanningThis
-                        ? Icons.hourglass_top_rounded
-                        : Icons.radar_rounded,
-                    compact: true,
-                    onPressed: isScanningThis
-                        ? () => showScanProgressDialog(
-                            context,
-                            focusSourceId: source.id,
-                          )
-                        : (isAnyBusy ? null : onScan),
-                  ),
-                ],
-              ),
-            ],
-          ),
         );
       },
     );
   }
 
-  static String _formatTime(DateTime dt) {
-    final local = dt.toLocal();
-    final m = local.month.toString().padLeft(2, '0');
-    final d = local.day.toString().padLeft(2, '0');
-    final hh = local.hour.toString().padLeft(2, '0');
-    final mm = local.minute.toString().padLeft(2, '0');
-    return '${local.year}-$m-$d $hh:$mm';
-  }
-}
+  Widget _buildBody(
+    BuildContext context, {
+    required KonataPalette p,
+    required List<MediaSource> sources,
+    required Map<String, SourceLibraryStats> statsMap,
+    required ScrapeTaskPhase phase,
+    required bool isLoading,
+    required bool hasLoadError,
+    required Object? loadError,
+    required bool tmdbMissing,
+    required bool showBanner,
+    required double padH,
+    required double bottomClearance,
+    required VoidCallback onOpenSettingsNetwork,
+    required VoidCallback onInspectProgress,
+    required VoidCallback onCancelScan,
+    required VoidCallback onDismissBanner,
+  }) {
+    if (isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (hasLoadError && sources.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: padH),
+          child: Text(
+            '加载媒体源失败: $loadError',
+            style: TextStyle(color: p.danger),
+          ),
+        ),
+      );
+    }
 
-class _ProtocolBadge extends StatelessWidget {
-  const _ProtocolBadge({required this.kind});
+    if (sources.isEmpty && !showBanner && !tmdbMissing) {
+      return _EmptySourcesState(onAddSource: _openAddSource);
+    }
 
-  final MediaSourceKind kind;
-
-  @override
-  Widget build(BuildContext context) {
-    final (label, icon) = switch (kind) {
-      MediaSourceKind.local => ('本地', Icons.folder_rounded),
-      MediaSourceKind.webdav => ('WebDAV', Icons.cloud_rounded),
-      MediaSourceKind.smb => ('SMB', Icons.dns_rounded),
-    };
-    return KonataSpecBadge(
-      label: label,
-      icon: icon,
-      highlighted: true,
+    return KonataDraggableScrollbar(
+      controller: _scrollController,
+      builder: (_, ctrl) => CustomScrollView(
+        controller: ctrl,
+        slivers: [
+          if (tmdbMissing)
+            SliverPadding(
+              padding: EdgeInsets.fromLTRB(padH, 0, padH, 12),
+              sliver: SliverToBoxAdapter(
+                child: TmdbScrapeGuardBanner(
+                  onConfigureTap: onOpenSettingsNetwork,
+                ),
+              ),
+            ),
+          if (showBanner)
+            SliverPadding(
+              padding: EdgeInsets.fromLTRB(padH, 0, padH, 14),
+              sliver: SliverToBoxAdapter(
+                child: RepaintBoundary(
+                  child: ScrapeProgressBanner(
+                    phase: phase,
+                    onInspectDetail: onInspectProgress,
+                    onCancelScan: onCancelScan,
+                    onDismissTerminal: onDismissBanner,
+                  ),
+                ),
+              ),
+            ),
+          if (sources.isEmpty)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: _EmptySourcesState(onAddSource: _openAddSource),
+            )
+          else
+            SliverPadding(
+              padding: EdgeInsets.fromLTRB(
+                padH,
+                0,
+                padH,
+                28 + bottomClearance,
+              ),
+              sliver: SliverList.separated(
+                itemCount: sources.length,
+                separatorBuilder: (_, _) => const SizedBox(height: 12),
+                itemBuilder: (_, index) {
+                  final source = sources[index];
+                  final isScanningThis =
+                      phase.isActive && phase.sourceId == source.id;
+                  return MediaSourceCard(
+                    source: source,
+                    stats: statsMap[source.id] ?? const SourceLibraryStats(),
+                    testing: _testingSourceId == source.id,
+                    testResult: _recentTestResults[source.id],
+                    scanning: isScanningThis,
+                    anyScanning: phase.isActive,
+                    onScan: () => _scanSingleSource(
+                      source,
+                      openProgressDialog: true,
+                    ),
+                    onForceRescan: () => _scanSingleSource(
+                      source,
+                      forceFullRescan: true,
+                      openProgressDialog: true,
+                    ),
+                    onInspectPendingReview: () => showScanProgressDialog(
+                      context,
+                      focusSourceId: source.id,
+                      initialTabIndex: 1,
+                    ),
+                    onTest: () => _testSource(source),
+                    onPickFolders: () => _pickSourceFolders(source),
+                    onEdit: () => _openEditSource(source),
+                    onDelete: () => _deleteSource(source),
+                  );
+                },
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
 
-class _SourceMoreMenuButton extends StatelessWidget {
-  const _SourceMoreMenuButton({
-    required this.onEdit,
-    required this.onPickFolders,
-    required this.onTestConnection,
-    required this.onForceRescan,
-    required this.onDelete,
-  });
+class _EmptySourcesState extends StatelessWidget {
+  const _EmptySourcesState({required this.onAddSource});
 
-  final VoidCallback onEdit;
-  final VoidCallback onPickFolders;
-  final VoidCallback onTestConnection;
-  final VoidCallback? onForceRescan;
-  final VoidCallback onDelete;
+  final VoidCallback onAddSource;
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    return Builder(
-      builder: (anchorContext) => KonataCapsuleIconButton(
-        icon: Icons.more_horiz_rounded,
-        tooltip: '更多媒体源操作',
-        color: p.textSecondary,
-        size: 18,
-        padding: const EdgeInsets.all(6),
-        onTap: () async {
-          final picked = await showKonataGlassMenu<String>(
-            anchorContext: anchorContext,
-            items: [
-              const KonataGlassMenuItem(
-                value: 'edit',
-                label: '编辑配置',
-                icon: Icons.edit_outlined,
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.folder_open_rounded,
+                size: 48,
+                color: p.textMuted,
               ),
-              const KonataGlassMenuItem(
-                value: 'scope',
-                label: '扫描目录作用域',
-                icon: Icons.account_tree_outlined,
-              ),
-              const KonataGlassMenuItem(
-                value: 'test',
-                label: '测试连通性',
-                icon: Icons.wifi_tethering_rounded,
-              ),
-              if (onForceRescan != null)
-                const KonataGlassMenuItem(
-                  value: 'force_rescan',
-                  label: '忽略增量缓存重扫',
-                  icon: Icons.refresh_rounded,
+              const SizedBox(height: 12),
+              Text(
+                '尚未配置任何媒体源',
+                style: KonataTheme.cardTitleStyle(
+                  p,
+                  fontSize: KonataTheme.fontSizeTitle,
                 ),
-              const KonataGlassMenuItem(
-                value: 'delete',
-                label: '移除媒体源',
-                icon: Icons.delete_outline_rounded,
-                isDanger: true,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                '支持添加本地磁盘目录、WebDAV 网盘或局域网 SMB 共享。所有媒体源均严格只读，绝不修改或删除你的原始媒体文件。',
+                textAlign: TextAlign.center,
+                style: KonataTheme.captionStyle(
+                  p,
+                  fontSize: KonataTheme.fontSizeBodyXs,
+                  height: 1.55,
+                ),
+              ),
+              const SizedBox(height: 18),
+              KonataPillButton.primary(
+                label: '立即添加媒体源',
+                icon: Icons.add_rounded,
+                onPressed: onAddSource,
               ),
             ],
-          );
-          switch (picked) {
-            case 'edit':
-              onEdit();
-            case 'scope':
-              onPickFolders();
-            case 'test':
-              onTestConnection();
-            case 'force_rescan':
-              onForceRescan?.call();
-            case 'delete':
-              onDelete();
-            default:
-              break;
-          }
-        },
+          ),
+        ),
       ),
     );
   }

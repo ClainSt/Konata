@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -249,10 +250,33 @@ class _FakeGateway implements MediaSourceGateway {
   Future<void> close() async {}
 
   @override
-  Future<List<RemoteEntry>> listDirectory(String relativePath) async => const [
-    RemoteEntry(name: '2024', relativePath: '2024', isDirectory: true),
-    RemoteEntry(name: '剧场版', relativePath: '剧场版', isDirectory: true),
-  ];
+  Future<List<RemoteEntry>> listDirectory(String relativePath) async {
+    if (relativePath == '2024') {
+      return const [
+        RemoteEntry(
+          name: 'Frieren',
+          relativePath: '2024/Frieren',
+          isDirectory: true,
+        ),
+        RemoteEntry(
+          name: '01.mkv',
+          relativePath: '2024/01.mkv',
+          isDirectory: false,
+          size: 1024 * 1024 * 512,
+        ),
+      ];
+    }
+    return const [
+      RemoteEntry(name: '2024', relativePath: '2024', isDirectory: true),
+      RemoteEntry(name: '剧场版', relativePath: '剧场版', isDirectory: true),
+      RemoteEntry(
+        name: 'readme.nfo',
+        relativePath: 'readme.nfo',
+        isDirectory: false,
+        size: 2048,
+      ),
+    ];
+  }
 
   @override
   Future<String?> readTextFile(
@@ -273,8 +297,69 @@ class _FakeGatewayFactory implements MediaSourceGatewayFactoryPort {
   }) async => _FakeGateway();
 }
 
+class _StubWidgetPipeline extends ScrapePipeline {
+  _StubWidgetPipeline({
+    required super.repository,
+    required KonataHttpClientPort httpClient,
+    required this.onRun,
+  }) : super(
+         tmdbService: TmdbService(httpClient: httpClient),
+         gatewayBuilder: (_) => throw UnimplementedError(),
+       );
+
+  final Future<ScrapeProgress> Function(
+    MediaSource source,
+    ScrapeProgressListener? onProgress,
+  )
+  onRun;
+
+  @override
+  Future<ScrapeProgress> scanAndScrapeSource(
+    MediaSource source, {
+    List<String>? scanRootsOverride,
+    bool forceFullRescan = false,
+    bool Function()? isCancelled,
+    ScrapeProgressListener? onProgress,
+    ScrapeWorkPersistedListener? onWorkPersisted,
+  }) {
+    return onRun(source, onProgress);
+  }
+}
+
+Future<Widget> _wrapTestApp({
+  required FeatureSourcesDependencies deps,
+  required KonataToastController toastCtrl,
+  required Widget child,
+  ThemeData? theme,
+  SourceScrapeController? scrapeControllerOverride,
+}) async {
+  return ProviderScope(
+    overrides: [
+      featureSourcesDependenciesProvider.overrideWithValue(deps),
+      if (scrapeControllerOverride != null)
+        sourceScrapeControllerProvider.overrideWithValue(
+          scrapeControllerOverride,
+        ),
+    ],
+    child: MaterialApp(
+      theme: theme ?? KonataTheme.darkTheme(),
+      home: KonataToastScope(
+        controller: toastCtrl,
+        child: Scaffold(
+          body: Stack(
+            children: [
+              child,
+              KonataToastViewport(controller: toastCtrl),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 void main() {
-  testWidgets('媒体源主页面与编辑/删除弹窗在四组标准视口尺寸下零溢出且交互闭环', (tester) async {
+  testWidgets('媒体源主页面与编辑弹窗在四组标准视口与明暗双主题下零溢出且交互闭环', (tester) async {
     final tempRoot = Directory.systemTemp.createTempSync('konata_src_ui_');
     addTearDown(() {
       if (tempRoot.existsSync()) {
@@ -302,7 +387,33 @@ void main() {
         username: 'admin',
       ),
     );
+    await repo.upsertMediaSource(
+      const MediaSource(
+        id: 'src_ui_2',
+        kind: MediaSourceKind.smb,
+        label: '客厅 NAS SMB 共享',
+        location: 'smb://192.168.1.10/Anime',
+      ),
+    );
     await repo.addIgnoredFolder('src_ui_1', 'NCOP/2024');
+    await repo.upsertWork(
+      const Work(
+        id: 'w_ui_1',
+        title: '葬送的芙莉莲',
+        scrapeStatus: ScrapeStatus.needsReview,
+        reviewReason: 'ambiguous_candidates',
+      ),
+    );
+    await repo.upsertMediaVariant(
+      const MediaVariant(
+        id: 'var_ui_1',
+        workId: 'w_ui_1',
+        sourceId: 'src_ui_1',
+        relativePath: 'Frieren/01.mkv',
+        fileName: '01.mkv',
+        fileSize: 1024,
+      ),
+    );
 
     final deps = FeatureSourcesDependencies(
       databases: db,
@@ -326,43 +437,36 @@ void main() {
       Size(1440, 900),
     ];
 
-    for (final viewport in viewports) {
-      tester.view.physicalSize = viewport;
-      tester.view.devicePixelRatio = 1.0;
-      addTearDown(tester.view.reset);
+    for (final theme in [KonataTheme.darkTheme(), KonataTheme.lightTheme()]) {
+      for (final viewport in viewports) {
+        tester.view.physicalSize = viewport;
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.reset);
 
-      final toastCtrl = KonataToastController();
-      addTearDown(toastCtrl.dispose);
+        final toastCtrl = KonataToastController();
+        addTearDown(toastCtrl.dispose);
 
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            featureSourcesDependenciesProvider.overrideWithValue(deps),
-          ],
-          child: MaterialApp(
-            theme: KonataTheme.darkTheme(),
-            home: KonataToastScope(
-              controller: toastCtrl,
-              child: Scaffold(
-                body: Stack(
-                  children: [
-                    featureSourcesManifest.navSections.first.viewBuilder(
-                          const ViewSlotContext(),
-                        )
-                        as Widget,
-                    KonataToastViewport(controller: toastCtrl),
-                  ],
-                ),
-              ),
-            ),
+        await tester.pumpWidget(
+          await _wrapTestApp(
+            deps: deps,
+            toastCtrl: toastCtrl,
+            theme: theme,
+            child: featureSourcesManifest.navSections.first.viewBuilder(
+                  const ViewSlotContext(),
+                )
+                as Widget,
           ),
-        ),
-      );
-      await tester.pumpAndSettle();
+        );
+        await tester.pumpAndSettle();
 
-      expect(tester.takeException(), isNull);
-      expect(find.text('尚未配置 TMDB API 凭证'), findsOneWidget);
-      expect(find.textContaining('家庭主力 WebDAV'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        expect(find.text('尚未配置 TMDB API 凭证'), findsOneWidget);
+        expect(find.textContaining('家庭主力 WebDAV'), findsOneWidget);
+        expect(find.text('WebDAV'), findsOneWidget);
+        expect(find.text('SMB 共享'), findsOneWidget);
+        expect(find.text('1 部 · 1 视频'), findsOneWidget);
+        expect(find.text('待复核 1 ↗'), findsOneWidget);
+      }
     }
 
     await tester.tap(find.text('去配置'));
@@ -371,7 +475,13 @@ void main() {
 
     await tester.tap(find.byKey(const Key('sources_add_button')));
     await tester.pumpAndSettle();
-    expect(find.text('添加媒体源'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(KonataGlassDialog),
+        matching: find.text('添加媒体源'),
+      ),
+      findsOneWidget,
+    );
 
     await tester.tap(find.text('浏览'));
     await tester.pumpAndSettle();
@@ -382,5 +492,243 @@ void main() {
 
     final sourcesAfterAdd = await repo.getMediaSources();
     expect(sourcesAfterAdd.any((s) => s.location == 'D:/NewAnime'), isTrue);
+    expect(find.text('本地磁盘'), findsOneWidget);
+
+    // 验证目录范围选择器与已选目录管理面板交互。
+    await tester.tap(find.text('目录范围').first);
+    await tester.pumpAndSettle();
+    expect(find.text('readme.nfo'), findsOneWidget);
+    expect(find.text('已选目录 · 0（点击管理）'), findsOneWidget);
+
+    await tester.tap(find.byType(Checkbox).at(1));
+    await tester.pumpAndSettle();
+    expect(find.text('扫描所选目录 (1)'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('source_selected_scope_entry')));
+    await tester.pumpAndSettle();
+    expect(find.text('返回浏览目录'), findsOneWidget);
+    expect(find.text('全选'), findsOneWidget);
+    expect(find.text('反选'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('source_scope_back_to_browse')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('仅保存范围'));
+    await tester.pumpAndSettle();
+    expect(find.text('范围 (1)'), findsOneWidget);
+
+    // 验证移除确认弹窗与安全承诺文案。
+    await tester.tap(find.byTooltip('删除').first);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('安全承诺'), findsOneWidget);
+    await tester.tap(find.text('确认移除索引'));
+    await tester.pumpAndSettle();
+    expect((await repo.getMediaSources()).length, 2);
   });
+
+  testWidgets('扫库进度横幅、全功能扫描进度弹窗及手机横屏双栏目录选择器正常运行', (tester) async {
+    final tempRoot = Directory.systemTemp.createTempSync('konata_src_scan_ui_');
+    addTearDown(() {
+      if (tempRoot.existsSync()) {
+        tempRoot.deleteSync(recursive: true);
+      }
+    });
+
+    final db = KonataDatabaseBundle.openInMemory();
+    addTearDown(db.close);
+    final eventBus = InMemoryDomainEventBus();
+    addTearDown(eventBus.dispose);
+    final navigator = _FakeNavigator();
+    final storageRoot = _TestStorageRoot(tempRoot.path);
+    final prefs = ScopedPrefsStore(db.userState);
+    final photos = PhotosStorage(storageRoot: storageRoot);
+
+    final repo = StorageScrapeRepository(db);
+    const source = MediaSource(
+      id: 'src_scan_ui',
+      kind: MediaSourceKind.local,
+      label: '动画盘',
+      location: 'D:/Anime',
+    );
+    await repo.upsertMediaSource(source);
+    await repo.upsertWork(
+      const Work(
+        id: 'w_rev_ui',
+        title: '孤独摇滚待复核',
+        scrapeStatus: ScrapeStatus.needsReview,
+        reviewReason: 'close_candidates',
+      ),
+    );
+    await repo.upsertMediaVariant(
+      const MediaVariant(
+        id: 'var_rev_ui',
+        workId: 'w_rev_ui',
+        sourceId: 'src_scan_ui',
+        relativePath: 'Bocchi/01.mkv',
+        fileName: '01.mkv',
+        fileSize: 1024,
+      ),
+    );
+
+    final fakeHttp = _FakeHttpClient();
+    final deps = FeatureSourcesDependencies(
+      databases: db,
+      storageRoot: storageRoot,
+      secureStorage: InMemorySecureStorage(),
+      diagnosticLog: _FakeDiagnosticLog(),
+      scopedPrefs: prefs,
+      domainEventBus: eventBus,
+      navigator: navigator,
+      filePicker: _FakeFilePicker(null),
+      httpClient: fakeHttp,
+      gatewayFactory: _FakeGatewayFactory(),
+      photosStorage: photos,
+      platform: KonataPlatform.androidPhone,
+    );
+
+    final enteredScrape = Completer<void>();
+    final allowFinish = Completer<void>();
+    final scrapeController = SourceScrapeController(
+      databases: db,
+      storageRoot: storageRoot,
+      scopedPrefs: prefs,
+      eventBus: eventBus,
+      httpClient: fakeHttp,
+      gatewayFactory: _FakeGatewayFactory(),
+      mappingLoaderOverride: () async => null,
+      pipelineBuilder: ({required repository, required mappingIndex}) =>
+          _StubWidgetPipeline(
+            repository: repository,
+            httpClient: fakeHttp,
+            onRun: (src, onProgress) async {
+              onProgress?.call(
+                ScrapeProgress(
+                  phase: ScrapePhase.scraping,
+                  sourceId: src.id,
+                  sourceLabel: src.label,
+                  currentItemName: '葬送的芙莉莲',
+                  scannedDirectories: 4,
+                  foundFiles: 30,
+                  totalWorks: 5,
+                  processedWorks: 2,
+                  matchedWorks: 1,
+                  reviewWorks: 1,
+                  selectedRoots: const <String>['2024'],
+                  folderVideoCounts: const <String, int>{'2024/Frieren': 24},
+                  completedFolders: const <String>{'2024/Frieren'},
+                ),
+              );
+              enteredScrape.complete();
+              await allowFinish.future;
+              return ScrapeProgress(
+                phase: ScrapePhase.completed,
+                sourceId: src.id,
+                sourceLabel: src.label,
+                scannedDirectories: 4,
+                foundFiles: 30,
+                totalWorks: 5,
+                processedWorks: 5,
+                matchedWorks: 4,
+                reviewWorks: 1,
+                selectedRoots: const <String>['2024'],
+                folderVideoCounts: const <String, int>{'2024/Frieren': 24},
+                completedFolders: const <String>{'2024/Frieren'},
+              );
+            },
+          ),
+    );
+    addTearDown(scrapeController.dispose);
+    final scanFuture = scrapeController.scanSource(source);
+    await enteredScrape.future;
+
+    tester.view.physicalSize = const Size(780, 390);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    final toastCtrl = KonataToastController();
+    addTearDown(toastCtrl.dispose);
+
+    await tester.pumpWidget(
+      await _wrapTestApp(
+        deps: deps,
+        toastCtrl: toastCtrl,
+        scrapeControllerOverride: scrapeController,
+        child: Builder(
+          builder: (context) => ListenableBuilder(
+            listenable: scrapeController,
+            builder: (context, _) => Column(
+              children: [
+                ScrapeProgressBanner(
+                  phase: scrapeController.phase,
+                  onInspectDetail: () => showScanProgressDialog(
+                    context,
+                    focusSourceId: 'src_scan_ui',
+                  ),
+                  onCancelScan: scrapeController.cancelActiveScan,
+                  onDismissTerminal: scrapeController.dismissTerminalBanner,
+                ),
+                const SizedBox(height: 12),
+                KonataPillButton.primary(
+                  label: '打开进度',
+                  onPressed: () => showScanProgressDialog(
+                    context,
+                    focusSourceId: 'src_scan_ui',
+                  ),
+                ),
+                KonataPillButton.secondary(
+                  label: '打开目录',
+                  onPressed: () => showSourceFolderPickerDialog(
+                    context,
+                    sourceId: 'src_scan_ui',
+                    kind: MediaSourceKind.local,
+                    location: 'D:/Anime',
+                    sourceLabel: '动画盘',
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await _pumpFrames(tester);
+
+    expect(tester.takeException(), isNull);
+    expect(find.textContaining('正在刮削 (2/5)'), findsOneWidget);
+
+    await tester.tap(find.text('打开进度'));
+    await _pumpFrames(tester);
+    expect(find.text('扫描与刮削进度 · 动画盘'), findsOneWidget);
+    expect(find.text('已扫目录 (1)'), findsOneWidget);
+    expect(find.text('待复核条目 (1)'), findsOneWidget);
+    expect(find.text('2024/Frieren'), findsOneWidget);
+
+    await tester.tap(find.text('待复核条目 (1)'));
+    await _pumpFrames(tester);
+    expect(find.text('孤独摇滚待复核'), findsOneWidget);
+    expect(find.text('多个候选分数接近，需人工核实'), findsOneWidget);
+
+    await tester.tap(find.text('查看详情').last);
+    await _pumpFrames(tester);
+    expect(navigator.openedWorkDetails, [const WorkId.trusted('w_rev_ui')]);
+
+    allowFinish.complete();
+    await scanFuture;
+    await _pumpFrames(tester);
+    expect(find.textContaining('扫描刮削完成：已匹配 4'), findsOneWidget);
+
+    await tester.tap(find.text('打开目录'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.text('已选目录 · 0'), findsOneWidget);
+    expect(find.text('当前未勾选指定目录（默认扫描整源）'), findsOneWidget);
+
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+  });
+}
+
+Future<void> _pumpFrames(WidgetTester tester, {int count = 6}) async {
+  for (var i = 0; i < count; i++) {
+    await tester.pump(const Duration(milliseconds: 60));
+  }
 }

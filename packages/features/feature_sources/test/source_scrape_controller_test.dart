@@ -410,4 +410,43 @@ void main() {
     expect(alphaItems.first.work.id, 'w_rev_1');
     expect(alphaItems.first.sampleRelativePath, 'AnimeA/01.mkv');
   });
+
+  test('ScrapeTaskPhase 准确投影归组状态、已扫目录视频统计及根作用域计数', () async {
+    final phase = ScrapeTaskPhase.fromProgress(
+      const ScrapeProgress(
+        phase: ScrapePhase.grouping,
+        sourceId: 'src_group',
+        sourceLabel: '归组测试源',
+        currentItemName: 'BDRip 解析',
+        scannedDirectories: 3,
+        foundFiles: 15,
+        selectedRoots: <String>['2024', 'OVA'],
+        folderVideoCounts: <String, int>{
+          '2024/Frieren': 12,
+          '2024/Bocchi': 6,
+          'OVA/Special': 2,
+        },
+        completedFolders: <String>{'2024/Frieren'},
+      ),
+    );
+
+    expect(phase, isA<ScrapeScanningPhase>());
+    expect((phase as ScrapeScanningPhase).isGrouping, isTrue);
+    expect(phase.totalVideos, 20);
+    expect(phase.videosUnderRoot('2024'), 18);
+    expect(phase.videosUnderRoot('OVA'), 2);
+    expect(phase.visitedFolders, ['2024/Bocchi', '2024/Frieren', 'OVA/Special']);
+    expect(phase.statusLabel, contains('归组'));
+
+    final controller = SourceScrapeController(
+      databases: db,
+      storageRoot: _TestStorageRoot(tempRoot.path),
+      scopedPrefs: prefs,
+      eventBus: eventBus,
+      httpClient: httpClient,
+      gatewayFactory: _FakeGatewayFactory(),
+    );
+    addTearDown(controller.dispose);
+    expect(await controller.runOngoingWorksAutoSyncIfDue(), 0);
+  });
 }

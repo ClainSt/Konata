@@ -12,6 +12,7 @@ export 'src/providers.dart'
         mediaSourcesStreamProvider,
         sourceCredentialStoreProvider,
         sourceScrapeControllerProvider,
+        sourceStatsStreamProvider,
         sourcesControllerProvider;
 export 'src/state/scrape_task_phase.dart'
     show
@@ -29,13 +30,21 @@ export 'src/state/source_scope_prefs.dart'
 export 'src/state/source_scrape_controller.dart'
     show SourcePendingReviewWork, SourceScrapeController;
 export 'src/state/sources_controller.dart'
-    show SourceActionResult, SourceTestResult, SourcesController;
+    show SourceActionResult, SourceLibraryStats, SourceTestResult, SourcesController;
 export 'src/ui/delete_source_dialog.dart' show showDeleteSourceDialog;
 export 'src/ui/scan_progress_dialog.dart' show showScanProgressDialog;
+export 'src/ui/scan_progress_tabs.dart'
+    show ScanPendingReviewTab, ScanProgressStatChip, ScanVisitedFoldersPane;
 export 'src/ui/scrape_progress_banner.dart' show ScrapeProgressBanner;
 export 'src/ui/source_editor_dialog.dart' show showSourceEditorDialog;
 export 'src/ui/source_folder_picker_dialog.dart'
     show showSourceFolderPickerDialog;
+export 'src/ui/source_selected_scope_panel.dart'
+    show
+        SourceBrowserEntryRow,
+        SourceBrowserFormatters,
+        SourceSelectedScopePanel,
+        showSourceBrowserHelpDialog;
 export 'src/ui/sources_page.dart' show SourcesPage;
 export 'src/ui/tmdb_scrape_guard.dart'
     show TmdbScrapeGuardBanner, confirmScrapeWithoutTmdbIfNeeded;

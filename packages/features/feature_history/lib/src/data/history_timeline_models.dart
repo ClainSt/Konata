@@ -68,6 +68,29 @@ final class HistoryEntryView {
 
   /// 进度比例（0.0 ~ 1.0）。
   final double progressRatio;
+
+  /// 关联剧集的横版剧照相对路径或地址（视频分组展开卡使用）。
+  String? get stillPath => episode?.stillPath;
+
+  /// 音频或光盘记录所属的专辑子目录标签（用于展开抽屉副标题区分光盘）。
+  String? get audioSubdirLabel {
+    if (!isAudio) return null;
+    final raw = variant?.relativePath.replaceAll('\\', '/').trim() ?? '';
+    if (raw.isEmpty) return null;
+    final lastSlash = raw.lastIndexOf('/');
+    if (lastSlash <= 0) return null;
+    final dirPath = raw.substring(0, lastSlash).trim();
+    final parts = dirPath
+        .split('/')
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList(growable: false);
+    if (parts.length <= 1) return null;
+    return parts.last;
+  }
+
+  /// 是否已完成当前集或音轨播放。
+  bool get isCompleted => record.isCompleted;
 }
 
 /// 同一自然日内按作品聚合展示的时间轴卡片组。

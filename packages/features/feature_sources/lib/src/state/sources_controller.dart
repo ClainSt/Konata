@@ -44,6 +44,33 @@ class SourceTestResult {
   final String message;
 }
 
+/// 单个媒体源在本地媒体库中的作品与物理文件统计摘要。
+@immutable
+class SourceLibraryStats {
+  /// 构造媒体源入库统计摘要。
+  const SourceLibraryStats({
+    this.workCount = 0,
+    this.videoCount = 0,
+    this.totalFileCount = 0,
+    this.reviewCount = 0,
+  });
+
+  /// 该媒体源关联的未删除作品总数。
+  final int workCount;
+
+  /// 该媒体源下正片/特典视频文件数。
+  final int videoCount;
+
+  /// 该媒体源下全部已索引物理文件数（含音频与扫图）。
+  final int totalFileCount;
+
+  /// 该媒体源下当前待复核作品数。
+  final int reviewCount;
+
+  /// 是否已有任何入库记录。
+  bool get hasAnyIndexed => workCount > 0 || totalFileCount > 0;
+}
+
 /// 媒体源核心业务控制器（零 `Riverpod` 纯构造注入状态机）。
 ///
 /// 职责边界：
@@ -102,6 +129,47 @@ class SourcesController extends ChangeNotifier {
   Stream<List<MediaSource>> watchSources() {
     return databases.library.mediaSources.watchAll().asyncMap(
       (_) => _repository.getMediaSources(),
+    );
+  }
+
+  /// 实时监听各媒体源关联的作品数、视频数与待复核计数统计快照。
+  Stream<Map<String, SourceLibraryStats>> watchSourceStats() {
+    return databases.library.engine.watchQuery<Map<String, SourceLibraryStats>>(
+      tables: const <String>{MediaVariantsSchema.table, WorksSchema.table},
+      query: (db) {
+        final rs = db.select(
+          '''
+SELECT
+  mv.${MediaVariantsSchema.colSourceId} AS source_id,
+  COUNT(DISTINCT mv.${MediaVariantsSchema.colWorkId}) AS work_count,
+  COUNT(DISTINCT CASE
+    WHEN w.${WorksSchema.colScrapeStatus} = ? AND w.${WorksSchema.colIsHidden} = 0
+    THEN mv.${MediaVariantsSchema.colWorkId}
+  END) AS review_count,
+  SUM(CASE WHEN mv.${MediaVariantsSchema.colAssetKind} = ? THEN 1 ELSE 0 END) AS video_count,
+  COUNT(*) AS total_file_count
+FROM ${MediaVariantsSchema.table} mv
+INNER JOIN ${WorksSchema.table} w
+  ON w.${WorksSchema.colId} = mv.${MediaVariantsSchema.colWorkId}
+WHERE mv.${MediaVariantsSchema.colDeletedAtMs} IS NULL
+  AND w.${WorksSchema.colDeletedAtMs} IS NULL
+GROUP BY mv.${MediaVariantsSchema.colSourceId};
+''',
+          <Object?>[ScrapeStatus.needsReview.name, AssetKind.video.name],
+        );
+        final map = <String, SourceLibraryStats>{};
+        for (final row in rs) {
+          final sid = row['source_id'] as String?;
+          if (sid == null || sid.isEmpty) continue;
+          map[sid] = SourceLibraryStats(
+            workCount: (row['work_count'] as int?) ?? 0,
+            reviewCount: (row['review_count'] as int?) ?? 0,
+            videoCount: (row['video_count'] as int?) ?? 0,
+            totalFileCount: (row['total_file_count'] as int?) ?? 0,
+          );
+        }
+        return Map<String, SourceLibraryStats>.unmodifiable(map);
+      },
     );
   }
 
@@ -217,7 +285,8 @@ class SourcesController extends ChangeNotifier {
       label: trimmedLabel,
       location: validated.normalizedLocation,
       username: kind == MediaSourceKind.local ? null : cleanUsername,
-      createdAt: existing?.createdAt ?? DateTime.fromMillisecondsSinceEpoch(_nowMs()),
+      createdAt:
+          existing?.createdAt ?? DateTime.fromMillisecondsSinceEpoch(_nowMs()),
     );
 
     try {
@@ -378,7 +447,7 @@ class SourcesController extends ChangeNotifier {
     }
   }
 
-  /// 列出指定媒体源相对路径下的直接子目录列表（按本地自然序排列，不跨域依赖媒体库）。
+  /// 列出指定媒体源相对路径下的条目列表（默认仅子目录；开启 [includeFiles] 时目录优先返回）。
   Future<List<RemoteEntry>> listDirectory({
     String? sourceId,
     required MediaSourceKind kind,
@@ -387,6 +456,7 @@ class SourcesController extends ChangeNotifier {
     String? password,
     bool clearPassword = false,
     String relativePath = '',
+    bool includeFiles = false,
   }) async {
     final validated = SourceLocationValidator.validate(kind, location);
     if (!validated.isValid) {
@@ -419,11 +489,14 @@ class SourcesController extends ChangeNotifier {
     );
     try {
       final entries = await gateway.listDirectory(relativePath);
-      final dirs = entries
-          .where((e) => e.isDirectory && !e.name.startsWith('.'))
+      final filtered = entries
+          .where((e) => !e.name.startsWith('.') && (includeFiles || e.isDirectory))
           .toList(growable: false)
-        ..sort((a, b) => compareNaturalFolderName(a.name, b.name));
-      return List<RemoteEntry>.unmodifiable(dirs);
+        ..sort((a, b) {
+          if (a.isDirectory != b.isDirectory) return a.isDirectory ? -1 : 1;
+          return compareNaturalFolderName(a.name, b.name);
+        });
+      return List<RemoteEntry>.unmodifiable(filtered);
     } finally {
       await gateway.close();
     }

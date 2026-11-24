@@ -2,20 +2,16 @@ import 'package:engine_scraping/engine_scraping.dart';
 import 'package:flutter/widgets.dart';
 import 'package:konata_design_system/konata_design_system.dart';
 
-/// 移除作品确认结果。
+/// 移出媒体库确认弹窗的返回结果。
 class DeleteWorkConfirmResult {
-  /// 创建移除作品确认选项。
-  const DeleteWorkConfirmResult({
-    required this.ignoreFolderOnRescan,
-  });
+  /// 构造移除确认结果。
+  const DeleteWorkConfirmResult({this.ignoreFolderOnRescan = false});
 
-  /// 是否同步将该作品所属媒体源相对目录加入忽略清单。
+  /// 是否同步将作品所在目录加入忽略扫描列表。
   final bool ignoreFolderOnRescan;
 }
 
-/// 弹出软删除作品确认弹窗；取消时返回 `null`。
-///
-/// 向用户明确说明「只删除媒体库索引记录和本机 `photos/` 艺术图缓存，绝不删除媒体源物理视频文件」。
+/// 弹出确认框询问是否将作品移出媒体库（绝不删除本地或远程磁盘文件）。
 Future<DeleteWorkConfirmResult?> showDeleteWorkDialog(
   BuildContext context, {
   required Work work,
@@ -24,6 +20,18 @@ Future<DeleteWorkConfirmResult?> showDeleteWorkDialog(
     context: context,
     builder: (_) => _DeleteWorkDialog(work: work),
   );
+}
+
+/// 弹出隐藏作品二次确认框，返回是否确认执行隐藏。
+Future<bool> showHideWorkDialog(
+  BuildContext context, {
+  required Work work,
+}) async {
+  final confirmed = await showKonataGlassDialog<bool>(
+    context: context,
+    builder: (_) => _HideWorkDialog(work: work),
+  );
+  return confirmed == true;
 }
 
 class _DeleteWorkDialog extends StatefulWidget {
@@ -41,18 +49,17 @@ class _DeleteWorkDialogState extends State<_DeleteWorkDialog> {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-
     return KonataGlassDialog(
-      title: '从媒体库移除作品',
-      width: 450,
-      actions: [
+      width: 480,
+      title: '移出媒体库（不删除源文件）',
+      onClose: () => Navigator.of(context).pop(),
+      actions: <Widget>[
         KonataPillButton.ghost(
           label: '取消',
           onPressed: () => Navigator.of(context).pop(),
         ),
         KonataPillButton.danger(
-          label: '确认移出',
-          icon: Icons.delete_outline_rounded,
+          label: '移出媒体库',
           onPressed: () => Navigator.of(context).pop(
             DeleteWorkConfirmResult(ignoreFolderOnRescan: _ignoreFolder),
           ),
@@ -61,60 +68,45 @@ class _DeleteWorkDialogState extends State<_DeleteWorkDialog> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
+        children: <Widget>[
           Text(
-            '确定要将「${widget.work.title}」移出 Konata 媒体库吗？',
-            style: TextStyle(
-              fontSize: 14.5,
-              fontWeight: FontWeight.w600,
-              color: p.textPrimary,
-            ),
+            '确定要将「${widget.work.title}」从媒体库移出吗？该操作仅清理数据库元数据与播放记录，绝不会删除硬盘或远程媒体源中的视频、音频及字幕文件。',
+            style: KonataTheme.bodyLabelStyle(p).copyWith(height: 1.5),
           ),
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: p.softFill,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: p.hairline),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(Icons.shield_outlined, size: 18, color: p.accent),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    '媒体源严格只读：本操作仅写入软删除墓碑并清理本机 photos/ 缓存图片，绝不会删除硬盘、WebDAV 或 SMB 中的原始动画文件。',
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      color: p.textSecondary,
-                      height: 1.5,
+          const SizedBox(height: 16),
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => setState(() => _ignoreFolder = !_ignoreFolder),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: p.softFill,
+                borderRadius: KonataTheme.borderRadiusCard,
+                border: Border.all(
+                  color: _ignoreFolder
+                      ? p.accentBadge.border
+                      : KonataTheme.subtleControlBorder(p),
+                ),
+              ),
+              child: Row(
+                children: <Widget>[
+                  SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: Checkbox(
+                      value: _ignoreFolder,
+                      activeColor: p.accent,
+                      onChanged: (v) =>
+                          setState(() => _ignoreFolder = v ?? false),
                     ),
                   ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          InkWell(
-            borderRadius: BorderRadius.circular(10),
-            onTap: () => setState(() => _ignoreFolder = !_ignoreFolder),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Row(
-                children: [
-                  Checkbox(
-                    value: _ignoreFolder,
-                    onChanged: (v) =>
-                        setState(() => _ignoreFolder = v ?? false),
-                  ),
+                  const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      '后续扫库时自动忽略其所在源目录（避免再次自动入库）',
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        color: p.textSecondary,
+                      '同时忽略所在目录，后续扫描媒体源时不再重新导入',
+                      style: KonataTheme.bodyLabelStyle(
+                        p,
+                        fontSize: KonataTheme.fontSizeBodySm,
                       ),
                     ),
                   ),
@@ -122,8 +114,37 @@ class _DeleteWorkDialogState extends State<_DeleteWorkDialog> {
               ),
             ),
           ),
-          const SizedBox(height: 4),
         ],
+      ),
+    );
+  }
+}
+
+class _HideWorkDialog extends StatelessWidget {
+  const _HideWorkDialog({required this.work});
+
+  final Work work;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return KonataGlassDialog(
+      width: 440,
+      title: '隐藏作品',
+      onClose: () => Navigator.of(context).pop(false),
+      actions: <Widget>[
+        KonataPillButton.ghost(
+          label: '取消',
+          onPressed: () => Navigator.of(context).pop(false),
+        ),
+        KonataPillButton.primary(
+          label: '确认隐藏',
+          onPressed: () => Navigator.of(context).pop(true),
+        ),
+      ],
+      child: Text(
+        '隐藏「${work.title}」后将从全部作品墙与待复核队列移出，但不会删除任何媒体文件或播放记录。你随时可以在媒体库右上角「隐藏作品」列表中取消隐藏。',
+        style: KonataTheme.bodyLabelStyle(p).copyWith(height: 1.55),
       ),
     );
   }

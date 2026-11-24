@@ -1,128 +1,139 @@
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
+import 'package:konata_contracts/konata_contracts.dart';
 import 'package:konata_design_system/konata_design_system.dart';
 
-/// 打开 TMDB API 凭据申请说明毛玻璃弹窗。
+/// 打开 TMDB API 凭据分步中文申请教程毛玻璃弹窗。
 Future<void> showTmdbApiHelpDialog(
   BuildContext context, {
   required Future<bool> Function(Uri uri) onOpenExternalUrl,
 }) {
   return showKonataGlassDialog<void>(
     context: context,
-    builder: (dialogCtx) => _TmdbApiHelpDialog(
-      onOpenExternalUrl: onOpenExternalUrl,
-    ),
+    builder: (_) => _TmdbApiHelpDialog(onOpenExternalUrl: onOpenExternalUrl),
   );
 }
 
 class _TmdbApiHelpDialog extends StatelessWidget {
   const _TmdbApiHelpDialog({required this.onOpenExternalUrl});
 
-  static final Uri _tmdbSettingsUri = Uri.parse(
-    'https://www.themoviedb.org/settings/api',
+  static const String _summaryTemplate =
+      'Personal non-commercial anime media library desktop application (Konata) '
+      'for matching local video files, fetching localized titles, synopses, '
+      'posters, and episode metadata for personal organization only.';
+
+  static final Uri _tmdbSignupUri = Uri.parse(KonataNetworkConfig.tmdbSignupUrl);
+  static final Uri _tmdbApiSettingsUri = Uri.parse(
+    KonataNetworkConfig.tmdbApiSettingsUrl,
   );
 
   final Future<bool> Function(Uri uri) onOpenExternalUrl;
 
   @override
   Widget build(BuildContext context) {
-    final tokens = Theme.of(context).extension<KonataPalette>()!;
+    final p = context.palette;
+
     return KonataGlassDialog(
-      title: '如何获取 TMDB API 凭据',
-      width: 480,
+      width: 560,
+      maxHeight: 540,
+      title: '如何获取 TMDB API 密钥',
       actions: [
-        KonataPillButton.secondary(
-          label: '前往 TMDB API 页面',
-          icon: Icons.open_in_new_rounded,
-          compact: true,
-          onPressed: () => onOpenExternalUrl(_tmdbSettingsUri),
-        ),
         KonataPillButton.primary(
           label: '我知道了',
           compact: true,
           onPressed: () => Navigator.of(context).pop(),
         ),
       ],
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            'Konata 支持自动识别以下两种 TMDB 凭据格式，并统一加密存入系统安全凭据库：',
-            style: TextStyle(
-              fontSize: 13.5,
-              color: tokens.textPrimary,
-              height: 1.5,
-            ),
-          ),
-          const SizedBox(height: 12),
-          _HelpStep(
-            number: '1',
-            text: '登录 themoviedb.org 后打开「设置 → API」。',
-            tokens: tokens,
-          ),
-          _HelpStep(
-            number: '2',
-            text: '申请或复制「API 读取访问令牌（v4 Token，以 eyJ 开头）」或「API 密钥（v3 Auth，32 位十六进制字符串）」。',
-            tokens: tokens,
-          ),
-          _HelpStep(
-            number: '3',
-            text: '将密钥粘贴到本页输入框并保存，即可解锁海报、剧照与演职表高清刮削。',
-            tokens: tokens,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _HelpStep extends StatelessWidget {
-  const _HelpStep({
-    required this.number,
-    required this.text,
-    required this.tokens,
-  });
-
-  final String number;
-  final String text;
-  final KonataPalette tokens;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 20,
-            height: 20,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: tokens.accent.withValues(alpha: 0.16),
-              shape: BoxShape.circle,
-            ),
-            child: Text(
-              number,
-              style: TextStyle(
-                fontSize: 11.5,
-                fontWeight: FontWeight.w700,
-                color: tokens.accent,
+      child: KonataDraggableScrollbar(
+        builder: (_, ctrl) => SingleChildScrollView(
+          controller: ctrl,
+          padding: const EdgeInsets.only(right: 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '1. 注册并登录 TMDB 官网账号（免费）：',
+                style: TextStyle(
+                  color: p.textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              text,
-              style: TextStyle(
-                fontSize: 13,
-                color: tokens.textSecondary,
-                height: 1.45,
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  KonataPillButton.secondary(
+                    label: '打开 TMDB 注册页',
+                    icon: Icons.open_in_new_rounded,
+                    compact: true,
+                    onPressed: () => onOpenExternalUrl(_tmdbSignupUri),
+                  ),
+                  KonataPillButton.secondary(
+                    label: '打开 API 申请页面',
+                    icon: Icons.key_rounded,
+                    compact: true,
+                    onPressed: () => onOpenExternalUrl(_tmdbApiSettingsUri),
+                  ),
+                ],
               ),
-            ),
+              const SizedBox(height: 16),
+              Text(
+                '2. 在「API」设置页选择 Developer（个人开发者）并填写英文申请理由，可直接复制下方模板：',
+                style: TextStyle(
+                  color: p.textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              KonataSurfaceCard(
+                padding: const EdgeInsets.all(14),
+                radius: 12,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SelectableText(
+                      _summaryTemplate,
+                      style: TextStyle(
+                        color: p.textSecondary,
+                        fontSize: KonataTheme.fontSizeBodyXs,
+                        height: 1.5,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: KonataPillButton.secondary(
+                        label: '一键复制英文模板',
+                        icon: Icons.copy_rounded,
+                        compact: true,
+                        onPressed: () async {
+                          await Clipboard.setData(
+                            const ClipboardData(text: _summaryTemplate),
+                          );
+                          if (context.mounted) {
+                            showKonataToast(context, '已复制英文申请理由模板到剪贴板');
+                          }
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                '3. 申请成功后，页面会显示「API Key (v3 auth)」与「API Read Access Token (v4 auth，以 eyJ 开头)」。\n'
+                '   两种凭证任意复制一种直接粘贴到 Konata 密钥输入框即可，系统会自动识别认证方式。',
+                style: TextStyle(
+                  color: p.textSecondary,
+                  fontSize: KonataTheme.fontSizeBodyXs,
+                  height: 1.55,
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

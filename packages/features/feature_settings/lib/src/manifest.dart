@@ -3,9 +3,9 @@ import 'package:konata_contracts/konata_contracts.dart';
 
 import 'ui/settings_about_panel.dart';
 import 'ui/settings_appearance_panel.dart';
+import 'ui/settings_display_panel.dart';
 import 'ui/settings_network_panel.dart';
 import 'ui/settings_page.dart';
-import 'ui/settings_photos_storage_card.dart';
 
 /// 通用设置容器及四项通用设置分区的声明式注册清单。
 final FeatureManifest featureSettingsManifest = FeatureManifest(
@@ -29,32 +29,32 @@ final FeatureManifest featureSettingsManifest = FeatureManifest(
   settingsSections: <SettingsSectionContribution>[
     SettingsSectionContribution(
       id: 'appearance',
-      title: '外观与显示',
-      subtitle: '主题模式（浅色 / 深色 / 跟随系统）与流光氛围背景',
+      title: '外观',
+      subtitle: '主题模式与视觉偏好',
       iconKey: 'appearance',
       order: 10,
       viewBuilder: (_) => const SettingsAppearancePanel(),
     ),
     SettingsSectionContribution(
+      id: 'display',
+      title: '显示与存储',
+      subtitle: '作品展示与图片缓存',
+      iconKey: 'display',
+      order: 15,
+      viewBuilder: (_) => const SettingsDisplayPanel(),
+    ),
+    SettingsSectionContribution(
       id: 'network',
-      title: '网络与元数据凭据',
-      subtitle: 'TMDB / Fanart 凭据安全存取、代理与备用回退镜像',
+      title: '刮削与网络',
+      subtitle: '元数据服务与网络连接',
       iconKey: 'network',
       order: 20,
       viewBuilder: (_) => const SettingsNetworkPanel(),
     ),
     SettingsSectionContribution(
-      id: 'storage',
-      title: '存储与图片缓存',
-      subtitle: '本地图片占用分类清理与脱敏诊断报告导出',
-      iconKey: 'storage',
-      order: 60,
-      viewBuilder: (_) => const SettingsPhotosStorageCard(),
-    ),
-    SettingsSectionContribution(
       id: 'about',
-      title: '关于 Konata',
-      subtitle: '版本信息、模块化架构与外部链接',
+      title: '关于',
+      subtitle: '版本、诊断日志与项目资料',
       iconKey: 'about',
       order: 90,
       viewBuilder: (_) => const SettingsAboutPanel(),

@@ -115,6 +115,13 @@ final mediaSourcesStreamProvider = StreamProvider<List<MediaSource>>((ref) {
   return controller.watchSources();
 });
 
+/// 实时订阅各媒体源关联作品与物理文件统计摘要的响应式流 `Provider`。
+final sourceStatsStreamProvider =
+    StreamProvider<Map<String, SourceLibraryStats>>((ref) {
+      final controller = ref.watch(sourcesControllerProvider);
+      return controller.watchSourceStats();
+    });
+
 /// 查询指定媒体源下全部忽略目录列表的响应式流 `Provider`。
 final ignoredFoldersStreamProvider =
     StreamProvider.family<List<String>, String>((ref, sourceId) {

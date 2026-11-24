@@ -7,8 +7,8 @@ Konata 日记式播放记录时间轴业务包，向宿主贡献主导航「播�
 统一从 `package:feature_history/feature_history.dart` 导入，禁止跨包引用 `src/` 内部路径：
 
 - 依赖与清单：`FeatureHistoryDependencies`、`featureHistoryDependenciesProvider`、`featureHistoryManifest`
-- 状态与分组：`HistoryController`、`historyControllerProvider`、`HistoryTimelineGrouper` 与时间轴视图模型
-- 界面组件：`PlaybackHistoryPage`、`HistoryDaySectionView`、`HistoryWorkTimelineCard`
+- 状态与分组：`HistoryController`、`HistorySelectionAction`、`historyControllerProvider`、`HistoryTimelineGrouper` 与时间轴视图模型
+- 界面组件：`PlaybackHistoryPage`、`HistoryDaySectionView`、`HistoryWorkTimelineCard`、`HistoryExpandedEpisodeRow`、`HistoryProgressMetaRow`、`HistoryThumbnail`、`HistoryArtworkLoader`、`HistoryPathArtworkLoader`
 
 ## 核心职责与边界
 

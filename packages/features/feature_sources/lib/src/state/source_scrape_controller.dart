@@ -283,6 +283,16 @@ class SourceScrapeController extends ChangeNotifier {
           folderVideoCounts: current.folderVideoCounts,
           completedFolders: current.completedFolders,
           cancelRequested: true,
+          isGrouping: current.isGrouping,
+        ),
+      );
+    } else if (current is ScrapeCheckingIndexPhase) {
+      _setPhase(
+        ScrapeCheckingIndexPhase(
+          sourceId: current.sourceId,
+          sourceLabel: current.sourceLabel,
+          statusMessage: current.statusMessage,
+          cancelRequested: true,
         ),
       );
     } else {

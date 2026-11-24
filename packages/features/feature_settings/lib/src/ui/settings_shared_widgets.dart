@@ -1,6 +1,113 @@
 import 'package:flutter/widgets.dart';
 import 'package:konata_design_system/konata_design_system.dart';
 
+/// 设置页统一 38×38 柔光前缀图标盒（供关于等卡片行统一复用）。
+class KonataSettingsLeadingBox extends StatelessWidget {
+  /// 创建前缀图标盒。
+  const KonataSettingsLeadingBox({
+    super.key,
+    required this.child,
+    this.backgroundColor,
+    this.borderColor,
+  });
+
+  /// 居中展示的图标或微标文本。
+  final Widget child;
+
+  /// 可选底色覆盖（默认 `p.softFill`）。
+  final Color? backgroundColor;
+
+  /// 可选边框色覆盖（默认 `p.hairline`）。
+  final Color? borderColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return SizedBox(
+      width: 38,
+      height: 38,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: backgroundColor ?? p.softFill,
+          borderRadius: KonataTheme.borderRadiusControl,
+          border: Border.all(color: borderColor ?? p.hairline, width: 1),
+        ),
+        child: Center(child: child),
+      ),
+    );
+  }
+}
+
+/// 设置卡片内的紧凑开关项（支持可选副标题说明与禁用态）。
+class KonataSettingsSwitchRow extends StatelessWidget {
+  /// 创建紧凑开关行。
+  const KonataSettingsSwitchRow({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.onChanged,
+    this.subtitle,
+    this.enabled = true,
+  });
+
+  /// 主标签文本。
+  final String label;
+
+  /// 可选副标题说明。
+  final String? subtitle;
+
+  /// 当前开关状态。
+  final bool value;
+
+  /// 状态变更回调。
+  final ValueChanged<bool>? onChanged;
+
+  /// 是否允许交互。
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    final effectiveOnChanged = enabled ? onChanged : null;
+    final isDisabled = effectiveOnChanged == null;
+    return Row(
+      crossAxisAlignment: subtitle != null
+          ? CrossAxisAlignment.start
+          : CrossAxisAlignment.center,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  color: isDisabled ? p.textMuted : p.textPrimary,
+                  fontSize: KonataTheme.fontSizeBodySm,
+                ),
+              ),
+              if (subtitle != null && subtitle!.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(
+                  subtitle!,
+                  style: TextStyle(
+                    color: p.textMuted,
+                    fontSize: KonataTheme.fontSizeBodyXs,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(width: 12),
+        KonataSwitch(value: value, onChanged: effectiveOnChanged),
+      ],
+    );
+  }
+}
+
 /// 设置页分区标题卡头。
 class SettingsSectionHeader extends StatelessWidget {
   /// 创建设置分区标题组件。

@@ -1,14 +1,13 @@
 import 'package:engine_scraping/engine_scraping.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:konata_contracts/konata_contracts.dart';
 import 'package:konata_design_system/konata_design_system.dart';
 
+import '../data/library_models.dart';
 import '../providers.dart';
-import 'delete_work_dialog.dart';
 import 'managed_image.dart';
 
-/// 弹出「已隐藏作品」管理弹窗，支持一键恢复上墙、查看详情或彻底移出库。
+/// 打开已隐藏作品管理弹窗（取消隐藏全部后自动关闭）。
 Future<void> showHiddenWorksDialog(BuildContext context) {
   return showKonataGlassDialog<void>(
     context: context,
@@ -16,170 +15,265 @@ Future<void> showHiddenWorksDialog(BuildContext context) {
   );
 }
 
-class _HiddenWorksDialog extends ConsumerWidget {
+class _HiddenWorksDialog extends ConsumerStatefulWidget {
   const _HiddenWorksDialog();
 
-  Future<void> _restoreWork(
-    BuildContext context,
-    WidgetRef ref,
-    Work work,
-  ) async {
-    await ref
-        .read(workManagementControllerProvider)
-        .setWorkHidden(work.id, hidden: false, keepHidden: false);
-    if (!context.mounted) return;
-    showKonataToast(context, '已恢复「${work.title}」在海报墙显示');
+  @override
+  ConsumerState<_HiddenWorksDialog> createState() => _HiddenWorksDialogState();
+}
+
+class _HiddenWorksDialogState extends ConsumerState<_HiddenWorksDialog> {
+  final ScrollController _scrollController = ScrollController();
+  final Map<String, String> _folderLabelByWorkId = <String, String>{};
+  final Set<String> _restoringIds = <String>{};
+  bool _loadingFolders = false;
+  int _lastWorkCount = -1;
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
   }
 
-  Future<void> _deleteWork(
-    BuildContext context,
-    WidgetRef ref,
-    Work work,
-  ) async {
-    final confirm = await showDeleteWorkDialog(context, work: work);
-    if (!context.mounted || confirm == null) return;
-    await ref
-        .read(workManagementControllerProvider)
-        .deleteWork(
-          work.id,
-          ignoreFolderOnRescan: confirm.ignoreFolderOnRescan,
+  Future<void> _ensureFolderLabels(List<Work> works) async {
+    if (_loadingFolders || works.length == _lastWorkCount) return;
+    _lastWorkCount = works.length;
+    final missing = works
+        .where((w) => !_folderLabelByWorkId.containsKey(w.id))
+        .toList(growable: false);
+    if (missing.isEmpty) return;
+    _loadingFolders = true;
+    try {
+      final mgmt = ref.read(workManagementControllerProvider);
+      final sourcesById = await mgmt.loadSourcesById();
+      final next = <String, String>{};
+      for (final w in missing) {
+        final variants = await mgmt.getVariantsByWork(w.id);
+        next[w.id] = MediaDisplayFormatter.summarizeWorkFolderLabel(
+          variants,
+          sourcesById: sourcesById,
         );
-    if (!context.mounted) return;
-    showKonataToast(context, '已将「${work.title}」移出媒体库');
+      }
+      if (!mounted) return;
+      setState(() => _folderLabelByWorkId.addAll(next));
+    } catch (_) {
+    } finally {
+      _loadingFolders = false;
+    }
+  }
+
+  Future<void> _restoreWork(Work work) async {
+    if (_restoringIds.contains(work.id)) return;
+    setState(() => _restoringIds.add(work.id));
+    final mgmt = ref.read(workManagementControllerProvider);
+    final library = ref.read(libraryControllerProvider);
+    try {
+      await mgmt.setWorkHidden(work.id, hidden: false);
+      await library.reload();
+      if (!mounted) return;
+      showKonataToast(context, '已恢复展示「${work.title}」');
+      if (library.hiddenWorks.isEmpty) {
+        Navigator.of(context).pop();
+      }
+    } catch (err) {
+      if (!mounted) return;
+      showKonataToast(context, '取消隐藏失败：$err', isError: true);
+    } finally {
+      if (mounted) {
+        setState(() => _restoringIds.remove(work.id));
+      }
+    }
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final p = context.palette;
-    final libraryController = ref.watch(libraryControllerProvider);
-    final navigator = ref.watch(featureLibraryDependenciesProvider).navigator;
-    final screen = MediaQuery.sizeOf(context);
-    final bodyHeight = (screen.height * 0.62).clamp(240.0, 500.0);
+    final controller = ref.watch(libraryControllerProvider);
+    final dialogMaxHeight = (MediaQuery.sizeOf(context).height * 0.72).clamp(
+      260.0,
+      560.0,
+    );
 
     return ListenableBuilder(
-      listenable: libraryController,
+      listenable: controller,
       builder: (context, _) {
-        final works = libraryController.hiddenWorks;
+        final hidden = controller.hiddenWorks;
+        if (hidden.isNotEmpty) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _ensureFolderLabels(hidden);
+          });
+        }
+
         return KonataGlassDialog(
-          title: '已隐藏作品 (${works.length})',
-          width: (screen.width - 28).clamp(300.0, 560.0),
-          actions: [
-            KonataPillButton.primary(
-              label: '完成',
+          width: 600,
+          maxHeight: dialogMaxHeight,
+          title: '已隐藏作品',
+          headerTrailing: hidden.isEmpty
+              ? null
+              : Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 9,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: p.softFill,
+                    borderRadius: KonataTheme.borderRadiusPill,
+                    border: Border.all(color: p.hairline),
+                  ),
+                  child: Text(
+                    '${hidden.length} 部',
+                    style: KonataTheme.textStyle(
+                      color: p.textSecondary,
+                      fontSize: KonataTheme.fontSizeCaptionSm,
+                      weight: KonataTheme.weightActive,
+                      tabularFigures: true,
+                    ),
+                  ),
+                ),
+          onClose: () => Navigator.of(context).pop(),
+          actions: <Widget>[
+            KonataPillButton.secondary(
+              label: '关闭',
               onPressed: () => Navigator.of(context).pop(),
             ),
           ],
-          child: SizedBox(
-            height: bodyHeight,
-            child: works.isEmpty
-                ? Center(
-                    child: Text(
-                      '当前没有被隐藏的作品',
-                      style: TextStyle(fontSize: 13.5, color: p.textMuted),
-                    ),
-                  )
-                : KonataDraggableScrollbar(
-                    builder: (context, scrollCtrl) => ListView.separated(
-                      controller: scrollCtrl,
-                      padding: const EdgeInsets.only(right: 6),
-                      itemCount: works.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 8),
-                      itemBuilder: (context, index) {
-                        final work = works[index];
-                        return Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: p.elevatedSurface.withValues(alpha: 0.45),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: p.hairline),
+          child: hidden.isEmpty
+              ? SingleChildScrollView(
+                  child: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 36),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          Icon(
+                            Icons.visibility_outlined,
+                            size: 38,
+                            color: p.textMuted,
                           ),
-                          child: Row(
-                            children: [
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(8),
-                                child: SizedBox(
-                                  width: 44,
-                                  height: 66,
+                          const SizedBox(height: 12),
+                          Text(
+                            '当前没有隐藏任何作品',
+                            style: KonataTheme.cardTitleStyle(
+                              p,
+                              fontSize: KonataTheme.fontSizeBodyMd,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            '可在作品详情页右下角齿轮菜单中隐藏指定作品',
+                            textAlign: TextAlign.center,
+                            style: KonataTheme.captionStyle(p),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                )
+              : KonataDraggableScrollbar(
+                  controller: _scrollController,
+                  builder: (context, sc) => ListView.separated(
+                    controller: sc,
+                    shrinkWrap: true,
+                    padding: const EdgeInsets.only(right: 12),
+                    itemCount: hidden.length,
+                    separatorBuilder: (_, _) => Container(
+                      height: 1,
+                      margin: const EdgeInsets.symmetric(vertical: 4),
+                      color: p.hairline,
+                    ),
+                    itemBuilder: (context, index) {
+                      final work = hidden[index];
+                      final folderLabel =
+                          _folderLabelByWorkId[work.id] ?? '正在读取目录…';
+                      final restoring = _restoringIds.contains(work.id);
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        child: Row(
+                          children: <Widget>[
+                            ClipRRect(
+                              borderRadius: KonataTheme.borderRadiusChipSm,
+                              child: SizedBox(
+                                width: 46,
+                                height: 66,
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    color: p.surface,
+                                    borderRadius:
+                                        KonataTheme.borderRadiusChipSm,
+                                    border: Border.all(color: p.posterBorder),
+                                  ),
                                   child: ManagedImage(
-                                    path:
-                                        work.posterPath ??
-                                        work.bangumiPosterPath,
-                                    targetWidth: 256,
+                                    path: work.posterPath,
                                     ownerWorkId: work.id,
-                                    subfolder: PhotoSubfolder.posters,
+                                    targetWidth: 120,
+                                    fit: BoxFit.cover,
+                                    errorWidget: Icon(
+                                      Icons.movie_outlined,
+                                      size: 20,
+                                      color: p.textMuted,
+                                    ),
                                   ),
                                 ),
                               ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      work.title,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        fontSize: 13.5,
-                                        fontWeight: FontWeight.w600,
-                                        color: p.textPrimary,
-                                      ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: <Widget>[
+                                  Text(
+                                    work.year == null
+                                        ? work.title
+                                        : '${work.title}（${work.year}）',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: KonataTheme.cardTitleStyle(
+                                      p,
+                                      fontSize: KonataTheme.fontSizeBodyMd,
                                     ),
-                                    if (work.year != null) ...[
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        '${work.year}',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: p.textMuted,
+                                  ),
+                                  const SizedBox(height: 5),
+                                  Row(
+                                    children: <Widget>[
+                                      Icon(
+                                        Icons.folder_outlined,
+                                        size: 13,
+                                        color: p.textMuted,
+                                      ),
+                                      const SizedBox(width: 5),
+                                      Expanded(
+                                        child: Text(
+                                          folderLabel,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: KonataTheme.captionStyle(
+                                            p,
+                                            fontSize:
+                                                KonataTheme.fontSizeCaptionSm,
+                                          ),
                                         ),
                                       ),
                                     ],
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Wrap(
-                                spacing: 6,
-                                runSpacing: 6,
-                                children: [
-                                  KonataPillButton.secondary(
-                                    label: '恢复',
-                                    compact: true,
-                                    onPressed: () =>
-                                        _restoreWork(context, ref, work),
-                                  ),
-                                  KonataCapsuleIconButton(
-                                    icon: Icons.open_in_new_rounded,
-                                    tooltip: '打开详情',
-                                    color: p.textSecondary,
-                                    size: 16,
-                                    padding: const EdgeInsets.all(6),
-                                    onTap: () {
-                                      Navigator.of(context).pop();
-                                      navigator.openWorkDetail(
-                                        WorkId.trusted(work.id),
-                                      );
-                                    },
-                                  ),
-                                  KonataCapsuleIconButton(
-                                    icon: Icons.delete_outline_rounded,
-                                    tooltip: '移出库',
-                                    color: p.danger,
-                                    size: 16,
-                                    padding: const EdgeInsets.all(6),
-                                    onTap: () =>
-                                        _deleteWork(context, ref, work),
                                   ),
                                 ],
                               ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
+                            ),
+                            const SizedBox(width: 12),
+                            KonataPillButton.secondary(
+                              label: restoring ? '恢复中…' : '取消隐藏',
+                              icon: Icons.visibility_outlined,
+                              compact: true,
+                              onPressed: restoring
+                                  ? null
+                                  : () => _restoreWork(work),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
                   ),
-          ),
+                ),
         );
       },
     );

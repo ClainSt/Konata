@@ -293,6 +293,7 @@ void main() {
       backupFilePort: backupFilePort,
       urlOpener: urlOpener,
       diagnosticLog: diagnosticLog,
+      storageRoot: _TestStorageRoot(tempDir.path),
       onThemeModeChanged: themes.add,
       onAmbientBackdropChanged: ambients.add,
     );
@@ -310,6 +311,111 @@ void main() {
     expect(persisted.ambientBackdropEnabled, isFalse);
   });
 
+  test('Windows 窗口材质切换持久落盘并触发宿主变更回调且不覆盖其余外观字段', () async {
+    final materials = <KonataWindowMaterial>[];
+
+    final controller = SettingsController(
+      databases: db,
+      scopedPrefs: scopedPrefs,
+      secureStorage: secureStorage,
+      httpClient: httpClient,
+      photosStorage: photosStorage,
+      backupFilePort: backupFilePort,
+      urlOpener: urlOpener,
+      diagnosticLog: diagnosticLog,
+      storageRoot: _TestStorageRoot(tempDir.path),
+      onWindowMaterialChanged: materials.add,
+    );
+    addTearDown(controller.dispose);
+    await controller.initialize();
+
+    controller.setThemeMode(ThemeMode.light);
+    controller.setAmbientBackdropEnabled(false);
+    controller.setWindowMaterial(KonataWindowMaterial.mica);
+    controller.setWindowMaterial(KonataWindowMaterial.tabbed);
+
+    expect(
+      materials,
+      equals(<KonataWindowMaterial>[
+        KonataWindowMaterial.mica,
+        KonataWindowMaterial.tabbed,
+      ]),
+    );
+
+    final persisted = SettingsAppearanceRepository(scopedPrefs).read();
+    expect(persisted.themeMode, equals(ThemeMode.light));
+    expect(persisted.ambientBackdropEnabled, isFalse);
+    expect(persisted.windowMaterial, equals(KonataWindowMaterial.tabbed));
+  });
+
+  test('显示偏好读写共享 feature_detail.display 分片且完整保留既有四字段', () async {
+    db.userState.scopedPrefs.upsert(
+      ScopedPrefRecord(
+        namespace: 'feature_detail.display',
+        schemaVersion: 1,
+        syncPolicy: SyncPolicy.portable,
+        payloadJson: jsonEncode(<String, Object?>{
+          'showMainHeroBackdrop': false,
+          'showEpisodeStillThumbnails': false,
+          'showOriginalSubtitlesOnCards': false,
+          'autoSilentWarmup': false,
+          'futureUnknownKey': 'preserve-value',
+        }),
+        updatedAtMs: 1000,
+      ),
+    );
+
+    final controller = SettingsController(
+      databases: db,
+      scopedPrefs: scopedPrefs,
+      secureStorage: secureStorage,
+      httpClient: httpClient,
+      photosStorage: photosStorage,
+      backupFilePort: backupFilePort,
+      urlOpener: urlOpener,
+      diagnosticLog: diagnosticLog,
+      storageRoot: _TestStorageRoot(tempDir.path),
+    );
+    addTearDown(controller.dispose);
+    await controller.initialize();
+
+    expect(controller.displayPrefs.showMainHeroBackdrop, isFalse);
+    expect(controller.displayPrefs.showEpisodeStillThumbnails, isFalse);
+    expect(controller.displayPrefs.showOriginalSubtitlesOnCards, isFalse);
+    expect(controller.displayPrefs.autoSilentWarmup, isFalse);
+    expect(controller.displayPrefs.showTitleText, isTrue);
+    expect(controller.displayPrefs.showTitleLogo, isTrue);
+    expect(controller.displayPrefs.showOverview, isTrue);
+    expect(controller.displayPrefs.showRawVideoFilename, isFalse);
+    expect(controller.displayPrefs.showCdTab, isTrue);
+    expect(controller.displayPrefs.showScanTab, isTrue);
+
+    controller.setShowTitleText(false);
+    controller.setShowTitleLogo(false);
+    controller.setShowOverview(false);
+    controller.setShowRawVideoFilename(true);
+    controller.setShowCdTab(false);
+    controller.setShowScanTab(false);
+
+    final record = db.userState.scopedPrefs.findByNamespace(
+      'feature_detail.display',
+    )!;
+    expect(record.syncPolicy, equals(SyncPolicy.portable));
+    expect(record.schemaVersion, equals(1));
+    final decoded = jsonDecode(record.payloadJson) as Map<String, dynamic>;
+    expect(decoded['showMainHeroBackdrop'], isFalse);
+    expect(decoded['showEpisodeStillThumbnails'], isFalse);
+    expect(decoded['showOriginalSubtitlesOnCards'], isFalse);
+    expect(decoded['autoSilentWarmup'], isFalse);
+    expect(decoded['futureUnknownKey'], equals('preserve-value'));
+    expect(decoded['showTitleText'], isFalse);
+    expect(decoded['showTitleLogo'], isFalse);
+    expect(decoded['showOverview'], isFalse);
+    expect(decoded['showRawVideoFilename'], isTrue);
+    expect(decoded['showCdTab'], isFalse);
+    expect(decoded['showScanTab'], isFalse);
+  });
+
   test('网络凭据与代理镜像分离持久化且脱敏诊断包剥离敏感信息', () async {
     final controller = SettingsController(
       databases: db,
@@ -320,6 +426,7 @@ void main() {
       backupFilePort: backupFilePort,
       urlOpener: urlOpener,
       diagnosticLog: diagnosticLog,
+      storageRoot: _TestStorageRoot(tempDir.path),
       connectivityProbeOverride: (targetId) async => ConnectivityReport(
         reachable: true,
         latencyMs: 36,
@@ -380,7 +487,7 @@ void main() {
     expect(plainText, contains('<USER_HOME>'));
   });
 
-  test('图片统计扫描识别孤儿目录并精准清理可再生缓存', () async {
+  test('图片统计扫描识别孤儿目录并支持按作品目录与分类精准清理', () async {
     db.library.works.upsert(
       const WorkRecord(
         id: WorkId.trusted('work_a'),
@@ -412,6 +519,7 @@ void main() {
       backupFilePort: backupFilePort,
       urlOpener: urlOpener,
       diagnosticLog: diagnosticLog,
+      storageRoot: _TestStorageRoot(tempDir.path),
     );
     addTearDown(controller.dispose);
     await controller.refreshPhotosStorage();
@@ -425,10 +533,18 @@ void main() {
       isTrue,
     );
 
-    final removed = await controller.clearRegenerableCaches();
-    expect(removed, equals(2));
+    final customResult = await controller.clearCustomPhotos(
+      workDirKeys: const <String>{'轻音少女 [work_a]'},
+      categories: const <PhotoStorageCategory>{PhotoStorageCategory.thumbnails},
+    );
+    expect(customResult.removedFiles, equals(1));
+    expect(customResult.freedBytes, equals(900));
     expect(workPoster.existsSync(), isTrue);
     expect(workThumb.existsSync(), isFalse);
+    expect(orphanScan.existsSync(), isTrue);
+
+    final removed = await controller.clearRegenerableCaches();
+    expect(removed, equals(1));
     expect(orphanScan.existsSync(), isFalse);
   });
 }

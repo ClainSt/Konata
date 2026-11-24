@@ -538,4 +538,293 @@ void main() {
     expect(find.text('CLANNAD'), findsOneWidget);
     expect(find.text('轻音少女'), findsNothing);
   });
+
+  testWidgets('媒体库顶栏顺序、隐藏列表、待复核中心、源文件拆包与手动三模式弹窗还原一致', (
+    tester,
+  ) async {
+    final tempRoot = Directory.systemTemp.createTempSync('konata_lib_modals_');
+    addTearDown(() => tempRoot.deleteSync(recursive: true));
+    final db = KonataDatabaseBundle.openInMemory();
+    addTearDown(db.close);
+    final eventBus = InMemoryDomainEventBus();
+    addTearDown(eventBus.dispose);
+    final navigator = _FakeNavigator();
+    final storageRoot = _TestStorageRoot(tempRoot.path);
+    final prefs = ScopedPrefsStore(db.userState);
+    final photos = PhotosStorage(storageRoot: storageRoot);
+    final artworkCache = ArtworkDiskCache(photosStorage: photos);
+
+    final repo = StorageScrapeRepository(db);
+    await repo.upsertMediaSource(
+      const MediaSource(
+        id: 'src_modal',
+        kind: MediaSourceKind.local,
+        label: '本地源',
+        location: 'D:/Anime',
+      ),
+    );
+    await repo.upsertWork(
+      const Work(
+        id: 'w_m1',
+        title: '轻音少女',
+        year: 2009,
+        bangumiScore: 8.6,
+        scrapeStatus: ScrapeStatus.matched,
+      ),
+    );
+    await repo.upsertWork(
+      const Work(
+        id: 'w_m2',
+        title: 'CLANNAD',
+        year: 2007,
+        bangumiScore: 9.0,
+        scrapeStatus: ScrapeStatus.matched,
+      ),
+    );
+    await repo.upsertWork(
+      const Work(
+        id: 'w_hidden',
+        title: '隐藏测试动画',
+        year: 2020,
+        isHidden: true,
+        scrapeStatus: ScrapeStatus.matched,
+      ),
+    );
+    await repo.upsertWork(
+      const Work(
+        id: 'w_review',
+        title: '未知新番文件夹',
+        year: 2024,
+        scrapeStatus: ScrapeStatus.needsReview,
+        reviewReason: 'network_error:api_timeout',
+      ),
+    );
+    await repo.upsertMediaVariant(
+      const MediaVariant(
+        id: 'var_hidden',
+        workId: 'w_hidden',
+        sourceId: 'src_modal',
+        relativePath: 'HiddenDir/01.mkv',
+        fileName: '01.mkv',
+        fileSize: 2048,
+      ),
+    );
+    await repo.upsertMediaVariant(
+      const MediaVariant(
+        id: 'var_rev',
+        workId: 'w_review',
+        sourceId: 'src_modal',
+        relativePath: 'ReviewDir/01.mkv',
+        fileName: '01.mkv',
+        fileSize: 4096,
+      ),
+    );
+    await repo.upsertMediaVariant(
+      const MediaVariant(
+        id: 'var_rev_cd',
+        workId: 'w_review',
+        sourceId: 'src_modal',
+        relativePath: 'ReviewDir/CD/01.flac',
+        fileName: '01.flac',
+        fileSize: 1024,
+        assetKind: AssetKind.cdAlbum,
+      ),
+    );
+    await repo.saveScrapeCandidates(
+      'w_review',
+      const <ScrapeCandidateSummary>[
+        ScrapeCandidateSummary(
+          workId: 'w_review',
+          tmdbId: 101,
+          mediaType: TmdbMediaType.tv,
+          title: '待复核候选番剧',
+          year: 2024,
+          episodeCount: 12,
+          score: 0.92,
+          rank: 1,
+          reasons: <String>['title_exact', 'year_match'],
+        ),
+      ],
+    );
+
+    final deps = FeatureLibraryDependencies(
+      databases: db,
+      storageRoot: storageRoot,
+      diagnosticLog: _FakeDiagnosticLog(),
+      scopedPrefs: prefs,
+      domainEventBus: eventBus,
+      navigator: navigator,
+      httpClient: _FakeHttpClient(),
+      photosStorage: photos,
+      artworkCache: artworkCache,
+      platform: KonataPlatform.windows,
+    );
+    final toastController = KonataToastController();
+    addTearDown(toastController.dispose);
+
+    // 验证桌面 1440x900 顶栏左藏右复核顺序与统计胶囊。
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [featureLibraryDependenciesProvider.overrideWithValue(deps)],
+        child: MaterialApp(
+          theme: KonataTheme.darkTheme(),
+          home: KonataToastScope(
+            controller: toastController,
+            child: Scaffold(
+              body: LibraryPage(
+                slotContext: const ViewSlotContext(
+                  arguments: <String, Object?>{'searchQuery': ''},
+                ),
+                imageLoaderOverride:
+                    (
+                      _, {
+                      int targetWidth = 384,
+                      TmdbImageSize imageSize = TmdbImageSize.w500,
+                      String? ownerWorkId,
+                      PhotoSubfolder? subfolder,
+                    }) async => _samplePng,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('全部作品'), findsOneWidget);
+    expect(find.byKey(const Key('library_works_count_pill')), findsOneWidget);
+    expect(find.text('2 部'), findsOneWidget);
+    expect(find.text('待复核 · 1'), findsOneWidget);
+
+    final hiddenDx =
+        tester.getTopLeft(find.byIcon(Icons.visibility_off_outlined)).dx;
+    final reviewDx = tester.getTopLeft(find.text('待复核 · 1')).dx;
+    expect(hiddenDx, lessThan(reviewDx));
+    expect(tester.takeException(), isNull, reason: 'desktop wall');
+
+    // 打开已隐藏作品弹窗并取消隐藏，验证恢复后弹窗与顶栏隐藏入口均自动收起且总数增至 3 部。
+    await tester.tap(find.byIcon(Icons.visibility_off_outlined));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull, reason: 'hidden dialog');
+    expect(find.text('已隐藏作品'), findsOneWidget);
+    expect(find.byType(KonataDraggableScrollbar), findsAtLeastNWidgets(2));
+    expect(find.text('隐藏测试动画（2020）'), findsOneWidget);
+    expect(find.text('[本地源] HiddenDir'), findsOneWidget);
+
+    await tester.tap(find.text('取消隐藏'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull, reason: 'after unhide');
+    expect(find.text('已隐藏作品'), findsNothing);
+    expect(find.byIcon(Icons.visibility_off_outlined), findsNothing);
+    expect(find.text('3 部'), findsOneWidget);
+
+    // 打开待复核队列，校验网络重试条、候选展开、源文件展示与多选限制及合并横屏适配。
+    await tester.tap(find.text('待复核 · 1'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull, reason: 'review dialog');
+    expect(find.text('待复核队列'), findsOneWidget);
+    expect(find.byType(KonataDraggableScrollbar), findsAtLeastNWidgets(2));
+    expect(find.text('1 项'), findsOneWidget);
+    expect(find.text('重试网络项 (1)'), findsOneWidget);
+
+    await tester.tap(find.text('展开候选 (1)'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull, reason: 'review candidates');
+    expect(find.text('TMDB #101'), findsOneWidget);
+    expect(find.text('匹配度 92%'), findsOneWidget);
+
+    await tester.tap(find.text('源文件'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull, reason: 'source files dialog');
+    expect(find.text('源文件清单：未知新番文件夹'), findsOneWidget);
+    expect(find.byType(KonataDraggableScrollbar), findsAtLeastNWidgets(3));
+    expect(find.textContaining('flac'), findsOneWidget);
+    expect(find.text('CD 音轨'), findsOneWidget);
+    await tester.tap(find.text('全选当前'));
+    await tester.pumpAndSettle();
+    expect(find.text('并入已有作品 (1)'), findsOneWidget);
+    expect(find.text('将所选绑定为独立作品 (1)'), findsOneWidget);
+
+    // 校验源文件弹窗在横屏软键盘挤压态下的折叠布局。
+    tester.view.physicalSize = const Size(780, 390);
+    tester.view.viewInsets = const FakeViewPadding(bottom: 120);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull, reason: 'source files landscape ime');
+    tester.view.viewInsets = FakeViewPadding.zero;
+    tester.view.physicalSize = const Size(1440, 900);
+    await tester.pumpAndSettle();
+
+    // 打开并入已有作品目标选择弹窗并验证其滚动条与横屏输入折叠。
+    await tester.tap(find.text('并入已有作品 (1)'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull, reason: 'merge target dialog');
+    expect(find.text('归类方式：'), findsOneWidget);
+    expect(find.text('确认并入'), findsOneWidget);
+    expect(find.byType(KonataDraggableScrollbar), findsAtLeastNWidgets(4));
+    tester.view.physicalSize = const Size(780, 390);
+    tester.view.viewInsets = const FakeViewPadding(bottom: 120);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull, reason: 'merge target landscape ime');
+    expect(find.text('归类方式：'), findsNothing);
+    expect(find.text('确认并入'), findsNothing);
+    expect(find.text('CLANNAD'), findsWidgets);
+    tester.view.viewInsets = FakeViewPadding.zero;
+    tester.view.physicalSize = const Size(1440, 900);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('取消').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('关闭').last);
+    await tester.pumpAndSettle();
+
+    // 校验手动匹配三模式弹窗自动加载推荐候选、混合面板滚动条及横屏输入折叠。
+    await tester.tap(find.text('手动搜索'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull, reason: 'manual match dialog');
+    expect(find.text('TMDB 匹配'), findsOneWidget);
+    expect(find.text('Bangumi × TMDB 混合'), findsOneWidget);
+    expect(find.text('仅 Bangumi'), findsOneWidget);
+    expect(find.text('自动刮削推荐候选（点击可直接采纳绑定）'), findsOneWidget);
+    expect(find.text('TMDB #101'), findsWidgets);
+    expect(find.text('采纳绑定'), findsOneWidget);
+    expect(find.byType(KonataDraggableScrollbar), findsAtLeastNWidgets(3));
+
+    tester.view.physicalSize = const Size(780, 390);
+    tester.view.viewInsets = const FakeViewPadding(bottom: 120);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull, reason: 'manual match landscape ime');
+    expect(find.text('TMDB 匹配'), findsNothing);
+    expect(find.text('自动刮削推荐候选（点击可直接采纳绑定）'), findsOneWidget);
+    tester.view.viewInsets = FakeViewPadding.zero;
+    tester.view.physicalSize = const Size(1440, 900);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Bangumi × TMDB 混合'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull, reason: 'hybrid match tab');
+    expect(find.byType(KonataDraggableScrollbar), findsAtLeastNWidgets(3));
+
+    await tester.tap(find.text('取消').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('关闭').last);
+    await tester.pumpAndSettle();
+
+    // 验证手机端 390x780 内联展开搜索与紧凑复核胶囊。
+    tester.view.physicalSize = const Size(390, 780);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull, reason: 'phone wall');
+    expect(find.text('复核 1'), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.search_rounded));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'CLANNAD');
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey<String>('w_m2')), findsOneWidget);
+    expect(find.byKey(const ValueKey<String>('w_m1')), findsNothing);
+    await tester.tap(find.byIcon(Icons.arrow_back_rounded));
+    await tester.pumpAndSettle();
+    expect(find.text('3 部'), findsOneWidget);
+  });
 }

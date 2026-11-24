@@ -6,35 +6,51 @@ import 'package:konata_design_system/konata_design_system.dart';
 
 import '../data/history_timeline_models.dart';
 
-/// 播放记录可选自定义封面加载器（保持 `feature_history` 与图片刮削实现解耦）。
+/// 按作品主键加载封面字节的异步回调类型。
 typedef HistoryArtworkLoader = Future<Uint8List?> Function(WorkId workId);
 
-/// 播放记录封面或 CD 光盘缩略图视图。
+/// 按媒体文件/剧照相对路径加载图像字节的异步回调类型。
+typedef HistoryPathArtworkLoader =
+    Future<Uint8List?> Function(String path, {int targetWidth});
+
+/// 播放记录时间轴共用的海报/16:9 剧照/1:1 专辑圆角缩略图组件。
 class HistoryThumbnail extends StatefulWidget {
   /// 创建播放记录缩略图组件。
   const HistoryThumbnail({
     super.key,
     required this.workId,
     required this.isAudio,
-    this.imageLoader,
-    this.width = 58,
-    this.height = 82,
+    required this.imageLoader,
+    required this.width,
+    required this.height,
+    this.artworkPath,
+    this.pathArtworkLoader,
+    this.hovered = false,
   });
 
-  /// 关联作品主键。
+  /// 作品唯一主键。
   final WorkId workId;
 
-  /// 是否为音频/CD 记录。
+  /// 是否为音频或光盘专辑条目（未加载出封面时展示黑胶圆盘占位）。
   final bool isAudio;
 
-  /// 可选封面字节异步加载器。
+  /// 作品级封面图像字节加载回调。
   final HistoryArtworkLoader? imageLoader;
 
-  /// 缩略图宽度。
+  /// 可选具体路径（如分集 16:9 剧照路径）。
+  final String? artworkPath;
+
+  /// 可选按路径加载剧照字节的回调。
+  final HistoryPathArtworkLoader? pathArtworkLoader;
+
+  /// 缩略图逻辑宽度。
   final double width;
 
-  /// 缩略图高度。
+  /// 缩略图逻辑高度。
   final double height;
+
+  /// 外层卡片是否正处于桌面端悬停激活态。
+  final bool hovered;
 
   @override
   State<HistoryThumbnail> createState() => _HistoryThumbnailState();
@@ -42,6 +58,7 @@ class HistoryThumbnail extends StatefulWidget {
 
 class _HistoryThumbnailState extends State<HistoryThumbnail> {
   Uint8List? _bytes;
+  int _generation = 0;
 
   @override
   void initState() {
@@ -53,170 +70,208 @@ class _HistoryThumbnailState extends State<HistoryThumbnail> {
   void didUpdateWidget(covariant HistoryThumbnail oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.workId != widget.workId ||
-        oldWidget.imageLoader != widget.imageLoader) {
-      _bytes = null;
+        oldWidget.artworkPath != widget.artworkPath ||
+        oldWidget.imageLoader != widget.imageLoader ||
+        oldWidget.pathArtworkLoader != widget.pathArtworkLoader) {
       _loadCover();
     }
   }
 
   Future<void> _loadCover() async {
-    final loader = widget.imageLoader;
-    if (loader == null) {
-      return;
-    }
-    try {
-      final loaded = await loader(widget.workId);
-      if (mounted && loaded != null && loaded.isNotEmpty) {
-        setState(() {
-          _bytes = loaded;
-        });
+    final gen = ++_generation;
+    Uint8List? loaded;
+    final path = widget.artworkPath?.trim() ?? '';
+    final pathLoader = widget.pathArtworkLoader;
+    if (path.isNotEmpty && pathLoader != null) {
+      try {
+        loaded = await pathLoader(path, targetWidth: (widget.width * 2).round());
+      } catch (_) {
+        loaded = null;
       }
-    } catch (_) {
-      // 忽略封面读取失败，回退至占位图标。
     }
+    if (loaded == null && widget.imageLoader != null) {
+      try {
+        loaded = await widget.imageLoader!(widget.workId);
+      } catch (_) {
+        loaded = null;
+      }
+    }
+    if (!mounted || gen != _generation) return;
+    setState(() => _bytes = loaded);
   }
 
   @override
   Widget build(BuildContext context) {
-    final tokens = Theme.of(context).extension<KonataPalette>()!;
+    final p = context.palette;
     final bytes = _bytes;
 
-    if (widget.isAudio) {
-      final discSize = widget.width < widget.height ? widget.width : widget.height;
-      return SizedBox(
-        width: widget.width,
-        height: widget.height,
-        child: Center(
-          child: SizedBox(
-            width: discSize,
-            height: discSize,
-            child: const KonataCdDiscPlaceholder(),
-          ),
+    final Widget inner;
+    if (bytes != null && bytes.isNotEmpty) {
+      inner = Image.memory(
+        bytes,
+        fit: BoxFit.cover,
+        gaplessPlayback: true,
+        filterQuality: FilterQuality.medium,
+        errorBuilder: (_, _, _) => _PlaceholderPoster(
+          palette: p,
+          isAudio: widget.isAudio,
+          hovered: widget.hovered,
         ),
+      );
+    } else if (widget.isAudio) {
+      inner = KonataCdDiscPlaceholder(hovered: widget.hovered);
+    } else {
+      inner = _PlaceholderPoster(
+        palette: p,
+        isAudio: false,
+        hovered: widget.hovered,
       );
     }
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        width: widget.width,
-        height: widget.height,
-        decoration: BoxDecoration(
-          color: tokens.softFill,
-          border: Border.all(color: tokens.posterBorder, width: 0.8),
-          borderRadius: BorderRadius.circular(10),
+    return SizedBox(
+      width: widget.width,
+      height: widget.height,
+      child: ClipRRect(
+        borderRadius: KonataTheme.borderRadiusSm,
+        child: Stack(
+          fit: StackFit.expand,
+          children: <Widget>[
+            inner,
+            Positioned.fill(
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: KonataTheme.borderRadiusSm,
+                    border: Border.all(color: p.posterBorder),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
-        child: bytes != null
-            ? Image.memory(
-                bytes,
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => _PlaceholderPoster(tokens: tokens),
-              )
-            : _PlaceholderPoster(tokens: tokens),
       ),
     );
   }
 }
 
 class _PlaceholderPoster extends StatelessWidget {
-  const _PlaceholderPoster({required this.tokens});
+  const _PlaceholderPoster({
+    required this.palette,
+    required this.isAudio,
+    required this.hovered,
+  });
 
-  final KonataPalette tokens;
+  final KonataPalette palette;
+  final bool isAudio;
+  final bool hovered;
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Icon(
-        Icons.movie_filter_outlined,
-        size: 24,
-        color: tokens.textMuted,
+    if (isAudio) {
+      return KonataCdDiscPlaceholder(hovered: hovered);
+    }
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: <Color>[palette.elevatedSurface, palette.surface],
+        ),
+      ),
+      child: Center(
+        child: Icon(
+          Icons.movie_outlined,
+          size: 20,
+          color: palette.textMuted,
+        ),
       ),
     );
   }
 }
 
-/// 精简进度条与时间戳摘要行。
+/// 播放记录进度细条（3.2 像素圆角轨道）、进度摘要文案与 24 小时制时间戳组合行。
 class HistoryProgressMetaRow extends StatelessWidget {
-  /// 创建进度条与时间展示行。
+  /// 创建播放进度元信息行。
   const HistoryProgressMetaRow({
     super.key,
     required this.item,
     this.showProgressBar = true,
   });
 
-  /// 单条历史视图。
+  /// 当前展示的播放记录条目视图。
   final HistoryEntryView item;
 
-  /// 是否显示横向进度条。
+  /// 是否在元信息上方渲染 3.2px 圆角进度细条。
   final bool showProgressBar;
 
   @override
   Widget build(BuildContext context) {
-    final tokens = Theme.of(context).extension<KonataPalette>()!;
-    final ratio = item.progressRatio;
+    final p = context.palette;
+    final ratio = item.progressRatio.clamp(0.0, 1.0);
+    final fillColor = item.isCompleted ? p.success : p.progressFill;
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        if (showProgressBar) ...<Widget>[
+          ClipRRect(
+            borderRadius: KonataTheme.borderRadiusPill,
+            child: SizedBox(
+              height: 3.2,
+              child: Stack(
+                fit: StackFit.expand,
+                children: <Widget>[
+                  ColoredBox(color: p.progressTrack),
+                  FractionallySizedBox(
+                    alignment: Alignment.centerLeft,
+                    widthFactor: ratio,
+                    child: ColoredBox(color: fillColor),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 5),
+        ],
         Row(
-          children: [
-            Flexible(
+          children: <Widget>[
+            Expanded(
               child: Text(
                 item.progressLabel,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: item.record.isCompleted
-                      ? tokens.success
-                      : tokens.textSecondary,
-                  fontWeight: item.record.isCompleted
-                      ? FontWeight.w600
-                      : FontWeight.w400,
+                style: KonataTheme.textStyle(
+                  color: item.isCompleted ? p.success : p.textSecondary,
+                  fontSize: KonataTheme.fontSizeCaptionXs,
+                  weight: item.isCompleted
+                      ? KonataTheme.weightActive
+                      : KonataTheme.weightRegularLabel,
+                  tabularFigures: true,
                 ),
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 6),
+            Icon(Icons.schedule_rounded, size: 11, color: p.textMuted),
+            const SizedBox(width: 3),
             Text(
               item.playedTimeLabel,
-              style: TextStyle(
-                fontSize: 11.5,
-                color: tokens.textMuted,
+              style: KonataTheme.textStyle(
+                color: p.textMuted,
+                fontSize: KonataTheme.fontSizeCaptionXs,
+                tabularFigures: true,
               ),
             ),
           ],
         ),
-        if (showProgressBar && (item.record.durationSeconds > 0 || item.record.isCompleted)) ...[
-          const SizedBox(height: 6),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(999),
-            child: Container(
-              height: 4,
-              width: double.infinity,
-              color: tokens.progressTrack,
-              alignment: Alignment.centerLeft,
-              child: FractionallySizedBox(
-                widthFactor: ratio.clamp(0.0, 1.0),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: item.record.isCompleted
-                        ? tokens.success
-                        : tokens.progressFill,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
       ],
     );
   }
 }
 
-/// 聚合作品卡片展开后的单集（或单曲）子行组件。
-class HistoryExpandedEpisodeRow extends StatelessWidget {
-  /// 创建展开子行组件。
+/// 展开抽屉中的单集 16:9 剧照卡或 1:1 音频专辑子卡片组件。
+class HistoryExpandedEpisodeRow extends StatefulWidget {
+  /// 创建展开抽屉中的单条子卡片。
   const HistoryExpandedEpisodeRow({
     super.key,
     required this.item,
@@ -225,118 +280,70 @@ class HistoryExpandedEpisodeRow extends StatelessWidget {
     required this.onResume,
     required this.onDelete,
     required this.onToggleSelect,
+    this.onMarkCompleted,
+    this.imageLoader,
+    this.pathArtworkLoader,
+    this.compact = false,
+    this.cardWidth,
   });
 
-  /// 关联单条记录。
+  /// 单条播放记录视图模型。
   final HistoryEntryView item;
 
-  /// 是否处于多选模式。
+  /// 当前页面是否处于批量多选态。
   final bool isSelectionMode;
 
-  /// 是否已被勾选。
+  /// 当前条目是否已被多选勾选。
   final bool isSelected;
 
-  /// 点击续播回调。
+  /// 点击续播该分集或音轨的回调。
   final VoidCallback onResume;
 
-  /// 删除单条记录回调。
+  /// 删除该单条播放记录回调。
   final VoidCallback onDelete;
 
-  /// 切换勾选回调。
+  /// 切换该条记录选中态回调。
   final VoidCallback onToggleSelect;
 
-  @override
-  Widget build(BuildContext context) {
-    final tokens = Theme.of(context).extension<KonataPalette>()!;
+  /// 可选标记单条已完播回调。
+  final VoidCallback? onMarkCompleted;
 
-    return Container(
-      margin: const EdgeInsets.only(top: 8),
-      decoration: BoxDecoration(
-        color: isSelected
-            ? tokens.accent.withValues(alpha: 0.12)
-            : tokens.softFill,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: isSelected ? tokens.accent : tokens.hairline,
-          width: 0.8,
-        ),
-      ),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: isSelectionMode ? onToggleSelect : onResume,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          child: Row(
-            children: [
-              if (isSelectionMode) ...[
-                Checkbox(
-                  value: isSelected,
-                  onChanged: (_) => onToggleSelect(),
-                ),
-                const SizedBox(width: 4),
-              ] else ...[
-                Icon(
-                  item.isAudio
-                      ? Icons.audiotrack_rounded
-                      : Icons.play_arrow_rounded,
-                  size: 18,
-                  color: tokens.accent,
-                ),
-                const SizedBox(width: 8),
-              ],
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      item.episodeSubtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: tokens.textPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    HistoryProgressMetaRow(item: item, showProgressBar: true),
-                  ],
-                ),
-              ),
-              if (!isSelectionMode) ...[
-                const SizedBox(width: 6),
-                Builder(
-                  builder: (menuAnchorCtx) => GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () => _showRowMenu(menuAnchorCtx),
-                    child: Padding(
-                      padding: const EdgeInsets.all(6),
-                      child: Icon(
-                        Icons.more_horiz_rounded,
-                        size: 18,
-                        color: tokens.textSecondary,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+  /// 作品封面加载器。
+  final HistoryArtworkLoader? imageLoader;
+
+  /// 剧照路径加载器。
+  final HistoryPathArtworkLoader? pathArtworkLoader;
+
+  /// 是否使用紧凑移动端尺寸。
+  final bool compact;
+
+  /// 可选固定卡片宽度（置于水平滑动托盘中时防止无界膨胀）。
+  final double? cardWidth;
+
+  @override
+  State<HistoryExpandedEpisodeRow> createState() =>
+      _HistoryExpandedEpisodeRowState();
+}
+
+class _HistoryExpandedEpisodeRowState extends State<HistoryExpandedEpisodeRow> {
+  bool _hovered = false;
 
   Future<void> _showRowMenu(BuildContext anchorContext) async {
-    final chosen = await showKonataGlassMenu<String>(
+    final action = await showKonataGlassMenu<String>(
       anchorContext: anchorContext,
-      items: const [
-        KonataGlassMenuItem(
+      items: <KonataGlassMenuItem<String>>[
+        const KonataGlassMenuItem<String>(
           value: 'resume',
           label: '继续播放',
           icon: Icons.play_arrow_rounded,
         ),
-        KonataGlassMenuItem(
+        if (widget.onMarkCompleted != null && !widget.item.isCompleted)
+          KonataGlassMenuItem<String>(
+            value: 'complete',
+            label: widget.item.isAudio ? '标为已听完' : '标为已看完',
+            icon: Icons.done_rounded,
+          ),
+        const KonataGlassMenuItem<String>(
           value: 'delete',
           label: '删除此条记录',
           icon: Icons.delete_outline_rounded,
@@ -344,10 +351,139 @@ class HistoryExpandedEpisodeRow extends StatelessWidget {
         ),
       ],
     );
-    if (chosen == 'resume') {
-      onResume();
-    } else if (chosen == 'delete') {
-      onDelete();
+    if (!mounted || action == null) return;
+    switch (action) {
+      case 'resume':
+        widget.onResume();
+      case 'complete':
+        widget.onMarkCompleted?.call();
+      case 'delete':
+        widget.onDelete();
     }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    final item = widget.item;
+    final audio = item.isAudio;
+    final subdir = item.audioSubdirLabel;
+    final thumbW = audio
+        ? (widget.compact ? 56.0 : 64.0)
+        : (widget.compact ? 104.0 : 116.0);
+    final thumbH = audio
+        ? (widget.compact ? 56.0 : 64.0)
+        : (widget.compact ? 58.0 : 65.0);
+
+    return SizedBox(
+      width: widget.cardWidth,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.isSelectionMode
+              ? widget.onToggleSelect
+              : widget.onResume,
+          onSecondaryTap: () => _showRowMenu(context),
+          onLongPress: () => _showRowMenu(context),
+          child: AnimatedContainer(
+            duration: KonataTheme.motionMicro,
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: widget.isSelected
+                  ? p.accentBadge.bg
+                  : (_hovered ? p.surfaceHover : p.surface),
+              borderRadius: KonataTheme.borderRadiusControl,
+              border: Border.all(
+                color: widget.isSelected
+                    ? KonataTheme.activeControlBorder(p)
+                    : (_hovered ? p.hoverBorder : p.hairline),
+              ),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: <Widget>[
+                if (widget.isSelectionMode) ...<Widget>[
+                  SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: Checkbox(
+                      value: widget.isSelected,
+                      activeColor: p.accent,
+                      onChanged: (_) => widget.onToggleSelect(),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                ],
+                HistoryThumbnail(
+                  workId: item.record.workId,
+                  artworkPath: audio ? null : item.stillPath,
+                  isAudio: audio,
+                  imageLoader: widget.imageLoader,
+                  pathArtworkLoader: widget.pathArtworkLoader,
+                  width: thumbW,
+                  height: thumbH,
+                  hovered: _hovered,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Row(
+                        children: <Widget>[
+                          Expanded(
+                            child: Text(
+                              item.episodeSubtitle,
+                              maxLines: subdir != null ? 1 : 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: KonataTheme.textStyle(
+                                color: p.textPrimary,
+                                fontSize: KonataTheme.fontSizeCaption,
+                                weight: KonataTheme.weightActive,
+                                height: 1.25,
+                              ),
+                            ),
+                          ),
+                          if (!widget.isSelectionMode)
+                            Builder(
+                              builder: (menuCtx) => KonataCapsuleIconButton(
+                                icon: Icons.more_horiz_rounded,
+                                tooltip: '操作菜单',
+                                color: p.textMuted,
+                                size: 14,
+                                fixedSize: 22,
+                                onTap: () => _showRowMenu(menuCtx),
+                              ),
+                            ),
+                        ],
+                      ),
+                      if (subdir != null) ...<Widget>[
+                        const SizedBox(height: 2),
+                        Text(
+                          subdir,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: KonataTheme.captionStyle(
+                            p,
+                            fontSize: KonataTheme.fontSizeMicro,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 5),
+                      HistoryProgressMetaRow(item: item, showProgressBar: true),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }

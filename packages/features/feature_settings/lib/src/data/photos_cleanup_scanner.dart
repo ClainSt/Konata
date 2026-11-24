@@ -14,7 +14,9 @@ final class WorkPhotoStorageEntry {
     required this.totalBytes,
     required this.totalFiles,
     required this.byCategory,
-  });
+    String? workDirKey,
+    this.posterFilePath,
+  }) : _explicitDirKey = workDirKey;
 
   /// 目录标签映射的作品标识。
   final String workId;
@@ -24,6 +26,12 @@ final class WorkPhotoStorageEntry {
 
   /// 磁盘目录绝对路径。
   final String folderPath;
+
+  /// 显式指定的磁盘目录基名（`<安全作品名> [<workIdTag>]`）。
+  final String? _explicitDirKey;
+
+  /// 本地缓存的海报图片绝对路径（用于在清理列表中呈现缩略图）。
+  final String? posterFilePath;
 
   /// 是否已不在作品库中（孤儿缓存目录）。
   final bool isOrphan;
@@ -36,6 +44,22 @@ final class WorkPhotoStorageEntry {
 
   /// 按图片五分类统计的占用明细。
   final Map<PhotoStorageCategory, PhotoCategoryStat> byCategory;
+
+  /// 获取作品目录名键（优先显式字段，兼容历史构造从路径提取）。
+  String get workDirKey => _explicitDirKey ?? p.basename(folderPath);
+
+  /// 汇总指定图片分类集合在该作品目录中的字节数与文件数。
+  PhotoCategoryStat statForCategories(Set<PhotoStorageCategory> categories) {
+    var bytes = 0;
+    var files = 0;
+    for (final cat in categories) {
+      final stat = byCategory[cat];
+      if (stat == null) continue;
+      bytes += stat.bytes;
+      files += stat.files;
+    }
+    return PhotoCategoryStat(bytes: bytes, files: files);
+  }
 }
 
 /// 图片存储全局及作品维度扫描快照。
@@ -63,6 +87,12 @@ final class PhotosCleanupScanner {
 
   final PhotosStorage _photosStorage;
   final WorkDao _workDao;
+
+  /// 解析当前生效的 `photos/` 根目录路径。
+  Future<String> resolveRootPath() async {
+    final dir = await _photosStorage.resolveRootDirectory();
+    return dir.path;
+  }
 
   /// 格式化字节数为可读容量字符串。
   static String formatBytes(int bytes) {
@@ -107,6 +137,7 @@ final class PhotosCleanupScanner {
       final categoryMap = <PhotoStorageCategory, PhotoCategoryStat>{};
       var workBytes = 0;
       var workFiles = 0;
+      String? posterFilePath;
       for (final category in PhotoStorageCategory.values) {
         final subDir = Directory(p.join(entity.path, category.dirName));
         var catBytes = 0;
@@ -116,6 +147,10 @@ final class PhotosCleanupScanner {
             if (file is File) {
               catFiles++;
               catBytes += file.lengthSync();
+              if (category == PhotoStorageCategory.posters &&
+                  posterFilePath == null) {
+                posterFilePath = file.path;
+              }
             }
           }
         }
@@ -135,8 +170,10 @@ final class PhotosCleanupScanner {
       entries.add(
         WorkPhotoStorageEntry(
           workId: matchedWork?.id.value ?? tag,
+          workDirKey: dirName,
           displayTitle: matchedWork?.title ?? fallbackTitle,
           folderPath: entity.path,
+          posterFilePath: posterFilePath,
           isOrphan: matchedWork == null,
           totalBytes: workBytes,
           totalFiles: workFiles,
@@ -160,6 +197,42 @@ final class PhotosCleanupScanner {
     String? workId,
   }) {
     return _photosStorage.clearCategories(categories, workId: workId);
+  }
+
+  /// 按指定作品目录键集合与图片分类精确删除缓存图片，返回实际清理的文件数与释放字节数。
+  Future<({int removedFiles, int freedBytes})> clearCustomPhotos({
+    required Set<String> workDirKeys,
+    required Set<PhotoStorageCategory> categories,
+  }) async {
+    if (workDirKeys.isEmpty || categories.isEmpty) {
+      return (removedFiles: 0, freedBytes: 0);
+    }
+    final rootDir = await _photosStorage.resolveRootDirectory();
+    if (!rootDir.existsSync()) {
+      return (removedFiles: 0, freedBytes: 0);
+    }
+
+    var removedFiles = 0;
+    var freedBytes = 0;
+    for (final entity in rootDir.listSync(followLinks: false)) {
+      if (entity is! Directory) continue;
+      final dirName = p.basename(entity.path);
+      if (!workDirKeys.contains(dirName)) continue;
+
+      for (final cat in categories) {
+        final subDir = Directory(p.join(entity.path, cat.dirName));
+        if (!subDir.existsSync()) continue;
+        for (final file in subDir.listSync(followLinks: false)) {
+          if (file is! File) continue;
+          final size = file.lengthSync();
+          await _photosStorage.onEvictImageFile?.call(file);
+          file.deleteSync();
+          removedFiles++;
+          freedBytes += size;
+        }
+      }
+    }
+    return (removedFiles: removedFiles, freedBytes: freedBytes);
   }
 
   /// 一键清理全部可再生缓存（分集剧照与扫图微缩图）。

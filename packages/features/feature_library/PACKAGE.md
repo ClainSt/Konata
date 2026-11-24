@@ -14,4 +14,4 @@ Konata v3 媒体库海报墙、本地检索筛选、作品管理与待复核纠�
 - 扩展清单：`featureLibraryManifest`（注册 `id: 'library'` 顶层导航分区，`order: 10`）
 - 注入容器：`FeatureLibraryDependencies` 与 `featureLibraryDependenciesProvider`
 - 零 Riverpod 数据与状态控制：`ChinesePinyinCollator`、`LibrarySearchMatcher`、`LibraryController`、`WorkManagementController`、`LibraryFilterPrefs`
-- 视图与毛玻璃弹窗：`LibraryPage`、`PosterCard`、`ManagedImage`、`showReviewDialog`、`showHiddenWorksDialog`、`showManualMatchDialog`、`showWorkMergeTargetDialog`、`showDeleteWorkDialog`、`showSourceFilesReviewDialog`
+- 视图与毛玻璃弹窗：`LibraryPage`、`PosterCard`、`ManagedImage`、`showReviewDialog`、`showHiddenWorksDialog`、`showManualMatchDialog`、`showWorkMergeTargetDialog`、`showWorkMergeSelectionDialog`、`WorkMergeSelection`、`MergeVideoCategoryMode`、`showDeleteWorkDialog`、`showHideWorkDialog`、`showSourceFilesReviewDialog`

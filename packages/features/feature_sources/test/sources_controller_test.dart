@@ -218,6 +218,88 @@ void main() {
       location: 'https://dav.example.com/anime',
     );
     expect(dirs.map((d) => d.name), ['Season 2', 'Season 10']);
+
+    final allEntries = await controller.listDirectory(
+      kind: MediaSourceKind.webdav,
+      location: 'https://dav.example.com/anime',
+      includeFiles: true,
+    );
+    expect(allEntries.map((e) => e.name), ['Season 2', 'Season 10', 'readme.txt']);
+  });
+
+  test('媒体源统计流准确聚合关联作品数、视频数与待复核条目数', () async {
+    final gatewayFactory = _FakeGatewayFactory((_, _, _) => _FakeGateway());
+    final controller = SourcesController(
+      databases: db,
+      credentialStore: credentialStore,
+      gatewayFactory: gatewayFactory,
+      eventBus: eventBus,
+      scopedPrefs: prefs,
+      nowMs: () => 2000,
+    );
+    addTearDown(controller.dispose);
+
+    final created = await controller.saveSource(
+      kind: MediaSourceKind.local,
+      label: '统计验证盘',
+      location: 'D:/StatsAnime',
+    );
+    final source = created.source!;
+
+    final repo = StorageScrapeRepository(db);
+    await repo.upsertWork(
+      const Work(
+        id: 'w_stats_1',
+        title: '已匹配作品',
+        scrapeStatus: ScrapeStatus.matched,
+      ),
+    );
+    await repo.upsertWork(
+      const Work(
+        id: 'w_stats_2',
+        title: '待复核作品',
+        scrapeStatus: ScrapeStatus.needsReview,
+      ),
+    );
+    await repo.upsertMediaVariant(
+      MediaVariant(
+        id: 'v_stats_1',
+        workId: 'w_stats_1',
+        sourceId: source.id,
+        relativePath: '01.mkv',
+        fileName: '01.mkv',
+        fileSize: 100,
+      ),
+    );
+    await repo.upsertMediaVariant(
+      MediaVariant(
+        id: 'v_stats_2',
+        workId: 'w_stats_2',
+        sourceId: source.id,
+        relativePath: '02.mkv',
+        fileName: '02.mkv',
+        fileSize: 200,
+      ),
+    );
+    await repo.upsertMediaVariant(
+      MediaVariant(
+        id: 'v_stats_3',
+        workId: 'w_stats_1',
+        sourceId: source.id,
+        relativePath: 'Scans/01.jpg',
+        fileName: '01.jpg',
+        fileSize: 50,
+        assetKind: AssetKind.scanGallery,
+      ),
+    );
+
+    final statsMap = await controller.watchSourceStats().first;
+    final stats = statsMap[source.id];
+    expect(stats, isNotNull);
+    expect(stats!.workCount, 2);
+    expect(stats.videoCount, 2);
+    expect(stats.totalFileCount, 3);
+    expect(stats.reviewCount, 1);
   });
 
   test('移除媒体源写入软删除墓碑与清凭据，严禁删除物理媒体文件', () async {

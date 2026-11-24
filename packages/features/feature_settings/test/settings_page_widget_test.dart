@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:engine_sources/engine_sources.dart';
 import 'package:feature_settings/feature_settings.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
@@ -8,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:konata_contracts/konata_contracts.dart';
 import 'package:konata_design_system/konata_design_system.dart';
 import 'package:konata_storage/konata_storage.dart';
+import 'package:path/path.dart' as p;
 
 final class _TestStorageRoot implements StorageRootPort {
   _TestStorageRoot(this.rootPath);
@@ -260,8 +263,27 @@ final class _StubLog implements DiagnosticLogPort {
   bool get verboseEnabled => false;
 }
 
+Widget _buildHarness({
+  required FeatureSettingsDependencies deps,
+  required KonataToastController toastCtrl,
+  required Widget child,
+}) {
+  return ProviderScope(
+    overrides: [featureSettingsDependenciesProvider.overrideWithValue(deps)],
+    child: MaterialApp(
+      theme: KonataTheme.darkTheme(),
+      home: KonataToastScope(
+        controller: toastCtrl,
+        child: Scaffold(body: child),
+      ),
+    ),
+  );
+}
+
 void main() {
-  testWidgets('桌面端分栏按 order 排列外部注入设置分区且支持存储诊断与外链交互', (tester) async {
+  testWidgets('桌面端分栏按 order 排列分区并支持窗口材质、显示偏好持久化、诊断导出与外链交互', (
+    tester,
+  ) async {
     final tempDir = Directory.systemTemp.createTempSync('konata_settings_ui_');
     addTearDown(() {
       if (tempDir.existsSync()) {
@@ -271,8 +293,28 @@ void main() {
 
     final db = KonataDatabaseBundle.openInMemory();
     addTearDown(db.close);
+
+    // 预置 feature_detail 既有四项字段，验证设置面板编辑后完整保留且零覆盖。
+    db.userState.scopedPrefs.upsert(
+      ScopedPrefRecord(
+        namespace: 'feature_detail.display',
+        schemaVersion: 1,
+        syncPolicy: SyncPolicy.portable,
+        payloadJson: jsonEncode(<String, Object?>{
+          'showMainHeroBackdrop': false,
+          'showEpisodeStillThumbnails': true,
+          'showOriginalSubtitlesOnCards': false,
+          'autoSilentWarmup': false,
+        }),
+        updatedAtMs: 500,
+      ),
+    );
+
     final backupPort = _FakeBackupFilePort();
     final urlOpener = _FakeUrlOpener();
+    final materials = <KonataWindowMaterial>[];
+    final ambients = <bool>[];
+    final themes = <ThemeMode>[];
 
     final externalSections = <SettingsSectionContribution>[
       SettingsSectionContribution(
@@ -305,7 +347,11 @@ void main() {
       diagnosticLog: _StubLog(),
       navigator: _StubNavigator(),
       currentPlatform: KonataPlatform.windows,
+      storageRoot: _TestStorageRoot(tempDir.path),
       sections: externalSections,
+      onThemeModeChanged: themes.add,
+      onAmbientBackdropChanged: ambients.add,
+      onWindowMaterialChanged: materials.add,
     );
 
     expect(featureSettingsManifest.id, equals('feature_settings'));
@@ -322,57 +368,126 @@ void main() {
     addTearDown(toastCtrl.dispose);
 
     await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          featureSettingsDependenciesProvider.overrideWithValue(deps),
-        ],
-        child: MaterialApp(
-          theme: KonataTheme.darkTheme(),
-          home: KonataToastScope(
-            controller: toastCtrl,
-            child: Scaffold(
-              body: featureSettingsManifest.navSections.single
-                      .viewBuilder(const ViewSlotContext())
-                  as Widget,
-            ),
-          ),
-        ),
+      _buildHarness(
+        deps: deps,
+        toastCtrl: toastCtrl,
+        child:
+            featureSettingsManifest.navSections.single.viewBuilder(
+                  const ViewSlotContext(),
+                )
+                as Widget,
       ),
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('外观与显示'), findsOneWidget);
-    expect(find.text('网络与元数据凭据'), findsOneWidget);
+    expect(find.text('外观'), findsOneWidget);
+    expect(find.text('显示与存储'), findsOneWidget);
+    expect(find.text('刮削与网络'), findsOneWidget);
     expect(find.text('外部播放器（仅桌面）'), findsOneWidget);
     expect(find.text('跨设备同步服务'), findsOneWidget);
-    expect(find.text('存储与图片缓存'), findsOneWidget);
-    expect(find.text('关于 Konata'), findsOneWidget);
+    expect(find.text('关于'), findsOneWidget);
 
-    // 验证按 order 升序排列：appearance(10) < ext_desktop_player(30) < ext_sync(50)。
-    final appearanceTop = tester.getTopLeft(find.text('外观与显示')).dy;
+    // 验证按 order 升序排列：appearance(10) < display(15) < network(20) < ext_desktop_player(30) < ext_sync(50)。
+    final appearanceTop = tester.getTopLeft(find.text('外观')).dy;
+    final displayTop = tester.getTopLeft(find.text('显示与存储')).dy;
+    final networkTop = tester.getTopLeft(find.text('刮削与网络')).dy;
     final desktopExtTop = tester.getTopLeft(find.text('外部播放器（仅桌面）')).dy;
     final syncExtTop = tester.getTopLeft(find.text('跨设备同步服务')).dy;
-    expect(appearanceTop, lessThan(desktopExtTop));
+    expect(appearanceTop, lessThan(displayTop));
+    expect(displayTop, lessThan(networkTop));
+    expect(networkTop, lessThan(desktopExtTop));
     expect(desktopExtTop, lessThan(syncExtTop));
 
+    // 默认选中外观面板：三张主题预览卡片与 Windows 桌面材质控制均完整呈现。
+    expect(find.text('影院黑曜石'), findsOneWidget);
+    expect(find.text('画册米白'), findsOneWidget);
+    expect(find.text('自动适配系统'), findsOneWidget);
+    expect(find.text('窗口材质'), findsOneWidget);
+    expect(find.text('流光氛围画布'), findsOneWidget);
+
+    await tester.tap(find.text('云母'));
+    await tester.pumpAndSettle();
+    expect(materials, equals(<KonataWindowMaterial>[KonataWindowMaterial.mica]));
+    expect(find.text(KonataWindowMaterial.mica.subtitle), findsOneWidget);
+
+    await tester.tap(find.text('云母变体'));
+    await tester.pumpAndSettle();
+    expect(
+      materials,
+      equals(<KonataWindowMaterial>[
+        KonataWindowMaterial.mica,
+        KonataWindowMaterial.tabbed,
+      ]),
+    );
+    expect(find.text(KonataWindowMaterial.tabbed.subtitle), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('settings_ambient_canvas_switch')));
+    await tester.pumpAndSettle();
+    expect(ambients, equals(<bool>[false]));
+
+    // 切换至「显示与存储」并验证展示偏好持久化与既有字段保留。
+    await tester.tap(find.text('显示与存储'));
+    await tester.pumpAndSettle();
+    expect(find.text('详情页标题'), findsOneWidget);
+    expect(find.text('作品简介'), findsOneWidget);
+    expect(find.text('原始视频文件名'), findsOneWidget);
+    expect(find.text('「CD」分类页签'), findsOneWidget);
+    expect(find.text('「Scan」分类页签'), findsOneWidget);
+    expect(find.text('本地图片存储'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey('settings_display_title_dropdown')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('文字标题').last);
+    await tester.pumpAndSettle();
+    // 收起多选下拉浮层。
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('settings_display_raw_filename_switch')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('settings_display_cd_tab_switch')),
+    );
+    await tester.pumpAndSettle();
+
+    final displayRecord = db.userState.scopedPrefs.findByNamespace(
+      'feature_detail.display',
+    )!;
+    final decodedDisplay =
+        jsonDecode(displayRecord.payloadJson) as Map<String, dynamic>;
+    expect(decodedDisplay['showTitleText'], isFalse);
+    expect(decodedDisplay['showTitleLogo'], isTrue);
+    expect(decodedDisplay['showRawVideoFilename'], isTrue);
+    expect(decodedDisplay['showCdTab'], isFalse);
+    expect(decodedDisplay['showMainHeroBackdrop'], isFalse);
+    expect(decodedDisplay['showEpisodeStillThumbnails'], isTrue);
+    expect(decodedDisplay['showOriginalSubtitlesOnCards'], isFalse);
+    expect(decodedDisplay['autoSilentWarmup'], isFalse);
+
+    // 切换至外部注入面板。
     await tester.tap(find.text('外部播放器（仅桌面）'));
     await tester.pumpAndSettle();
     expect(find.text('桌面外部播放器占位面板'), findsOneWidget);
 
-    await tester.tap(find.text('存储与图片缓存'));
+    // 切换至「关于」验证结构化诊断包导出与外链打开。
+    await tester.tap(find.text('关于'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('导出脱敏 JSON 诊断包'));
+    await tester.tap(find.text('导出结构化诊断包 (.json)'));
     await tester.pumpAndSettle();
     expect(backupPort.savedFiles.length, equals(1));
 
-    await tester.tap(find.text('关于 Konata'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('GitHub 开源主页'));
+    await tester.tap(find.text('ClainSt/Konata'));
     await tester.pump();
     expect(urlOpener.openedUris.single.host, equals('github.com'));
   });
 
-  testWidgets('手机端按平台过滤桌面专属分区并支持二级页面推入与返回', (tester) async {
+  testWidgets('手机端按平台过滤桌面专属分区、隐藏窗口材质并支持二级页面推入与返回', (
+    tester,
+  ) async {
     final tempDir = Directory.systemTemp.createTempSync('konata_settings_phone_');
     addTearDown(() {
       if (tempDir.existsSync()) {
@@ -396,6 +511,7 @@ void main() {
       diagnosticLog: _StubLog(),
       navigator: _StubNavigator(),
       currentPlatform: KonataPlatform.androidPhone,
+      storageRoot: _TestStorageRoot(tempDir.path),
       onThemeModeChanged: selectedModes.add,
       onDetailVisibilityChanged: detailStates.add,
       sections: [
@@ -428,17 +544,10 @@ void main() {
     addTearDown(toastCtrl.dispose);
 
     await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          featureSettingsDependenciesProvider.overrideWithValue(deps),
-        ],
-        child: MaterialApp(
-          theme: KonataTheme.darkTheme(),
-          home: KonataToastScope(
-            controller: toastCtrl,
-            child: const Scaffold(body: SettingsPage()),
-          ),
-        ),
+      _buildHarness(
+        deps: deps,
+        toastCtrl: toastCtrl,
+        child: const SettingsPage(),
       ),
     );
     await tester.pumpAndSettle();
@@ -447,11 +556,13 @@ void main() {
     expect(find.text('Windows 桌面独占项'), findsNothing);
     expect(find.text('全平台扩展设置'), findsOneWidget);
 
-    // 手机一级列表点击进入二级详情路由。
-    await tester.tap(find.text('外观与显示'));
+    // 手机一级列表点击进入二级详情路由，且自动隐藏桌面窗口材质区块。
+    await tester.tap(find.text('外观'));
     await tester.pumpAndSettle();
     expect(detailStates.last, isTrue);
     expect(find.text('浅色模式'), findsOneWidget);
+    expect(find.text('窗口材质'), findsNothing);
+    expect(find.text('流光氛围画布'), findsNothing);
 
     await tester.tap(find.text('浅色模式'));
     await tester.pumpAndSettle();
@@ -462,5 +573,190 @@ void main() {
     await tester.pumpAndSettle();
     expect(detailStates.last, isFalse);
     expect(find.text('全平台扩展设置'), findsOneWidget);
+  });
+
+  testWidgets('兼容旧深链 storage 并支持刮削网络测速与自定义图片清理弹窗', (tester) async {
+    final tempDir = Directory.systemTemp.createTempSync('konata_settings_deep_');
+    addTearDown(() {
+      if (tempDir.existsSync()) {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
+
+    final db = KonataDatabaseBundle.openInMemory();
+    addTearDown(db.close);
+
+    final photosStorage = PhotosStorage(
+      storageRoot: _TestStorageRoot(tempDir.path),
+    );
+    final photosRoot = await photosStorage.resolveRootDirectory();
+    final orphanThumb = File(
+      p.join(photosRoot.path, '已移除旧作 [orphan_1]', 'thumbnails', 'ep01.jpg'),
+    )..createSync(recursive: true);
+    orphanThumb.writeAsBytesSync(List<int>.filled(1024, 5));
+
+    final deps = FeatureSettingsDependencies(
+      databases: db,
+      scopedPrefs: ScopedPrefsStore(db.userState),
+      secureStorage: InMemorySecureStorage(),
+      httpClient: _StubHttpClient(),
+      photosStorage: photosStorage,
+      backupFilePort: _FakeBackupFilePort(),
+      urlOpener: _FakeUrlOpener(),
+      diagnosticLog: _StubLog(),
+      navigator: _StubNavigator(),
+      currentPlatform: KonataPlatform.windows,
+      storageRoot: _TestStorageRoot(tempDir.path),
+      connectivityProbeOverride: (targetId) async => ConnectivityReport(
+        reachable: true,
+        latencyMs: 42,
+        resolvedAddress: targetId,
+        statusSummary: '官方直连成功 (42ms)',
+      ),
+    );
+
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    tester.view.physicalSize = const Size(1280, 820);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+
+    final toastCtrl = KonataToastController();
+    addTearDown(toastCtrl.dispose);
+
+    await tester.pumpWidget(
+      _buildHarness(
+        deps: deps,
+        toastCtrl: toastCtrl,
+        child: const SettingsPage(initialSectionId: 'storage'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 旧深链 `storage` 自动落地到「显示与存储」面板。
+    expect(find.text('详情页标题'), findsOneWidget);
+    expect(find.text('本地图片存储'), findsOneWidget);
+    expect(find.text('打开 photos 文件夹'), findsOneWidget);
+
+    // 打开「自定义图片清理」弹窗并执行精确清理。
+    await tester.tap(
+      find.byKey(const ValueKey('settings_photos_custom_cleanup_button')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('自定义图片清理'), findsOneWidget);
+    expect(find.text('残留目录'), findsOneWidget);
+    await tester.tap(find.text('清理所选'));
+    await tester.pumpAndSettle();
+    expect(orphanThumb.existsSync(), isFalse);
+
+    // 切换至「刮削与网络」并运行连通测速。
+    await tester.tap(find.text('刮削与网络'));
+    await tester.pumpAndSettle();
+    expect(find.text('TMDB API 密钥'), findsOneWidget);
+    expect(find.text('离线动画映射表'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('probe_tmdb_api')));
+    await tester.pumpAndSettle();
+    expect(find.text('官方直连成功 (42ms)'), findsOneWidget);
+
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('四端标准视口切换各设置面板保持零溢出与零异常', (tester) async {
+    final tempDir = Directory.systemTemp.createTempSync('konata_settings_vp_');
+    addTearDown(() {
+      if (tempDir.existsSync()) {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
+
+    final db = KonataDatabaseBundle.openInMemory();
+    addTearDown(db.close);
+
+    final viewports =
+        <({String label, Size size, TargetPlatform target, KonataPlatform platform})>[
+          (
+            label: '手机竖屏',
+            size: const Size(390, 780),
+            target: TargetPlatform.android,
+            platform: KonataPlatform.androidPhone,
+          ),
+          (
+            label: '手机横屏',
+            size: const Size(780, 390),
+            target: TargetPlatform.android,
+            platform: KonataPlatform.androidPhone,
+          ),
+          (
+            label: '平板横屏',
+            size: const Size(1024, 700),
+            target: TargetPlatform.android,
+            platform: KonataPlatform.androidTablet,
+          ),
+          (
+            label: '桌面宽屏',
+            size: const Size(1440, 900),
+            target: TargetPlatform.windows,
+            platform: KonataPlatform.windows,
+          ),
+        ];
+
+    for (final vp in viewports) {
+      debugDefaultTargetPlatformOverride = vp.target;
+      tester.view.physicalSize = vp.size;
+      tester.view.devicePixelRatio = 1.0;
+
+      final deps = FeatureSettingsDependencies(
+        databases: db,
+        scopedPrefs: ScopedPrefsStore(db.userState),
+        secureStorage: InMemorySecureStorage(),
+        httpClient: _StubHttpClient(),
+        photosStorage: PhotosStorage(storageRoot: _TestStorageRoot(tempDir.path)),
+        backupFilePort: _FakeBackupFilePort(),
+        urlOpener: _FakeUrlOpener(),
+        diagnosticLog: _StubLog(),
+        navigator: _StubNavigator(),
+        currentPlatform: vp.platform,
+        storageRoot: _TestStorageRoot(tempDir.path),
+      );
+      final toastCtrl = KonataToastController();
+
+      await tester.pumpWidget(
+        _buildHarness(
+          deps: deps,
+          toastCtrl: toastCtrl,
+          child: const SettingsPage(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      if (vp.platform == KonataPlatform.androidPhone) {
+        for (final label in const <String>['外观', '显示与存储', '刮削与网络', '关于']) {
+          await tester.tap(find.text(label));
+          await tester.pumpAndSettle();
+          expect(
+            tester.takeException(),
+            isNull,
+            reason: '${vp.label} 进入「$label」不应发生溢出或异常',
+          );
+          await tester.tap(find.byKey(const ValueKey('settings_detail_back')));
+          await tester.pumpAndSettle();
+        }
+      } else {
+        for (final label in const <String>['外观', '显示与存储', '刮削与网络', '关于']) {
+          await tester.tap(find.text(label));
+          await tester.pumpAndSettle();
+          expect(
+            tester.takeException(),
+            isNull,
+            reason: '${vp.label} 切换「$label」不应发生溢出或异常',
+          );
+        }
+      }
+
+      toastCtrl.dispose();
+    }
+
+    debugDefaultTargetPlatformOverride = null;
+    tester.view.reset();
   });
 }

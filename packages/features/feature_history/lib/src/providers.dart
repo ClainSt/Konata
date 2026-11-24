@@ -15,6 +15,7 @@ final class FeatureHistoryDependencies {
     required this.platform,
     this.sourceDeviceId = '',
     this.imageLoader,
+    this.pathArtworkLoader,
   });
 
   /// 本地三库持久化集合。
@@ -34,6 +35,9 @@ final class FeatureHistoryDependencies {
 
   /// 可选封面图像字节加载回调（解耦具体图片缓存包依赖）。
   final HistoryArtworkLoader? imageLoader;
+
+  /// 可选按相对路径加载分集剧照或原画字节的回调（未注入时回退作品封面）。
+  final HistoryPathArtworkLoader? pathArtworkLoader;
 }
 
 /// 播放记录模块宿主依赖注入入口；必须在根 `ProviderScope` 覆盖。

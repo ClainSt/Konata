@@ -343,4 +343,47 @@ void main() {
     expect(allTombstones.length, equals(4));
     expect(allTombstones.every((r) => r.isDeleted), isTrue);
   });
+
+  test('支持单条、分组与多选批量标记为已看或已听并持久化更新状态', () {
+    final controller = HistoryController(
+      databases: db,
+      navigator: navigator,
+      diagnosticLog: _StubLog(),
+      sourceDeviceId: 'win_dev_1',
+      clock: () => fixedNow,
+    );
+    addTearDown(controller.dispose);
+
+    controller.markRecordCompleted('rec_cd');
+    final bocchiRec = db.userState.playbackRecords
+        .listAllWithTombstones()
+        .where((r) => r.id == 'rec_cd')
+        .single;
+    expect(bocchiRec.isCompleted, isTrue);
+    expect(bocchiRec.positionSeconds, equals(bocchiRec.durationSeconds));
+
+    controller.enterSelectionMode(
+      action: HistorySelectionAction.markCompleted,
+      initialRecordId: 'rec_1',
+    );
+    expect(controller.isSelectionMode, isTrue);
+    expect(
+      controller.selectionAction,
+      equals(HistorySelectionAction.markCompleted),
+    );
+    controller.toggleRecordSelected('rec_old');
+    controller.markSelectedCompleted();
+
+    expect(controller.isSelectionMode, isFalse);
+    final updatedToday1 = db.userState.playbackRecords
+        .listAllWithTombstones()
+        .where((r) => r.id == 'rec_1')
+        .single;
+    final updatedYesterday = db.userState.playbackRecords
+        .listAllWithTombstones()
+        .where((r) => r.id == 'rec_old')
+        .single;
+    expect(updatedToday1.isCompleted, isTrue);
+    expect(updatedYesterday.isCompleted, isTrue);
+  });
 }

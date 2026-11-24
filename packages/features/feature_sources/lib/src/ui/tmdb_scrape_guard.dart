@@ -17,58 +17,70 @@ class TmdbScrapeGuardBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final compact = MediaQuery.sizeOf(context).width < 640;
+    final tintBg = Color.alphaBlend(
+      p.warning.withValues(alpha: p.isDark ? 0.14 : 0.09),
+      p.surface,
+    );
+    final tintBorder = p.warning.withValues(alpha: p.isDark ? 0.36 : 0.32);
 
     return KonataSurfaceCard(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      backgroundColor: p.warning.withValues(alpha: 0.12),
-      borderColor: p.warning.withValues(alpha: 0.36),
-      child: Row(
-        crossAxisAlignment:
-            compact ? CrossAxisAlignment.start : CrossAxisAlignment.center,
-        children: [
-          Padding(
-            padding: EdgeInsets.only(top: compact ? 2 : 0),
-            child: Icon(
-              Icons.key_off_rounded,
-              size: 20,
-              color: p.warning,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+      backgroundColor: tintBg,
+      borderColor: tintBorder,
+      child: AdaptiveResponsiveRow(
+        minLeadingWidth: 180,
+        estimatedTrailingWidth: 108,
+        leading: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: p.warningBadge.bg,
+                borderRadius: KonataTheme.borderRadiusSm,
+                border: Border.all(color: p.warningBadge.border),
+              ),
+              alignment: Alignment.center,
+              child: Icon(
+                Icons.key_off_rounded,
+                size: 17,
+                color: p.warningBadge.fg,
+              ),
             ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  '尚未配置 TMDB API 凭证',
-                  style: TextStyle(
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w600,
-                    color: p.textPrimary,
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '尚未配置 TMDB API 凭证',
+                    style: KonataTheme.cardTitleStyle(
+                      p,
+                      fontSize: KonataTheme.fontSizeBody,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '未填写 TMDB v3 Key 或 v4 Token 时仅能使用文件名与 Bangumi 信息，可能影响海报墙分集剧照与剧集绑定完整度。',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: p.textSecondary,
-                    height: 1.4,
+                  const SizedBox(height: 3),
+                  Text(
+                    '未填写 TMDB v3 Key 或 v4 Token 时将回退 Bangumi / Fanart 与本地封面建卡，可能影响官方季集简介与剧照完整度。',
+                    style: KonataTheme.captionStyle(
+                      p,
+                      fontSize: KonataTheme.fontSizeCaption,
+                      height: 1.45,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          const SizedBox(width: 12),
-          KonataPillButton.secondary(
-            label: '去配置',
-            icon: Icons.settings_outlined,
-            compact: true,
-            onPressed: onConfigureTap,
-          ),
-        ],
+          ],
+        ),
+        trailing: KonataPillButton.secondary(
+          label: '去配置',
+          icon: Icons.tune_rounded,
+          compact: true,
+          onPressed: onConfigureTap,
+        ),
       ),
     );
   }
@@ -79,42 +91,56 @@ Future<bool> confirmScrapeWithoutTmdbIfNeeded(
   BuildContext context, {
   required bool isTmdbConfigured,
   required VoidCallback onOpenNetworkSettings,
+  bool allowBangumiFallback = true,
 }) async {
   if (isTmdbConfigured) return true;
 
-  final result = await showKonataGlassDialog<bool>(
+  final choice = await showKonataGlassDialog<String>(
     context: context,
     builder: (dialogCtx) {
       final p = dialogCtx.palette;
       return KonataGlassDialog(
-        title: '尚未配置 TMDB 凭证',
-        width: 460,
+        width: 440,
+        title: 'TMDB API 未配置',
         actions: [
-          KonataPillButton.ghost(
-            label: '去配置网络与 API',
-            onPressed: () {
-              Navigator.of(dialogCtx).pop(false);
-              onOpenNetworkSettings();
-            },
-          ),
           KonataPillButton.secondary(
-            label: '仅用当前方式扫描',
-            onPressed: () => Navigator.of(dialogCtx).pop(true),
+            label: '关闭',
+            compact: true,
+            onPressed: () => Navigator.of(dialogCtx).pop('close'),
+          ),
+          if (allowBangumiFallback)
+            KonataPillButton.secondary(
+              label: '仅用 Bangumi 扫描',
+              compact: true,
+              onPressed: () => Navigator.of(dialogCtx).pop('continue'),
+            ),
+          KonataPillButton.primary(
+            label: '去配置',
+            icon: Icons.tune_rounded,
+            compact: true,
+            onPressed: () => Navigator.of(dialogCtx).pop('settings'),
           ),
         ],
-        child: Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: Text(
-            '检测到当前尚未配置 TMDB API Key / Read Access Token。仍然可以继续扫库，但部分条目的官方季集简介、横版背景原画与分集剧照将无法拉取。',
-            style: TextStyle(
-              fontSize: 13.5,
-              color: p.textSecondary,
-              height: 1.55,
-            ),
+        child: Text(
+          allowBangumiFallback
+              ? '尚未配置 TMDB API 密钥，将无法拉取 TMDB 剧照与部分分集信息。'
+                    '您可以前往「设置 -> 刮削与网络」配置密钥，或直接继续仅用 Bangumi / Fanart.tv 与本地封面建卡。'
+              : '尚未配置 TMDB API 密钥（API Key 或 Read Access Token），'
+                    '无法请求 TMDB 检索剧照、条目简介与分集信息。请前往「设置 -> 刮削与网络」完成配置。',
+          style: TextStyle(
+            color: p.textSecondary,
+            fontSize: KonataTheme.fontSizeBody,
+            height: 1.55,
           ),
         ),
       );
     },
   );
-  return result ?? false;
+  if (choice == 'continue') {
+    return true;
+  }
+  if (choice == 'settings') {
+    onOpenNetworkSettings();
+  }
+  return false;
 }

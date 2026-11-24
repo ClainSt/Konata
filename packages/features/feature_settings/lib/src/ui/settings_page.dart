@@ -81,6 +81,33 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     return visible;
   }
 
+  String _resolveEffectiveSelected(
+    List<SettingsSectionContribution> visibleSections,
+  ) {
+    final validIds = visibleSections.map((s) => s.id).toSet();
+    final raw = _selectedId;
+    if (raw != null) {
+      if (validIds.contains(raw)) {
+        return raw;
+      }
+      // 保留旧深链标识 `storage` 向统一「显示与存储 (`display`)」分区的平滑映射兼容。
+      if (raw == 'storage' && validIds.contains('display')) {
+        return 'display';
+      }
+    }
+    return visibleSections.first.id;
+  }
+
+  IconData _resolveSectionIcon(SettingsSectionContribution section) {
+    if (section.iconKey == 'display' || section.id == 'display') {
+      return Icons.tune_rounded;
+    }
+    if (section.iconKey == 'network' || section.id == 'network') {
+      return Icons.public_rounded;
+    }
+    return KonataIconRegistry.resolve(section.iconKey);
+  }
+
   @override
   Widget build(BuildContext context) {
     final directDeps = widget.dependencies;
@@ -95,17 +122,13 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       );
     }
 
-    final validIds = visibleSections.map((s) => s.id).toSet();
-    final effectiveSelected =
-        (_selectedId != null && validIds.contains(_selectedId))
-        ? _selectedId!
-        : visibleSections.first.id;
+    final effectiveSelected = _resolveEffectiveSelected(visibleSections);
 
     final categories = visibleSections
         .map(
           (section) => AdaptiveSettingsCategory<String>(
             value: section.id,
-            icon: KonataIconRegistry.resolve(section.iconKey),
+            icon: _resolveSectionIcon(section),
             title: section.title,
             summary: section.subtitle ?? section.title,
             desktopOnly:

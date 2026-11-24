@@ -16,7 +16,8 @@ export 'src/providers.dart'
         FeatureHistoryDependencies,
         featureHistoryDependenciesProvider,
         historyControllerProvider;
-export 'src/state/history_controller.dart' show HistoryController;
+export 'src/state/history_controller.dart'
+    show HistoryController, HistorySelectionAction;
 export 'src/ui/playback_history_cards.dart'
     show HistoryDaySectionView, HistoryWorkTimelineCard;
 export 'src/ui/playback_history_page.dart' show PlaybackHistoryPage;
@@ -24,5 +25,6 @@ export 'src/ui/playback_history_sub_cards.dart'
     show
         HistoryArtworkLoader,
         HistoryExpandedEpisodeRow,
+        HistoryPathArtworkLoader,
         HistoryProgressMetaRow,
         HistoryThumbnail;

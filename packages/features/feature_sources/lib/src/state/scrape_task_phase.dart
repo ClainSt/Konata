@@ -69,6 +69,7 @@ sealed class ScrapeTaskPhase {
         folderVideoCounts: progress.folderVideoCounts,
         completedFolders: progress.completedFolders,
         cancelRequested: progress.cancelRequested,
+        isGrouping: progress.phase == ScrapePhase.grouping,
       ),
       ScrapePhase.scraping => ScrapeRunningPhase(
         sourceId: progress.sourceId,
@@ -157,6 +158,8 @@ sealed class ScrapeTaskPhase {
     };
   }
 
+  static final RegExp _edgeSlashes = RegExp(r'^/+|/+$');
+
   /// 当前正在处理的媒体源 ID。
   final String? sourceId;
 
@@ -235,6 +238,38 @@ sealed class ScrapeTaskPhase {
       stage == ScrapeTaskStage.cancelled ||
       stage == ScrapeTaskStage.failed;
 
+  /// 按目录层级排序后的已遍历目录路径列表。
+  List<String> get visitedFolders {
+    final list = folderVideoCounts.keys.toList()..sort();
+    return list;
+  }
+
+  /// 本次扫描已发现的纯视频文件总数。
+  int get totalVideos {
+    var sum = 0;
+    for (final v in folderVideoCounts.values) {
+      sum += v;
+    }
+    return sum;
+  }
+
+  /// 统计指定勾选子目录树下累计发现的视频文件数。
+  int videosUnderRoot(String root) {
+    final norm = root.trim().replaceAll('\\', '/').replaceAll(_edgeSlashes, '');
+    if (norm.isEmpty) return totalVideos;
+    var sum = 0;
+    folderVideoCounts.forEach((folder, count) {
+      final f = folder
+          .trim()
+          .replaceAll('\\', '/')
+          .replaceAll(_edgeSlashes, '');
+      if (f == norm || f.startsWith('$norm/')) {
+        sum += count;
+      }
+    });
+    return sum;
+  }
+
   /// 整体完成进度比例（无确定总数时返回 `null` 以显示不定长进度条）。
   double? get progressRatio {
     if (stage == ScrapeTaskStage.completed) return 1.0;
@@ -242,18 +277,53 @@ sealed class ScrapeTaskPhase {
     return (processedWorks / totalWorks).clamp(0.0, 1.0);
   }
 
-  /// 适配 UI 展示的简短阶段标题。
-  String get statusLabel => switch (stage) {
-    ScrapeTaskStage.idle => '空闲就绪',
-    ScrapeTaskStage.checkingIndex => '准备离线索引与映射表',
-    ScrapeTaskStage.scanning => '正在遍历媒体源目录',
-    ScrapeTaskStage.running => cancelRequested ? '正在安全中止当前扫描…' : '正在匹配与刮削元数据',
-    ScrapeTaskStage.completed => '扫库刮削已完成',
-    ScrapeTaskStage.cancelled => '已取消本轮扫描',
-    ScrapeTaskStage.failed => '扫库刮削失败',
+  /// 兼容进度条百分比计算（无确定总数时返回 `0.0`）。
+  double get fraction {
+    if (stage == ScrapeTaskStage.completed) return 1.0;
+    if (totalWorks <= 0) return 0.0;
+    return (processedWorks / totalWorks).clamp(0.0, 1.0);
+  }
+
+  /// 适配进度弹窗标题卡的阶段标题文案。
+  String get statusLabel => switch (this) {
+    ScrapeIdlePhase() => '当前无活动扫描任务',
+    ScrapeCheckingIndexPhase() => '正在载入离线映射索引…',
+    ScrapeScanningPhase(:final isGrouping) =>
+      isGrouping ? '后台 Isolate 归组与 BDRip 词法解析中…' : '正在遍历媒体源目录…',
+    ScrapeRunningPhase() =>
+      cancelRequested
+          ? '正在安全中止当前扫描…'
+          : (totalWorks > 0 && processedWorks >= totalWorks
+                ? '正在收尾与系列归组 ($processedWorks/$totalWorks)'
+                : '正在匹配 TMDB 元数据 ($processedWorks/$totalWorks)'),
+    ScrapeCompletedPhase() => '本次扫描与刮削已完成',
+    ScrapeCancelledPhase() => '已根据请求中止扫描任务',
+    ScrapeFailedPhase() => '扫描或刮削过程中发生异常',
   };
 
-  /// 适配进度横幅与弹窗副标题的摘要说明文本。
+  /// 适配进度横幅的简明单行摘要文案。
+  String get bannerSummaryLabel => switch (this) {
+    ScrapeIdlePhase() => '就绪',
+    ScrapeCheckingIndexPhase(:final statusMessage) => statusMessage,
+    ScrapeScanningPhase(:final isGrouping) =>
+      isGrouping
+          ? '后台 Isolate 归组解析中...'
+          : '正在遍历目录 ($scannedDirectories 目录 · $totalVideos 视频)',
+    ScrapeRunningPhase() =>
+      cancelRequested
+          ? '正在安全中止 ($processedWorks/$totalWorks)'
+          : (totalWorks > 0 && processedWorks >= totalWorks
+                ? '正在收尾与系列归组 ($processedWorks/$totalWorks)'
+                : '正在刮削 ($processedWorks/$totalWorks)'),
+    ScrapeCompletedPhase() =>
+      '扫描刮削完成：已匹配 $matchedWorks，待复核 $reviewWorks，未识别 $unmatchedWorks',
+    ScrapeCancelledPhase() =>
+      '已取消扫描：已遍历 $scannedDirectories 目录，已处理 $processedWorks 部作品',
+    ScrapeFailedPhase(:final errorMessage) =>
+      '扫描失败: ${errorMessage ?? '未知错误'}',
+  };
+
+  /// 适配进度副标题与详情卡的补充说明文本。
   String get detailLabel {
     return switch (this) {
       ScrapeIdlePhase() => '尚未发起扫描任务',
@@ -290,6 +360,7 @@ final class ScrapeCheckingIndexPhase extends ScrapeTaskPhase {
   const ScrapeCheckingIndexPhase({
     super.sourceId,
     super.sourceLabel,
+    super.cancelRequested,
     this.statusMessage = '正在载入离线映射索引…',
   });
 
@@ -314,7 +385,11 @@ final class ScrapeScanningPhase extends ScrapeTaskPhase {
     super.folderVideoCounts,
     super.completedFolders,
     super.cancelRequested,
+    this.isGrouping = false,
   });
+
+  /// 是否处于后台 Isolate 归组与词法解析阶段。
+  final bool isGrouping;
 
   @override
   ScrapeTaskStage get stage => ScrapeTaskStage.scanning;

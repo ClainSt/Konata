@@ -1,0 +1,15 @@
+# konata_storage
+
+## 职责边界
+- Konata v3 受保护存储底座，**严格 0 Flutter、0 Riverpod、0 `build_runner` 依赖**，仅依赖 `konata_contracts`、`sqlite3` 与 `path`。
+- 提供自研极薄纯 `sqlite3` 响应式引擎（`KonataSqliteEngine`）、三库物理分治（`library.db` / `user_state.db` / 惰性 `cache.db`）、强类型配置切片（`ScopedPrefsStore`）、结构化脱敏诊断日志存储（`DiagnosticLogStore`）及跨端便携路径服务（`PortableStorageRootService`）。
+
+## 唯一公开出口
+- `package:konata_storage/konata_storage.dart`
+
+## 核心导出符号
+- **响应式 SQLite 引擎**：`KonataSqliteEngine`、`SqliteTransaction`、`SqliteMigration`、`TableChangeBus`、`KonataDatabaseBundle`。
+- **媒体资产库（`library.db`）**：`LibraryDatabase`、`MediaSourceDao`、`SeriesGroupDao`、`WorkDao`、`EpisodeDao`、`MediaVariantDao`、`IgnoredFolderDao`、`StorageLibraryReadAdapter` 及全部独立 `*_schema.dart` 列常量与记录模型。
+- **用户态库（`user_state.db`）**：`UserStateDatabase`、`PlaybackRecordDao`、`ScopedPrefsDao`、`LyricUserOverrideDao`、`SyncMetaDao`、`TrackerSyncQueueDao`、`StoragePlaybackReadAdapter`。
+- **惰性缓存库（`cache.db`）**：`CacheDatabase`（支持冷启动惰性打开与一键删库重建）、`ScrapeCandidateDao`、`LyricCacheDao`、`ArtworkNegativeCacheDao`。
+- **配置、日志与路径服务**：`ScopedPrefsStore`、`TypedPrefsSlice`、`DiagnosticLogStore`、`PortableStorageRootService`、`InMemorySecureStorage`。

@@ -1,12 +1,10 @@
-import 'package:flutter/widgets.dart';
+import 'dart:async';
 
-import 'main.dart';
+import 'bootstrap/android_app.dart';
 
-/// Konata v3 Android 专用裁剪入口占位壳。
+/// Konata v3 Android 专用裁剪入口（物理隔离桌面端依赖，确保 Release AOT 零桌面残留）。
 ///
-/// 保持与桌面端入口物理分离，确保 Android Release AOT 产物不引入任何桌面专属依赖；
-/// 底座落地后由 `bootstrap/android_app.dart` 接管完整组装逻辑。
+/// 所有 Android 端宿主初始化与底座组装均收口至 `bootstrap/android_app.dart`。
 void main() {
-  WidgetsFlutterBinding.ensureInitialized();
-  runApp(const KonataBootstrapShell(platformLabel: 'Android'));
+  unawaited(runAndroidKonataApp());
 }

@@ -1,0 +1,213 @@
+import 'dart:async';
+
+import 'package:konata_contracts/konata_contracts.dart';
+import 'package:konata_storage/konata_storage.dart';
+import 'package:test/test.dart';
+
+void main() {
+  group('library.db 全部 6 个 DAO（:memory:）', () {
+    late LibraryDatabase db;
+
+    setUp(() {
+      db = LibraryDatabase.openInMemory();
+    });
+
+    tearDown(() async {
+      await db.close();
+    });
+
+    test('MediaSourceDao 支持增删改、响应式监听与软删除墓碑', () async {
+      final emitted = <int>[];
+      final sub = db.mediaSources.watchAll().listen((rows) {
+        emitted.add(rows.length);
+      });
+      addTearDown(sub.cancel);
+
+      await Future<void>.delayed(Duration.zero);
+      expect(emitted, equals(<int>[0]));
+
+      final srcId = SourceId('src-local-1');
+      db.mediaSources.upsert(
+        MediaSourceRecord(
+          id: srcId,
+          canonicalKey: 'local::anime',
+          kind: MediaSourceKind.local,
+          label: '本地番剧库',
+          location: r'D:\Anime',
+          createdAtMs: 100,
+          updatedAtMs: 100,
+          sourceDeviceId: 'win-dev',
+        ),
+      );
+
+      await Future<void>.delayed(Duration.zero);
+      expect(emitted, equals(<int>[0, 1]));
+      expect(db.mediaSources.findById(srcId)?.label, '本地番剧库');
+
+      db.mediaSources.softDelete(
+        srcId,
+        deletedAtMs: 200,
+        sourceDeviceId: 'win-dev',
+      );
+
+      await Future<void>.delayed(Duration.zero);
+      expect(emitted, equals(<int>[0, 1, 0]));
+      expect(db.mediaSources.findById(srcId), isNull);
+      final tombstone = db.mediaSources.findById(srcId, includeDeleted: true);
+      expect(tombstone?.isDeleted, isTrue);
+      expect(tombstone?.deletedAtMs, 200);
+    });
+
+    test('SeriesGroupDao 与 WorkDao 支持 ArtworkRef 编解码与软删除墓碑', () async {
+      final seriesId = SeriesGroupId('ser-k-on');
+      db.seriesGroups.upsert(
+        SeriesGroupRecord(
+          id: seriesId,
+          canonicalKey: 'tmdb:col:888',
+          title: '轻音少女系列',
+          tmdbCollectionId: 888,
+          createdAtMs: 100,
+          updatedAtMs: 100,
+          sourceDeviceId: 'win-dev',
+        ),
+      );
+      expect(db.seriesGroups.findById(seriesId)?.title, '轻音少女系列');
+
+      final visibleCounts = <int>[];
+      final sub = db.works.watchVisible().listen((rows) {
+        visibleCounts.add(rows.length);
+      });
+      addTearDown(sub.cancel);
+      await Future<void>.delayed(Duration.zero);
+
+      final workId = WorkId('work-k-on-s1');
+      db.works.upsert(
+        WorkRecord(
+          id: workId,
+          canonicalKey: 'tmdb:tv:31910:s1',
+          tmdbId: 31910,
+          tmdbMediaType: TmdbMediaType.tv,
+          bangumiId: 1424,
+          matchedSeason: 1,
+          title: '轻音少女',
+          originalTitle: 'けいおん！',
+          year: 2009,
+          posterRef: const ArtworkRef.remote(
+            source: ArtworkSource.tmdb,
+            uri: '/poster.jpg',
+            locked: true,
+          ),
+          backdropRef: const ArtworkRef.localCustom(
+            localPath: 'photos/k_on_bg.png',
+          ),
+          logoRef: const ArtworkRef.remote(
+            source: ArtworkSource.fanart,
+            uri: 'https://assets.fanart.tv/k_on_logo.png',
+          ),
+          scrapeStatus: ScrapeStatus.matched,
+          seriesId: seriesId,
+          seriesOrder: 1,
+          seriesLabel: '第 1 季',
+          updatedAtMs: 1000,
+          sourceDeviceId: 'win-dev',
+        ),
+      );
+
+      await Future<void>.delayed(Duration.zero);
+      expect(visibleCounts, equals(<int>[0, 1]));
+
+      final loaded = db.works.findByCanonicalKey('tmdb:tv:31910:s1');
+      expect(loaded, isNotNull);
+      expect(loaded!.posterRef, isA<RemoteArtworkRef>());
+      expect((loaded.posterRef! as RemoteArtworkRef).locked, isTrue);
+      expect(loaded.backdropRef, isA<LocalCustomArtworkRef>());
+      expect(loaded.backdropRef!.toSyncJson(), isNull);
+      expect(loaded.seriesId?.value, seriesId.value);
+
+      // 软删除后可见视图过滤，但全量墓碑查询仍保留。
+      db.works.softDelete(workId, deletedAtMs: 2000, sourceDeviceId: 'win-dev');
+      await Future<void>.delayed(Duration.zero);
+      expect(visibleCounts, equals(<int>[0, 1, 0]));
+      expect(db.works.listVisible(), isEmpty);
+      expect(db.works.listAllWithTombstones().single.deletedAtMs, 2000);
+    });
+
+    test('EpisodeDao、MediaVariantDao、IgnoredFolderDao 与外键级联删除正常', () async {
+      final srcId = SourceId('src-1');
+      final workId = WorkId('work-1');
+      final epId = EpisodeId('ep-1');
+      final varId = VariantId('var-1');
+
+      db.mediaSources.upsert(
+        MediaSourceRecord(
+          id: srcId,
+          kind: MediaSourceKind.webdav,
+          label: 'NAS WebDAV',
+          location: 'https://nas.local/anime',
+        ),
+      );
+      db.works.upsert(WorkRecord(id: workId, title: '冰菓'));
+      db.episodes.upsert(
+        EpisodeRecord(
+          id: epId,
+          canonicalKey: 'work-1::s1::e1',
+          workId: workId,
+          seasonNumber: 1,
+          episodeNumber: 1,
+          title: '传统古典部的再生',
+          updatedAtMs: 500,
+        ),
+      );
+      db.mediaVariants.upsert(
+        MediaVariantRecord(
+          id: varId,
+          workId: workId,
+          episodeId: epId,
+          sourceId: srcId,
+          relativePath: 'Hyouka/[VCB-Studio] Hyouka [01].mkv',
+          fileName: '[VCB-Studio] Hyouka [01].mkv',
+          fileSize: 1024 * 1024 * 800,
+          releaseGroup: 'VCB-Studio',
+          videoCodec: 'HEVC',
+          bitDepth: '10bit',
+          externalSubtitles: const <String>['Hyouka/01.sc.ass'],
+          mappingLocked: true,
+          updatedAtMs: 500,
+        ),
+      );
+      db.ignoredFolders.upsert(
+        IgnoredFolderRecord(
+          id: 'src-1::TempFolder',
+          sourceId: srcId,
+          relativePath: 'TempFolder',
+          createdAtMs: 500,
+          updatedAtMs: 500,
+        ),
+      );
+
+      // 验证只读端口投影正常。
+      final readPort = db.createReadPort();
+      expect((await readPort.findWorkSummary(workId))?.title, '冰菓');
+      expect((await readPort.listEpisodesForWork(workId)), hasLength(1));
+      expect((await readPort.listMediaSources()).single.id, srcId);
+
+      // 校验外挂字幕 JSON 与锁定态读写一致。
+      final variant = db.mediaVariants.listByWork(workId).single;
+      expect(variant.externalSubtitles, equals(<String>['Hyouka/01.sc.ass']));
+      expect(variant.mappingLocked, isTrue);
+
+      // 校验忽略目录软删除。
+      expect(db.ignoredFolders.listBySource(srcId), hasLength(1));
+      db.ignoredFolders.softDelete('src-1::TempFolder', deletedAtMs: 600);
+      expect(db.ignoredFolders.listBySource(srcId), isEmpty);
+
+      // 物理删除作品后，episodes 与 media_variants 应通过外键自动级联清理。
+      db.works.hardDelete(workId);
+      expect(db.episodes.listByWork(workId, includeDeleted: true), isEmpty);
+      expect(
+        db.mediaVariants.listByWork(workId, includeDeleted: true),
+        isEmpty,
+      );
+    });
+  });
+}

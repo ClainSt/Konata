@@ -1,0 +1,16 @@
+name: konata_storage
+description: "Konata v3 纯 Dart 存储底座（自研 sqlite3 响应式引擎、三库物理分治、ScopedPrefsStore、诊断日志落盘与便携路径服务）"
+publish_to: none
+
+environment:
+  sdk: ^3.12.2
+
+resolution: workspace
+
+dependencies:
+  konata_contracts:
+  path: ^1.9.1
+  sqlite3: ^3.9.1
+
+dev_dependencies:
+  test: ^1.26.0

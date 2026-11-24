@@ -1,0 +1,11 @@
+name: konata_contracts
+description: "Konata v3 纯 Dart 跨包核心契约底座（值对象、3 条通信端口、7 大声明式扩展点）"
+publish_to: none
+
+environment:
+  sdk: ^3.12.2
+
+resolution: workspace
+
+dev_dependencies:
+  test: ^1.26.0

@@ -7,6 +7,8 @@ environment:
 
 workspace:
   - apps/konata
+  - packages/foundation/konata_contracts
+  - packages/foundation/konata_storage
 
 dev_dependencies:
   crypto: ^3.0.8

@@ -21,13 +21,24 @@ $local = Get-Content -Raw -Encoding UTF8 -LiteralPath $localPropsPath | ConvertF
 $flutter = Join-Path ($local['flutter.sdk'] -replace '\\\\', '\') 'bin/flutter.bat'
 $env:ANDROID_HOME = $local['sdk.dir'] -replace '\\\\', '\'
 
-$jdk = $env:JAVA_HOME
-if (-not $jdk) {
-    $localJdk = Join-Path (Split-Path -Parent ($local['flutter.sdk'] -replace '\\\\', '\')) '../.jdk-cache/jdk-17'
-    $jdkFolder = Get-ChildItem -Directory -LiteralPath $localJdk -ErrorAction SilentlyContinue |
-        Where-Object { Test-Path (Join-Path $_.FullName 'bin/keytool.exe') } |
-        Select-Object -First 1
-    if ($jdkFolder) { $jdk = $jdkFolder.FullName }
+# 按优先级自动探测可用 JDK（顺序：$env:JAVA_HOME -> D:\JDK -> ../.jdk-cache/jdk-17）。
+$jdk = $null
+$jdkCandidates = New-Object System.Collections.Generic.List[string]
+if ($env:JAVA_HOME) {
+    $jdkCandidates.Add($env:JAVA_HOME)
+}
+$jdkCandidates.Add('D:\JDK')
+$localJdkCache = Join-Path (Split-Path -Parent ($local['flutter.sdk'] -replace '\\\\', '\')) '../.jdk-cache/jdk-17'
+if (Test-Path -LiteralPath $localJdkCache -PathType Container) {
+    Get-ChildItem -Directory -LiteralPath $localJdkCache -ErrorAction SilentlyContinue | ForEach-Object {
+        $jdkCandidates.Add($_.FullName)
+    }
+}
+foreach ($candidate in $jdkCandidates) {
+    if ($candidate -and (Test-Path -LiteralPath (Join-Path $candidate 'bin/keytool.exe') -PathType Leaf)) {
+        $jdk = $candidate
+        break
+    }
 }
 if ($jdk) { $env:JAVA_HOME = $jdk }
 $keytool = if ($jdk) { Join-Path $jdk 'bin/keytool.exe' } else { 'keytool.exe' }

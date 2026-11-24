@@ -77,14 +77,26 @@ class LrclibCandidateSource implements LyricCandidateSource {
       final firstBatch = await _provider.fetchCandidates(query);
       if (isCancelled()) return;
       var hasQualifiedSynced = false;
+      final ranked = <({LyricCandidate candidate, double score})>[];
       for (final c in firstBatch) {
-        emit(c);
-        if (c.isSynced) {
-          final score = LyricCandidateScorer.score(query, c);
-          if (score != null && score >= LyricMatchThresholds.lowConfidence) {
-            hasQualifiedSynced = true;
-          }
+        final score = LyricCandidateScorer.score(query, c);
+        if (c.isSynced &&
+            score != null &&
+            score >= LyricMatchThresholds.lowConfidence) {
+          hasQualifiedSynced = true;
         }
+        ranked.add((candidate: c, score: score ?? -1.0));
+      }
+      // 按同步优先与基础分降序输出，保证高分匹配优先参与首屏与跨源验证短路。
+      ranked.sort((a, b) {
+        if (a.candidate.isSynced != b.candidate.isSynced) {
+          return a.candidate.isSynced ? -1 : 1;
+        }
+        return b.score.compareTo(a.score);
+      });
+      for (final entry in ranked) {
+        if (isCancelled()) return;
+        emit(entry.candidate);
       }
       if (hasQualifiedSynced || isCancelled()) return;
 

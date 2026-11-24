@@ -32,10 +32,13 @@ abstract final class LyricCandidateScorer {
   };
 
   /// 对单个候选打分（元数据 `0.0 ~ 1.0` 加能力与交叉验证加分）；时长严重失配返回 `null`（淘汰），占位或残缺歌词返回 `0.0`。
+  ///
+  /// 调用方已提前完成清洗时可通过 [precleaned] 复用结果，避免高频竞速重复正则扫描。
   static double? score(
     LyricSearchQuery query,
     LyricCandidate candidate, {
     bool crossSourceAgree = false,
+    CleanedLyricResult? precleaned,
   }) {
     final meta = scoreMetadata(
       query,
@@ -56,7 +59,7 @@ abstract final class LyricCandidateScorer {
     }
 
     if (candidate.lrcContent.trim().isEmpty) return 0.0;
-    final cleaned = LyricCleaner.clean(candidate.lrcContent);
+    final cleaned = precleaned ?? LyricCleaner.clean(candidate.lrcContent);
     if (cleaned.isPlaceholder) return 0.0;
 
     // 候选被来源显式标记为纯音乐而当前曲目并非伴奏时，不叠加同步/能力加分，防止越过低置信度阈值误显示。

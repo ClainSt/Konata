@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../../domain/lyrics/lyric_candidate.dart';
+import '../../domain/lyrics/lyric_cleaner.dart';
 import '../../domain/lyrics/lyric_merger.dart';
 import '../../domain/lyrics/lyric_search_query.dart';
 import '../../domain/lyrics/yrc_lyric_parser.dart';
@@ -127,12 +128,14 @@ class NeteaseLyricProvider {
     if (rawYrc.trim().isNotEmpty) {
       final parsedYrc = YrcLyricParser.parse(rawYrc);
       if (parsedYrc.hasWordTiming && parsedYrc.lrcContent.isNotEmpty) {
-        final effectiveTrans = ytlrc.trim().isNotEmpty ? ytlrc : translation;
-        final effectiveRoma = yromalrc.trim().isNotEmpty ? yromalrc : romaji;
+        // 网易云服务端自动生成的 ytlrc / yromalrc 常因空格或拆行差异遗漏部分句段，
+        // 以其为主轨并以完整行级 tlyric / romalrc 兜底填补缺句，兼顾精确时间戳与译文完整度。
         final mergedYrc = LyricMerger.mergeSameSource(
           mainLrc: parsedYrc.lrcContent,
-          translationLrc: effectiveTrans,
-          romajiLrc: effectiveRoma,
+          translationLrc: ytlrc,
+          fallbackTranslationLrc: translation,
+          romajiLrc: yromalrc,
+          fallbackRomajiLrc: romaji,
         );
         if (mergedYrc.lrcContent.isNotEmpty) {
           final mergedCredits = <String>[
@@ -151,8 +154,8 @@ class NeteaseLyricProvider {
             hasTranslation: mergedYrc.hasTranslation,
             hasWordTiming: true,
             hasRomaji: mergedYrc.hasRomaji,
-            translationLrc: effectiveTrans,
-            romajiLrc: effectiveRoma,
+            translationLrc: _pickRicherAuxLrc(ytlrc, translation),
+            romajiLrc: _pickRicherAuxLrc(yromalrc, romaji),
             credits: mergedCredits,
           );
         }
@@ -183,6 +186,16 @@ class NeteaseLyricProvider {
       romajiLrc: romaji,
       credits: merged.credits,
     );
+  }
+
+  static String _pickRicherAuxLrc(String primary, String fallback) {
+    final pTrim = primary.trim();
+    final fTrim = fallback.trim();
+    if (pTrim.isEmpty) return fallback;
+    if (fTrim.isEmpty) return primary;
+    final pCount = LyricCleaner.parseTimedEntries(pTrim).length;
+    final fCount = LyricCleaner.parseTimedEntries(fTrim).length;
+    return fCount > pCount ? fallback : primary;
   }
 
   static String _lyricText(Object? node) {

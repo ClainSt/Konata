@@ -460,12 +460,18 @@ class LyricsResolver {
     ]);
 
     final scored = <ScoredLyricCandidate>[];
-    final allList = deduped.values.toList(growable: false);
+    final crossCache = LyricCrossSourceCache();
+    final allList = deduped.values.toList(growable: false)
+      ..sort((a, b) {
+        final richA = (a.hasTranslation ? 2 : 0) + (a.hasRomaji ? 1 : 0);
+        final richB = (b.hasTranslation ? 2 : 0) + (b.hasRomaji ? 1 : 0);
+        return richB.compareTo(richA);
+      });
     for (var i = 0; i < allList.length; i++) {
       final raw = allList[i];
       final others = <LyricCandidate>[
         for (var j = 0; j < allList.length; j++)
-          if (j != i) allList[j],
+          if (j != i && allList[j].source != raw.source) allList[j],
       ];
       final enriched = others.isEmpty
           ? CrossSourceEnrichment(
@@ -474,11 +480,16 @@ class LyricsResolver {
               borrowedTranslation: false,
               borrowedRomaji: false,
             )
-          : LyricMerger.enrichWithCrossSource(raw, others);
+          : LyricMerger.enrichWithCrossSource(
+              raw,
+              others,
+              cache: crossCache,
+            );
       final fullScore = LyricCandidateScorer.score(
         query,
         enriched.candidate,
         crossSourceAgree: enriched.crossSourceAgreed,
+        precleaned: crossCache.cleanedFor(raw),
       );
       final displayScore =
           fullScore ??

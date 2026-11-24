@@ -264,6 +264,100 @@ void main() {
       // 等待在途请求抛出超时异常，验证已被流守卫吞净且不触发未捕获异常。
       await Future<void>.delayed(const Duration(milliseconds: 160));
     });
+
+    test('多源 18 条百行候选突发到达时不阻塞主线程，仍精确选优并借入中文译文', () async {
+      String buildLongLrc(
+        int lineCount, {
+        double shift = 0.0,
+        bool withTrans = false,
+        int seed = 0,
+      }) {
+        final sb = StringBuffer();
+        for (var i = 0; i < lineCount; i++) {
+          final t = i * 2.0 + shift;
+          final mm = (t ~/ 60).toString().padLeft(2, '0');
+          final ss = (t % 60).toStringAsFixed(2).padLeft(5, '0');
+          final text = seed == 0
+              ? '無敵の笑顔で荒らすメディア第$i句歌詞'
+              : '全く別の曲の歌詞パターン$seed行$i';
+          sb.writeln('[$mm:$ss]$text');
+          if (withTrans) {
+            sb.writeln('[$mm:$ss]第$i句中文译文');
+          }
+        }
+        return sb.toString();
+      }
+
+      final netease = LyricCandidate(
+        source: LyricSource.netease,
+        sourceId: 'ncm_burst',
+        title: 'アイドル',
+        artist: 'YOASOBI',
+        durationSeconds: 213,
+        lrcContent: buildLongLrc(100, shift: 0.0, withTrans: true),
+        hasTranslation: true,
+      );
+      final amll = LyricCandidate(
+        source: LyricSource.amll,
+        sourceId: 'amll_burst',
+        title: 'アイドル',
+        artist: 'YOASOBI',
+        durationSeconds: 213,
+        lrcContent: buildLongLrc(100, shift: 0.05),
+        hasWordTiming: true,
+      );
+      final qq = LyricCandidate(
+        source: LyricSource.qq,
+        sourceId: 'qq_burst',
+        title: 'アイドル',
+        artist: 'YOASOBI',
+        durationSeconds: 213,
+        lrcContent: buildLongLrc(100, shift: 0.08, withTrans: true),
+        hasTranslation: true,
+      );
+      final lrclibBurst = List<LyricCandidate>.generate(
+        15,
+        (k) => LyricCandidate(
+          source: LyricSource.lrclib,
+          sourceId: 'lrc_burst_$k',
+          title: 'アイドル',
+          artist: 'YOASOBI',
+          durationSeconds: 213,
+          lrcContent: buildLongLrc(
+            100,
+            shift: 0.02 * k,
+            seed: k < 3 ? 0 : k,
+          ),
+        ),
+      );
+
+      const engine = LyricRaceEngine(
+        firstPaintGrace: Duration(milliseconds: 20),
+        lowConfidencePaintAfter: Duration(milliseconds: 500),
+        deadline: Duration(seconds: 5),
+      );
+      final query = LyricSearchQuery(
+        title: 'アイドル',
+        artist: 'YOASOBI',
+        durationSeconds: 213,
+      );
+
+      final sw = Stopwatch()..start();
+      final settled = await engine.start(query, [
+        _FakeSource('netease', [netease]),
+        _FakeSource('amll', [amll]),
+        _FakeSource('qq', [qq]),
+        _FakeSource('lrclib', lrclibBurst),
+      ]).settled;
+      sw.stop();
+
+      expect(settled.best, isNotNull);
+      expect(settled.best!.candidate.source, equals(LyricSource.amll));
+      expect(settled.best!.crossSourceAgreed, isTrue);
+      expect(settled.best!.candidate.hasTranslation, isTrue);
+      expect(settled.allCandidates, hasLength(18));
+      expect(sw.elapsedMilliseconds, lessThan(1500));
+    });
   });
 
   group('LyricsResolver 缓存与短路', () {

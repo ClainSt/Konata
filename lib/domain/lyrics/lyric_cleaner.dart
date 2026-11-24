@@ -63,6 +63,7 @@ abstract final class LyricCleaner {
   /// 有效同步歌词最少主唱行数阈值（低于等于 2 行视为占位或残缺歌词）。
   static const int minValidLyricLines = 3;
 
+  static final RegExp _lineSplitRegex = RegExp(r'\r?\n');
   static final RegExp _timeTagRegex = RegExp(
     r'\[(?:(\d{1,2}):)?(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]',
   );
@@ -151,7 +152,7 @@ abstract final class LyricCleaner {
     var offsetMillis = 0;
     final rawEntries = <TimedLyricEntry>[];
 
-    for (final rawLine in decoded.split(RegExp(r'\r?\n'))) {
+    for (final rawLine in decoded.split(_lineSplitRegex)) {
       final line = rawLine.trim();
       if (line.isEmpty) continue;
       final matches = _timeTagRegex.allMatches(line).toList();

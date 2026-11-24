@@ -84,15 +84,19 @@ class LyricRaceSession {
   final Completer<ScoredLyricCandidate?> _firstPaint = Completer();
   final Completer<LyricRaceSettlement> _settled = Completer();
   final List<StreamSubscription<LyricCandidate>> _subs = [];
-  final List<LyricCandidate> _qualifiedSynced = [];
+  final Map<String, ({LyricCandidate candidate, double baseScore})>
+  _qualifiedByKey = {};
+  final LyricCrossSourceCache _crossCache = LyricCrossSourceCache();
   Timer? _graceTimer;
   Timer? _softPaintTimer;
   Timer? _deadlineTimer;
+  Timer? _recomputeTimer;
   ScoredLyricCandidate? _best;
   ScoredLyricCandidate? _bestPlain;
   var _finishedSources = 0;
   var _anyResponded = false;
   var _softPaintDue = false;
+  var _recomputeDirty = false;
 
   /// 首屏可显示候选（无合格同步候选时为空）。
   Future<ScoredLyricCandidate?> get firstPaint => _firstPaint.future;
@@ -133,7 +137,14 @@ class LyricRaceSession {
 
   void _onCandidate(LyricCandidate candidate) {
     if (_settled.isCompleted) return;
-    final baseScore = LyricCandidateScorer.score(_query, candidate);
+    final precleaned = candidate.isSynced
+        ? _crossCache.cleanedFor(candidate)
+        : null;
+    final baseScore = LyricCandidateScorer.score(
+      _query,
+      candidate,
+      precleaned: precleaned,
+    );
     if (baseScore == null || baseScore < LyricMatchThresholds.lowConfidence) {
       return;
     }
@@ -146,7 +157,41 @@ class LyricRaceSession {
       return;
     }
 
-    _qualifiedSynced.add(candidate);
+    final key = '${candidate.source.name}::${candidate.sourceId}';
+    final prev = _qualifiedByKey[key];
+    if (prev != null &&
+        !_isBetter(
+          baseScore,
+          candidate,
+          ScoredLyricCandidate(prev.candidate, prev.baseScore),
+        )) {
+      return;
+    }
+    _qualifiedByKey[key] = (candidate: candidate, baseScore: baseScore);
+    _recomputeDirty = true;
+
+    if (baseScore >= LyricMatchThresholds.autoAccept &&
+        _graceTimer == null &&
+        !_firstPaint.isCompleted) {
+      _graceTimer = Timer(_engine.firstPaintGrace, _completeFirstPaintIfAny);
+    }
+
+    if (_softPaintDue && !_firstPaint.isCompleted) {
+      _flushPendingRecompute();
+      _completeFirstPaintIfAny();
+      return;
+    }
+
+    // 同一事件轮次内突发到达的多条候选（如 LRCLIB 整批搜索结果）合并至下一轮统一重算，
+    // 防止连续微任务占满主线程导致输入分发阻塞。
+    _recomputeTimer ??= Timer(Duration.zero, _flushPendingRecompute);
+  }
+
+  void _flushPendingRecompute() {
+    _recomputeTimer?.cancel();
+    _recomputeTimer = null;
+    if (_settled.isCompleted || !_recomputeDirty) return;
+    _recomputeDirty = false;
     _recomputeBest();
 
     final best = _best;
@@ -161,17 +206,49 @@ class LyricRaceSession {
 
   /// 基于已收集的全部合格同步候选执行跨源验证与借译文/借罗马音合并，并刷新当前最优候选。
   void _recomputeBest() {
-    if (_qualifiedSynced.isEmpty) {
+    if (_qualifiedByKey.isEmpty) {
       _best = null;
       return;
     }
 
+    // 构造跨源伙伴优先表（富轨与高分在前），确保验证与借轨优先命中并快速短路。
+    final partnerPool = _qualifiedByKey.values.toList(growable: false)
+      ..sort((a, b) {
+        final richA =
+            (a.candidate.hasTranslation ? 2 : 0) +
+            (a.candidate.hasRomaji ? 1 : 0);
+        final richB =
+            (b.candidate.hasTranslation ? 2 : 0) +
+            (b.candidate.hasRomaji ? 1 : 0);
+        if (richA != richB) return richB.compareTo(richA);
+        return b.baseScore.compareTo(a.baseScore);
+      });
+
+    // 候选按跨源增强后的理论最高上界降序评估，上界已严格低于当前最优时精确剪枝。
+    final evalOrder = _qualifiedByKey.values.toList(growable: false)
+      ..sort((a, b) {
+        final maxA = _maxEnrichedScore(a.candidate, a.baseScore);
+        final maxB = _maxEnrichedScore(b.candidate, b.baseScore);
+        final cmp = maxB.compareTo(maxA);
+        if (cmp != 0) return cmp;
+        final capDiff =
+            _capabilityRank(b.candidate) - _capabilityRank(a.candidate);
+        if (capDiff != 0) return capDiff;
+        return _sourceWordPriority(b.candidate) -
+            _sourceWordPriority(a.candidate);
+      });
+
     ScoredLyricCandidate? best;
-    for (var i = 0; i < _qualifiedSynced.length; i++) {
-      final raw = _qualifiedSynced[i];
+    for (final entry in evalOrder) {
+      final raw = entry.candidate;
+      if (best != null &&
+          _maxEnrichedScore(raw, entry.baseScore) < best.score - 1e-6) {
+        break;
+      }
       final others = <LyricCandidate>[
-        for (var j = 0; j < _qualifiedSynced.length; j++)
-          if (j != i) _qualifiedSynced[j],
+        for (final p in partnerPool)
+          if (!identical(p.candidate, raw) && p.candidate.source != raw.source)
+            p.candidate,
       ];
       final enriched = others.isEmpty
           ? CrossSourceEnrichment(
@@ -180,11 +257,16 @@ class LyricRaceSession {
               borrowedTranslation: false,
               borrowedRomaji: false,
             )
-          : LyricMerger.enrichWithCrossSource(raw, others);
+          : LyricMerger.enrichWithCrossSource(
+              raw,
+              others,
+              cache: _crossCache,
+            );
       final score = LyricCandidateScorer.score(
         _query,
         enriched.candidate,
         crossSourceAgree: enriched.crossSourceAgreed,
+        precleaned: _crossCache.cleanedFor(raw),
       );
       if (score == null || score < LyricMatchThresholds.lowConfidence) continue;
       final scored = ScoredLyricCandidate(
@@ -199,7 +281,18 @@ class LyricRaceSession {
     _best = best;
   }
 
+  /// 跨源增强后可能达到的严格得分上界：最多叠加交叉验证 `+0.05` 与借译文 `+0.05`。
+  static double _maxEnrichedScore(LyricCandidate candidate, double baseScore) {
+    return baseScore + 0.05 + (candidate.hasTranslation ? 0.0 : 0.05);
+  }
+
   void _completeFirstPaintIfAny() {
+    if (_recomputeDirty && !_settled.isCompleted) {
+      _recomputeTimer?.cancel();
+      _recomputeTimer = null;
+      _recomputeDirty = false;
+      _recomputeBest();
+    }
     final best = _best;
     if (best != null && !_firstPaint.isCompleted) _firstPaint.complete(best);
   }
@@ -238,16 +331,19 @@ class LyricRaceSession {
     _graceTimer?.cancel();
     _softPaintTimer?.cancel();
     _deadlineTimer?.cancel();
+    _recomputeTimer?.cancel();
+    _recomputeTimer = null;
     for (final sub in _subs) {
       unawaited(sub.cancel().catchError((Object _) {}));
     }
-    _recomputeBest();
+    if (_recomputeDirty || (_best == null && _qualifiedByKey.isNotEmpty)) {
+      _recomputeDirty = false;
+      _recomputeBest();
+    }
     if (!_firstPaint.isCompleted) _firstPaint.complete(_best);
     final allScored = <ScoredLyricCandidate>[
-      for (final c in _qualifiedSynced)
-        if (LyricCandidateScorer.score(_query, c) case final double s
-            when s >= LyricMatchThresholds.lowConfidence)
-          ScoredLyricCandidate(c, s),
+      for (final entry in _qualifiedByKey.values)
+        ScoredLyricCandidate(entry.candidate, entry.baseScore),
     ]..sort((a, b) => b.score.compareTo(a.score));
 
     _settled.complete(

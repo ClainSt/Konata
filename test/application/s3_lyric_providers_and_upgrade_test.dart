@@ -262,6 +262,74 @@ void main() {
       expect(doc.lines.first.romajiText, equals('muteki no egao'));
     });
 
+    test('NeteaseLyricProvider 在 ytlrc 遗漏单句译文时自动用完整 tlyric 补齐且不丢逐字时间', () async {
+      final transport = ClientLyricTransport(
+        MockClient((req) async {
+          return http.Response.bytes(
+            utf8.encode(
+              jsonEncode({
+                'yrc': {
+                  'lyric':
+                      '[41710,3200](41710,500,0)また次の(42550,800,0)問題と混ぜ合わさって\n'
+                      '[44910,3350](44910,600,0)色褪せた(45920,900,0)ガール思い出せ\n'
+                      '[48260,3060](48260,700,0)何を背負って(49690,900,0)何年になれど\n'
+                      '[51320,2920](51320,600,0)タテジマな(52550,900,0)ラブは健在です',
+                },
+                // 模拟网易云服务端 ytlrc 漏掉 00:44.910 一句中文译文
+                'ytlrc': {
+                  'lyric':
+                      '[00:41.710]混合着下一个问题\n'
+                      '[00:48.260]究竟背负了什么  无论多少年\n'
+                      '[00:51.320]竖条纹的爱仍然健在',
+                },
+                // 完整 tlyric 存在轻微时间差，包含被 ytlrc 漏掉的译文
+                'tlyric': {
+                  'lyric':
+                      '[00:41.715]混合着下一个问题\n'
+                      '[00:44.939]回忆起那个褪色了的女孩\n'
+                      '[00:48.324]究竟背负了什么  无论多少年\n'
+                      '[00:51.348]竖条纹的爱仍然健在',
+                },
+                'yromalrc': {
+                  'lyric':
+                      '[00:41.710]ma ta tsu gi no\n'
+                      '[00:44.910]i ro a se ta gaa ru o mo i da se\n'
+                      '[00:48.260]na ni wo se o tte\n'
+                      '[00:51.320]ta te ji ma na ra bu',
+                },
+              }),
+            ),
+            200,
+          );
+        }),
+      );
+
+      final provider = NeteaseLyricProvider(transport);
+      final candidate = await provider.fetchLyric(
+        const NeteaseSongHit(
+          id: '2084102053',
+          title: '65535',
+          artist: '中川翔子',
+          durationSeconds: 193,
+        ),
+      );
+
+      expect(candidate, isNotNull);
+      expect(candidate!.hasWordTiming, isTrue);
+      expect(candidate.hasTranslation, isTrue);
+      expect(candidate.hasRomaji, isTrue);
+
+      final doc = LrcParser.parseText(candidate.lrcContent);
+      expect(doc.lines, hasLength(4));
+      expect(doc.lines[0].secondaryLines, equals(<String>['混合着下一个问题']));
+      expect(doc.lines[1].primaryText, equals('色褪せたガール思い出せ'));
+      expect(doc.lines[1].secondaryLines, equals(<String>['回忆起那个褪色了的女孩']));
+      expect(doc.lines[1].romajiText, equals('i ro a se ta gaa ru o mo i da se'));
+      expect(doc.lines[1].words, hasLength(2));
+      expect(doc.lines[2].secondaryLines, equals(<String>['究竟背负了什么  无论多少年']));
+      expect(doc.lines[3].secondaryLines, equals(<String>['竖条纹的爱仍然健在']));
+    });
+
     test('QqMusicLyricProvider 解密加密 QRC 逐字并合并 Base64 译文；无 QRC 自动回退 LRC', () async {
       const qrcXml =
           '<QrcInfos><LyricInfo><Lyric_1 LyricContent="'

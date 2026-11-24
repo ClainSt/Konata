@@ -355,6 +355,92 @@ void main() {
       final enriched = LyricMerger.enrichWithCrossSource(a, const [b]);
       expect(enriched.crossSourceAgreed, isTrue);
     });
+
+    test('跨源增强在主候选仅有部分译文时仅回填缺失句，不重复或覆盖已有译文', () {
+      const partialPrimary = LyricCandidate(
+        source: LyricSource.amll,
+        sourceId: 'amll_partial',
+        title: '65535',
+        artist: '中川翔子',
+        durationSeconds: 193,
+        hasWordTiming: true,
+        hasTranslation: true,
+        lrcContent:
+            '[00:41.71]また次の問題と混ぜ合わさって\n'
+            '[00:41.71]混合着下一个问题\n'
+            '[00:44.91]色褪せたガール思い出せ\n'
+            '[00:48.26]何を背負って何年になれど\n'
+            '[00:48.26]究竟背负了什么 无论多少年\n'
+            '[00:51.32]タテジマなラブは健在です',
+      );
+      const completeOther = LyricCandidate(
+        source: LyricSource.netease,
+        sourceId: 'ncm_full',
+        title: '65535',
+        artist: '中川翔子',
+        durationSeconds: 193,
+        hasTranslation: true,
+        lrcContent:
+            '[00:41.75]また次の問題と混ぜ合わさって\n'
+            '[00:44.95]色褪せたガール思い出せ\n'
+            '[00:48.30]何を背負って何年になれど\n'
+            '[00:51.35]タテジマなラブは健在です',
+        translationLrc:
+            '[00:41.75]混合着下一个问题（另一版本）\n'
+            '[00:44.95]回忆起那个褪色了的女孩\n'
+            '[00:48.30]究竟背负了什么 无论多少年（另一版本）\n'
+            '[00:51.35]竖条纹的爱仍然健在',
+      );
+
+      final enriched = LyricMerger.enrichWithCrossSource(
+        partialPrimary,
+        const [completeOther],
+      );
+      expect(enriched.borrowedTranslation, isTrue);
+      final doc = LrcParser.parseText(enriched.candidate.lrcContent);
+      expect(doc.lines, hasLength(4));
+      expect(doc.lines[0].secondaryLines, equals(<String>['混合着下一个问题']));
+      expect(doc.lines[1].secondaryLines, equals(<String>['回忆起那个褪色了的女孩']));
+      expect(doc.lines[2].secondaryLines, equals(<String>['究竟背负了什么 无论多少年']));
+      expect(doc.lines[3].secondaryLines, equals(<String>['竖条纹的爱仍然健在']));
+    });
+
+    test('稀疏倒排跨源对齐覆盖单字、子串包含与二元组模糊匹配，且对称缓存偏移精确取反', () {
+      const candA = LyricCandidate(
+        source: LyricSource.netease,
+        sourceId: 'sym_a',
+        title: '测试曲',
+        artist: '歌手',
+        durationSeconds: 180,
+        lrcContent:
+            '[00:01.00]夢\n'
+            '[00:05.00]無敵の笑顔で荒らすメディア\n'
+            '[00:10.00]抜けてるとこさえ彼女のエリア\n'
+            '[00:15.00]君は完璧で究極のアイドル',
+      );
+      const candB = LyricCandidate(
+        source: LyricSource.lrclib,
+        sourceId: 'sym_b',
+        title: '测试曲',
+        artist: '歌手',
+        durationSeconds: 180,
+        lrcContent:
+            '[00:01.40]夢\n'
+            '[00:05.40]無敵の笑顔で荒らすメディア！\n'
+            '[00:10.40]抜けてるとこさえ彼女のエリアだよ\n'
+            '[00:15.40]君は完璧で究極のアイドル様',
+      );
+
+      final cache = LyricCrossSourceCache();
+      final ab = cache.align(candA, candB);
+      final ba = cache.align(candB, candA);
+      expect(ab.matchedPairs, equals(4));
+      expect(ab.matchRatio, closeTo(1.0, 1e-6));
+      expect(ab.medianShiftSeconds, closeTo(-0.40, 1e-6));
+      expect(ba.matchedPairs, equals(ab.matchedPairs));
+      expect(ba.matchRatio, closeTo(ab.matchRatio, 1e-6));
+      expect(ba.medianShiftSeconds, closeTo(0.40, 1e-6));
+    });
   });
 
   group('LyricSearchQuery 别名扩展与多步查询计划', () {

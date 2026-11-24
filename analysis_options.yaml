@@ -1,0 +1,38 @@
+# Konata v3 全仓共享严格 Dart 3 静态分析规则。
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  language:
+    strict-casts: true
+    strict-inference: true
+    strict-raw-types: true
+  errors:
+    unawaited_futures: error
+    cancel_subscriptions: error
+    close_sinks: error
+    invalid_annotation_target: ignore
+  exclude:
+    - packages/native_plugins/**
+    - "**/build/**"
+    - "**/.dart_tool/**"
+    - apps/konata/android/**
+    - apps/konata/windows/**
+    - native/**
+    - release/**
+
+linter:
+  rules:
+    always_declare_return_types: true
+    avoid_dynamic_calls: true
+    avoid_returning_null_for_void: true
+    avoid_slow_async_io: true
+    cancel_subscriptions: true
+    close_sinks: true
+    directives_ordering: true
+    prefer_const_constructors: true
+    prefer_const_declarations: true
+    prefer_final_fields: true
+    prefer_final_locals: true
+    unawaited_futures: true
+    unnecessary_await_in_return: true
+    use_super_parameters: true

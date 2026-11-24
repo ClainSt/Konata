@@ -1,0 +1,10 @@
+# 统一源码与配置为 LF，防止 Windows 多 Worktree 换行符冲突。
+* text=auto eol=lf
+
+# Windows 脚本保留 CRLF 以兼容 PowerShell 与批处理解析器。
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 保持清单校验的原生运行时、归档及许可证文件逐字节不变。
+native/konata-native/** -text

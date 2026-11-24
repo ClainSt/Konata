@@ -1,0 +1,91 @@
+Konata License Scope, Asset Exclusions, and Third-Party Notices
+===============================================================
+
+1. Project License Scope & Brand / Character Artwork Exclusion
+--------------------------------------------------------------
+
+Konata's original source code is licensed under the GNU General Public License,
+Version 3 or later (GPL-3.0-or-later). See the verbatim license text in LICENSE.
+
+EXPLICIT EXCLUSION FOR CHARACTER ARTWORK AND APPLICATION ICONS:
+The derivative character artwork and application icons based on Konata Izumi
+from Lucky Star (including assets/brand/icons/, assets/icons/konata_icon.png,
+windows/runner/resources/app_icon.ico, and android/app/src/main/res/mipmap-*)
+are NOT licensed under the GNU General Public License or any other open-source
+license. All character rights, designs, and underlying copyrights belong to
+their respective rightsholders. Forks or third-party redistributions must
+remove or replace these artwork assets unless separately authorized.
+
+TMDB, Bangumi, Fanart.tv, and GitHub marks belong to their respective owners.
+
+2. Native Media Runtime (mpv & FFmpeg)
+--------------------------------------
+
+Konata uses pinned, SHA-256-verified builds of mpv 0.42.0 and FFmpeg 9.0.2
+tracked by native/konata-native/*-manifest.json and distributed via the
+dedicated companion repository https://github.com/ClainSt/Konata-Native
+(fetched locally via `dart run tool/fetch_native.dart`):
+- Windows x64 (libmpv-2.dll): built from mpv 0.42.0 (-Dgpl=false) with
+  statically linked FFmpeg 9.0.2 (--enable-version3, LGPL-3.0-or-later) and
+  permissive/LGPL dependencies (LuaJIT, mujs, libplacebo, libass, dav1d,
+  harfbuzz, freetype, fribidi, libsoxr, libzimg, libbluray, libarchive,
+  uchardet, shaderc, spirv-cross, etc.). Note that native/konata-native/windows/LICENSE.LGPL
+  retains the upstream mpv artifact LGPL-2.1 file tracked by windows-manifest.json;
+  the effective license of the combined Windows DLL is LGPL-3.0-or-later.
+- Android ARM64 (libmpv.so & libav*.so): built from mpv-android (mpv 0.42.0 +
+  FFmpeg 9.0.2 with --enable-gpl --enable-version3, GPL-3.0-or-later), plus
+  libmediakitandroidhelper.so from media-kit v1.1.7 (MIT) and Android NDK
+  libc++_shared.so (Apache-2.0 with LLVM Exception).
+- Complete build scripts, pinned source URLs/checksums, and all Konata patches
+  (dovi-hlg-fallback.patch, android-hdr.patch, windows-*.patch) are maintained
+  in https://github.com/ClainSt/Konata-Native in compliance with
+  GPL-3.0-or-later / LGPL-3.0-or-later.
+
+3. Vendored & Referenced Source Code
+------------------------------------
+
+- smb_connect: vendored SMB client retained under Apache License 2.0 in
+  packages/smb_connect/LICENSE (local modifications documented in
+  packages/smb_connect/KONATA_PATCHES.md).
+- media_kit_libs_windows_video & media_kit_libs_android_video: packaging
+  adapters retained under MIT License in packages/media_kit_libs_windows_video/LICENSE
+  and packages/media_kit_libs_android_video/LICENSE.
+- path_provider_windows: portable Windows path adapter retained under
+  BSD-3-Clause in packages/path_provider_windows/LICENSE (local modifications
+  documented in packages/path_provider_windows/KONATA_PATCHES.md).
+- flutter_secure_storage_windows: portable Windows DPAPI adapter under
+  packages/flutter_secure_storage_windows/ implementing
+  flutter_secure_storage_platform_interface (local design documented in
+  packages/flutter_secure_storage_windows/KONATA_PATCHES.md).
+- Other Dart/Flutter dependencies listed in pubspec.yaml / pubspec.lock retain
+  their respective upstream licenses.
+
+4. Bundled Fonts
+----------------
+
+- Inter Variable (assets/fonts/InterVariable.ttf):
+  Copyright 2016 The Inter Project Authors. Licensed under the SIL Open Font
+  License, Version 1.1 (https://scripts.sil.org/OFL).
+- Noto Sans CJK SC Variable (assets/fonts/NotoSansCJKsc-VF.ttf):
+  Copyright 2014-2021 Adobe (with Reserved Font Name 'Source'). Licensed under
+  the SIL Open Font License, Version 1.1 (https://scripts.sil.org/OFL).
+
+5. Datasets & Identifier Mappings
+---------------------------------
+
+- Release-group name data: derived from https://github.com/filebot/data under
+  CC0 1.0. Notice retained in assets/licenses/filebot-data.txt; the generated
+  lookup contains literal names only and does not execute upstream expressions.
+- Bangumi-to-TMDB identifier mappings: derived from Wikidata (properties P5732,
+  P4983, and P4947) under CC0 1.0 and open-ani/bangumi-tmdb
+  (https://github.com/open-ani/bangumi-tmdb) under CC BY 4.0. Notices are
+  retained in assets/licenses/wikidata-cc0.txt and
+  assets/licenses/open-ani-bangumi-tmdb-cc-by-4.0.txt. The compiled binary
+  lookup contains numeric identifiers and optional season numbers only and is
+  used as a matching signal, never as a sole binding decision.
+- TVDB identifier enrichment for v2 mapping snapshots: derived via
+  tool/import_bangumi_tmdb_map.py from Fribb/anime-lists
+  (https://github.com/Fribb/anime-lists) for numeric ID cross-referencing only.
+- Bangumi Archive: optionally downloaded or imported at the user's request; its
+  snapshot and generated database are not bundled in this repository or release
+  packages.

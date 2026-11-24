@@ -1,0 +1,6 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application android:label="@string/konata_app_name" tools:replace="android:label" />
+    <!-- 调试构建需要网络权限以连接 Flutter 调试工具链、热重载与实时观测服务。 -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+</manifest>

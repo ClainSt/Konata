@@ -1,0 +1,53 @@
+{
+  "mpv": "0.42.0",
+  "ffmpeg": "9.0.2",
+  "platform": "windows-x64",
+  "release": {
+    "repository": "https://github.com/ClainSt/Konata-Native",
+    "tag": "r1-mpv0.42.0-ff9.0.2",
+    "archive": "konata-native-windows-x64-r1.zip",
+    "sha256": "ccddc4bc2f445bfb0fd8f3f5f9ce881170f3857948daa02b03bd888774b06e96",
+    "bytes": 29016042
+  },
+  "files": {
+    "windows/LICENSE.LGPL": {
+      "sha256": "72b672113d642cbb8ef5dcc76938db801983c56e50b1400ab930f1a64d6dc8d9",
+      "bytes": 26410
+    },
+    "windows/include/mpv/client.h": {
+      "sha256": "3da9b8c61c3fb4e2d76bd248cebf72f3ee830331411b71a76adbd5e05660cc50",
+      "bytes": 86136
+    },
+    "windows/include/mpv/render.h": {
+      "sha256": "f2550aa29b2e9b20988bd954b4383e9fa05fd9e40d1669fbc6edf2afac603f15",
+      "bytes": 34869
+    },
+    "windows/include/mpv/render_d3d11.h": {
+      "sha256": "7b880453ee3c780b0d0f1c3f8ecaa1d23b289522f4c687e6857c8475f4a3f6fb",
+      "bytes": 4413
+    },
+    "windows/include/mpv/render_gl.h": {
+      "sha256": "48662c0ed9872a14dd9e1684105c97f69f94a0414709c254c5d372adc41d2e69",
+      "bytes": 7328
+    },
+    "windows/include/mpv/stream_cb.h": {
+      "sha256": "188e58b6d14383e15a5dffdc4ecebbdfbf2e412b9c099ff21b571f747a8ce32d",
+      "bytes": 9589
+    },
+    "windows/libmpv-2.dll": {
+      "sha256": "7cff31269ec7277543529034ac5136b01f33d01cead1d0b945ae39263b93ac51",
+      "bytes": 68162048
+    },
+    "windows/libmpv.dll.a": {
+      "sha256": "02b74427162f01168a7d87ea5b6c403da00a4ee19467634ad5c432155ec6622b",
+      "bytes": 61322
+    }
+  },
+  "patches": {
+    "dovi-hlg-fallback.patch": "0f5af8d3f9372b3abfa74f7f2749a02fa69764ff602caf31989479352e683a7e",
+    "windows-dovi-base-metadata.patch": "d2f4fb273d612ce4a6d11db25ea6eae65b00592512099dfe2e796f3ee016da0a",
+    "windows-d3d11-strict-float.patch": "c443f1ea2a2d363e4001d8b1a4d0d9d3725fde04bd7333bc5ee3e640548c9f0e",
+    "windows-d3d11-low10-upload.patch": "61ff0b9b81658ae0f6d52481b517affdb7c643b282811251de8a71fdccd79bb0",
+    "windows-p010-repack.patch": "b02f9696f62d5f8003cf3fc7d8a4cf86c5e8e7b995c3e6f8c2639fc7bdac1f50"
+  }
+}

@@ -1,0 +1,85 @@
+# 通用杂项与临时文件
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+__pycache__/
+
+# IDE 与编辑器本地配置
+*.iml
+*.ipr
+*.iws
+.idea/
+.vscode/
+.claude/
+.cursor/
+.codex/
+.agent/
+
+# Flutter / Dart / Pub 生成物
+**/doc/api/
+**/.dart_tool/
+**/.flutter-plugins-dependencies
+**/.pub-cache/
+**/.pub/
+**/build/
+/build/
+/coverage/
+/release/
+/output/
+apps/konata/android/local.properties
+apps/konata/android/.gradle/
+apps/konata/android/.kotlin/
+apps/konata/android/app/debug/
+apps/konata/android/app/profile/
+apps/konata/android/app/release/
+apps/konata/windows/flutter/ephemeral/
+app.*.symbols
+app.*.map.json
+
+# 原生运行时二进制托管于 Konata-Native（仅跟踪清单与头文件归档）
+/native/*
+!/native/konata-native/
+/native/konata-native/*
+!/native/konata-native/*-manifest.json
+!/native/konata-native/windows-headers.zip
+
+# 绿色便携运行数据与本地调试库
+/userdata/
+/cache/
+/photos/
+/Konata_*/
+apps/konata/userdata/
+apps/konata/cache/
+apps/konata/photos/
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+
+# 禁止过程文档泛滥，仅允许受控规范与各包自述文件入库
+*.[mM][dD]
+!/AGENTS.md
+!/README.md
+!/CONTRIBUTING.md
+!/.github/**/*.md
+!/.agents/skills/**/SKILL.md
+!/apps/**/PACKAGE.md
+!/packages/**/PACKAGE.md
+!/packages/native_plugins/**/KONATA_PATCH*.md
+
+# 本地密钥与评测语料（严禁提交）
+dart_defines.dev.json
+dart_defines.local.json
+apps/konata/dart_defines.dev.json
+apps/konata/dart_defines.local.json
+**/.wrangler/
+**/.dev.vars
+/.agent-work/
+/local_eval/

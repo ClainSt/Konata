@@ -1,0 +1,58 @@
+{
+  "mpv": "0.42.0",
+  "ffmpeg": "9.0.2",
+  "platform": "android-arm64",
+  "release": {
+    "repository": "https://github.com/ClainSt/Konata-Native",
+    "tag": "r1-mpv0.42.0-ff9.0.2",
+    "archive": "konata-native-android-arm64-r1.zip",
+    "sha256": "578506f1007050485780f4729bdbc41722d05e86045899585adce43d96a27da2",
+    "bytes": 14599121
+  },
+  "files": {
+    "android/arm64-v8a/libavcodec.so": {
+      "sha256": "4f783d7547d7ed4ae836025b7be1d29e1a847d51c93fbf5c3c2784790d48e12f",
+      "bytes": 12345192
+    },
+    "android/arm64-v8a/libavdevice.so": {
+      "sha256": "db42dbdee59f98a14a3270bc988ff45cbb2d5ae4c4f52d84fbf5d19edb9251bc",
+      "bytes": 9296
+    },
+    "android/arm64-v8a/libavfilter.so": {
+      "sha256": "0ab36e042b1aaeeaa37747e3e6fca3791a56415f2aecaf63e891ed8bccb9a6b5",
+      "bytes": 4272576
+    },
+    "android/arm64-v8a/libavformat.so": {
+      "sha256": "a536cbc50a70e5cf3a739865a7cf6bfe8e99136bac08d1283819a6f8ebbab1e8",
+      "bytes": 3363936
+    },
+    "android/arm64-v8a/libavutil.so": {
+      "sha256": "9903496f827f9dc23380c16b4c6ea2902d342b7833812dbcbb3ed9886d2e7008",
+      "bytes": 735512
+    },
+    "android/arm64-v8a/libc++_shared.so": {
+      "sha256": "b5d97c38a728afe28d341cda3369f512d35eaf9c680c1b0563cd6a63e395230f",
+      "bytes": 1423696
+    },
+    "android/arm64-v8a/libmediakitandroidhelper.so": {
+      "sha256": "ab55b1d34665dba8fa7a451e82c466ee71b9698e7da6c9a3cb68a7c0ee7610d4",
+      "bytes": 386696
+    },
+    "android/arm64-v8a/libmpv.so": {
+      "sha256": "11bf7870923414aa10e1d9261f91c5a8a446bd8c853651a1ecd09e1923a0a088",
+      "bytes": 8570136
+    },
+    "android/arm64-v8a/libswresample.so": {
+      "sha256": "04a89cf0472516d308e51a0fcee1dfe77299c5c19f73fd7508a560b328a885c0",
+      "bytes": 96840
+    },
+    "android/arm64-v8a/libswscale.so": {
+      "sha256": "e3a84e150e601d5648c974a0a9cd980afc0139e0c010a379cf9eca9216c46fb0",
+      "bytes": 1232808
+    }
+  },
+  "patches": {
+    "android-hdr.patch": "4b10e864b813cce715e50e3048724c84884f564a2ed98b5aac29bfa74ca83b6a",
+    "dovi-hlg-fallback.patch": "0f5af8d3f9372b3abfa74f7f2749a02fa69764ff602caf31989479352e683a7e"
+  }
+}

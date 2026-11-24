@@ -1,0 +1,1054 @@
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:konata_contracts/konata_contracts.dart';
+
+import '../formatting/image_header_parser.dart';
+import '../models/artwork_storage.dart';
+import '../models/fanart_models.dart';
+import '../models/tmdb_models.dart';
+import '../scraping/artwork_ranker.dart';
+import '../scraping/search_query_sanitizer.dart';
+
+/// TMDB API 强类型业务客户端（支持 v3 Key / v4 Bearer 双凭证、详情聚合与图片缓存）。
+class TmdbService {
+  /// 创建 TMDB 服务实例。
+  TmdbService({
+    required KonataHttpClientPort httpClient,
+    this._artworkCache,
+    bool enableSessionCache = false,
+  }) : _http = httpClient,
+       _alwaysMemoize = enableSessionCache;
+
+  final KonataHttpClientPort _http;
+  final ArtworkCacheStore? _artworkCache;
+  final bool _alwaysMemoize;
+  static const int _maxMemoEntries = 320;
+  static const String _tmdbBucketKey = 'tmdb';
+  static final RegExp _windowsAbsPathPattern = RegExp(r'^[a-zA-Z]:[/\\]');
+  final Map<String, Future<Object?>> _memo = {};
+  int _sessionCacheDepth = 0;
+
+  /// 当前是否处于批量刮削会话缓存窗口内。
+  bool get isSessionCacheActive => _alwaysMemoize || _sessionCacheDepth > 0;
+
+  /// 开启一次扫描会话级内存缓存（支持嵌套计数，扫描结束调用 [endSessionCache] 立即释放内存）。
+  void beginSessionCache() {
+    _sessionCacheDepth++;
+  }
+
+  /// 结束一次扫描会话级内存缓存；当最外层会话结束时自动清空缓存，杜绝跨次扫描读到过期元数据。
+  void endSessionCache() {
+    if (_sessionCacheDepth > 0) {
+      _sessionCacheDepth--;
+    }
+    if (!isSessionCacheActive) {
+      _memo.clear();
+    }
+  }
+
+  /// 在指定的优先级通道检索 TMDB 候选（支持通过 [mediaTypeFilter] 限定仅查 `/search/tv` 或 `/search/movie`）。
+  Future<List<TmdbSearchResult>> searchAnime(
+    String query, {
+    int? year,
+    String language = 'zh-CN',
+    bool includeAdult = false,
+    TmdbMediaType? mediaTypeFilter,
+    RequestPriority priority = RequestPriority.interactive,
+  }) async {
+    final sanitized = SearchQuerySanitizer.sanitize(query);
+    final trimmed = sanitized.isNotEmpty ? sanitized : query.trim();
+    if (trimmed.isEmpty) return const [];
+
+    final memoKey =
+        'search:${trimmed.toLowerCase()}|${year ?? ''}|$language|$includeAdult|${mediaTypeFilter?.name ?? 'all'}';
+    final loaded = await _memoized(
+      memoKey,
+      priority: priority,
+      load: () async {
+        final tvParams = <String, String>{
+          'query': trimmed,
+          'language': language,
+          'include_adult': includeAdult.toString(),
+          if (year != null) 'first_air_date_year': year.toString(),
+        };
+        final movieParams = <String, String>{
+          'query': trimmed,
+          'language': language,
+          'include_adult': includeAdult.toString(),
+          if (year != null) 'primary_release_year': year.toString(),
+        };
+
+        final merged = <TmdbSearchResult>[];
+        if (mediaTypeFilter == TmdbMediaType.tv) {
+          final tvBody = await _getJson(
+            '/search/tv',
+            tvParams,
+            priority: priority,
+          );
+          _parseSearchList(tvBody, TmdbMediaType.tv, merged);
+          return List<TmdbSearchResult>.unmodifiable(merged);
+        }
+        if (mediaTypeFilter == TmdbMediaType.movie) {
+          final movieBody = await _getJson(
+            '/search/movie',
+            movieParams,
+            priority: priority,
+          );
+          _parseSearchList(movieBody, TmdbMediaType.movie, merged);
+          return List<TmdbSearchResult>.unmodifiable(merged);
+        }
+
+        final results = await Future.wait([
+          _getJson('/search/tv', tvParams, priority: priority),
+          _getJson('/search/movie', movieParams, priority: priority),
+        ]);
+
+        _parseSearchList(results[0], TmdbMediaType.tv, merged);
+        _parseSearchList(results[1], TmdbMediaType.movie, merged);
+        return List<TmdbSearchResult>.unmodifiable(merged);
+      },
+    );
+    return loaded is List<TmdbSearchResult> ? loaded : const [];
+  }
+
+  /// 拉取作品详情、别名与多语言翻译；[includeImages] 为 `true` 时同时附带图像与 ClearLogo 候选集。
+  Future<TmdbWorkDetail?> getWorkDetail(
+    int tmdbId,
+    TmdbMediaType mediaType, {
+    RequestPriority priority = RequestPriority.background,
+    bool includeEnglishImages = true,
+    bool includeImages = true,
+  }) async {
+    final segment = mediaType == TmdbMediaType.tv ? 'tv' : 'movie';
+    final fullKey = 'detail:$segment:$tmdbId:img:$includeEnglishImages';
+    final liteKey = 'detail:$segment:$tmdbId:lite';
+    if (isSessionCacheActive &&
+        priority == RequestPriority.background &&
+        !includeImages &&
+        _memo.containsKey(fullKey)) {
+      final cachedFull = await _memo[fullKey]!;
+      return cachedFull is TmdbWorkDetail ? cachedFull : null;
+    }
+
+    final targetKey = includeImages ? fullKey : liteKey;
+    final loaded = await _memoized(
+      targetKey,
+      priority: priority,
+      load: () async {
+        final query = <String, String>{
+          'language': 'zh-CN',
+          'append_to_response': includeImages
+              ? 'alternative_titles,translations,images,external_ids'
+              : 'alternative_titles,translations',
+          if (includeImages)
+            'include_image_language': includeEnglishImages
+                ? 'zh,ja,en,null'
+                : 'zh,ja,null',
+        };
+        final json = await _getJson('/$segment/$tmdbId', query, priority: priority);
+        if (json == null || json['id'] == null) return null;
+
+        final title = _pickString(json, ['name', 'title']) ?? '';
+        final original = _pickString(json, ['original_name', 'original_title']);
+        final year = _parseYear(json['first_air_date'] ?? json['release_date']);
+
+        final aliases = <String>{};
+        if (original != null && original.isNotEmpty) aliases.add(original);
+        _collectAliases(json, aliases);
+
+        final seasons = <TmdbSeasonSummary>[];
+        final rawSeasons = json['seasons'];
+        if (mediaType == TmdbMediaType.tv && rawSeasons is List) {
+          for (final item in rawSeasons) {
+            if (item is! Map) continue;
+            final sNum = (item['season_number'] as num?)?.toInt();
+            if (sNum == null || sNum < 0) continue;
+            seasons.add(
+              TmdbSeasonSummary(
+                seasonNumber: sNum,
+                name: (item['name'] ?? 'Season $sNum').toString(),
+                episodeCount: (item['episode_count'] as num?)?.toInt() ?? 0,
+                airDate: item['air_date']?.toString(),
+                posterPath: item['poster_path']?.toString(),
+              ),
+            );
+          }
+        }
+
+        final logoPath = includeImages
+            ? _selectBestLogoPath(json, tmdbId: tmdbId, mediaType: mediaType)
+            : null;
+        final voteAverage = (json['vote_average'] as num?)?.toDouble();
+        final rawPosterPath = json['poster_path']?.toString();
+        final rawBackdropPath = json['backdrop_path']?.toString();
+        final candidatePosters = includeImages
+            ? _extractImageOptions(
+                json,
+                'posters',
+                primaryDefaultPath: rawPosterPath,
+              )
+            : const <TmdbArtworkImage>[];
+        final candidateBackdrops = includeImages
+            ? _extractImageOptions(
+                json,
+                'backdrops',
+                primaryDefaultPath: rawBackdropPath,
+              )
+            : const <TmdbArtworkImage>[];
+        final candidateLogos = includeImages
+            ? _extractImageOptions(json, 'logos')
+            : const <TmdbArtworkImage>[];
+        final preferredPoster = includeImages
+            ? ArtworkRanker.selectBestTmdbPoster(
+                candidatePosters,
+                primaryDefaultPath: rawPosterPath,
+              )
+            : rawPosterPath;
+        final preferredBackdrop = includeImages
+            ? ArtworkRanker.selectBestTmdbBackdrop(
+                candidateBackdrops,
+                primaryDefaultPath: rawBackdropPath,
+              )
+            : rawBackdropPath;
+        final rawCollection = json['belongs_to_collection'];
+        int? collectionId;
+        String? collectionName;
+        if (rawCollection is Map) {
+          collectionId = (rawCollection['id'] as num?)?.toInt();
+          final rawName = rawCollection['name']?.toString().trim();
+          if (rawName != null && rawName.isNotEmpty) {
+            collectionName = rawName;
+          }
+        }
+        final detailGenres = _parseDetailGenreIds(json);
+        final tvdbId = _parseTvdbId(json);
+
+        return TmdbWorkDetail(
+          tmdbId: (json['id'] as num).toInt(),
+          mediaType: mediaType,
+          title: title.isNotEmpty ? title : (original ?? 'TMDB #$tmdbId'),
+          originalTitle: original,
+          year: year,
+          overview: json['overview']?.toString(),
+          posterPath: preferredPoster,
+          backdropPath: preferredBackdrop,
+          logoPath: logoPath,
+          voteAverage: voteAverage,
+          voteCount: (json['vote_count'] as num?)?.toInt(),
+          aliases: aliases.toList(growable: false),
+          seasons: seasons,
+          candidatePosters: candidatePosters,
+          candidateBackdrops: candidateBackdrops,
+          candidateLogos: candidateLogos,
+          collectionId: collectionId,
+          collectionName: collectionName,
+          tvdbId: tvdbId,
+          genreIds: detailGenres,
+          imagesLoaded: includeImages,
+        );
+      },
+    );
+    return loaded is TmdbWorkDetail ? loaded : null;
+  }
+
+  /// 拉取单季完整详情（包含季标题、简介、单季专属多候选海报与分集列表）。
+  Future<TmdbSeasonDetail?> getSeasonDetail(
+    int tmdbId,
+    int seasonNumber, {
+    RequestPriority priority = RequestPriority.background,
+  }) async {
+    final memoKey = 'season:$tmdbId:$seasonNumber';
+    final loaded = await _memoized(
+      memoKey,
+      priority: priority,
+      load: () async {
+        final json = await _getJson('/tv/$tmdbId/season/$seasonNumber', const {
+          'language': 'zh-CN',
+          'append_to_response': 'images',
+          'include_image_language': 'zh,ja,en,null',
+        }, priority: priority);
+        if (json == null) return null;
+
+        final list = <TmdbEpisodeDetail>[];
+        final rawEpisodes = json['episodes'];
+        if (rawEpisodes is List) {
+          for (final item in rawEpisodes) {
+            if (item is! Map) continue;
+            final epNum = (item['episode_number'] as num?)?.toInt();
+            if (epNum == null) continue;
+            list.add(
+              TmdbEpisodeDetail(
+                seasonNumber: seasonNumber,
+                episodeNumber: epNum,
+                title: (item['name'] ?? '第 $epNum 集').toString(),
+                overview: item['overview']?.toString(),
+                stillPath: item['still_path']?.toString(),
+                airDate: item['air_date']?.toString(),
+              ),
+            );
+          }
+        }
+
+        final rawSeasonPoster = json['poster_path']?.toString();
+        final seasonPosters = _extractImageOptions(
+          json,
+          'posters',
+          primaryDefaultPath: rawSeasonPoster,
+        );
+        final preferredSeasonPoster = ArtworkRanker.selectBestTmdbPoster(
+          seasonPosters,
+          primaryDefaultPath: rawSeasonPoster,
+        );
+
+        return TmdbSeasonDetail(
+          seasonNumber: seasonNumber,
+          name: (json['name'] ?? 'Season $seasonNumber').toString(),
+          overview: json['overview']?.toString(),
+          airDate: json['air_date']?.toString(),
+          posterPath: preferredSeasonPoster,
+          candidatePosters: seasonPosters,
+          episodes: list,
+        );
+      },
+    );
+    return loaded is TmdbSeasonDetail ? loaded : null;
+  }
+
+  /// 拉取单季分集列表与剧照路径。
+  Future<List<TmdbEpisodeDetail>> getSeasonEpisodes(
+    int tmdbId,
+    int seasonNumber, {
+    RequestPriority priority = RequestPriority.background,
+  }) async {
+    final detail = await getSeasonDetail(
+      tmdbId,
+      seasonNumber,
+      priority: priority,
+    );
+    return detail?.episodes ?? const [];
+  }
+
+  /// 优先从本地内存/磁盘缓存或显式本地磁盘路径读取图片字节（零网络请求与零 HTTP 客户端开销）。
+  ///
+  /// 命中时返回非空图片字节；未命中需要网络下载时返回 `null`。
+  static Future<Uint8List?> readCachedImageBytes(
+    String imagePath, {
+    required ArtworkCacheStore? artworkCache,
+    TmdbImageSize? size,
+    int? targetWidth,
+    String? ownerWorkId,
+    PhotoSubfolder? subfolder,
+  }) async {
+    final trimmed = imagePath.trim();
+    if (trimmed.isEmpty) return Uint8List(0);
+
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      final cached = await artworkCache?.read(
+        'url:$trimmed',
+        owner: ownerWorkId,
+        subfolder: subfolder,
+      );
+      if (cached != null &&
+          !ImageHeaderParser.isObviouslyNonRasterPayload(cached)) {
+        return cached;
+      }
+      return null;
+    }
+
+    final localResult = await _tryReadExplicitLocalImage(
+      trimmed,
+      artworkCache: artworkCache,
+      ownerWorkId: ownerWorkId,
+      subfolder: subfolder,
+    );
+    if (localResult.isExplicitLocal) {
+      return localResult.bytes;
+    }
+
+    final effectiveSize = resolveImageSize(size: size, targetWidth: targetWidth);
+    final normalizedPath = _normalizeTmdbRasterPath(trimmed);
+    final cacheKey = buildSizedArtworkCacheKey(effectiveSize, normalizedPath);
+    final cached = await artworkCache?.read(
+      cacheKey,
+      minimumQuality: effectiveSize.qualityRank,
+      owner: ownerWorkId,
+      subfolder: subfolder,
+    );
+    if (cached != null &&
+        !ImageHeaderParser.isObviouslyNonRasterPayload(cached)) {
+      return cached;
+    }
+    return null;
+  }
+
+  /// 识别并读取真实本地文件（Windows 绝对路径、`file://` URI、相对路径或多段 POSIX 绝对路径）。
+  ///
+  /// 单段前导 `/` 路径（如 `/abc123.jpg`）属于 TMDB 标准图片相对路径，直接跳过驱动器根目录 `stat` 系统调用。
+  /// 当作品标题变更导致 `photos/` 目录改名（或绿色便携目录搬迁）使既有绝对路径失配时，
+  /// 自动按归属作品与规范子目录重新定位同名本地文件，避免抽帧剧照断链变黑框。
+  static Future<({bool isExplicitLocal, Uint8List? bytes})>
+  _tryReadExplicitLocalImage(
+    String trimmed, {
+    ArtworkCacheStore? artworkCache,
+    String? ownerWorkId,
+    PhotoSubfolder? subfolder,
+  }) async {
+    final isFileUri = trimmed.startsWith('file://');
+    final localPath = isFileUri ? Uri.parse(trimmed).toFilePath() : trimmed;
+    final isSingleSegmentTmdbPath =
+        !isFileUri &&
+        localPath.startsWith('/') &&
+        localPath.indexOf('/', 1) == -1 &&
+        !localPath.contains('\\');
+    if (isSingleSegmentTmdbPath) {
+      return (isExplicitLocal: false, bytes: null);
+    }
+    final isExplicitLocal =
+        isFileUri ||
+        _windowsAbsPathPattern.hasMatch(localPath) ||
+        !localPath.startsWith('/') ||
+        localPath.indexOf('/', 1) > 0;
+    if (!isExplicitLocal) {
+      return (isExplicitLocal: false, bytes: null);
+    }
+
+    final localFile = File(localPath);
+    if (localFile.existsSync()) {
+      return (isExplicitLocal: true, bytes: await localFile.readAsBytes());
+    }
+
+    final cleanOwner = ownerWorkId?.trim();
+    if (artworkCache != null && cleanOwner != null && cleanOwner.isNotEmpty) {
+      final normalized = localPath.replaceAll('\\', '/');
+      final segments = normalized
+          .split('/')
+          .where((s) => s.isNotEmpty)
+          .toList(growable: false);
+      if (segments.isNotEmpty) {
+        final fileName = segments.last;
+        final inferredSubfolder = _inferPhotoSubfolderFromSegments(
+          segments,
+          fallback: subfolder,
+        );
+        if (inferredSubfolder != null) {
+          final relocated = await artworkCache.readLocalWorkFile(
+            owner: cleanOwner,
+            subfolder: inferredSubfolder,
+            fileName: fileName,
+          );
+          if (relocated != null && relocated.isNotEmpty) {
+            return (isExplicitLocal: true, bytes: relocated);
+          }
+        }
+      }
+    }
+    return (isExplicitLocal: true, bytes: null);
+  }
+
+  /// 从本地文件路径倒数第二段目录名推断所属 `photos/` 子目录，未命中时回落调用方指定子目录。
+  static PhotoSubfolder? _inferPhotoSubfolderFromSegments(
+    List<String> segments, {
+    PhotoSubfolder? fallback,
+  }) {
+    if (segments.length >= 2) {
+      final parentDir = segments[segments.length - 2].toLowerCase();
+      for (final folder in PhotoSubfolder.values) {
+        if (folder.dirName == parentDir) return folder;
+      }
+    }
+    return fallback;
+  }
+
+  /// 按目标像素宽度或显式档位选择 TMDB 图片（或加载自定义 URL / 本地文件）拉取并写入隔离缓存。
+  Future<Uint8List> fetchImageBytes(
+    String imagePath, {
+    TmdbImageSize? size,
+    int? targetWidth,
+    String? ownerWorkId,
+    PhotoSubfolder? subfolder,
+    RequestPriority priority = RequestPriority.interactive,
+  }) async {
+    final trimmed = imagePath.trim();
+    if (trimmed.isEmpty) return Uint8List(0);
+
+    // 1. 支持自定义 HTTP/HTTPS 图片链接（含官方域名 -> 备用图片镜像自动回退与非位图脏数据校验）
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      final cacheKey = 'url:$trimmed';
+      final cached = await _artworkCache?.read(
+        cacheKey,
+        owner: ownerWorkId,
+        subfolder: subfolder,
+      );
+      if (cached != null &&
+          !ImageHeaderParser.isObviouslyNonRasterPayload(cached)) {
+        return cached;
+      }
+      final primaryUri = Uri.parse(trimmed);
+      final backupUri = _resolveBackupImageUrl(primaryUri);
+      final bytes = await _fetchValidatedRasterBytes(
+        primaryUri: primaryUri,
+        backupUri: backupUri,
+        priority: priority,
+      );
+      await _artworkCache?.write(
+        cacheKey,
+        bytes,
+        owner: ownerWorkId,
+        subfolder: subfolder,
+      );
+      return bytes;
+    }
+
+    // 2. 支持本地磁盘图片（如 `C:\...`、`file:///...` 或多段 POSIX 路径；跳过 TMDB 单段 `/xxx.jpg` 误探测）
+    final localResult = await _tryReadExplicitLocalImage(
+      trimmed,
+      artworkCache: _artworkCache,
+      ownerWorkId: ownerWorkId,
+      subfolder: subfolder,
+    );
+    if (localResult.isExplicitLocal) {
+      final bytes = localResult.bytes;
+      if (bytes != null) return bytes;
+      throw FileSystemException('本地图片文件不存在', trimmed);
+    }
+
+    // 3. 标准 TMDB 相对路径：自动将 `.svg` 矢量徽标改写为 CDN 栅格化 `.png`，并校验位图载荷再缓存
+    final effectiveSize = resolveImageSize(size: size, targetWidth: targetWidth);
+    final rawNormalized = trimmed.startsWith('/') ? trimmed : '/$trimmed';
+    final isSvgLogo = rawNormalized.toLowerCase().endsWith('.svg');
+    final normalizedPath = _normalizeTmdbRasterPath(rawNormalized);
+    final cacheKey = buildSizedArtworkCacheKey(effectiveSize, normalizedPath);
+
+    final cached = await _artworkCache?.read(
+      cacheKey,
+      minimumQuality: effectiveSize.qualityRank,
+      owner: ownerWorkId,
+      subfolder: subfolder,
+    );
+    if (cached != null &&
+        !ImageHeaderParser.isObviouslyNonRasterPayload(cached)) {
+      return cached;
+    }
+
+    final backupBase = _http.config.normalizedTmdbBackupImageBase;
+    final tiersToTry = _buildFallbackTiers(
+      effectiveSize: effectiveSize,
+      isSvgLogo: isSvgLogo,
+      subfolder: subfolder,
+    );
+
+    Object? lastError;
+    for (final tier in tiersToTry) {
+      final primaryUri = Uri.parse(
+        '${TmdbNetworkConfig.defaultImageBase}/${tier.apiSegment}$normalizedPath',
+      );
+      final backupUri = backupBase.isNotEmpty
+          ? Uri.tryParse('$backupBase/${tier.apiSegment}$normalizedPath')
+          : null;
+      try {
+        final bytes = await _fetchValidatedRasterBytes(
+          primaryUri: primaryUri,
+          backupUri: backupUri,
+          priority: priority,
+        );
+        final writeAsRequestedTier = tier == effectiveSize || isSvgLogo;
+        final writeCacheKey = writeAsRequestedTier
+            ? cacheKey
+            : buildSizedArtworkCacheKey(tier, normalizedPath);
+        final writeQuality = writeAsRequestedTier
+            ? effectiveSize.qualityRank
+            : tier.qualityRank;
+        await _artworkCache?.write(
+          writeCacheKey,
+          bytes,
+          owner: ownerWorkId,
+          quality: writeQuality,
+          subfolder: subfolder,
+        );
+        return bytes;
+      } catch (e) {
+        lastError = e;
+      }
+    }
+    // 全部网络清晰度档位失败（如大图超时或临时离线）时，按清晰度从高到低回退读取已落盘的同源本地缓存图。
+    for (final tier in tiersToTry) {
+      final staleCached = await _artworkCache?.read(
+        buildSizedArtworkCacheKey(tier, normalizedPath),
+        minimumQuality: 0,
+        owner: ownerWorkId,
+        subfolder: subfolder,
+      );
+      if (staleCached != null &&
+          !ImageHeaderParser.isObviouslyNonRasterPayload(staleCached)) {
+        return staleCached;
+      }
+    }
+    throw lastError ?? StateError('图片加载失败');
+  }
+
+  /// 按资源类型构造 TMDB 容灾降档序列：原图（如 4K 背景）超时或缺失时自动回退至同源高清压缩档位。
+  static List<TmdbImageSize> _buildFallbackTiers({
+    required TmdbImageSize effectiveSize,
+    required bool isSvgLogo,
+    required PhotoSubfolder? subfolder,
+  }) {
+    final tiers = <TmdbImageSize>[effectiveSize];
+    void addFallback(TmdbImageSize candidate) {
+      if (!tiers.contains(candidate)) {
+        tiers.add(candidate);
+      }
+    }
+
+    if (isSvgLogo || subfolder == PhotoSubfolder.logos) {
+      addFallback(TmdbImageSize.w500);
+      return tiers;
+    }
+    if (effectiveSize == TmdbImageSize.original) {
+      switch (subfolder) {
+        case PhotoSubfolder.backdrops:
+          addFallback(TmdbImageSize.w1280);
+          addFallback(TmdbImageSize.w780);
+        case PhotoSubfolder.posters:
+          addFallback(TmdbImageSize.w780);
+          addFallback(TmdbImageSize.w500);
+        case PhotoSubfolder.thumbnails:
+          addFallback(TmdbImageSize.w500);
+        case PhotoSubfolder.logos:
+          addFallback(TmdbImageSize.w500);
+        case PhotoSubfolder.scans:
+        case null:
+          addFallback(TmdbImageSize.w780);
+      }
+    }
+    return tiers;
+  }
+
+  /// 将 TMDB 相对路径规整为以 `/` 起始的位图路径（`.svg` 矢量徽标转为官方 CDN 栅格化 `.png`）。
+  static String _normalizeTmdbRasterPath(String raw) {
+    final withSlash = raw.startsWith('/') ? raw : '/$raw';
+    if (withSlash.toLowerCase().endsWith('.svg') && withSlash.length > 4) {
+      return '${withSlash.substring(0, withSlash.length - 4)}.png';
+    }
+    return withSlash;
+  }
+
+  /// 下载并校验有效位图字节；若主源返回截断响应或 HTML/SVG/JSON 脏载荷且存在备用源，则自动改试备用源。
+  Future<Uint8List> _fetchValidatedRasterBytes({
+    required Uri primaryUri,
+    required Uri? backupUri,
+    required RequestPriority priority,
+  }) async {
+    final response = await _http.getWithFallback(
+      primaryUri,
+      backupUri: backupUri,
+      priority: priority,
+    );
+    if (response.statusCode == 200 && _isValidHttpImageResponse(response)) {
+      return response.bodyBytes;
+    }
+
+    // 主源返回 HTTP 200 但载荷为 HTML 拦截页、SVG 文本或半截断流时，显式直试备用镜像兜底。
+    if (backupUri != null && backupUri != primaryUri) {
+      final backupResp = await _http.get(
+        backupUri,
+        priority: priority,
+        dedupeKey: 'img_backup:${backupUri.toString()}',
+      );
+      if (backupResp.statusCode == 200 &&
+          _isValidHttpImageResponse(backupResp)) {
+        return backupResp.bodyBytes;
+      }
+      if (backupResp.statusCode != 200) {
+        throw StateError('图片加载失败: HTTP ${backupResp.statusCode}');
+      }
+      throw StateError('图片数据无效或格式不受支持');
+    }
+
+    if (response.statusCode != 200) {
+      throw StateError('图片加载失败: HTTP ${response.statusCode}');
+    }
+    throw StateError('图片数据无效或格式不受支持');
+  }
+
+  static bool _isValidHttpImageResponse(KonataHttpResponse response) {
+    final bytes = response.bodyBytes;
+    if (bytes.isEmpty) return false;
+    final expectedLen = int.tryParse(
+      response.headers['content-length']?.trim() ?? '',
+    );
+    if (expectedLen != null && expectedLen > 0 && bytes.length < expectedLen) {
+      return false;
+    }
+    return !ImageHeaderParser.isObviouslyNonRasterPayload(
+      bytes,
+      contentType: response.headers['content-type'],
+    );
+  }
+
+  Uri? _resolveBackupImageUrl(Uri primary) {
+    final host = primary.host.toLowerCase();
+    if (host == 'lain.bgm.tv') {
+      final backupBase = _http.config.normalizedBangumiBackupImageBase;
+      if (backupBase.isEmpty) return null;
+      return Uri.tryParse(
+        '$backupBase${primary.path}${primary.hasQuery ? '?${primary.query}' : ''}',
+      );
+    }
+    if (host == 'image.tmdb.org') {
+      final backupBase = _http.config.normalizedTmdbBackupImageBase;
+      if (backupBase.isEmpty) return null;
+      const officialPrefix = '/t/p';
+      final suffix = primary.path.startsWith(officialPrefix)
+          ? primary.path.substring(officialPrefix.length)
+          : primary.path;
+      return Uri.tryParse(
+        '$backupBase$suffix${primary.hasQuery ? '?${primary.query}' : ''}',
+      );
+    }
+    if (host == 'assets.fanart.tv') {
+      final backupBase = _http.config.normalizedFanartBackupImageBase;
+      if (backupBase.isEmpty) return null;
+      return Uri.tryParse(
+        '$backupBase${primary.path}${primary.hasQuery ? '?${primary.query}' : ''}',
+      );
+    }
+    return null;
+  }
+
+  /// 根据显式尺寸档位或目标渲染像素宽度解析 TMDB 图片档位。
+  static TmdbImageSize resolveImageSize({
+    TmdbImageSize? size,
+    int? targetWidth,
+  }) {
+    if (size != null) return size;
+    if (targetWidth == null || targetWidth <= 0) return TmdbImageSize.w500;
+    if (targetWidth <= 360) return TmdbImageSize.w342;
+    if (targetWidth <= 540) return TmdbImageSize.w500;
+    if (targetWidth <= 900) return TmdbImageSize.w780;
+    if (targetWidth <= 1360) return TmdbImageSize.w1280;
+    return TmdbImageSize.original;
+  }
+
+  Future<Map<String, Object?>?> _getJson(
+    String path,
+    Map<String, String> query, {
+    required RequestPriority priority,
+  }) async {
+    final primaryBase = Uri.parse('${TmdbNetworkConfig.defaultApiBase}$path');
+    final finalQuery = <String, String>{...primaryBase.queryParameters, ...query};
+    final headers = <String, String>{};
+
+    switch (_http.config.credentialKind) {
+      case TmdbCredentialKind.v3ApiKey:
+        finalQuery['api_key'] = _http.config.credential.trim();
+      case TmdbCredentialKind.v4BearerToken:
+        headers['Authorization'] = 'Bearer ${_http.config.credential.trim()}';
+      case TmdbCredentialKind.none:
+        break;
+    }
+
+    final primaryUri = primaryBase.replace(queryParameters: finalQuery);
+    final backupRaw = _http.config.normalizedTmdbBackupApiBase;
+    final backupUri = backupRaw.isNotEmpty
+        ? Uri.tryParse('$backupRaw$path')?.replace(queryParameters: finalQuery)
+        : null;
+
+    final response = await _http.getWithFallback(
+      primaryUri,
+      backupUri: backupUri,
+      headers: headers,
+      priority: priority,
+      dedupeKey: '$path?${Uri(queryParameters: query).query}',
+      bucketKey: _tmdbBucketKey,
+    );
+    if (response.statusCode == 404) return null;
+    if (response.statusCode != 200) {
+      throw StateError('TMDB 请求失败: HTTP ${response.statusCode}');
+    }
+
+    Object? decoded;
+    try {
+      decoded = jsonDecode(utf8.decode(response.bodyBytes, allowMalformed: true));
+    } on FormatException {
+      return null;
+    }
+    if (decoded is! Map) return null;
+    return decoded.map((k, v) => MapEntry(k.toString(), v));
+  }
+
+  List<int> _parseGenreIdList(Object? raw) {
+    if (raw is! List) return const [];
+    return [
+      for (final g in raw)
+        if (g is num) g.toInt(),
+    ];
+  }
+
+  List<int> _parseDetailGenreIds(Map<String, Object?> json) {
+    final direct = _parseGenreIdList(json['genre_ids']);
+    if (direct.isNotEmpty) return direct;
+    final rawGenres = json['genres'];
+    if (rawGenres is! List) return const [];
+    return [
+      for (final g in rawGenres)
+        if (g is Map && g['id'] is num) (g['id'] as num).toInt(),
+    ];
+  }
+
+  void _parseSearchList(
+    Map<String, Object?>? body,
+    TmdbMediaType type,
+    List<TmdbSearchResult> out,
+  ) {
+    final raw = body?['results'];
+    if (raw is! List) return;
+    for (final item in raw) {
+      if (item is! Map) continue;
+      final id = (item['id'] as num?)?.toInt();
+      if (id == null) continue;
+      final title = _pickString(item, ['name', 'title']) ?? '';
+      final original = _pickString(item, ['original_name', 'original_title']);
+      out.add(
+        TmdbSearchResult(
+          tmdbId: id,
+          mediaType: type,
+          title: title.isNotEmpty ? title : (original ?? 'TMDB #$id'),
+          originalTitle: original,
+          year: _parseYear(item['first_air_date'] ?? item['release_date']),
+          overview: item['overview']?.toString(),
+          posterPath: item['poster_path']?.toString(),
+          backdropPath: item['backdrop_path']?.toString(),
+          genreIds: _parseGenreIdList(item['genre_ids']),
+        ),
+      );
+    }
+  }
+
+  void _collectAliases(Map<String, Object?> json, Set<String> out) {
+    final alt = json['alternative_titles'];
+    if (alt is Map) {
+      final list = alt['results'] ?? alt['titles'];
+      if (list is List) {
+        for (final item in list) {
+          if (item is Map && item['title'] != null) {
+            final t = item['title'].toString().trim();
+            if (t.isNotEmpty) out.add(t);
+          }
+        }
+      }
+    }
+    final trans = json['translations'];
+    if (trans is Map && trans['translations'] is List) {
+      for (final item in trans['translations'] as List) {
+        if (item is! Map) continue;
+        final iso = item['iso_639_1']?.toString();
+        if (iso != 'zh' && iso != 'ja' && iso != 'en') continue;
+        final data = item['data'];
+        if (data is Map) {
+          final t = _pickString(data, ['name', 'title']);
+          if (t != null && t.isNotEmpty) out.add(t);
+        }
+      }
+    }
+  }
+
+  /// 已知被社区误上传到 TV 主条目、实际属于同名剧场版副标题的透明 Logo 纠偏映射表。
+  ///
+  /// 键为 TV 条目 TMDB ID，值为 `{误挂路径: 实际所属剧场版 TMDB ID}`。
+  static const Map<int, Map<String, int>> tmdbMistaggedTvLogoTargets = {
+    // 《加速世界》TV (43167) 名下被误传的《INFINITE∞BURST》剧场版 (381873) 标题徽标
+    43167: {'/wsQCRIHeVQJlO0MgU2oA3z6hgQd.png': 381873},
+  };
+
+  static String? _selectBestLogoPath(
+    Map<String, Object?> json, {
+    int? tmdbId,
+    TmdbMediaType? mediaType,
+  }) {
+    final images = json['images'];
+    if (images is! Map) return null;
+    final logos = images['logos'];
+    if (logos is! List || logos.isEmpty) return null;
+
+    final mistaggedForTv = mediaType == TmdbMediaType.tv && tmdbId != null
+        ? tmdbMistaggedTvLogoTargets[tmdbId]
+        : null;
+
+    Map<dynamic, dynamic>? best;
+    var bestLangRank = 99;
+    var bestVote = -1.0;
+
+    for (final item in logos) {
+      if (item is! Map) continue;
+      final path = item['file_path']?.toString();
+      if (path == null || path.isEmpty) continue;
+      if (mistaggedForTv != null && mistaggedForTv.containsKey(path)) {
+        continue;
+      }
+      // 按 简中 -> 繁中 -> 日文 -> 英文 -> 无语言 严格分级，并在同级内结合格式与贝叶斯平滑投票择优（不做纵横比裁剪以免误杀横版或紧凑徽标）
+      final isPng = path.toLowerCase().endsWith('.png');
+      final rawVoteCount = (item['vote_count'] as num?)?.toInt();
+      final rawVoteAvg = (item['vote_average'] as num?)?.toDouble() ?? 0.0;
+      final isoLang = item['iso_639_1']?.toString();
+      final isoCountry = item['iso_3166_1']?.toString();
+      final rank = logoLanguageRank(isoLang, isoCountry);
+      final explicitCnBonus =
+          (rank == 0 && _isExplicitSimplifiedRegion(isoCountry)) ? 0.1 : 0.0;
+      final smoothedVote = ClearLogoRanker.bayesianTmdbVoteScore(
+        rawVoteAvg,
+        rawVoteCount ?? (rawVoteAvg > 0 ? 1 : 0),
+      );
+      final vote =
+          smoothedVote +
+          (isPng ? 0.5 : 0.0) +
+          ((rawVoteCount ?? 1) > 0 ? 0.25 : 0.0) +
+          explicitCnBonus;
+      if (rank < bestLangRank || (rank == bestLangRank && vote > bestVote)) {
+        bestLangRank = rank;
+        bestVote = vote;
+        best = item;
+      }
+    }
+    return best?['file_path']?.toString();
+  }
+
+  /// 计算透明徽标与海报的语言优先级（0:简中, 1:繁中, 2:日文, 3:英文, 4:无语言, 5:其他）。
+  static int logoLanguageRank(String? isoLanguage, String? isoCountry) {
+    final lang = (isoLanguage ?? '').trim().toLowerCase();
+    final country = (isoCountry ?? '').trim().toUpperCase();
+    if (lang == 'zh' || lang == 'cn') {
+      if (country == 'TW' || country == 'HK' || country == 'MO') {
+        return 1;
+      }
+      return 0;
+    }
+    if (lang == 'ja') return 2;
+    if (lang == 'en') return 3;
+    if (lang.isEmpty || lang == 'null' || lang == 'xx') return 4;
+    return 5;
+  }
+
+  static bool _isExplicitSimplifiedRegion(String? isoCountry) {
+    final country = (isoCountry ?? '').trim().toUpperCase();
+    return country == 'CN' || country == 'SG';
+  }
+
+  static List<TmdbArtworkImage> _extractImageOptions(
+    Map<String, Object?> json,
+    String key, {
+    String? primaryDefaultPath,
+  }) {
+    final images = json['images'];
+    if (images is! Map) return const [];
+    final list = images[key];
+    if (list is! List || list.isEmpty) return const [];
+
+    final parsed = <TmdbArtworkImage>[];
+    for (final item in list) {
+      if (item is! Map) continue;
+      final path = item['file_path']?.toString();
+      if (path == null || path.isEmpty) continue;
+      parsed.add(
+        TmdbArtworkImage(
+          filePath: path,
+          isoLanguage: item['iso_639_1']?.toString(),
+          isoCountry: item['iso_3166_1']?.toString(),
+          width: (item['width'] as num?)?.toInt(),
+          height: (item['height'] as num?)?.toInt(),
+          voteAverage: (item['vote_average'] as num?)?.toDouble(),
+          voteCount: (item['vote_count'] as num?)?.toInt(),
+        ),
+      );
+    }
+
+    if (key == 'backdrops') {
+      return ArtworkRanker.rankTmdbBackdrops(
+        parsed,
+        primaryDefaultPath: primaryDefaultPath,
+      );
+    }
+    if (key == 'posters') {
+      return ArtworkRanker.rankTmdbPosters(
+        parsed,
+        primaryDefaultPath: primaryDefaultPath,
+      );
+    }
+
+    parsed.sort((a, b) {
+      final lc = logoLanguageRank(
+        a.isoLanguage,
+        a.isoCountry,
+      ).compareTo(logoLanguageRank(b.isoLanguage, b.isoCountry));
+      if (lc != 0) return lc;
+      if (logoLanguageRank(a.isoLanguage, a.isoCountry) == 0) {
+        final aCn = _isExplicitSimplifiedRegion(a.isoCountry) ? 0 : 1;
+        final bCn = _isExplicitSimplifiedRegion(b.isoCountry) ? 0 : 1;
+        if (aCn != bCn) return aCn.compareTo(bCn);
+      }
+      final aScore = ClearLogoRanker.bayesianTmdbVoteScore(
+        a.voteAverage ?? 0.0,
+        a.voteCount ?? ((a.voteAverage ?? 0.0) > 0 ? 1 : 0),
+      );
+      final bScore = ClearLogoRanker.bayesianTmdbVoteScore(
+        b.voteAverage ?? 0.0,
+        b.voteCount ?? ((b.voteAverage ?? 0.0) > 0 ? 1 : 0),
+      );
+      return bScore.compareTo(aScore);
+    });
+    return parsed.take(24).toList(growable: false);
+  }
+
+  static int? _parseTvdbId(Map<String, Object?> json) {
+    final ext = json['external_ids'];
+    if (ext is! Map) return null;
+    final raw = ext['tvdb_id'];
+    if (raw is num) {
+      final id = raw.toInt();
+      return id > 0 ? id : null;
+    }
+    if (raw is String) {
+      final id = int.tryParse(raw.trim());
+      return (id != null && id > 0) ? id : null;
+    }
+    return null;
+  }
+
+  static String? _pickString(Map<dynamic, dynamic> map, List<String> keys) {
+    for (final k in keys) {
+      final v = map[k]?.toString().trim();
+      if (v != null && v.isNotEmpty) return v;
+    }
+    return null;
+  }
+
+  static int? _parseYear(Object? raw) {
+    if (raw == null) return null;
+    final m = RegExp(r'(19|20)\d{2}').firstMatch(raw.toString());
+    return m == null ? null : int.tryParse(m.group(0)!);
+  }
+
+  /// 会话级有界内存缓存：仅在批量扫描会话窗口内缓存后台请求，前台手动刷新强制拉取最新数据并覆写缓存。
+  Future<Object?> _memoized(
+    String key, {
+    required RequestPriority priority,
+    required Future<Object?> Function() load,
+  }) {
+    if (!isSessionCacheActive) {
+      return load();
+    }
+    if (priority == RequestPriority.background && _memo.containsKey(key)) {
+      return _memo[key]!;
+    }
+    if (_memo.length >= _maxMemoEntries && !_memo.containsKey(key)) {
+      _memo.remove(_memo.keys.first);
+    }
+    final future = load().catchError((Object error) {
+      _memo.remove(key);
+      throw error;
+    });
+    _memo[key] = future;
+    return future;
+  }
+}

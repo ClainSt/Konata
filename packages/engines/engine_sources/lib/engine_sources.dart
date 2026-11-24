@@ -2,3 +2,8 @@
 ///
 /// 严禁跨包导入本包内部路径；所有调用方统一导入本文件。
 library;
+
+export 'src/network/network.dart';
+export 'src/scanning/scanning.dart';
+export 'src/sources/gateways.dart';
+export 'src/stream_bridge/stream_bridge.dart';

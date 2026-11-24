@@ -1,0 +1,999 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:developer' as developer;
+import 'dart:io';
+
+import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
+import 'package:konata_contracts/konata_contracts.dart';
+
+import 'domain_cooldown_registry.dart';
+import 'priority_http_scheduler.dart';
+
+/// 兼容旧称呼的客户端类型别名，统一指向 [KonataHttpClient]。
+typedef TmdbHttpClient = KonataHttpClient;
+
+/// 支持「官方优先 + 备用地址自动容灾回退 + 冷却窗口 + 优先级调度」的统一 HTTP 客户端。
+class KonataHttpClient implements KonataHttpClientPort {
+  /// 创建客户端实例（支持注入 [httpClient] 与独立 [cooldownRegistry] 便于离线单测）。
+  KonataHttpClient({
+    required this._config,
+    PriorityHttpScheduler? scheduler,
+    http.Client? httpClient,
+    DomainCooldownRegistry? cooldownRegistry,
+    this.primaryTimeout = const Duration(seconds: 3, milliseconds: 500),
+    this.backupTimeout = const Duration(seconds: 12),
+    int? maxTransientTransportRetries,
+    this.transientRetryDelay = const Duration(milliseconds: 250),
+    DateTime Function()? nowProvider,
+    this._systemProxyResolver,
+    this._diagnosticLog,
+  }) : _scheduler = scheduler ?? PriorityHttpScheduler(),
+       _injectedClient = httpClient,
+       _cooldown = cooldownRegistry ?? DomainCooldownRegistry(),
+       maxTransientTransportRetries =
+           maxTransientTransportRetries ?? (httpClient == null ? 1 : 0),
+       _now = nowProvider ?? DateTime.now;
+
+  KonataNetworkConfig _config;
+  final PriorityHttpScheduler _scheduler;
+  final http.Client? _injectedClient;
+  final DomainCooldownRegistry _cooldown;
+  final DateTime Function() _now;
+  final SystemProxyResolver? _systemProxyResolver;
+  final DiagnosticLogPort? _diagnosticLog;
+
+  /// 官方主链路单次请求超时阈值（默认 3.5 秒以快速感知受阻并切向备用地址）。
+  final Duration primaryTimeout;
+
+  /// 备用链路及无备选单链路超时阈值。
+  final Duration backupTimeout;
+
+  /// 备用或单链路遇到瞬态 TLS 握手或连接中断时的快速重试次数（超时不重试）。
+  final int maxTransientTransportRetries;
+
+  /// 瞬态传输中断重试前的短暂等待间隔。
+  final Duration transientRetryDelay;
+
+  http.Client? _cachedIoClient;
+
+  static const List<String> _dohJsonEndpoints = <String>[
+    'https://223.5.5.5/resolve',
+    'https://1.1.1.1/dns-query',
+  ];
+  final Map<String, ({String directive, DateTime expiresAt})>
+  _androidProxyCache = <String, ({String directive, DateTime expiresAt})>{};
+  final Map<String, ({InternetAddress address, DateTime expiresAt})>
+  _dohResolvedCache =
+      <String, ({InternetAddress address, DateTime expiresAt})>{};
+
+  @override
+  KonataNetworkConfig get config => _config;
+
+  /// 当前关联的域名冷却表（供测试校验冷却状态）。
+  DomainCooldownRegistry get cooldownRegistry => _cooldown;
+
+  @override
+  void updateConfig(KonataNetworkConfig next) {
+    _config = next;
+    _cooldown.clearAll();
+    _androidProxyCache.clear();
+    _dohResolvedCache.clear();
+    _cachedIoClient?.close();
+    _cachedIoClient = null;
+  }
+
+  @override
+  Future<KonataHttpResponse> get(
+    Uri uri, {
+    Map<String, String> headers = const <String, String>{},
+    RequestPriority priority = RequestPriority.background,
+    String? dedupeKey,
+    String? bucketKey,
+  }) {
+    return getWithFallback(
+      uri,
+      headers: headers,
+      priority: priority,
+      dedupeKey: dedupeKey,
+      bucketKey: bucketKey,
+    );
+  }
+
+  @override
+  Future<KonataHttpResponse> getWithFallback(
+    Uri primaryUri, {
+    Uri? backupUri,
+    Map<String, String> headers = const <String, String>{},
+    RequestPriority priority = RequestPriority.background,
+    String? dedupeKey,
+    String? bucketKey,
+    bool retryOnRateLimit = true,
+    Duration? timeoutOverride,
+  }) => sendWithFallback(
+    method: 'GET',
+    primaryUri: primaryUri,
+    backupUri: backupUri,
+    headers: headers,
+    priority: priority,
+    dedupeKey: dedupeKey ?? primaryUri.toString(),
+    bucketKey: bucketKey,
+    retryOnRateLimit: retryOnRateLimit,
+    timeoutOverride: timeoutOverride,
+  );
+
+  @override
+  Future<KonataHttpResponse> post(
+    Uri uri, {
+    Map<String, String> headers = const <String, String>{},
+    Object? body,
+    RequestPriority priority = RequestPriority.background,
+    String? dedupeKey,
+    String? bucketKey,
+  }) => postWithFallback(
+    uri,
+    headers: headers,
+    body: body,
+    priority: priority,
+    dedupeKey: dedupeKey,
+    bucketKey: bucketKey,
+  );
+
+  @override
+  Future<KonataHttpResponse> sendWithFallback({
+    required String method,
+    required Uri primaryUri,
+    Uri? backupUri,
+    Map<String, String> headers = const <String, String>{},
+    Object? body,
+    RequestPriority priority = RequestPriority.background,
+    String? dedupeKey,
+    String? bucketKey,
+    bool retryOnRateLimit = true,
+    Duration? timeoutOverride,
+  }) {
+    return _scheduler.schedule<KonataHttpResponse>(
+      priority,
+      () async {
+        final response = await _executeWithFallback(
+          method: method.toUpperCase(),
+          primaryUri: primaryUri,
+          backupUri: backupUri,
+          headers: headers,
+          body: body,
+          timeoutOverride: timeoutOverride,
+        );
+        return _toKonataResponse(response);
+      },
+      dedupeKey: dedupeKey,
+      bucketKey: bucketKey,
+      retryOnRateLimit: retryOnRateLimit,
+    );
+  }
+
+  @override
+  Future<KonataHttpResponse> postWithFallback(
+    Uri primaryUri, {
+    Uri? backupUri,
+    Map<String, String> headers = const <String, String>{},
+    Object? body,
+    RequestPriority priority = RequestPriority.background,
+    String? dedupeKey,
+    String? bucketKey,
+    bool retryOnRateLimit = true,
+    Duration? timeoutOverride,
+  }) => sendWithFallback(
+    method: 'POST',
+    primaryUri: primaryUri,
+    backupUri: backupUri,
+    headers: headers,
+    body: body,
+    priority: priority,
+    dedupeKey: dedupeKey,
+    bucketKey: bucketKey,
+    retryOnRateLimit: retryOnRateLimit,
+    timeoutOverride: timeoutOverride,
+  );
+
+  static KonataHttpResponse _toKonataResponse(http.Response response) {
+    return KonataHttpResponse(
+      statusCode: response.statusCode,
+      bodyBytes: response.bodyBytes,
+      headers: response.headers,
+      reasonPhrase: response.reasonPhrase,
+    );
+  }
+
+  Future<http.Response> _executeWithFallback({
+    required String method,
+    required Uri primaryUri,
+    required Uri? backupUri,
+    required Map<String, String> headers,
+    Object? body,
+    Duration? timeoutOverride,
+  }) async {
+    final effectiveBackup = _usableBackup(primaryUri, backupUri);
+    final effectiveBackupTimeout = timeoutOverride ?? backupTimeout;
+    final effectivePrimaryTimeout =
+        (timeoutOverride != null && timeoutOverride < primaryTimeout)
+        ? timeoutOverride
+        : primaryTimeout;
+    if (effectiveBackup == null) {
+      return _sendWithTransientRetry(
+        method: method,
+        uri: primaryUri,
+        headers: headers,
+        body: body,
+        timeout: effectiveBackupTimeout,
+      );
+    }
+
+    if (_cooldown.isCoolingDown(primaryUri.host, _now())) {
+      final http.Response viaBackup;
+      try {
+        viaBackup = await _sendWithTransientRetry(
+          method: method,
+          uri: effectiveBackup,
+          headers: headers,
+          body: body,
+          timeout: effectiveBackupTimeout,
+        );
+      } catch (e) {
+        // 备用链路偶发单次握手或套接字波动不立即解除主域名冷却，连续多次异常再重新探活主域名。
+        if (_isFallbackTriggerError(e)) {
+          _cooldown.recordBackupServerError(primaryUri.host);
+        }
+        rethrow;
+      }
+      // 备用地址返回重定向时立即解除冷却改回官方重试；
+      // 备用偶发单次 5xx 不立刻破坏官方阻断冷却，连续多次 5xx 才解除冷却重新探活。
+      if (viaBackup.statusCode >= 300 && viaBackup.statusCode < 400) {
+        _cooldown.clearHost(primaryUri.host);
+      } else if (viaBackup.statusCode >= 500) {
+        if (!_cooldown.recordBackupServerError(primaryUri.host)) {
+          return viaBackup;
+        }
+      } else {
+        _cooldown.resetBackupServerError(primaryUri.host);
+        return viaBackup;
+      }
+    }
+
+    final http.Response response;
+    try {
+      response = await _sendSingle(
+        method: method,
+        uri: primaryUri,
+        headers: headers,
+        body: body,
+        timeout: effectivePrimaryTimeout,
+      );
+    } catch (e) {
+      if (_isFallbackTriggerError(e)) {
+        _cooldown.markBlocked(primaryUri.host, _now());
+        return _sendWithTransientRetry(
+          method: method,
+          uri: effectiveBackup,
+          headers: headers,
+          body: body,
+          timeout: effectiveBackupTimeout,
+        );
+      }
+      rethrow;
+    }
+    // 主链路返回 5xx 时切向备用地址；备用请求在 try 之外，异常直接上抛而不重复回退。
+    if (response.statusCode >= 500) {
+      _cooldown.markBlocked(primaryUri.host, _now());
+      return _sendWithTransientRetry(
+        method: method,
+        uri: effectiveBackup,
+        headers: headers,
+        body: body,
+        timeout: effectiveBackupTimeout,
+      );
+    }
+    return response;
+  }
+
+  /// 对备用或单链路执行受限瞬态传输重试（仅针对握手与连接中断，超时与 429 不重试）。
+  Future<http.Response> _sendWithTransientRetry({
+    required String method,
+    required Uri uri,
+    required Map<String, String> headers,
+    required Duration timeout,
+    Object? body,
+  }) async {
+    var attempt = 0;
+    while (true) {
+      try {
+        return await _sendSingle(
+          method: method,
+          uri: uri,
+          headers: headers,
+          body: body,
+          timeout: timeout,
+        );
+      } catch (error) {
+        if (attempt >= maxTransientTransportRetries ||
+            !_isTransientTransportReset(error)) {
+          rethrow;
+        }
+        attempt++;
+        if (transientRetryDelay > Duration.zero) {
+          await Future<void>.delayed(transientRetryDelay);
+        }
+      }
+    }
+  }
+
+  bool _isTransientTransportReset(Object error) {
+    if (error is RateLimitedHttpException || error is TimeoutException) {
+      return false;
+    }
+    return error is HandshakeException ||
+        error is TlsException ||
+        error is SocketException ||
+        error is HttpException ||
+        error is http.ClientException;
+  }
+
+  Future<http.Response> _sendSingle({
+    required String method,
+    required Uri uri,
+    required Map<String, String> headers,
+    required Duration timeout,
+    Object? body,
+  }) async {
+    if (_injectedClient == null &&
+        Platform.isAndroid &&
+        _config.proxyMode == ProxyMode.system) {
+      await _warmAndroidSystemProxy(uri);
+    }
+
+    final upperMethod = method.toUpperCase();
+    final hasBodyVerb =
+        upperMethod == 'POST' || upperMethod == 'PUT' || upperMethod == 'PATCH';
+    final finalHeaders = <String, String>{
+      'Accept': 'application/json',
+      if (hasBodyVerb) 'Content-Type': 'application/json',
+      'User-Agent': Platform.isAndroid
+          ? 'Konata/2.0 (Android)'
+          : 'Konata/2.0 (Windows)',
+      ...headers,
+    };
+
+    Future<http.Response> dispatch() async {
+      final client = _getClient();
+      if (upperMethod == 'GET') {
+        return client.get(uri, headers: finalHeaders).timeout(timeout);
+      }
+      if (upperMethod == 'POST') {
+        return client
+            .post(uri, headers: finalHeaders, body: body)
+            .timeout(timeout);
+      }
+      if (upperMethod == 'PUT') {
+        return client
+            .put(uri, headers: finalHeaders, body: body)
+            .timeout(timeout);
+      }
+      if (upperMethod == 'PATCH') {
+        return client
+            .patch(uri, headers: finalHeaders, body: body)
+            .timeout(timeout);
+      }
+      final req = http.Request(upperMethod, uri)..headers.addAll(finalHeaders);
+      if (body is String) {
+        req.body = body;
+      } else if (body is List<int>) {
+        req.bodyBytes = body;
+      }
+      final streamed = await client.send(req).timeout(timeout);
+      return http.Response.fromStream(streamed).timeout(timeout);
+    }
+
+    http.Response response;
+    try {
+      response = await dispatch();
+    } catch (error) {
+      if (_injectedClient == null &&
+          _isDnsLookupError(error) &&
+          _effectiveProxyDirectiveForUri(uri) == 'DIRECT') {
+        final resolved = await _resolveHostViaDoh(uri.host);
+        if (resolved != null) {
+          try {
+            response = await dispatch();
+          } catch (retryError) {
+            throw _sanitizeThrownError(retryError);
+          }
+        } else {
+          throw _sanitizeThrownError(error);
+        }
+      } else {
+        throw _sanitizeThrownError(error);
+      }
+    }
+
+    if (response.statusCode == 429) {
+      final retrySec = int.tryParse(response.headers['retry-after'] ?? '') ?? 1;
+      final bodyText = response.body.length > 512
+          ? response.body.substring(0, 512)
+          : response.body;
+      final relayError = (response.headers['x-konata-relay-error'] ?? '')
+          .trim()
+          .toLowerCase();
+      final contentType = (response.headers['content-type'] ?? '')
+          .trim()
+          .toLowerCase();
+      final isQuota =
+          relayError != 'rate_limited' &&
+          (bodyText.contains('1027') ||
+              bodyText.toLowerCase().contains('quota_exceeded') ||
+              (uri.path.contains('/fanart/') &&
+                  !contentType.contains('application/json')));
+      throw RateLimitedHttpException(
+        Duration(seconds: retrySec.clamp(1, 30)),
+        'HTTP 429',
+        response.headers,
+        bodyText,
+        isQuota,
+      );
+    }
+    return response;
+  }
+
+  Object _sanitizeThrownError(Object error) {
+    if (error is http.ClientException) {
+      final safeMsg = NetworkErrorSanitizer.redactSecrets(error.message);
+      final rawUri = error.uri?.toString();
+      final safeUri = rawUri == null
+          ? null
+          : Uri.tryParse(NetworkErrorSanitizer.redactSecrets(rawUri));
+      return http.ClientException(safeMsg, safeUri);
+    }
+    return error;
+  }
+
+  bool _isDnsLookupError(Object error) {
+    final text = error.toString().toLowerCase();
+    return text.contains('failed host lookup') ||
+        text.contains('no address associated with hostname');
+  }
+
+  Uri? _usableBackup(Uri primary, Uri? backup) {
+    if (backup == null) return null;
+    if (backup.scheme.isEmpty || backup.host.isEmpty) return null;
+    if (backup.toString() == primary.toString()) return null;
+    return backup;
+  }
+
+  bool _isFallbackTriggerError(Object error) {
+    if (error is RateLimitedHttpException) return false;
+    return error is TimeoutException ||
+        error is SocketException ||
+        error is HandshakeException ||
+        error is TlsException ||
+        error is HttpException ||
+        error is http.ClientException;
+  }
+
+  /// 探测 TMDB 接口（官方优先，受阻自动回退备用地址）。
+  Future<ConnectivityReport> testTmdbApiConnectivity() {
+    final primaryBase = Uri.parse(
+      '${KonataNetworkConfig.defaultApiBase}/configuration',
+    );
+    final backupRaw = _config.normalizedTmdbBackupApiBase;
+    final backupBase = backupRaw.isNotEmpty
+        ? Uri.tryParse('$backupRaw/configuration')
+        : null;
+
+    final queryParams = <String, String>{};
+    final headers = <String, String>{};
+    switch (_config.credentialKind) {
+      case TmdbCredentialKind.v3ApiKey:
+        queryParams['api_key'] = _config.credential.trim();
+      case TmdbCredentialKind.v4BearerToken:
+        headers['Authorization'] = 'Bearer ${_config.credential.trim()}';
+      case TmdbCredentialKind.none:
+        break;
+    }
+
+    Uri decorate(Uri uri) => queryParams.isEmpty
+        ? uri
+        : uri.replace(
+            queryParameters: <String, String>{
+              ...uri.queryParameters,
+              ...queryParams,
+            },
+          );
+
+    return _probeEndpointPair(
+      primaryUri: decorate(primaryBase),
+      backupUri: backupBase == null ? null : decorate(backupBase),
+      headers: headers,
+      checkAuthErrors: true,
+    );
+  }
+
+  /// 探测 TMDB 图片服务器（官方优先，受阻自动回退备用图片地址）。
+  Future<ConnectivityReport> testTmdbImageConnectivity() => _probeSimplePair(
+    primaryBase: KonataNetworkConfig.defaultImageBase,
+    backupBase: _config.normalizedTmdbBackupImageBase,
+    probePath: '/w92/wwemzKWzjKYJFfCeiB57q3r4Bcm.png',
+    headers: const <String, String>{'Accept': 'image/*,*/*'},
+  );
+
+  /// 探测 Bangumi 接口（官方优先，受阻自动回退社区镜像）。
+  Future<ConnectivityReport> testBangumiApiConnectivity() => _probeSimplePair(
+    primaryBase: KonataNetworkConfig.defaultBangumiApiBase,
+    backupBase: _config.normalizedBangumiBackupApiBase,
+    probePath: '/subjects/1',
+    headers: const <String, String>{
+      'User-Agent': 'ClainSt/Konata (+https://github.com/ClainSt/Konata)',
+      'Accept': 'application/json',
+    },
+  );
+
+  /// 探测 Bangumi 图片服务器（官方优先，受阻自动回退备用图片镜像）。
+  Future<ConnectivityReport> testBangumiImageConnectivity() => _probeSimplePair(
+    primaryBase: KonataNetworkConfig.defaultBangumiImageBase,
+    backupBase: _config.normalizedBangumiBackupImageBase,
+    probePath: '/pic/cover/c/7f/ce/1_3581p.jpg',
+    headers: const <String, String>{'Accept': 'image/*,*/*'},
+  );
+
+  /// 探测 Fanart 透明徽标接口（自定义 `api-key` 时走官方优先加备用回退，否则探测无状态中继）。
+  Future<ConnectivityReport> testFanartApiConnectivity() async {
+    // 使用长期稳定公开动画电影条目《千与千寻》(TMDB 129) 作为最小探活目标。
+    const probePath = '/movies/129';
+    final headers = <String, String>{'Accept': 'application/json'};
+    final clientKey = _config.fanartClientKey.trim();
+    if (clientKey.isNotEmpty) {
+      headers['client-key'] = clientKey;
+    }
+
+    if (_config.hasCustomFanartApiKey) {
+      headers['api-key'] = _config.effectiveFanartApiKey;
+      final primary = Uri.parse(
+        '${KonataNetworkConfig.defaultFanartApiBase}$probePath',
+      );
+      final rawBackup = _config.normalizedFanartDirectBackupApiBase;
+      final backup = rawBackup.isNotEmpty
+          ? Uri.tryParse(
+              rawBackup.endsWith('/v3')
+                  ? '$rawBackup$probePath'
+                  : '$rawBackup/v3$probePath',
+            )
+          : null;
+      return _probeEndpointPair(
+        primaryUri: primary,
+        backupUri: backup,
+        headers: headers,
+        checkAuthErrors: true,
+      );
+    }
+
+    final relayBase = _config.normalizedFanartBackupApiBase;
+    if (relayBase.isEmpty) {
+      return const ConnectivityReport(
+        reachable: false,
+        latencyMs: 0,
+        errorMessage: '未配置内置中继地址，可在高级设置填写自定义项目 API Key 或中继地址',
+        statusSummary: '未配置中继地址或自定义项目 API Key',
+      );
+    }
+    final trimmedBase = relayBase.replaceAll(RegExp(r'/+$'), '');
+    final String relayUrl;
+    if (trimmedBase.endsWith('/fanart/v3')) {
+      relayUrl = '$trimmedBase$probePath';
+    } else if (trimmedBase.endsWith('/fanart')) {
+      relayUrl = '$trimmedBase/v3$probePath';
+    } else if (trimmedBase.endsWith('/v3')) {
+      relayUrl = '$trimmedBase$probePath';
+    } else {
+      relayUrl = '$trimmedBase/fanart/v3$probePath';
+    }
+    final relayUri = Uri.parse(relayUrl);
+    final sw = Stopwatch()..start();
+    try {
+      final resp = await _sendSingle(
+        method: 'GET',
+        uri: relayUri,
+        headers: headers,
+        timeout: backupTimeout,
+      );
+      sw.stop();
+      if (resp.statusCode == 200) {
+        return ConnectivityReport(
+          reachable: true,
+          latencyMs: sw.elapsedMilliseconds,
+          resolvedAddress: NetworkErrorSanitizer.redactSecrets(
+            relayUri.toString(),
+          ),
+          statusSummary: '无状态中继连通成功 (${sw.elapsedMilliseconds}ms)',
+        );
+      }
+      if (resp.statusCode == 401 || resp.statusCode == 403) {
+        return ConnectivityReport(
+          reachable: false,
+          latencyMs: sw.elapsedMilliseconds,
+          errorMessage: '密钥无效或被拒 (HTTP ${resp.statusCode})',
+          statusSummary: '中继连通，但密钥无效 (HTTP ${resp.statusCode})',
+        );
+      }
+      return ConnectivityReport(
+        reachable: false,
+        latencyMs: sw.elapsedMilliseconds,
+        errorMessage: 'HTTP ${resp.statusCode}',
+        statusSummary: '中继返回 HTTP ${resp.statusCode}，可在高级设置填自定义 API Key 直连',
+      );
+    } on RateLimitedHttpException catch (e) {
+      sw.stop();
+      final msg = e.isQuotaExhausted
+          ? '内置中继今日免费额度已达上限，请填个人 Key 或在高级设置填写自定义 API Key 直连'
+          : '内置中继当前请求频繁 (HTTP 429)，请稍后重试或填写个人 Key';
+      return ConnectivityReport(
+        reachable: false,
+        latencyMs: sw.elapsedMilliseconds,
+        errorMessage: msg,
+        statusSummary: msg,
+      );
+    } catch (_) {
+      sw.stop();
+      return ConnectivityReport(
+        reachable: false,
+        latencyMs: sw.elapsedMilliseconds,
+        errorMessage: '无法连接内置中继，请检查代理或在高级设置填写自定义 API Key',
+        statusSummary: '无法连接内置中继（请检查网络/代理或改用自定义 API Key）',
+      );
+    }
+  }
+
+  /// 探测 Fanart 图片服务器（官方优先，受阻自动回退备用图片反代）。
+  Future<ConnectivityReport> testFanartImageConnectivity() => _probeSimplePair(
+    primaryBase: KonataNetworkConfig.defaultFanartImageBase,
+    backupBase: _config.normalizedFanartBackupImageBase,
+    probePath: '/fanart/movies/129/hdmovielogo/spirited-away-5215d8259099b.png',
+    headers: const <String, String>{'Accept': 'image/*,*/*'},
+  );
+
+  Future<ConnectivityReport> _probeSimplePair({
+    required String primaryBase,
+    required String backupBase,
+    required String probePath,
+    Map<String, String> headers = const <String, String>{},
+  }) => _probeEndpointPair(
+    primaryUri: Uri.parse('$primaryBase$probePath'),
+    backupUri: backupBase.isNotEmpty
+        ? Uri.tryParse('$backupBase$probePath')
+        : null,
+    headers: headers,
+  );
+
+  /// 兼容旧调用的连通测试入口（等同于 [testTmdbApiConnectivity]）。
+  Future<ConnectivityReport> testConnectivity() => testTmdbApiConnectivity();
+
+  Future<ConnectivityReport> _probeEndpointPair({
+    required Uri primaryUri,
+    required Uri? backupUri,
+    Map<String, String> headers = const <String, String>{},
+    bool checkAuthErrors = false,
+  }) async {
+    final safePrimaryAddr = NetworkErrorSanitizer.redactSecrets(
+      primaryUri.toString(),
+    );
+    final usableBackup = _usableBackup(primaryUri, backupUri);
+    final sw = Stopwatch()..start();
+    try {
+      final resp = await _sendSingle(
+        method: 'GET',
+        uri: primaryUri,
+        headers: headers,
+        timeout: usableBackup == null ? backupTimeout : primaryTimeout,
+      );
+      sw.stop();
+      if (resp.statusCode == 200) {
+        _cooldown.clearHost(primaryUri.host);
+        return ConnectivityReport(
+          reachable: true,
+          latencyMs: sw.elapsedMilliseconds,
+          usedBackup: false,
+          resolvedAddress: safePrimaryAddr,
+          statusSummary: '官方直连成功 (${sw.elapsedMilliseconds}ms)',
+        );
+      }
+      if (checkAuthErrors &&
+          (resp.statusCode == 401 || resp.statusCode == 403)) {
+        _cooldown.clearHost(primaryUri.host);
+        return ConnectivityReport(
+          reachable: false,
+          latencyMs: sw.elapsedMilliseconds,
+          resolvedAddress: safePrimaryAddr,
+          errorMessage: 'API 密钥无效 (HTTP ${resp.statusCode})',
+          statusSummary: '官方地址连通，但 API 密钥无效 (HTTP ${resp.statusCode})',
+        );
+      }
+      if (resp.statusCode < 500) {
+        return ConnectivityReport(
+          reachable: false,
+          latencyMs: sw.elapsedMilliseconds,
+          resolvedAddress: safePrimaryAddr,
+          errorMessage: 'HTTP ${resp.statusCode}',
+          statusSummary: '官方返回 HTTP ${resp.statusCode}',
+        );
+      }
+    } catch (error, stackTrace) {
+      // 官方网络错误或超时，继续探测备用地址。
+      _logRecoverable('probe_primary_failed', '官方主链路探测失败，尝试备用链路', error, stackTrace);
+    } finally {
+      sw.stop();
+    }
+
+    if (usableBackup == null) {
+      return ConnectivityReport(
+        reachable: false,
+        latencyMs: sw.elapsedMilliseconds,
+        errorMessage: '官方地址无法连接且未配置有效备用地址',
+        statusSummary: '官方地址无法连接，且未配置有效备用地址',
+      );
+    }
+
+    final safeBackupAddr = NetworkErrorSanitizer.redactSecrets(
+      usableBackup.toString(),
+    );
+    final backupSw = Stopwatch()..start();
+    try {
+      final bResp = await _sendSingle(
+        method: 'GET',
+        uri: usableBackup,
+        headers: headers,
+        timeout: backupTimeout,
+      );
+      backupSw.stop();
+      if (bResp.statusCode == 200) {
+        return ConnectivityReport(
+          reachable: true,
+          latencyMs: backupSw.elapsedMilliseconds,
+          usedBackup: true,
+          resolvedAddress: safeBackupAddr,
+          statusSummary:
+              '官方不可达，已自动回退备用地址连通 (${backupSw.elapsedMilliseconds}ms)',
+        );
+      }
+      if (checkAuthErrors &&
+          (bResp.statusCode == 401 || bResp.statusCode == 403)) {
+        return ConnectivityReport(
+          reachable: false,
+          latencyMs: backupSw.elapsedMilliseconds,
+          usedBackup: true,
+          resolvedAddress: safeBackupAddr,
+          errorMessage: '备用地址返回密钥无效 (HTTP ${bResp.statusCode})',
+          statusSummary: '官方不可达，备用地址返回密钥无效 (HTTP ${bResp.statusCode})',
+        );
+      }
+      return ConnectivityReport(
+        reachable: false,
+        latencyMs: backupSw.elapsedMilliseconds,
+        usedBackup: true,
+        resolvedAddress: safeBackupAddr,
+        errorMessage: 'HTTP ${bResp.statusCode}',
+        statusSummary: '官方不可达，备用地址返回 HTTP ${bResp.statusCode}',
+      );
+    } catch (_) {
+      backupSw.stop();
+      return ConnectivityReport(
+        reachable: false,
+        latencyMs: backupSw.elapsedMilliseconds,
+        errorMessage: '官方与备用地址均无法连接',
+        statusSummary: '官方与备用地址均无法连接（请检查密钥/备用地址或代理）',
+      );
+    }
+  }
+
+  /// 查询并短期缓存移动端系统无线网络 HTTP 代理配置（兼容未开启全局隧道的系统代理）。
+  Future<void> _warmAndroidSystemProxy(Uri uri) async {
+    final resolver = _systemProxyResolver;
+    if (resolver == null) return;
+    if (uri.scheme != 'http' && uri.scheme != 'https') return;
+    final key = '${uri.scheme}://${uri.host}'.toLowerCase();
+    final now = _now();
+    final cached = _androidProxyCache[key];
+    if (cached != null && now.isBefore(cached.expiresAt)) {
+      return;
+    }
+    try {
+      final directive = await resolver(uri);
+      if (directive != null && directive.trim().isNotEmpty) {
+        _androidProxyCache[key] = (
+          directive: directive.trim(),
+          expiresAt: now.add(const Duration(seconds: 30)),
+        );
+      }
+    } catch (error, stackTrace) {
+      // 单元测试或后台无宿主绑定环境回退至环境变量探测。
+      _logRecoverable('android_proxy_warn', '系统代理查询失败，回退环境变量', error, stackTrace);
+    }
+  }
+
+  String _effectiveProxyDirectiveForUri(Uri uri) {
+    switch (_config.proxyMode) {
+      case ProxyMode.none:
+        return 'DIRECT';
+      case ProxyMode.custom:
+        return _parseProxyDirective(_config.proxyUrl) ?? 'DIRECT';
+      case ProxyMode.system:
+        if (Platform.isAndroid) {
+          final key = '${uri.scheme}://${uri.host}'.toLowerCase();
+          final cached = _androidProxyCache[key];
+          if (cached != null && _now().isBefore(cached.expiresAt)) {
+            return cached.directive;
+          }
+        }
+        return HttpClient.findProxyFromEnvironment(uri);
+    }
+  }
+
+  InternetAddress? _lookupCachedDohAddress(String host) {
+    final key = host.trim().toLowerCase();
+    if (key.isEmpty) return null;
+    final entry = _dohResolvedCache[key];
+    if (entry == null) return null;
+    if (!_now().isBefore(entry.expiresAt)) {
+      _dohResolvedCache.remove(key);
+      return null;
+    }
+    return entry.address;
+  }
+
+  /// 当本地域名解析失败时，通过加密 DoH 接口解析目标域名 IPv4 地址并缓存。
+  Future<InternetAddress?> _resolveHostViaDoh(String host) async {
+    final normalized = host.trim().toLowerCase();
+    if (normalized.isEmpty || InternetAddress.tryParse(normalized) != null) {
+      return null;
+    }
+    final existing = _lookupCachedDohAddress(normalized);
+    if (existing != null) return existing;
+
+    final dohClient = HttpClient()
+      ..connectionTimeout = const Duration(milliseconds: 2200)
+      ..findProxy = (_) => 'DIRECT';
+    try {
+      for (final endpoint in _dohJsonEndpoints) {
+        try {
+          final queryUri = Uri.parse(endpoint).replace(
+            queryParameters: <String, String>{'name': normalized, 'type': 'A'},
+          );
+          final req = await dohClient
+              .getUrl(queryUri)
+              .timeout(const Duration(milliseconds: 2200));
+          req.headers.set('Accept', 'application/dns-json');
+          final resp = await req.close().timeout(
+            const Duration(milliseconds: 2200),
+          );
+          if (resp.statusCode != 200) {
+            await resp.drain<void>();
+            continue;
+          }
+          final payload = await utf8.decoder
+              .bind(resp)
+              .join()
+              .timeout(const Duration(milliseconds: 2000));
+          final decoded = jsonDecode(payload);
+          if (decoded is! Map) continue;
+          final answers = decoded['Answer'];
+          if (answers is! List) continue;
+          for (final item in answers) {
+            if (item is! Map) continue;
+            final data = item['data']?.toString().trim() ?? '';
+            final addr = InternetAddress.tryParse(data);
+            if (addr != null) {
+              _dohResolvedCache[normalized] = (
+                address: addr,
+                expiresAt: _now().add(const Duration(minutes: 10)),
+              );
+              return addr;
+            }
+          }
+        } catch (error, stackTrace) {
+          // 单个公共 DoH 节点不可达时继续尝试备选节点。
+          _logRecoverable('doh_node_failed', '公共 DoH 节点解析失败', error, stackTrace);
+        }
+      }
+    } finally {
+      dohClient.close(force: true);
+    }
+    return null;
+  }
+
+  http.Client _getClient() {
+    if (_injectedClient != null) return _injectedClient;
+    if (_cachedIoClient != null) return _cachedIoClient!;
+
+    final ioClient = HttpClient()
+      ..connectionTimeout = backupTimeout
+      ..maxConnectionsPerHost = 8
+      ..idleTimeout = const Duration(seconds: 10);
+    ioClient.findProxy = _effectiveProxyDirectiveForUri;
+    ioClient.connectionFactory = (Uri url, String? proxyHost, int? proxyPort) {
+      if (proxyHost != null && proxyPort != null) {
+        return Socket.startConnect(proxyHost, proxyPort);
+      }
+      final isHttps = url.scheme.toLowerCase() == 'https';
+      final defaultPort = isHttps ? 443 : 80;
+      final port = url.hasPort ? url.port : defaultPort;
+      final dohAddress = _lookupCachedDohAddress(url.host);
+      if (dohAddress != null) {
+        final socketFuture = Socket.connect(
+          dohAddress,
+          port,
+          timeout: primaryTimeout,
+        ).then<Socket>((rawSocket) async {
+          if (!isHttps) return rawSocket;
+          try {
+            return await SecureSocket.secure(rawSocket, host: url.host);
+          } catch (_) {
+            rawSocket.destroy();
+            rethrow;
+          }
+        });
+        return Future<ConnectionTask<Socket>>.value(
+          ConnectionTask.fromSocket(socketFuture, () {}),
+        );
+      }
+      if (isHttps) {
+        return SecureSocket.startConnect(url.host, port);
+      }
+      return Socket.startConnect(url.host, port);
+    };
+    _cachedIoClient = IOClient(ioClient);
+    return _cachedIoClient!;
+  }
+
+  static String? _parseProxyDirective(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return null;
+    final normalized = trimmed.contains('://') ? trimmed : 'http://$trimmed';
+    final uri = Uri.tryParse(normalized);
+    if (uri == null || uri.host.isEmpty || !uri.hasPort || uri.port <= 0) {
+      return null;
+    }
+    final scheme = uri.scheme.toLowerCase();
+    if (scheme == 'socks' || scheme == 'socks5') {
+      return 'SOCKS5 ${uri.host}:${uri.port}; DIRECT';
+    }
+    return 'PROXY ${uri.host}:${uri.port}';
+  }
+
+  void _logRecoverable(
+    String code,
+    String message,
+    Object error,
+    StackTrace stackTrace,
+  ) {
+    final logger = _diagnosticLog;
+    if (logger != null) {
+      logger.logEvent(
+        subsystem: DiagnosticSubsystem.network,
+        code: code,
+        message: message,
+        severity: DiagnosticSeverity.debug,
+        source: 'engine_sources:konata_http_client',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return;
+    }
+    developer.log(
+      message,
+      name: 'konata.http_client',
+      error: error,
+      stackTrace: stackTrace,
+    );
+  }
+
+  @override
+  void close() {
+    _cachedIoClient?.close();
+    _cachedIoClient = null;
+  }
+}

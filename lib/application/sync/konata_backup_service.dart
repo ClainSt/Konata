@@ -2,11 +2,13 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../domain/logging/diagnostic_event.dart';
 import '../../domain/models/episode.dart';
 import '../../domain/models/media_source.dart';
+import '../../domain/models/media_variant.dart';
 import '../../domain/models/playback_record.dart';
 import '../../domain/models/work.dart';
 import '../../domain/repositories/library_repository.dart';
@@ -14,6 +16,7 @@ import '../../domain/sync/konata_sync_merge_engine.dart';
 import '../../domain/sync/konata_sync_models.dart';
 import '../../infrastructure/logging/diagnostics_log_store.dart';
 import '../../infrastructure/sync/konata_sync_store.dart';
+import 'konata_library_catalog_applier.dart';
 
 /// 本地 `.konata` 备份恢复服务与跨设备同步快照编解码核心。
 ///
@@ -38,6 +41,12 @@ class KonataBackupService {
   final Future<SharedPreferences> Function() _prefsLoader;
   final DateTime Function() _clock;
 
+  /// 本地备份文件允许的扩展名列表（Windows 原生过滤与 Android 选后兜底校验共用）。
+  static const List<String> backupFileExtensions = <String>['konata', 'json'];
+
+  /// 本地备份文件读取安全上限（32 MiB，防止 Android SAF 误选大视频文件导致内存溢出）。
+  static const int maxBackupArchiveBytes = 32 * 1024 * 1024;
+
   /// 当前应用版本标识。
   final String appVersion;
 
@@ -54,11 +63,20 @@ class KonataBackupService {
     final workById = <String, Work>{for (final w in works) w.id: w};
 
     final syncPlaybacks = <SyncPlaybackEntry>[];
-    final List<SyncTombstoneEntry> tombstones;
+    final allTombstones = (scope.includePlaybacks || scope.includeWorkOverrides)
+        ? await _syncStore.getAllTombstones()
+        : const <SyncTombstoneEntry>[];
+    final tombstones = <SyncTombstoneEntry>[
+      for (final t in allTombstones)
+        if ((scope.includePlaybacks && t.entityType == 'playback') ||
+            (scope.includeWorkOverrides &&
+                (t.entityType == 'work_catalog' ||
+                    t.entityType == 'work_override')))
+          t,
+    ];
     if (scope.includePlaybacks) {
       final playbacks = await _repo.getPlaybackHistory(limit: 10000);
       final playbackUpdatedMap = await _syncStore.readPlaybackUpdatedAtMsMap();
-      tombstones = await _syncStore.getAllTombstones();
       for (final rec in playbacks) {
         final work = workById[rec.workId];
         if (work == null) continue;
@@ -94,12 +112,17 @@ class KonataBackupService {
           ),
         );
       }
-    } else {
-      tombstones = const <SyncTombstoneEntry>[];
     }
 
     final syncOverrides = <SyncWorkOverrideEntry>[];
+    SyncLibraryCatalog? libraryCatalog;
     if (scope.includeWorkOverrides) {
+      libraryCatalog = await KonataLibraryCatalogApplier.buildLocalLibraryCatalog(
+        repo: _repo,
+        syncStore: _syncStore,
+        deviceId: deviceId,
+        nowMs: nowMs,
+      );
       final seriesGroups = await _repo.getAllSeriesGroups();
       final seriesTitleById = <String, String>{
         for (final s in seriesGroups) s.id: s.title,
@@ -169,12 +192,14 @@ class KonataBackupService {
       workOverrides: syncOverrides,
       tombstones: tombstones,
       preferences: preferences,
+      libraryCatalog: libraryCatalog,
     );
   }
 
   /// 统计当前本机可备份的各类数据条目数（供导出弹窗展示勾选预览）。
   Future<KonataBackupPreview> inspectCurrentLocalData() async {
     final envelope = await buildLocalSnapshotEnvelope();
+    final cat = envelope.libraryCatalog;
     return KonataBackupPreview(
       exportedAt: DateTime.fromMillisecondsSinceEpoch(envelope.exportedAtMs),
       deviceName: envelope.deviceName.isEmpty ? '本机' : envelope.deviceName,
@@ -184,6 +209,13 @@ class KonataBackupService {
       workOverrideCount: envelope.workOverrides.length,
       tombstoneCount: envelope.tombstones.length,
       preferenceCount: envelope.preferences.values.length,
+      hasLibraryCatalog: envelope.hasLibraryCatalog,
+      catalogWorkCount: cat?.works.length ?? 0,
+      catalogSourceCount: cat?.mediaSources.length ?? 0,
+      catalogEpisodeCount: cat?.episodes.length ?? 0,
+      catalogVariantCount: cat?.variants.length ?? 0,
+      catalogRemoteSourceCount: cat?.remoteSourceCount ?? 0,
+      catalogLocalSourceCount: cat?.localSourceCount ?? 0,
     );
   }
 
@@ -256,6 +288,7 @@ class KonataBackupService {
   /// 干跑预检 `.konata` 备份文件，返回待恢复数据摘要供弹窗确认。
   KonataBackupPreview inspectKonataArchiveBytes(Uint8List bytes) {
     final envelope = decodeAndVerifyArchiveBytes(bytes);
+    final cat = envelope.libraryCatalog;
     return KonataBackupPreview(
       exportedAt: DateTime.fromMillisecondsSinceEpoch(envelope.exportedAtMs),
       deviceName: envelope.deviceName.isEmpty ? '未知设备' : envelope.deviceName,
@@ -265,6 +298,120 @@ class KonataBackupService {
       workOverrideCount: envelope.workOverrides.length,
       tombstoneCount: envelope.tombstones.length,
       preferenceCount: envelope.preferences.values.length,
+      hasLibraryCatalog: envelope.hasLibraryCatalog,
+      catalogWorkCount: cat?.works.length ?? 0,
+      catalogSourceCount: cat?.mediaSources.length ?? 0,
+      catalogEpisodeCount: cat?.episodes.length ?? 0,
+      catalogVariantCount: cat?.variants.length ?? 0,
+      catalogRemoteSourceCount: cat?.remoteSourceCount ?? 0,
+      catalogLocalSourceCount: cat?.localSourceCount ?? 0,
+    );
+  }
+
+  /// 结合本机媒体库执行干跑匹配预检，在恢复确认弹窗中提前展示完整库规模或旧版精简备份的本机匹配数。
+  Future<KonataBackupPreview> inspectKonataArchiveForLocalDevice(
+    Uint8List bytes,
+  ) async {
+    final envelope = decodeAndVerifyArchiveBytes(bytes);
+    final works = await _repo.getAllWorks();
+    final cat = envelope.libraryCatalog;
+
+    if (envelope.hasLibraryCatalog && cat != null) {
+      final needingPwd =
+          await KonataLibraryCatalogApplier.countRemoteSourcesNeedingPassword(
+            repo: _repo,
+            catalog: cat,
+          );
+      return KonataBackupPreview(
+        exportedAt: DateTime.fromMillisecondsSinceEpoch(envelope.exportedAtMs),
+        deviceName: envelope.deviceName.isEmpty ? '未知设备' : envelope.deviceName,
+        platform: envelope.platform.isEmpty ? 'unknown' : envelope.platform,
+        appVersion: envelope.appVersion,
+        playbackCount: envelope.playbackEntries.length,
+        workOverrideCount: envelope.workOverrides.length,
+        tombstoneCount: envelope.tombstones.length,
+        preferenceCount: envelope.preferences.values.length,
+        matchedPlaybackCount: envelope.playbackEntries.length,
+        matchedWorkOverrideCount: envelope.workOverrides.length,
+        localWorkCount: works.length,
+        hasLibraryCatalog: true,
+        catalogWorkCount: cat.works.length,
+        catalogSourceCount: cat.mediaSources.length,
+        catalogEpisodeCount: cat.episodes.length,
+        catalogVariantCount: cat.variants.length,
+        catalogRemoteSourceCount: cat.remoteSourceCount,
+        catalogLocalSourceCount: cat.localSourceCount,
+        remoteSourcesNeedingPassword: needingPwd,
+      );
+    }
+
+    final allEpisodes = await _repo.getAllEpisodes();
+    final allVariants = await _repo.getAllVariants();
+
+    final worksByCanonicalKey = <String, List<Work>>{};
+    for (final work in works) {
+      for (final key in CanonicalWorkIdentity.allKeysFor(work)) {
+        worksByCanonicalKey.putIfAbsent(key, () => <Work>[]).add(work);
+      }
+    }
+    final episodesByWorkId = <String, List<Episode>>{};
+    for (final ep in allEpisodes) {
+      episodesByWorkId.putIfAbsent(ep.workId, () => <Episode>[]).add(ep);
+    }
+    final cdVariantsByWorkId = <String, List<MediaVariant>>{};
+    for (final v in allVariants) {
+      if (v.assetKind == AssetKind.cdAlbum) {
+        cdVariantsByWorkId
+            .putIfAbsent(v.workId, () => <MediaVariant>[])
+            .add(v);
+      }
+    }
+
+    var matchedOverrides = 0;
+    for (final ov in envelope.workOverrides) {
+      if (_resolveMatchingWorks(ov.allWorkKeys, worksByCanonicalKey).isNotEmpty) {
+        matchedOverrides++;
+      }
+    }
+
+    var matchedPlaybacks = 0;
+    for (final entry in envelope.playbackEntries) {
+      final matchedWorks = _resolveMatchingWorks(
+        entry.allWorkKeys,
+        worksByCanonicalKey,
+      );
+      if (matchedWorks.isEmpty) continue;
+      final hasMatchedTarget = matchedWorks.any((work) {
+        if (entry.isAudio) {
+          return _matchLocalAudioVariant(
+                cdVariantsByWorkId[work.id] ?? const <MediaVariant>[],
+                entry,
+              ) !=
+              null;
+        }
+        return _matchLocalEpisode(
+              episodesByWorkId[work.id] ?? const <Episode>[],
+              entry,
+            ) !=
+            null;
+      });
+      if (hasMatchedTarget) {
+        matchedPlaybacks++;
+      }
+    }
+
+    return KonataBackupPreview(
+      exportedAt: DateTime.fromMillisecondsSinceEpoch(envelope.exportedAtMs),
+      deviceName: envelope.deviceName.isEmpty ? '未知设备' : envelope.deviceName,
+      platform: envelope.platform.isEmpty ? 'unknown' : envelope.platform,
+      appVersion: envelope.appVersion,
+      playbackCount: envelope.playbackEntries.length,
+      workOverrideCount: envelope.workOverrides.length,
+      tombstoneCount: envelope.tombstones.length,
+      preferenceCount: envelope.preferences.values.length,
+      matchedPlaybackCount: matchedPlaybacks,
+      matchedWorkOverrideCount: matchedOverrides,
+      localWorkCount: works.length,
     );
   }
 
@@ -279,6 +426,10 @@ class KonataBackupService {
     }
     final incoming = decodeAndVerifyArchiveBytes(bytes);
     final nowMs = _clock().millisecondsSinceEpoch;
+    final restoredPrefsTimestamp =
+        incoming.preferences.updatedAtMs > nowMs
+            ? incoming.preferences.updatedAtMs
+            : nowMs;
 
     final KonataSyncMergeResult merged;
     if (mode == KonataBackupRestoreMode.overwrite) {
@@ -293,35 +444,77 @@ class KonataBackupService {
                 for (final o in incoming.workOverrides) o.canonicalWorkKey: o,
               }
             : const <String, SyncWorkOverrideEntry>{},
-        mergedTombstones: scope.includePlaybacks
+        mergedTombstones: (scope.includePlaybacks || scope.includeWorkOverrides)
             ? <String, SyncTombstoneEntry>{
                 for (final t in incoming.tombstones) t.entityKey: t,
               }
             : const <String, SyncTombstoneEntry>{},
-        mergedPreferences: scope.includePreferences
-            ? incoming.preferences
+        mergedPreferences:
+            scope.includePreferences && incoming.preferences.values.isNotEmpty
+            ? SyncPreferencesBundle.sanitized(
+                incoming.preferences.values,
+                updatedAtMs: restoredPrefsTimestamp,
+              )
             : const SyncPreferencesBundle(),
         suppressedPlaybackKeys: const <String>{},
+        mergedCatalog: scope.includeWorkOverrides
+            ? incoming.libraryCatalog
+            : null,
       );
     } else {
       final local = await buildLocalSnapshotEnvelope(scope: scope);
       final localPrefs = scope.includePreferences
           ? await readPortablePreferences()
           : const SyncPreferencesBundle();
-      merged = KonataSyncMergeEngine.merge(
+      final engineMerged = KonataSyncMergeEngine.merge(
         localPlaybacks: local.playbackEntries,
         localOverrides: local.workOverrides,
         localTombstones: local.tombstones,
         localPreferences: localPrefs,
         remoteSnapshots: <KonataSyncSnapshotEnvelope>[incoming],
         nowMs: nowMs,
+        localCatalog: scope.includeWorkOverrides ? local.libraryCatalog : null,
+        localDeviceId: local.deviceId,
+      );
+      // 本地手动恢复明确勾选便携偏好时，备份中存在的键直接覆盖本机并刷新偏好时间戳，
+      // 防止因本机已有相同或更新时间戳而静默跳过用户的显式恢复意图。
+      final effectivePrefs =
+          scope.includePreferences && incoming.preferences.values.isNotEmpty
+          ? SyncPreferencesBundle.sanitized(
+              <String, Object?>{
+                ...localPrefs.values,
+                ...incoming.preferences.values,
+              },
+              updatedAtMs: restoredPrefsTimestamp,
+            )
+          : engineMerged.mergedPreferences;
+      merged = KonataSyncMergeResult(
+        mergedPlaybacks: engineMerged.mergedPlaybacks,
+        mergedWorkOverrides: engineMerged.mergedWorkOverrides,
+        mergedTombstones: engineMerged.mergedTombstones,
+        mergedPreferences: effectivePrefs,
+        suppressedPlaybackKeys: engineMerged.suppressedPlaybackKeys,
+        mergedCatalog: scope.includeWorkOverrides
+            ? engineMerged.mergedCatalog
+            : null,
+        suppressedWorkKeys: scope.includeWorkOverrides
+            ? engineMerged.suppressedWorkKeys
+            : const <String>{},
       );
     }
 
+    final shouldApplyCatalog =
+        scope.includeWorkOverrides &&
+        (merged.hasMergedCatalog || merged.suppressedWorkKeys.isNotEmpty);
     final outcome = await applyMergedState(
       merged,
       clearExistingPlaybacksBeforeApply:
           mode == KonataBackupRestoreMode.overwrite && scope.includePlaybacks,
+      overwriteExistingCatalog:
+          mode == KonataBackupRestoreMode.overwrite &&
+          scope.includeWorkOverrides &&
+          incoming.hasLibraryCatalog,
+      applyLibraryCatalog: shouldApplyCatalog,
       applyPlaybacks: scope.includePlaybacks,
       applyWorkOverrides: scope.includeWorkOverrides,
       applyPreferences:
@@ -338,18 +531,25 @@ class KonataBackupService {
       context: <String, Object?>{
         'mode': mode.name,
         'scope': scope.describeLabel(),
+        'catalogWorksSynced': outcome.catalogWorksSynced,
+        'catalogSourcesAdded': outcome.catalogSourcesAdded,
+        'catalogWorksDeleted': outcome.catalogWorksDeleted,
         'playbacksUpdated': outcome.playbacksUpdated,
+        'playbacksSkippedUnmatched': outcome.playbacksSkippedUnmatched,
         'workOverridesApplied': outcome.workOverridesApplied,
+        'workOverridesSkippedUnmatched': outcome.workOverridesSkippedUnmatched,
         'preferencesRestored': outcome.preferencesRestored,
       },
     );
     return outcome;
   }
 
-  /// 将合并后的同步状态原子写入本地数据库与便携偏好设置（仅匹配本机已入库作品，不伪造悬空物理文件）。
+  /// 将合并后的同步状态（含完整媒体库目录、整理状态、观看进度与便携偏好）原子写入本地数据库。
   Future<KonataSyncOutcome> applyMergedState(
     KonataSyncMergeResult merged, {
     bool clearExistingPlaybacksBeforeApply = false,
+    bool overwriteExistingCatalog = false,
+    bool applyLibraryCatalog = true,
     bool applyPlaybacks = true,
     bool applyWorkOverrides = true,
     bool applyPreferences = true,
@@ -359,10 +559,31 @@ class KonataBackupService {
     var playbacksUpdated = 0;
     var playbacksSkippedUnmatched = 0;
     var workOverridesApplied = 0;
+    var workOverridesSkippedUnmatched = 0;
     var tombstonesApplied = 0;
+    var catalogStats = const CatalogApplyStats();
 
-    if (applyPlaybacks || applyWorkOverrides) {
+    final shouldRunCatalog =
+        applyLibraryCatalog &&
+        (merged.hasMergedCatalog || merged.suppressedWorkKeys.isNotEmpty);
+
+    if (shouldRunCatalog || applyPlaybacks || applyWorkOverrides) {
       await _repo.runInTransaction(() async {
+        // 0. 优先同步完整已整理媒体库（媒体源、系列、作品、剧集与文件映射），
+        // 确保后续的整理锁与播放进度能够 100% 命中最新入库作品。
+        if (shouldRunCatalog) {
+          catalogStats =
+              await KonataLibraryCatalogApplier.applyCatalogInTransaction(
+                repo: _repo,
+                syncStore: _syncStore,
+                catalog: merged.mergedCatalog,
+                suppressedWorkKeys: merged.suppressedWorkKeys,
+                overwriteExistingCatalog: overwriteExistingCatalog,
+                preserveLocalPlaybacksOnOverwrite:
+                    !(applyPlaybacks && clearExistingPlaybacksBeforeApply),
+              );
+        }
+
         if (applyPlaybacks && clearExistingPlaybacksBeforeApply) {
           await _repo.clearPlaybackHistory();
         }
@@ -383,6 +604,10 @@ class KonataBackupService {
               ov.allWorkKeys,
               worksByCanonicalKey,
             );
+            if (matchedWorks.isEmpty) {
+              workOverridesSkippedUnmatched++;
+              continue;
+            }
             for (final work in matchedWorks) {
               final next = work.copyWith(
                 isHidden: ov.isHidden,
@@ -415,16 +640,28 @@ class KonataBackupService {
             episodesByWorkId.putIfAbsent(ep.workId, () => <Episode>[]).add(ep);
           }
           final variantByEpisodeId = <String, String>{};
+          final cdVariantsByWorkId = <String, List<MediaVariant>>{};
           for (final v in allVariants) {
             final epId = v.episodeId;
             if (epId != null && epId.isNotEmpty) {
               variantByEpisodeId.putIfAbsent(epId, () => v.id);
+            }
+            if (v.assetKind == AssetKind.cdAlbum) {
+              cdVariantsByWorkId
+                  .putIfAbsent(v.workId, () => <MediaVariant>[])
+                  .add(v);
             }
           }
 
           final existingByWorkEp = <String, PlaybackRecord>{
             for (final rec in existingPlaybacks)
               '${rec.workId}::${rec.episodeId}': rec,
+          };
+          final existingAudioByWorkTitle = <String, PlaybackRecord>{
+            for (final rec in existingPlaybacks)
+              if (rec.isAudioRecord)
+                '${rec.workId}::${CanonicalWorkIdentity.normalizeTitleKey(rec.episodeTitle)}':
+                    rec,
           };
           final workById = <String, Work>{for (final w in works) w.id: w};
 
@@ -448,20 +685,81 @@ class KonataBackupService {
               if (hitTombstone) {
                 await _repo.deletePlaybackRecord(rec.id);
                 existingByWorkEp.remove('${rec.workId}::${rec.episodeId}');
+                if (rec.isAudioRecord) {
+                  existingAudioByWorkTitle.remove(
+                    '${rec.workId}::${CanonicalWorkIdentity.normalizeTitleKey(rec.episodeTitle)}',
+                  );
+                }
                 tombstonesApplied++;
               }
             }
           }
 
-          // 3. 应用冲突消解后的观看进度到本地匹配的剧集
+          // 3. 应用冲突消解后的观看进度与 CD 音频进度到本地匹配的剧集或音轨
           for (final entry in merged.mergedPlaybacks.values) {
-            if (entry.isAudio) continue;
             final matchedWorks = _resolveMatchingWorks(
               entry.allWorkKeys,
               worksByCanonicalKey,
             );
             if (matchedWorks.isEmpty) {
               playbacksSkippedUnmatched++;
+              continue;
+            }
+            if (entry.isAudio) {
+              for (final work in matchedWorks) {
+                final cdVariants =
+                    cdVariantsByWorkId[work.id] ?? const <MediaVariant>[];
+                final titleKey = CanonicalWorkIdentity.normalizeTitleKey(
+                  entry.episodeTitle,
+                );
+                final existing =
+                    existingAudioByWorkTitle['${work.id}::$titleKey'];
+                final targetVariant = _matchLocalAudioVariant(
+                  cdVariants,
+                  entry,
+                );
+                if (existing == null && targetVariant == null) {
+                  playbacksSkippedUnmatched++;
+                  continue;
+                }
+                final recordId =
+                    existing?.id ?? _buildAudioRecordId(targetVariant!, entry);
+                final needsWrite =
+                    existing == null ||
+                    existing.isCompleted != entry.isCompleted ||
+                    existing.positionSeconds != entry.positionSeconds ||
+                    existing.durationSeconds != entry.durationSeconds ||
+                    existing.playedAt.millisecondsSinceEpoch !=
+                        entry.playedAtMs;
+                if (!needsWrite) continue;
+
+                final resolvedTitle = entry.episodeTitle.isNotEmpty
+                    ? entry.episodeTitle
+                    : (existing?.episodeTitle ??
+                          p.basenameWithoutExtension(targetVariant!.fileName));
+                final nextRec = PlaybackRecord(
+                  id: recordId,
+                  workId: work.id,
+                  episodeId: existing?.episodeId ?? recordId,
+                  variantId: existing?.variantId ?? targetVariant!.id,
+                  seasonNumber: 0,
+                  episodeNumber: entry.episodeNumber ?? existing?.episodeNumber,
+                  episodeTitle: resolvedTitle,
+                  sourceType: existing?.sourceType ?? MediaSourceKind.local,
+                  playedAt: DateTime.fromMillisecondsSinceEpoch(
+                    entry.playedAtMs > 0
+                        ? entry.playedAtMs
+                        : _clock().millisecondsSinceEpoch,
+                  ),
+                  positionSeconds: entry.positionSeconds,
+                  durationSeconds: entry.durationSeconds,
+                  isCompleted: entry.isCompleted,
+                );
+                await _repo.recordPlayback(nextRec);
+                existingByWorkEp['${work.id}::${nextRec.episodeId}'] = nextRec;
+                existingAudioByWorkTitle['${work.id}::$titleKey'] = nextRec;
+                playbacksUpdated++;
+              }
               continue;
             }
             for (final work in matchedWorks) {
@@ -508,20 +806,20 @@ class KonataBackupService {
               playbacksUpdated++;
             }
           }
-
-          // 4. 持久化合并后的墓碑并清理过期项
-          if (merged.mergedTombstones.isNotEmpty) {
-            await _syncStore.upsertTombstonesBatch(
-              merged.mergedTombstones.values.toList(growable: false),
-            );
-          }
-          final cutoffMs =
-              _clock().millisecondsSinceEpoch -
-              const Duration(
-                days: KonataSyncMergeEngine.tombstoneRetentionDays,
-              ).inMilliseconds;
-          await _syncStore.pruneTombstonesBefore(cutoffMs);
         }
+
+        // 4. 持久化合并后的墓碑并清理过期项（覆盖播放删除墓碑与作品删除墓碑）
+        if (merged.mergedTombstones.isNotEmpty) {
+          await _syncStore.upsertTombstonesBatch(
+            merged.mergedTombstones.values.toList(growable: false),
+          );
+        }
+        final cutoffMs =
+            _clock().millisecondsSinceEpoch -
+            const Duration(
+              days: KonataSyncMergeEngine.tombstoneRetentionDays,
+            ).inMilliseconds;
+        await _syncStore.pruneTombstonesBefore(cutoffMs);
       });
     }
 
@@ -536,11 +834,46 @@ class KonataBackupService {
       playbacksUpdated: playbacksUpdated,
       playbacksSkippedUnmatched: playbacksSkippedUnmatched,
       workOverridesApplied: workOverridesApplied,
+      workOverridesSkippedUnmatched: workOverridesSkippedUnmatched,
       tombstonesApplied: tombstonesApplied,
       preferencesRestored: preferencesRestored,
+      catalogWorksSynced: catalogStats.worksSynced,
+      catalogSourcesAdded: catalogStats.sourcesAdded,
+      catalogWorksDeleted: catalogStats.worksDeleted,
+      sourcesNeedingPassword: catalogStats.sourcesNeedingPassword,
       remoteDevicesMerged: remoteDevicesMerged,
       uploadedShard: uploadedShard,
     );
+  }
+
+  /// 当用户主动从媒体库删除某部作品时写入同步删除墓碑，防止 WebDAV 多设备同步后旧作品复活。
+  Future<void> recordWorkDeletionTombstone(
+    Work work, {
+    int? previousUpdatedAtMs,
+  }) async {
+    final deviceId = await _syncStore.getOrCreateDeviceId();
+    final storedUpdated =
+        previousUpdatedAtMs ??
+        (await _syncStore.readWorkUpdatedAtMsMap())[work.id] ??
+        0;
+    final clockMs = _clock().millisecondsSinceEpoch;
+    final deletedAtMs = clockMs > storedUpdated ? clockMs : storedUpdated + 1;
+    final entries = <SyncTombstoneEntry>[
+      SyncTombstoneEntry(
+        entityKey: 'work_id::${work.id}',
+        entityType: 'work_catalog',
+        deletedAtMs: deletedAtMs,
+        deviceId: deviceId,
+      ),
+      for (final key in CanonicalWorkIdentity.allKeysFor(work))
+        SyncTombstoneEntry(
+          entityKey: 'work_catalog::$key',
+          entityType: 'work_catalog',
+          deletedAtMs: deletedAtMs,
+          deviceId: deviceId,
+        ),
+    ];
+    await _syncStore.upsertTombstonesBatch(entries);
   }
 
   /// 当用户主动删除某条播放记录时写入同步删除墓碑，防止多设备同步后旧记录复活。
@@ -610,6 +943,54 @@ class KonataBackupService {
       }
     }
     return null;
+  }
+
+  MediaVariant? _matchLocalAudioVariant(
+    List<MediaVariant> cdVariants,
+    SyncPlaybackEntry entry,
+  ) {
+    if (cdVariants.isEmpty) return null;
+    final targetKey = CanonicalWorkIdentity.normalizeTitleKey(
+      entry.episodeTitle,
+    );
+    if (targetKey.isNotEmpty) {
+      for (final v in cdVariants) {
+        final baseKey = CanonicalWorkIdentity.normalizeTitleKey(
+          p.basenameWithoutExtension(v.fileName),
+        );
+        if (baseKey == targetKey) return v;
+      }
+      if (targetKey.length >= 2) {
+        for (final v in cdVariants) {
+          final baseKey = CanonicalWorkIdentity.normalizeTitleKey(
+            p.basenameWithoutExtension(v.fileName),
+          );
+          if (baseKey.contains(targetKey) || targetKey.contains(baseKey)) {
+            return v;
+          }
+        }
+      }
+    }
+    if (entry.episodeNumber != null) {
+      final cueVariants = cdVariants
+          .where((v) => v.fileName.toLowerCase().endsWith('.cue'))
+          .toList(growable: false);
+      if (cueVariants.length == 1) {
+        return cueVariants.first;
+      }
+    }
+    if (cdVariants.length == 1) {
+      return cdVariants.first;
+    }
+    return null;
+  }
+
+  String _buildAudioRecordId(MediaVariant variant, SyncPlaybackEntry entry) {
+    if (variant.fileName.toLowerCase().endsWith('.cue') &&
+        entry.episodeNumber != null) {
+      return '${PlaybackRecord.audioEpisodePrefix}${variant.id}::track_${entry.episodeNumber}';
+    }
+    return '${PlaybackRecord.audioEpisodePrefix}${variant.id}';
   }
 
   bool _workSyncFieldsChanged(Work a, Work b) {

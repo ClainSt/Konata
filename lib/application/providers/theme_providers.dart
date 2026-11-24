@@ -57,6 +57,9 @@ class ThemeModeNotifier extends Notifier<ThemeMode> {
     }
   }
 
+  /// 重新从本地持久化偏好热加载主题模式（供备份恢复与多设备同步后即时生效，零默认态闪烁）。
+  Future<void> reloadFromPreferences() => _restore();
+
   /// 切换并持久化指定主题模式。
   Future<void> setThemeMode(ThemeMode mode) async {
     state = mode;
@@ -101,6 +104,9 @@ class WindowMaterialNotifier extends Notifier<KonataWindowMaterial> {
     }
   }
 
+  /// 重新从本地持久化偏好热加载窗口材质（供备份恢复与多设备同步后即时生效）。
+  Future<void> reloadFromPreferences() => _restore();
+
   /// 切换并持久化窗口材质。
   Future<void> setMaterial(KonataWindowMaterial material) async {
     state = material;
@@ -131,6 +137,9 @@ class AmbientCanvasNotifier extends Notifier<bool> {
       developer.log('可恢复异常已记录', name: 'konata.theme_providers', error: error);
     }
   }
+
+  /// 重新从本地持久化偏好热加载流光氛围画布开关（供备份恢复与多设备同步后即时生效）。
+  Future<void> reloadFromPreferences() => _restore();
 
   /// 切换并持久化流光氛围画布开关。
   Future<void> setEnabled(bool enabled) async {

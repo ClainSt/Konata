@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import '../../domain/models/media_source.dart';
 import '../../domain/models/network_config.dart';
 import '../../domain/sources/source_location_validator.dart';
+import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../widgets/design_system/konata_glass_dialog.dart';
 import '../widgets/design_system/konata_pill_button.dart';
@@ -224,29 +225,23 @@ class _SourceEditorDialogState extends State<SourceEditorDialog> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          AbsorbPointer(
-            absorbing: widget.existing != null,
-            child: Opacity(
-              opacity: widget.existing != null ? 0.65 : 1,
-              child: KonataSegmentedCapsule<MediaSourceKind>(
-                selected: _kind,
-                options: const [
-                  KonataSegmentOption(
-                    value: MediaSourceKind.local,
-                    label: '本地目录',
-                  ),
-                  KonataSegmentOption(
-                    value: MediaSourceKind.webdav,
-                    label: 'WebDAV',
-                  ),
-                  KonataSegmentOption(
-                    value: MediaSourceKind.smb,
-                    label: 'SMB 共享',
-                  ),
-                ],
-                onChanged: (value) => setState(() => _kind = value),
+          KonataSegmentedCapsule<MediaSourceKind>(
+            selected: _kind,
+            options: const [
+              KonataSegmentOption(
+                value: MediaSourceKind.local,
+                label: '本地目录',
               ),
-            ),
+              KonataSegmentOption(
+                value: MediaSourceKind.webdav,
+                label: 'WebDAV',
+              ),
+              KonataSegmentOption(
+                value: MediaSourceKind.smb,
+                label: 'SMB 共享',
+              ),
+            ],
+            onChanged: (value) => setState(() => _kind = value),
           ),
           const SizedBox(height: 16),
           KonataSmoothSectionSwitcher(
@@ -281,7 +276,10 @@ class _SourceEditorDialogState extends State<SourceEditorDialog> {
                             MediaSourceKind.smb => 'SMB 共享地址',
                           },
                           hintText: switch (_kind) {
-                            MediaSourceKind.local => r'D:\Anime',
+                            MediaSourceKind.local =>
+                              KonataAdaptiveTokens.isAndroid
+                                  ? '/storage/emulated/0/Anime'
+                                  : r'D:\Anime',
                             MediaSourceKind.webdav =>
                               TmdbNetworkConfig.defaultWebDavHint,
                             MediaSourceKind.smb => 'smb://192.168.1.2/Anime',

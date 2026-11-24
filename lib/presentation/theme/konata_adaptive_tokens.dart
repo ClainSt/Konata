@@ -32,6 +32,7 @@ abstract final class KonataAdaptiveTokens {
   static const progressHeight = 2.0;
   static const iconSize = 20.0;
   static const toastAutoDismissDuration = Duration(seconds: 4);
+  static const toastExtendedDismissDuration = Duration(seconds: 6);
   static const toastEnterDuration = Duration(milliseconds: 200);
   static const toastExitDuration = Duration(milliseconds: 160);
   static const toastMaxWidth = 540.0;

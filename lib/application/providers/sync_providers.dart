@@ -10,9 +10,13 @@ import '../../domain/sync/konata_sync_models.dart';
 import '../../infrastructure/database/drift_library_repository.dart';
 import '../../infrastructure/sync/konata_sync_store.dart';
 import '../../infrastructure/sync/webdav_sync_config_repository.dart';
+import '../playback/playback_preferences_provider.dart';
+import '../providers/detail_display_preferences_provider.dart';
 import '../providers/diagnostics_providers.dart';
 import '../providers/library_providers.dart';
 import '../providers/playback_providers.dart';
+import '../providers/scraping_providers.dart';
+import '../providers/theme_providers.dart';
 import '../sync/konata_backup_service.dart';
 import '../sync/webdav_sync_coordinator.dart';
 
@@ -67,6 +71,8 @@ class WebDavSyncUiState {
     this.isTesting = false,
     this.lastSyncAt,
     this.lastSummary,
+    this.lastBackupAt,
+    this.lastBackupSummary,
     this.lastError,
   });
 
@@ -76,6 +82,8 @@ class WebDavSyncUiState {
   final bool isTesting;
   final DateTime? lastSyncAt;
   final String? lastSummary;
+  final DateTime? lastBackupAt;
+  final String? lastBackupSummary;
   final String? lastError;
 
   WebDavSyncUiState copyWith({
@@ -85,6 +93,8 @@ class WebDavSyncUiState {
     bool? isTesting,
     DateTime? lastSyncAt,
     String? lastSummary,
+    DateTime? lastBackupAt,
+    String? lastBackupSummary,
     String? lastError,
     bool clearError = false,
   }) {
@@ -95,6 +105,8 @@ class WebDavSyncUiState {
       isTesting: isTesting ?? this.isTesting,
       lastSyncAt: lastSyncAt ?? this.lastSyncAt,
       lastSummary: lastSummary ?? this.lastSummary,
+      lastBackupAt: lastBackupAt ?? this.lastBackupAt,
+      lastBackupSummary: lastBackupSummary ?? this.lastBackupSummary,
       lastError: clearError ? null : (lastError ?? this.lastError),
     );
   }
@@ -134,6 +146,10 @@ class WebDavSyncController extends Notifier<WebDavSyncUiState> {
           if (state.lastSyncAt != null)
             'lastSyncAt': state.lastSyncAt!.toIso8601String(),
           if (state.lastSummary != null) 'lastSummary': state.lastSummary!,
+          if (state.lastBackupAt != null)
+            'lastBackupAt': state.lastBackupAt!.toIso8601String(),
+          if (state.lastBackupSummary != null)
+            'lastBackupSummary': state.lastBackupSummary!,
           if (state.lastError != null) 'lastError': state.lastError!,
         },
       ),
@@ -203,8 +219,15 @@ class WebDavSyncController extends Notifier<WebDavSyncUiState> {
       final lastSummary = await syncStore.readMeta(
         KonataSyncStore.metaKeyWebDavLastSummary,
       );
+      final lastBackupMsRaw = await syncStore.readMeta(
+        KonataSyncStore.metaKeyLocalBackupLastAtMs,
+      );
+      final lastBackupSummary = await syncStore.readMeta(
+        KonataSyncStore.metaKeyLocalBackupLastSummary,
+      );
       if (!ref.mounted) return;
       final lastMs = int.tryParse(lastMsRaw ?? '');
+      final lastBackupMs = int.tryParse(lastBackupMsRaw ?? '');
       state = state.copyWith(
         config: config,
         loaded: true,
@@ -212,6 +235,10 @@ class WebDavSyncController extends Notifier<WebDavSyncUiState> {
             ? DateTime.fromMillisecondsSinceEpoch(lastMs)
             : null,
         lastSummary: lastSummary,
+        lastBackupAt: lastBackupMs != null && lastBackupMs > 0
+            ? DateTime.fromMillisecondsSinceEpoch(lastBackupMs)
+            : null,
+        lastBackupSummary: lastBackupSummary,
       );
       _reconcilePeriodicTimer(config);
       if (!_startupSyncTriggered &&
@@ -283,7 +310,7 @@ class WebDavSyncController extends Notifier<WebDavSyncUiState> {
     }
   }
 
-  /// 立即执行 WebDAV 多设备分片同步并刷新媒体库与播放历史视图。
+  /// 立即执行 WebDAV 多设备分片同步并刷新媒体库、播放历史与已同步的便携偏好状态。
   Future<KonataSyncOutcome> syncNow({WebDavSyncConfig? configOverride}) async {
     final effective = configOverride ?? state.config;
     if (configOverride != null) {
@@ -294,7 +321,9 @@ class WebDavSyncController extends Notifier<WebDavSyncUiState> {
       final outcome = await ref
           .read(webDavSyncCoordinatorProvider)
           .syncNow(effective);
-      _invalidateLibraryAfterSync();
+      await _refreshAfterSync(
+        refreshPreferences: effective.syncScope.includePreferences,
+      );
       if (ref.mounted) {
         state = state.copyWith(
           isBusy: false,
@@ -316,7 +345,7 @@ class WebDavSyncController extends Notifier<WebDavSyncUiState> {
     }
   }
 
-  /// 执行本地 `.konata` 备份按范围选择性恢复并刷新全部相关媒体库与历史视图。
+  /// 执行本地 `.konata` 备份按范围选择性恢复，持久化恢复摘要并即时热重载全部相关媒体库与偏好视图。
   Future<KonataSyncOutcome> restoreLocalBackup(
     Uint8List bytes, {
     required KonataBackupRestoreMode mode,
@@ -327,9 +356,25 @@ class WebDavSyncController extends Notifier<WebDavSyncUiState> {
       final outcome = await ref
           .read(konataBackupServiceProvider)
           .restoreFromKonataArchiveBytes(bytes, mode: mode, scope: scope);
-      _invalidateLibraryAfterSync();
+      final now = DateTime.now();
+      final summary = outcome.toSummaryMessage();
+      final syncStore = ref.read(konataSyncStoreProvider);
+      await syncStore.writeMeta(
+        KonataSyncStore.metaKeyLocalBackupLastAtMs,
+        now.millisecondsSinceEpoch.toString(),
+      );
+      await syncStore.writeMeta(
+        KonataSyncStore.metaKeyLocalBackupLastSummary,
+        summary,
+      );
+      await _refreshAfterSync(refreshPreferences: scope.includePreferences);
       if (ref.mounted) {
-        state = state.copyWith(isBusy: false, clearError: true);
+        state = state.copyWith(
+          isBusy: false,
+          lastBackupAt: now,
+          lastBackupSummary: summary,
+          clearError: true,
+        );
       }
       return outcome;
     } catch (error) {
@@ -346,13 +391,26 @@ class WebDavSyncController extends Notifier<WebDavSyncUiState> {
     }
   }
 
-  void _invalidateLibraryAfterSync() {
+  Future<void> _refreshAfterSync({required bool refreshPreferences}) async {
     if (!ref.mounted) return;
+    ref.invalidate(mediaSourcesProvider);
     ref.invalidate(libraryItemsProvider);
     ref.invalidate(worksCountProvider);
     ref.invalidate(hiddenWorksProvider);
     ref.invalidate(playbackHistoryProvider);
     ref.invalidate(seriesGroupsProvider);
+    ref.invalidate(workDetailBundleProvider);
+    if (!refreshPreferences) return;
+    ref.invalidate(tmdbNetworkConfigProvider);
+    await Future.wait(<Future<void>>[
+      ref.read(themeModeProvider.notifier).reloadFromPreferences(),
+      ref.read(windowMaterialProvider.notifier).reloadFromPreferences(),
+      ref.read(ambientCanvasEnabledProvider.notifier).reloadFromPreferences(),
+      ref
+          .read(detailDisplayPreferencesProvider.notifier)
+          .reloadFromPreferences(),
+      ref.read(playbackPreferencesProvider.notifier).reloadFromPreferences(),
+    ]);
   }
 }
 

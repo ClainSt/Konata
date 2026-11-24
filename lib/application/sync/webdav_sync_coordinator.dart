@@ -133,10 +133,17 @@ class WebDavSyncCoordinator {
         localPreferences: localBefore.preferences,
         remoteSnapshots: remoteSnapshots,
         nowMs: nowMs,
+        localCatalog: scope.includeWorkOverrides
+            ? localBefore.libraryCatalog
+            : null,
+        localDeviceId: deviceId,
       );
 
       final applyOutcome = await _backupService.applyMergedState(
         merged,
+        applyLibraryCatalog:
+            scope.includeWorkOverrides &&
+            (merged.hasMergedCatalog || merged.suppressedWorkKeys.isNotEmpty),
         applyPlaybacks: scope.includePlaybacks,
         applyWorkOverrides: scope.includeWorkOverrides,
         applyPreferences:

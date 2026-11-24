@@ -49,6 +49,13 @@ class KonataSyncStore {
   /// 元信息键：便携偏好最近一次变更时间（UTC 毫秒）。
   static const String metaKeyPrefsUpdatedAtMs = 'prefs_updated_at_ms';
 
+  /// 元信息键：本地备份最近一次恢复时间（UTC 毫秒）。
+  static const String metaKeyLocalBackupLastAtMs = 'local_backup_last_at_ms';
+
+  /// 元信息键：本地备份最近一次恢复中文摘要。
+  static const String metaKeyLocalBackupLastSummary =
+      'local_backup_last_summary';
+
   /// 元信息键：Bangumi 最近同步时间（UTC 毫秒）。
   static const String metaKeyBangumiLastSyncMs = 'bangumi_last_sync_ms';
 
@@ -169,6 +176,14 @@ class KonataSyncStore {
       for (final row in rows)
         row.read<String>('id'): row.read<int>('updated_at_ms'),
     };
+  }
+
+  /// 保留并回写单部作品的同步时间戳（防止同步落库被本机当前墙钟覆写导致跨端墓碑失效）。
+  Future<void> setWorkUpdatedAtMs(String workId, int updatedAtMs) async {
+    if (workId.isEmpty || updatedAtMs <= 0) return;
+    await (_db.update(_db.works)..where((t) => t.id.equals(workId))).write(
+      WorksCompanion(updatedAtMs: Value(updatedAtMs)),
+    );
   }
 
   /// 批量读取播放记录表中记录的 `updatedAtMs` 时间戳字典（`recordId -> updatedAtMs`）。

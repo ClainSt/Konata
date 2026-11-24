@@ -5,8 +5,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../application/providers/sync_providers.dart';
+import '../../application/sync/konata_backup_service.dart';
 import '../../domain/formatting/network_error_sanitizer.dart';
 import '../../domain/sync/konata_sync_models.dart';
+import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
 import '../widgets/design_system/konata_dropdown.dart';
@@ -143,9 +145,13 @@ class _SettingsBackupSyncPanelState
   Future<KonataSyncDataScope?> _showExportOptionsDialog(
     KonataBackupPreview preview,
   ) {
+    final hasLibraryData =
+        preview.catalogWorkCount > 0 ||
+        preview.catalogSourceCount > 0 ||
+        preview.workOverrideCount > 0;
     var scope = KonataSyncDataScope(
       includePlaybacks: preview.playbackCount > 0 || preview.tombstoneCount > 0,
-      includeWorkOverrides: preview.workOverrideCount > 0,
+      includeWorkOverrides: hasLibraryData,
       includePreferences: preview.preferenceCount > 0,
     );
     if (!scope.hasAnySelected) {
@@ -177,7 +183,7 @@ class _SettingsBackupSyncPanelState
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  '自由勾选需要写入 .konata 备份文件的数据分类（始终自动剥离密码与 API 密钥，附带 SHA-256 完整性校验）。',
+                  '自由勾选需要写入 .konata 备份文件的数据分类（支持导出完整已整理媒体库与媒体源结构，始终自动剥离密码与 API 密钥，附带 SHA-256 完整性校验）。',
                   style: TextStyle(
                     color: p.textSecondary,
                     fontSize: KonataTheme.fontSizeBodySm,
@@ -217,15 +223,38 @@ class _SettingsBackupSyncPanelState
       final picked = await ref.read(konataSystemFilePickerProvider).pickFiles(
         dialogTitle: '选择要恢复的 .konata 备份文件',
         type: FileType.custom,
-        allowedExtensions: const <String>['konata', 'json'],
+        allowedExtensions: KonataBackupService.backupFileExtensions,
         allowMultiple: false,
       );
       if (picked.isEmpty || !mounted) return;
       final file = picked.first;
+      if (!KonataSystemFilePicker.matchesAllowedExtension(
+        file.name,
+        KonataBackupService.backupFileExtensions,
+        allowNoExtension: true,
+      )) {
+        showKonataToast(
+          context,
+          '请选择 .konata 或 .json 备份文件（当前选择了：${file.name}）',
+          isError: true,
+        );
+        return;
+      }
+      final fileLength = await file.length();
+      if (!mounted) return;
+      if (fileLength != null &&
+          fileLength > KonataBackupService.maxBackupArchiveBytes) {
+        showKonataToast(
+          context,
+          '所选文件过大，请确认选择的是 Konata 备份文件',
+          isError: true,
+        );
+        return;
+      }
       final bytes = await file.readAsBytes();
-      final preview = ref
+      final preview = await ref
           .read(konataBackupServiceProvider)
-          .inspectKonataArchiveBytes(bytes);
+          .inspectKonataArchiveForLocalDevice(bytes);
       if (!mounted) return;
 
       final choice = await _showRestoreConfirmDialog(preview);
@@ -239,7 +268,13 @@ class _SettingsBackupSyncPanelState
             scope: choice.scope,
           );
       if (mounted) {
-        showKonataToast(context, '恢复完成：${outcome.toSummaryMessage()}');
+        showKonataToast(
+          context,
+          '恢复完成：${outcome.toSummaryMessage()}',
+          duration: outcome.needsExtendedToast
+              ? KonataAdaptiveTokens.toastExtendedDismissDuration
+              : KonataAdaptiveTokens.toastAutoDismissDuration,
+        );
       }
     } catch (error) {
       if (mounted) {
@@ -257,9 +292,11 @@ class _SettingsBackupSyncPanelState
   Future<({KonataBackupRestoreMode mode, KonataSyncDataScope scope})?>
   _showRestoreConfirmDialog(KonataBackupPreview preview) {
     var mode = KonataBackupRestoreMode.smartMerge;
+    final hasLibraryData =
+        preview.hasLibraryCatalog || preview.workOverrideCount > 0;
     var scope = KonataSyncDataScope(
       includePlaybacks: preview.playbackCount > 0 || preview.tombstoneCount > 0,
-      includeWorkOverrides: preview.workOverrideCount > 0,
+      includeWorkOverrides: hasLibraryData,
       includePreferences: preview.preferenceCount > 0,
     );
     return showKonataGlassDialog<
@@ -269,6 +306,10 @@ class _SettingsBackupSyncPanelState
       builder: (dialogCtx) => StatefulBuilder(
         builder: (ctx, setDialogState) {
           final p = ctx.palette;
+          final showStrategy =
+              scope.includePlaybacks ||
+              (scope.includeWorkOverrides && preview.hasLibraryCatalog);
+          final catalogNoticeText = _buildCatalogRestoreHint(preview);
           return KonataGlassDialog(
             title: '确认恢复本地备份',
             width: 500,
@@ -325,6 +366,91 @@ class _SettingsBackupSyncPanelState
                   disableWhenEmpty: true,
                   onChanged: (next) => setDialogState(() => scope = next),
                 ),
+                if (catalogNoticeText != null &&
+                    scope.includeWorkOverrides) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    key: const ValueKey('backup_restore_catalog_notice'),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: p.accent.withValues(alpha: 0.10),
+                      borderRadius: KonataTheme.borderRadiusSm,
+                      border: Border.all(
+                        color: p.accent.withValues(alpha: 0.30),
+                        width: KonataAdaptiveTokens.borderWidth,
+                      ),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(top: 1),
+                          child: Icon(
+                            Icons.info_outline_rounded,
+                            size: 16,
+                            color: p.accent,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            catalogNoticeText,
+                            style: TextStyle(
+                              color: p.textSecondary,
+                              fontSize: KonataTheme.fontSizeBodyXs,
+                              height: 1.45,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ] else if (preview.hasUnmatchedEntries) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    key: const ValueKey('backup_restore_unmatched_notice'),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: p.warning.withValues(alpha: 0.12),
+                      borderRadius: KonataTheme.borderRadiusSm,
+                      border: Border.all(
+                        color: p.warning.withValues(alpha: 0.34),
+                        width: KonataAdaptiveTokens.borderWidth,
+                      ),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(top: 1),
+                          child: Icon(
+                            Icons.info_outline_rounded,
+                            size: 16,
+                            color: p.warning,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '此备份为旧版精简格式（不含完整媒体库目录），本机当前共 ${preview.localWorkCount ?? 0} 部作品，未入库条目将自动跳过。'
+                            '请在源设备更新至新版后重新导出 .konata 或开启 WebDAV 同步，即可直接还原整套已整理媒体库。',
+                            style: TextStyle(
+                              color: p.textSecondary,
+                              fontSize: KonataTheme.fontSizeBodyXs,
+                              height: 1.45,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 if (!scope.hasAnySelected) ...[
                   const SizedBox(height: 8),
                   Text(
@@ -335,10 +461,10 @@ class _SettingsBackupSyncPanelState
                     ),
                   ),
                 ],
-                if (scope.includePlaybacks) ...[
+                if (showStrategy) ...[
                   const SizedBox(height: 16),
                   Text(
-                    '进度恢复策略',
+                    '恢复策略',
                     style: TextStyle(
                       color: p.textPrimary,
                       fontSize: KonataTheme.fontSizeBodySm,
@@ -355,7 +481,7 @@ class _SettingsBackupSyncPanelState
                       ),
                       KonataSegmentOption(
                         value: KonataBackupRestoreMode.overwrite,
-                        label: '覆盖播放记录',
+                        label: '覆盖还原',
                       ),
                     ],
                     onChanged: (next) => setDialogState(() => mode = next),
@@ -363,8 +489,8 @@ class _SettingsBackupSyncPanelState
                   const SizedBox(height: 8),
                   Text(
                     mode == KonataBackupRestoreMode.smartMerge
-                        ? '保留两端观看进度并取最新位置，任一端已看状态自动保留。'
-                        : '先清空当前设备播放历史，再按备份快照重建（不删除媒体源与文件）。',
+                        ? '合并两端已整理媒体库与观看进度，保留本机已有作品与媒体源密码并同步新增及最新变更。'
+                        : '按备份快照重建所勾选的媒体库或播放记录（保留同址媒体源密码，绝不删除物理媒体文件）。',
                     style: TextStyle(
                       color: p.textMuted,
                       fontSize: KonataTheme.fontSizeBodyXs,
@@ -377,6 +503,24 @@ class _SettingsBackupSyncPanelState
         },
       ),
     );
+  }
+
+  String? _buildCatalogRestoreHint(KonataBackupPreview preview) {
+    if (!preview.hasLibraryCatalog) return null;
+    final parts = <String>[
+      '将直接还原 ${preview.catalogWorkCount} 部已整理作品、${preview.catalogEpisodeCount} 条剧集与 ${preview.catalogSourceCount} 个媒体源（封面与背景图按需自动拉取缓存，无需重新刮削）。',
+    ];
+    if (preview.remoteSourcesNeedingPassword > 0) {
+      parts.add(
+        '新增的 ${preview.remoteSourcesNeedingPassword} 个带账号远程源不含密码，如需认证请恢复后前往「媒体源」补填。',
+      );
+    }
+    if (KonataAdaptiveTokens.isAndroid && preview.catalogLocalSourceCount > 0) {
+      parts.add(
+        '备份含本地磁盘目录源；如需在手机直接播放，可在「媒体源」点击编辑将其切换为对应的 WebDAV/SMB 地址。',
+      );
+    }
+    return parts.join('');
   }
 
   Future<void> _handleTestConnection() async {
@@ -406,7 +550,13 @@ class _SettingsBackupSyncPanelState
           .read(webDavSyncControllerProvider.notifier)
           .syncNow(configOverride: draft);
       if (mounted) {
-        showKonataToast(context, '多设备同步完成：${outcome.toSummaryMessage()}');
+        showKonataToast(
+          context,
+          '多设备同步完成：${outcome.toSummaryMessage()}',
+          duration: outcome.needsExtendedToast
+              ? KonataAdaptiveTokens.toastExtendedDismissDuration
+              : KonataAdaptiveTokens.toastAutoDismissDuration,
+        );
       }
     } catch (error) {
       if (mounted) {
@@ -446,7 +596,7 @@ class _SettingsBackupSyncPanelState
               KonataListTile(
                 key: const ValueKey('settings_export_konata_backup'),
                 title: '导出本地备份 (.konata)',
-                subtitle: '可自选观看进度、作品整理状态与便携偏好导出（自动剥离密码与密钥，带 SHA-256 校验）',
+                subtitle: '可自选完整已整理媒体库、观看进度与便携偏好导出（自动剥离密码与密钥，带 SHA-256 校验）',
                 leading: _buildLeadingBox(p, Icons.archive_outlined),
                 trailing: Icon(
                   Icons.chevron_right_rounded,
@@ -459,7 +609,9 @@ class _SettingsBackupSyncPanelState
               KonataListTile(
                 key: const ValueKey('settings_import_konata_backup'),
                 title: '从备份文件恢复 (.konata)',
-                subtitle: '导入前校验完整性并预览各项条目数，支持自选恢复内容与智能合并/覆盖策略，绝不触碰物理媒体文件',
+                subtitle: _restoringBackup
+                    ? '正在校验并恢复备份数据，请稍候...'
+                    : '导入前校验完整性，支持直接还原整套已整理媒体库、观看进度与偏好设置，绝不触碰物理媒体文件',
                 leading: _buildLeadingBox(p, Icons.unarchive_outlined),
                 trailing: Icon(
                   Icons.chevron_right_rounded,
@@ -468,6 +620,22 @@ class _SettingsBackupSyncPanelState
                 ),
                 onTap: _restoringBackup ? null : _importBackup,
               ),
+              if (syncState.lastBackupAt != null &&
+                  syncState.lastBackupSummary != null) ...[
+                Divider(height: 1, color: p.hairline, indent: 18, endIndent: 18),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 10, 18, 12),
+                  child: Text(
+                    '上次本地恢复：${formatKonataShortDateTime(syncState.lastBackupAt!)} · ${syncState.lastBackupSummary!}',
+                    key: const ValueKey('settings_local_backup_last_status'),
+                    style: TextStyle(
+                      color: p.textSecondary,
+                      fontSize: KonataTheme.fontSizeBodyXs,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -494,7 +662,7 @@ class _SettingsBackupSyncPanelState
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          '每台设备独立写入专属分片，跨 Windows 与 Android 零锁冲突同步观看进度与整理状态',
+                          '每台设备独立写入专属分片，跨 Windows 与 Android 零锁冲突同步完整已整理媒体库、观看进度与偏好',
                           style: TextStyle(
                             color: p.textSecondary,
                             fontSize: KonataTheme.fontSizeBodyXs,
@@ -792,8 +960,13 @@ class _SyncDataScopeSwitches extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final playbacksCount = preview?.playbackCount;
+    final matchedPlaybacks = preview?.matchedPlaybackCount;
     final tombstonesCount = preview?.tombstoneCount ?? 0;
+    final hasCatalog = preview?.hasLibraryCatalog == true;
+    final catalogWorkCount = preview?.catalogWorkCount ?? 0;
+    final catalogSourceCount = preview?.catalogSourceCount ?? 0;
     final overridesCount = preview?.workOverrideCount;
+    final matchedOverrides = preview?.matchedWorkOverrideCount;
     final prefsCount = preview?.preferenceCount;
 
     final playbacksAvailable =
@@ -802,9 +975,25 @@ class _SyncDataScopeSwitches extends StatelessWidget {
         (playbacksCount ?? 0) > 0 ||
         tombstonesCount > 0;
     final overridesAvailable =
-        !disableWhenEmpty || preview == null || (overridesCount ?? 0) > 0;
+        !disableWhenEmpty ||
+        preview == null ||
+        hasCatalog ||
+        (overridesCount ?? 0) > 0;
     final prefsAvailable =
         !disableWhenEmpty || preview == null || (prefsCount ?? 0) > 0;
+
+    final playbacksLabel = playbacksCount == null
+        ? '观看进度与播放历史'
+        : (!hasCatalog && matchedPlaybacks != null)
+        ? '观看进度与播放历史（$playbacksCount 条，本机匹配 $matchedPlaybacks 条）'
+        : '观看进度与播放历史（$playbacksCount 条）';
+    final libraryLabel = preview == null
+        ? '整理好的媒体库'
+        : hasCatalog
+        ? '整理好的媒体库（$catalogWorkCount 部作品 · $catalogSourceCount 个媒体源）'
+        : matchedOverrides != null
+        ? '作品整理与隐藏状态（$overridesCount 项，本机匹配 $matchedOverrides 项）'
+        : '整理好的媒体库（$overridesCount 项）';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -812,9 +1001,7 @@ class _SyncDataScopeSwitches extends StatelessWidget {
       children: [
         KonataSettingsSwitchRow(
           key: ValueKey('${keyPrefix}_playbacks'),
-          label: playbacksCount == null
-              ? '观看进度与播放历史'
-              : '观看进度与播放历史（$playbacksCount 条）',
+          label: playbacksLabel,
           subtitle: '包含各集播放位置、已看状态与跨端删除记录',
           value: scope.includePlaybacks && playbacksAvailable,
           enabled: playbacksAvailable,
@@ -823,10 +1010,8 @@ class _SyncDataScopeSwitches extends StatelessWidget {
         const SizedBox(height: 10),
         KonataSettingsSwitchRow(
           key: ValueKey('${keyPrefix}_work_overrides'),
-          label: overridesCount == null
-              ? '作品整理与隐藏状态'
-              : '作品整理与隐藏状态（$overridesCount 项）',
-          subtitle: '包含人工匹配锁定、隐藏/永久隐藏状态与系列排序标签',
+          label: libraryLabel,
+          subtitle: '包含已整理作品元数据、剧集特典、文件映射、系列编组、隐藏锁定与媒体源结构（不含密码）',
           value: scope.includeWorkOverrides && overridesAvailable,
           enabled: overridesAvailable,
           onChanged: (v) => onChanged(scope.copyWith(includeWorkOverrides: v)),

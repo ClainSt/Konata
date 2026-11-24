@@ -20,6 +20,7 @@ import '../scraping/clear_logo_resolver.dart';
 import '../scraping/scrape_work_persister.dart';
 import 'library_providers.dart';
 import 'scraping_providers.dart';
+import 'sync_providers.dart';
 import 'work_merge_actions.dart';
 import 'work_split_and_series_actions.dart';
 
@@ -969,12 +970,13 @@ class WorkManagementActions {
     _invalidateWork(workId);
   }
 
-  /// 仅从媒体库移除作品记录（绝不删除物理源文件），可选把所属目录写入忽略名单。
+  /// 仅从媒体库移除作品记录（绝不删除物理源文件），可选把所属目录写入忽略名单，并记录跨端删除墓碑。
   Future<void> deleteWorkFromLibrary(
     String workId, {
     bool addToIgnoreList = false,
   }) async {
     final repo = _ref.read(libraryRepositoryProvider);
+    final doomedWork = await repo.findWorkById(workId);
     if (addToIgnoreList) {
       final variants = await repo.getVariantsByWork(workId);
       if (variants.isNotEmpty) {
@@ -982,6 +984,19 @@ class WorkManagementActions {
         if (folderRel.isNotEmpty) {
           await repo.addIgnoredFolder(variants.first.sourceId, folderRel);
         }
+      }
+    }
+    if (doomedWork != null) {
+      try {
+        await _ref
+            .read(konataBackupServiceProvider)
+            .recordWorkDeletionTombstone(doomedWork);
+      } catch (error) {
+        developer.log(
+          '记录作品删除墓碑已跳过（测试或无同步库环境）',
+          name: 'konata.work_management',
+          error: error,
+        );
       }
     }
     await repo.deleteWork(workId);

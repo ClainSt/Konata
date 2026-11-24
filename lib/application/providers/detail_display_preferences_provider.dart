@@ -123,6 +123,12 @@ class DetailDisplayPreferencesNotifier
     }
   }
 
+  /// 重新从本地持久化偏好热加载详情页展示配置（供备份恢复与多设备同步后即时生效）。
+  Future<void> reloadFromPreferences() async {
+    if (!enablePersistence) return;
+    await _loadFromPrefs();
+  }
+
   /// 切换详情页文字标题显示。
   Future<void> setShowTitleText(bool value) async {
     state = state.copyWith(showTitleText: value);

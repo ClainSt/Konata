@@ -61,6 +61,8 @@ class KonataActionsCoordinator {
       }
     }
     _ref.invalidate(mediaSourcesProvider);
+    _ref.invalidate(libraryItemsProvider);
+    _ref.invalidate(workDetailBundleProvider);
   }
 
   /// 删除媒体源及对应安全凭据。
@@ -69,6 +71,8 @@ class KonataActionsCoordinator {
     await repo.deleteMediaSource(sourceId);
     await const SourceCredentialStore().deletePassword(sourceId);
     _ref.invalidate(mediaSourcesProvider);
+    _ref.invalidate(libraryItemsProvider);
+    _ref.invalidate(workDetailBundleProvider);
   }
 
   /// 浏览指定媒体源的子目录列表（支持本地 / WebDAV / SMB，仅返回子文件夹与常规条目）。

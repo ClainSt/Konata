@@ -320,6 +320,12 @@ class PlaybackPreferencesNotifier extends Notifier<PlaybackPreferencesState> {
     }
   }
 
+  /// 重新从本地持久化偏好热加载播放与音画配置（供备份恢复与多设备同步后即时生效）。
+  Future<void> reloadFromPreferences() async {
+    if (!enablePersistence) return;
+    await _loadFromPrefs();
+  }
+
   /// 切换默认视频播放引擎。
   Future<void> setDefaultVideoEngine(PreferredPlaybackEngine engine) async {
     state = state.copyWith(defaultVideoEngine: engine);

@@ -155,6 +155,46 @@ class KonataSystemFilePicker {
     };
   }
 
+  /// 解析当前宿主平台实际传递给底层文件选择器的类型与扩展名过滤条件。
+  ///
+  /// Android `MimeTypeMap` 未注册 `.konata`、`.ass`、`.ssa`、`.sup` 等自定义扩展名；
+  /// 当 `FileType.custom` 同时包含未注册与已注册扩展名（如 `['konata', 'json']`）时，
+  /// `android_file_picker` 会静默丢弃未注册项并仅按已注册 MIME（如 `application/json`）过滤，
+  /// 导致目标文件在系统文档选择器中不可见或灰显。Android 端统一退化为 `FileType.any`（`*/*`），
+  /// 再由调用方配合 [matchesAllowedExtension] 与内容校验兜底。
+  static ({FileType type, List<String>? allowedExtensions})
+  resolvePlatformPickerFilter({
+    required bool isAndroid,
+    required FileType type,
+    required List<String>? allowedExtensions,
+  }) {
+    if (isAndroid && type == FileType.custom) {
+      return (type: FileType.any, allowedExtensions: null);
+    }
+    return (type: type, allowedExtensions: allowedExtensions);
+  }
+
+  /// 判断所选文件名后缀是否在允许列表中（忽略大小写与前导点号）。
+  ///
+  /// 当 Android 云盘或 SAF 文档提供方省略文件后缀时，可通过 [allowNoExtension] 放行交由内容解析校验。
+  static bool matchesAllowedExtension(
+    String fileName,
+    Iterable<String> allowedExtensions, {
+    bool allowNoExtension = false,
+  }) {
+    final ext = p.extension(fileName.trim()).replaceFirst('.', '').toLowerCase();
+    if (ext.isEmpty) {
+      return allowNoExtension;
+    }
+    for (final raw in allowedExtensions) {
+      final normalized = raw.trim().replaceFirst('.', '').toLowerCase();
+      if (normalized.isNotEmpty && normalized == ext) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   Future<List<PlatformFile>> _fallbackPickFiles({
     required String? dialogTitle,
     required String? initialDirectory,
@@ -163,12 +203,17 @@ class KonataSystemFilePicker {
     required bool allowMultiple,
   }) async {
     const safeFallbackWinOptions = WindowsOptions(lockParentWindow: false);
+    final effective = resolvePlatformPickerFilter(
+      isAndroid: KonataAdaptiveTokens.isAndroid,
+      type: type,
+      allowedExtensions: allowedExtensions,
+    );
     if (!allowMultiple) {
       final single = await FilePicker.pickFile(
         dialogTitle: dialogTitle,
         initialDirectory: initialDirectory,
-        type: type,
-        allowedExtensions: allowedExtensions,
+        type: effective.type,
+        allowedExtensions: effective.allowedExtensions,
         windowsOptions: safeFallbackWinOptions,
       );
       return single == null ? const <PlatformFile>[] : <PlatformFile>[single];
@@ -176,8 +221,8 @@ class KonataSystemFilePicker {
     return FilePicker.pickFiles(
       dialogTitle: dialogTitle,
       initialDirectory: initialDirectory,
-      type: type,
-      allowedExtensions: allowedExtensions,
+      type: effective.type,
+      allowedExtensions: effective.allowedExtensions,
       windowsOptions: safeFallbackWinOptions,
     );
   }
@@ -224,11 +269,16 @@ class KonataSystemFilePicker {
     final result = await _runSingleFlight<List<PlatformFile>>(() async {
       final custom = pickFilesImpl;
       if (custom != null) {
+        final effective = resolvePlatformPickerFilter(
+          isAndroid: KonataAdaptiveTokens.isAndroid,
+          type: type,
+          allowedExtensions: allowedExtensions,
+        );
         return custom(
           dialogTitle: dialogTitle,
           initialDirectory: initialDirectory,
-          type: type,
-          allowedExtensions: allowedExtensions,
+          type: effective.type,
+          allowedExtensions: effective.allowedExtensions,
           windowsOptions: customWinOptions,
         );
       }

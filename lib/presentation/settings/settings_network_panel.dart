@@ -49,7 +49,7 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
   final TextEditingController _proxyUrlController = TextEditingController();
 
   ProxyMode _proxyMode = ProxyMode.system;
-  bool _initializedNetwork = false;
+  TmdbNetworkConfig? _lastSyncedConfig;
   bool _fanartAdvancedExpanded = false;
   bool _hasPendingSave = false;
   Timer? _autoSaveTimer;
@@ -109,8 +109,21 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
     );
   }
 
+  bool _isSameNetworkConfig(TmdbNetworkConfig a, TmdbNetworkConfig b) {
+    return a.credential == b.credential &&
+        a.tmdbBackupApiBase == b.tmdbBackupApiBase &&
+        a.tmdbBackupImageBase == b.tmdbBackupImageBase &&
+        a.bangumiBackupApiBase == b.bangumiBackupApiBase &&
+        a.bangumiBackupImageBase == b.bangumiBackupImageBase &&
+        a.fanartClientKey == b.fanartClientKey &&
+        a.fanartApiKeyOverride == b.fanartApiKeyOverride &&
+        a.fanartBackupApiBase == b.fanartBackupApiBase &&
+        a.fanartBackupImageBase == b.fanartBackupImageBase &&
+        a.proxyMode == b.proxyMode &&
+        a.proxyUrl == b.proxyUrl;
+  }
+
   void _scheduleAutoSave() {
-    _initializedNetwork = true;
     _hasPendingSave = true;
     _autoSaveTimer?.cancel();
     _autoSaveTimer = Timer(
@@ -127,12 +140,13 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
         _actions ?? (mounted ? ref.read(konataActionsProvider) : null);
     if (coordinator == null) return;
     _hasPendingSave = false;
-    await coordinator.saveNetworkConfig(_buildNetworkConfig());
+    final nextConfig = _buildNetworkConfig();
+    _lastSyncedConfig = nextConfig;
+    await coordinator.saveNetworkConfig(nextConfig);
   }
 
   void _restoreTmdbDefaults() {
     setState(() {
-      _initializedNetwork = true;
       _tmdbApiBackupController.text =
           TmdbNetworkConfig.defaultTmdbBackupApiBase;
       _tmdbImageBackupController.text =
@@ -147,7 +161,6 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
 
   void _restoreBangumiDefaults() {
     setState(() {
-      _initializedNetwork = true;
       _bgmApiBackupController.text =
           TmdbNetworkConfig.defaultBangumiBackupApiBase;
       _bgmImageBackupController.text =
@@ -162,7 +175,6 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
 
   void _restoreFanartDefaults() {
     setState(() {
-      _initializedNetwork = true;
       _fanartApiKeyOverrideController.text = '';
       _fanartApiBackupController.text =
           TmdbNetworkConfig.builtInFanartRelayBase;
@@ -226,8 +238,11 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
     final netAsync = ref.watch(tmdbNetworkConfigProvider);
 
     netAsync.whenData((cfg) {
-      if (!_initializedNetwork) {
-        _initializedNetwork = true;
+      final alreadySynced =
+          _lastSyncedConfig != null &&
+          _isSameNetworkConfig(_lastSyncedConfig!, cfg);
+      if (!alreadySynced && !_hasPendingSave) {
+        _lastSyncedConfig = cfg;
         _credentialController.text = cfg.credential;
         _tmdbApiBackupController.text = cfg.tmdbBackupApiBase;
         _tmdbImageBackupController.text = cfg.tmdbBackupImageBase;
@@ -685,7 +700,6 @@ class _SettingsNetworkPanelState extends ConsumerState<SettingsNetworkPanel> {
             onChanged: (v) {
               if (_proxyMode == v) return;
               setState(() {
-                _initializedNetwork = true;
                 _proxyMode = v;
               });
               _hasPendingSave = true;

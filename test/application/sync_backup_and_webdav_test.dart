@@ -5,6 +5,8 @@ import 'dart:typed_data';
 import 'package:drift/native.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart'
+    show FlutterSecureStorage;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -13,16 +15,22 @@ import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqlite3/sqlite3.dart' as sq;
 
+import 'package:konata/application/playback/playback_preferences_provider.dart';
+import 'package:konata/application/providers/detail_display_preferences_provider.dart';
 import 'package:konata/application/providers/diagnostics_providers.dart';
 import 'package:konata/application/providers/library_providers.dart';
+import 'package:konata/application/providers/scraping_providers.dart';
 import 'package:konata/application/providers/sync_providers.dart';
+import 'package:konata/application/providers/theme_providers.dart';
 import 'package:konata/application/sync/konata_backup_service.dart';
 import 'package:konata/application/sync/webdav_sync_coordinator.dart';
 import 'package:konata/domain/models/episode.dart';
 import 'package:konata/domain/models/media_source.dart';
 import 'package:konata/domain/models/media_variant.dart';
 import 'package:konata/domain/models/playback_record.dart';
+import 'package:konata/domain/models/series_group.dart';
 import 'package:konata/domain/models/work.dart';
+import 'package:konata/domain/scraping/bangumi_tmdb_index.dart';
 import 'package:konata/domain/sync/konata_sync_models.dart';
 import 'package:konata/infrastructure/database/drift_library_repository.dart';
 import 'package:konata/infrastructure/database/drift_playback_helpers.dart';
@@ -31,6 +39,7 @@ import 'package:konata/infrastructure/logging/diagnostics_log_store.dart';
 import 'package:konata/infrastructure/sync/konata_sync_store.dart';
 import 'package:konata/infrastructure/sync/webdav_sync_config_repository.dart';
 import 'package:konata/presentation/settings/settings_backup_sync_panel.dart';
+import 'package:konata/presentation/settings/settings_network_panel.dart';
 import 'package:konata/presentation/theme/konata_theme.dart';
 import 'package:konata/presentation/widgets/design_system/konata_switch.dart';
 import 'package:konata/presentation/widgets/design_system/konata_system_file_picker.dart';
@@ -1081,6 +1090,980 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
+    });
+
+    test('智能合并恢复本地备份时，即使本机偏好时间戳更新于备份，显式勾选的便携偏好仍强制生效并保留本机其余键', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'konata_v2_theme_mode': 'light',
+        'konata.detail.show_overview': false,
+      });
+      final dbA = KonataDatabase(NativeDatabase.memory());
+      addTearDown(dbA.close);
+      final repoA = DriftLibraryRepository(dbA);
+      final storeA = KonataSyncStore(dbA);
+      final backupA = KonataBackupService(
+        repository: repoA,
+        syncStore: storeA,
+        clock: () => DateTime.fromMillisecondsSinceEpoch(100000),
+      );
+      final archiveBytes = await backupA.exportKonataArchiveBytes();
+
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'konata_v2_theme_mode': 'dark',
+        'konata.detail.show_overview': true,
+        'konata.detail.show_cd_tab': false,
+      });
+      final dbB = KonataDatabase(NativeDatabase.memory());
+      addTearDown(dbB.close);
+      final repoB = DriftLibraryRepository(dbB);
+      final storeB = KonataSyncStore(dbB);
+      await storeB.writeMeta(
+        KonataSyncStore.metaKeyPrefsUpdatedAtMs,
+        '9999999999999',
+      );
+      final backupB = KonataBackupService(
+        repository: repoB,
+        syncStore: storeB,
+        clock: () => DateTime.fromMillisecondsSinceEpoch(200000),
+      );
+
+      final outcome = await backupB.restoreFromKonataArchiveBytes(
+        archiveBytes,
+        mode: KonataBackupRestoreMode.smartMerge,
+        scope: KonataSyncDataScope.all,
+      );
+      expect(outcome.preferencesRestored, greaterThanOrEqualTo(2));
+      final prefsB = await SharedPreferences.getInstance();
+      expect(prefsB.getString('konata_v2_theme_mode'), 'light');
+      expect(prefsB.getBool('konata.detail.show_overview'), isFalse);
+      expect(prefsB.getBool('konata.detail.show_cd_tab'), isFalse);
+    });
+
+    test('CD 音频播放记录支持跨设备导出、本机匹配预检与完整恢复', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final dbA = KonataDatabase(NativeDatabase.memory());
+      addTearDown(dbA.close);
+      final repoA = DriftLibraryRepository(dbA);
+      final storeA = KonataSyncStore(dbA);
+      await _seedDeviceAnime(
+        repo: repoA,
+        sourceId: 'src_win_cd',
+        sourceKind: MediaSourceKind.local,
+        location: r'D:\Anime',
+        workId: 'win_w_cd',
+        tmdbId: 100565,
+        tmdbType: TmdbMediaType.tv,
+        bangumiId: 302189,
+        title: '86 -不存在的战区-',
+      );
+      await repoA.upsertMediaVariant(
+        const MediaVariant(
+          id: 'win_cd_v1',
+          workId: 'win_w_cd',
+          sourceId: 'src_win_cd',
+          relativePath: '86/CD/OST/01 - Opening.flac',
+          fileName: '01 - Opening.flac',
+          fileSize: 42000000,
+          assetKind: AssetKind.cdAlbum,
+        ),
+      );
+      await repoA.recordPlayback(
+        PlaybackRecord(
+          id: 'cd::win_cd_v1::track_0',
+          workId: 'win_w_cd',
+          episodeId: 'cd::win_cd_v1',
+          variantId: 'win_cd_v1',
+          seasonNumber: 0,
+          episodeNumber: null,
+          episodeTitle: '01 - Opening',
+          sourceType: MediaSourceKind.local,
+          playedAt: DateTime(2026, 11, 22, 18, 0),
+          positionSeconds: 95,
+          durationSeconds: 240,
+          isCompleted: false,
+        ),
+      );
+
+      final backupA = KonataBackupService(repository: repoA, syncStore: storeA);
+      final archiveBytes = await backupA.exportKonataArchiveBytes();
+
+      final dbB = KonataDatabase(NativeDatabase.memory());
+      addTearDown(dbB.close);
+      final repoB = DriftLibraryRepository(dbB);
+      final storeB = KonataSyncStore(dbB);
+      await _seedDeviceAnime(
+        repo: repoB,
+        sourceId: 'src_and_cd',
+        sourceKind: MediaSourceKind.webdav,
+        location: 'https://nas.local/dav',
+        workId: 'and_w_cd',
+        tmdbId: 100565,
+        tmdbType: TmdbMediaType.tv,
+        bangumiId: 302189,
+        title: '86 -不存在的战区-',
+      );
+      await repoB.upsertMediaVariant(
+        const MediaVariant(
+          id: 'and_cd_v9',
+          workId: 'and_w_cd',
+          sourceId: 'src_and_cd',
+          relativePath: '86/CD/OST/01 - Opening.flac',
+          fileName: '01 - Opening.flac',
+          fileSize: 42000000,
+          assetKind: AssetKind.cdAlbum,
+        ),
+      );
+
+      final backupB = KonataBackupService(repository: repoB, syncStore: storeB);
+      final preview = await backupB.inspectKonataArchiveForLocalDevice(
+        archiveBytes,
+      );
+      expect(preview.playbackCount, 1);
+      expect(preview.matchedPlaybackCount, 1);
+      expect(preview.unmatchedPlaybackCount, 0);
+
+      final outcome = await backupB.restoreFromKonataArchiveBytes(
+        archiveBytes,
+        mode: KonataBackupRestoreMode.smartMerge,
+      );
+      expect(outcome.playbacksUpdated, 1);
+      expect(outcome.playbacksSkippedUnmatched, 0);
+      final restored = await repoB.getPlaybacksByWork('and_w_cd');
+      expect(restored.length, 1);
+      expect(restored.single.isAudioRecord, isTrue);
+      expect(restored.single.variantId, 'and_cd_v9');
+      expect(restored.single.positionSeconds, 95);
+    });
+
+    test('旧版 v1 精简备份仍通过 SHA-256 校验，准确预检本机命中数并在摘要中展示未入库跳过提示', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final dbA = KonataDatabase(NativeDatabase.memory());
+      addTearDown(dbA.close);
+      final repoA = DriftLibraryRepository(dbA);
+      final storeA = KonataSyncStore(dbA);
+      await _seedDeviceAnime(
+        repo: repoA,
+        sourceId: 'src_a',
+        sourceKind: MediaSourceKind.local,
+        location: r'D:\Anime',
+        workId: 'w_a1',
+        tmdbId: 100565,
+        tmdbType: TmdbMediaType.tv,
+        bangumiId: 302189,
+        title: '86 -不存在的战区-',
+      );
+      await _seedDeviceAnime(
+        repo: repoA,
+        sourceId: 'src_a',
+        sourceKind: MediaSourceKind.local,
+        location: r'D:\Anime',
+        workId: 'w_a2',
+        tmdbId: 209867,
+        tmdbType: TmdbMediaType.tv,
+        bangumiId: 400602,
+        title: '葬送的芙莉莲',
+      );
+      await repoA.recordPlayback(
+        PlaybackRecord(
+          id: 'w_a1::w_a1_e1',
+          workId: 'w_a1',
+          episodeId: 'w_a1_e1',
+          variantId: 'w_a1_v1',
+          seasonNumber: 1,
+          episodeNumber: 1,
+          episodeTitle: '第 1 话',
+          sourceType: MediaSourceKind.local,
+          playedAt: DateTime(2026, 11, 22, 10, 0),
+          positionSeconds: 800,
+          durationSeconds: 1420,
+          isCompleted: false,
+        ),
+      );
+      await repoA.recordPlayback(
+        PlaybackRecord(
+          id: 'w_a2::w_a2_e1',
+          workId: 'w_a2',
+          episodeId: 'w_a2_e1',
+          variantId: 'w_a2_v1',
+          seasonNumber: 1,
+          episodeNumber: 1,
+          episodeTitle: '第 1 话',
+          sourceType: MediaSourceKind.local,
+          playedAt: DateTime(2026, 11, 22, 11, 0),
+          positionSeconds: 900,
+          durationSeconds: 1420,
+          isCompleted: false,
+        ),
+      );
+      final fullEnvelope = await KonataBackupService(
+        repository: repoA,
+        syncStore: storeA,
+      ).buildLocalSnapshotEnvelope();
+      // 显式构造不含 libraryCatalog 的旧版 v1 信封验证向后兼容
+      final legacyV1Envelope = KonataSyncSnapshotEnvelope.create(
+        exportedAtMs: fullEnvelope.exportedAtMs,
+        deviceId: fullEnvelope.deviceId,
+        deviceName: fullEnvelope.deviceName,
+        platform: fullEnvelope.platform,
+        appVersion: fullEnvelope.appVersion,
+        playbackEntries: fullEnvelope.playbackEntries,
+        workOverrides: fullEnvelope.workOverrides,
+        tombstones: fullEnvelope.tombstones,
+        preferences: fullEnvelope.preferences,
+      );
+      expect(legacyV1Envelope.formatVersion, 1);
+      final archiveBytes = Uint8List.fromList(
+        gzip.encode(utf8.encode(jsonEncode(legacyV1Envelope.toJson()))),
+      );
+
+      final dbB = KonataDatabase(NativeDatabase.memory());
+      addTearDown(dbB.close);
+      final repoB = DriftLibraryRepository(dbB);
+      final storeB = KonataSyncStore(dbB);
+      await _seedDeviceAnime(
+        repo: repoB,
+        sourceId: 'src_b',
+        sourceKind: MediaSourceKind.webdav,
+        location: 'https://nas.local/dav',
+        workId: 'w_b1',
+        tmdbId: 100565,
+        tmdbType: TmdbMediaType.tv,
+        bangumiId: 302189,
+        title: '86 -不存在的战区-',
+      );
+
+      final backupB = KonataBackupService(repository: repoB, syncStore: storeB);
+      final preview = await backupB.inspectKonataArchiveForLocalDevice(
+        archiveBytes,
+      );
+      expect(preview.hasLibraryCatalog, isFalse);
+      expect(preview.localWorkCount, 1);
+      expect(preview.playbackCount, 2);
+      expect(preview.matchedPlaybackCount, 1);
+      expect(preview.unmatchedPlaybackCount, 1);
+      expect(preview.workOverrideCount, 2);
+      expect(preview.matchedWorkOverrideCount, 1);
+      expect(preview.unmatchedWorkOverrideCount, 1);
+      expect(preview.hasUnmatchedEntries, isTrue);
+
+      final firstOutcome = await backupB.restoreFromKonataArchiveBytes(
+        archiveBytes,
+        mode: KonataBackupRestoreMode.smartMerge,
+      );
+      expect(firstOutcome.playbacksUpdated, 1);
+      expect(firstOutcome.playbacksSkippedUnmatched, 1);
+      expect(firstOutcome.workOverridesSkippedUnmatched, 1);
+      expect(firstOutcome.hasSkippedUnmatched, isTrue);
+      expect(
+        firstOutcome.toSummaryMessage(),
+        contains('跳过 1 条未入库进度、1 项未入库整理'),
+      );
+
+      final secondOutcome = await backupB.restoreFromKonataArchiveBytes(
+        archiveBytes,
+        mode: KonataBackupRestoreMode.smartMerge,
+      );
+      expect(secondOutcome.playbacksUpdated, 0);
+      expect(
+        secondOutcome.toSummaryMessage(),
+        contains('本机已入库数据已最新 · 跳过 1 条未入库进度、1 项未入库整理'),
+      );
+    });
+
+    test('v2 本地备份可在全新空设备上直接还原整套已整理媒体库（含系列、剧集、视频/CD/扫图、忽略目录与进度）且幂等', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'konata_v2_theme_mode': 'light',
+      });
+      final dbA = KonataDatabase(NativeDatabase.memory());
+      addTearDown(dbA.close);
+      final repoA = DriftLibraryRepository(dbA);
+      final storeA = KonataSyncStore(dbA);
+      await repoA.upsertMediaSource(
+        MediaSource(
+          id: 'src_nas_pc',
+          kind: MediaSourceKind.webdav,
+          label: 'NAS 动画库',
+          location: 'http://192.168.1.192:29798/dav',
+          username: 'konata_user',
+          createdAt: DateTime(2026, 1, 1),
+        ),
+      );
+      await repoA.upsertSeriesGroup(
+        SeriesGroup(
+          id: 'ser_86',
+          title: '86 -不存在的战区- 系列',
+          tmdbCollectionId: 99986,
+          createdAt: DateTime(2026, 1, 2),
+          updatedAt: DateTime(2026, 11, 20),
+        ),
+      );
+      await repoA.upsertWork(
+        const Work(
+          id: 'pc_w_86',
+          tmdbId: 100565,
+          tmdbMediaType: TmdbMediaType.tv,
+          bangumiId: 302189,
+          matchedSeason: 1,
+          title: '86 -不存在的战区-',
+          originalTitle: '86―エイティシックス―',
+          year: 2021,
+          overview: '已手工整理并锁定的作品简介',
+          posterPath: '/poster86.jpg',
+          backdropPath: '/backdrop86.jpg',
+          logoPath: 'https://assets.fanart.tv/logo86.png',
+          isManualLocked: true,
+          metadataLocked: true,
+          posterLocked: true,
+          scrapeStatus: ScrapeStatus.matched,
+          seriesId: 'ser_86',
+          seriesOrder: 1,
+          seriesLabel: '第 1 季',
+          seriesLocked: true,
+        ),
+      );
+      await repoA.upsertEpisode(
+        const Episode(
+          id: 'pc_ep_1',
+          workId: 'pc_w_86',
+          seasonNumber: 1,
+          episodeNumber: 1,
+          category: EpisodeCategory.main,
+          title: '送葬者',
+          stillPath: '/still1.jpg',
+        ),
+      );
+      await repoA.upsertMediaVariantsBatch(const [
+        MediaVariant(
+          id: 'pc_v_1',
+          workId: 'pc_w_86',
+          episodeId: 'pc_ep_1',
+          sourceId: 'src_nas_pc',
+          relativePath: '86/EP01.mkv',
+          fileName: 'EP01.mkv',
+          fileSize: 800000000,
+          assetKind: AssetKind.video,
+          releaseGroup: 'VCB-Studio',
+          externalSubtitles: ['86/EP01.sc.ass'],
+          mappingLocked: true,
+          workLocked: true,
+        ),
+        MediaVariant(
+          id: 'pc_cd_1',
+          workId: 'pc_w_86',
+          sourceId: 'src_nas_pc',
+          relativePath: '86/CD/01 - Avid.flac',
+          fileName: '01 - Avid.flac',
+          fileSize: 45000000,
+          assetKind: AssetKind.cdAlbum,
+          assetScope: SupplementaryAssetScope.seriesShared,
+          scopeLocked: true,
+        ),
+        MediaVariant(
+          id: 'pc_scan_1',
+          workId: 'pc_w_86',
+          sourceId: 'src_nas_pc',
+          relativePath: '86/Scans/Booklet_01.jpg',
+          fileName: 'Booklet_01.jpg',
+          fileSize: 4200000,
+          assetKind: AssetKind.scanGallery,
+        ),
+      ]);
+      await repoA.addIgnoredFolder('src_nas_pc', 'Sample/Extras');
+      await repoA.recordPlayback(
+        PlaybackRecord(
+          id: 'pc_w_86::pc_ep_1',
+          workId: 'pc_w_86',
+          episodeId: 'pc_ep_1',
+          variantId: 'pc_v_1',
+          seasonNumber: 1,
+          episodeNumber: 1,
+          episodeTitle: '送葬者',
+          sourceType: MediaSourceKind.webdav,
+          playedAt: DateTime(2026, 11, 22, 20, 0),
+          positionSeconds: 1200,
+          durationSeconds: 1420,
+          isCompleted: false,
+        ),
+      );
+      await repoA.recordPlayback(
+        PlaybackRecord(
+          id: 'cd::pc_cd_1',
+          workId: 'pc_w_86',
+          episodeId: 'cd::pc_cd_1',
+          variantId: 'pc_cd_1',
+          seasonNumber: 0,
+          episodeNumber: null,
+          episodeTitle: '01 - Avid',
+          sourceType: MediaSourceKind.webdav,
+          playedAt: DateTime(2026, 11, 22, 21, 0),
+          positionSeconds: 88,
+          durationSeconds: 250,
+          isCompleted: false,
+        ),
+      );
+
+      final backupA = KonataBackupService(repository: repoA, syncStore: storeA);
+      final archiveBytes = await backupA.exportKonataArchiveBytes();
+
+      // 目标新手机完全空库恢复
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final dbEmpty = KonataDatabase(NativeDatabase.memory());
+      addTearDown(dbEmpty.close);
+      final repoEmpty = DriftLibraryRepository(dbEmpty);
+      final storeEmpty = KonataSyncStore(dbEmpty);
+      final backupEmpty = KonataBackupService(
+        repository: repoEmpty,
+        syncStore: storeEmpty,
+      );
+
+      final preview = await backupEmpty.inspectKonataArchiveForLocalDevice(
+        archiveBytes,
+      );
+      expect(preview.hasLibraryCatalog, isTrue);
+      expect(preview.catalogWorkCount, 1);
+      expect(preview.catalogSourceCount, 1);
+      expect(preview.catalogEpisodeCount, 1);
+      expect(preview.catalogVariantCount, 3);
+      expect(preview.remoteSourcesNeedingPassword, 1);
+      expect(preview.hasUnmatchedEntries, isFalse);
+
+      final outcome = await backupEmpty.restoreFromKonataArchiveBytes(
+        archiveBytes,
+        mode: KonataBackupRestoreMode.smartMerge,
+      );
+      expect(outcome.catalogWorksSynced, 1);
+      expect(outcome.catalogSourcesAdded, 1);
+      expect(outcome.sourcesNeedingPassword, 1);
+      expect(outcome.playbacksUpdated, 2);
+      expect(outcome.playbacksSkippedUnmatched, 0);
+
+      final sources = await repoEmpty.getMediaSources();
+      expect(sources.length, 1);
+      expect(sources.single.location, 'http://192.168.1.192:29798/dav');
+      expect(sources.single.username, 'konata_user');
+
+      final series = await repoEmpty.getAllSeriesGroups();
+      expect(series.length, 1);
+      expect(series.single.title, '86 -不存在的战区- 系列');
+
+      final works = await repoEmpty.getAllWorks();
+      expect(works.length, 1);
+      expect(works.single.posterPath, '/poster86.jpg');
+      expect(works.single.logoPath, 'https://assets.fanart.tv/logo86.png');
+      expect(works.single.isManualLocked, isTrue);
+      expect(works.single.seriesLocked, isTrue);
+
+      final variants = await repoEmpty.getAllVariants();
+      expect(variants.length, 3);
+      expect(
+        variants.where((v) => v.assetKind == AssetKind.video).single.externalSubtitles,
+        ['86/EP01.sc.ass'],
+      );
+      expect(
+        variants.where((v) => v.assetKind == AssetKind.cdAlbum).single.assetScope,
+        SupplementaryAssetScope.seriesShared,
+      );
+      expect(
+        await repoEmpty.getIgnoredFolders(sources.single.id),
+        ['Sample/Extras'],
+      );
+      expect((await repoEmpty.getPlaybackHistory()).length, 2);
+
+      // 再次恢复同一份备份严格幂等（0 变更）
+      final second = await backupEmpty.restoreFromKonataArchiveBytes(
+        archiveBytes,
+        mode: KonataBackupRestoreMode.smartMerge,
+      );
+      expect(second.catalogWorksSynced, 0);
+      expect(second.catalogSourcesAdded, 0);
+      expect(second.playbacksUpdated, 0);
+    });
+
+    test('WebDAV 多设备同步直接下发完整媒体库、复用同址媒体源保护密码并传播作品删除墓碑', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final server = _InMemoryWebDavServer();
+      final mockClient = server.buildClient();
+      const syncConfig = WebDavSyncConfig(
+        enabled: true,
+        baseUrl: 'https://dav.example.com/root',
+        remoteDir: 'konata-sync',
+      );
+
+      // 设备 A（PC）：整理好 2 部作品并上传至 WebDAV
+      final dbA = KonataDatabase(NativeDatabase.memory());
+      addTearDown(dbA.close);
+      final repoA = DriftLibraryRepository(dbA);
+      final storeA = KonataSyncStore(dbA);
+      await storeA.writeMeta(KonataSyncStore.metaKeyDeviceId, 'pc_full_a');
+      await _seedDeviceAnime(
+        repo: repoA,
+        sourceId: 'pc_nas_src',
+        sourceKind: MediaSourceKind.webdav,
+        location: 'https://nas.local/dav',
+        workId: 'pc_w1',
+        tmdbId: 100565,
+        tmdbType: TmdbMediaType.tv,
+        bangumiId: 302189,
+        title: '86 -不存在的战区-',
+      );
+      await _seedDeviceAnime(
+        repo: repoA,
+        sourceId: 'pc_nas_src',
+        sourceKind: MediaSourceKind.webdav,
+        location: 'https://nas.local/dav',
+        workId: 'pc_w2',
+        tmdbId: 209867,
+        tmdbType: TmdbMediaType.tv,
+        bangumiId: 400602,
+        title: '葬送的芙莉莲',
+      );
+      var clock = DateTime(2026, 11, 24, 10, 0);
+      final backupA = KonataBackupService(
+        repository: repoA,
+        syncStore: storeA,
+        clock: () => clock,
+      );
+      final coordA = WebDavSyncCoordinator(
+        backupService: backupA,
+        syncStore: storeA,
+        httpClientForTest: mockClient,
+        clock: () => clock,
+      );
+      await coordA.syncNow(syncConfig);
+
+      // 设备 B（Android）：尚未扫描任何作品，但已预先配置了同址 WebDAV 媒体源（带尾斜杠且 sourceId 不同）
+      final dbB = KonataDatabase(NativeDatabase.memory());
+      addTearDown(dbB.close);
+      final repoB = DriftLibraryRepository(dbB);
+      final storeB = KonataSyncStore(dbB);
+      await storeB.writeMeta(KonataSyncStore.metaKeyDeviceId, 'and_full_b');
+      await repoB.upsertMediaSource(
+        MediaSource(
+          id: 'android_preconfigured_src',
+          kind: MediaSourceKind.webdav,
+          label: '我的 NAS',
+          location: 'https://nas.local/dav/',
+          username: 'alice',
+          createdAt: DateTime(2026, 11, 1),
+        ),
+      );
+      clock = DateTime(2026, 11, 24, 10, 5);
+      final backupB = KonataBackupService(
+        repository: repoB,
+        syncStore: storeB,
+        clock: () => clock,
+      );
+      final coordB = WebDavSyncCoordinator(
+        backupService: backupB,
+        syncStore: storeB,
+        httpClientForTest: mockClient,
+        clock: () => clock,
+      );
+
+      final resB = await coordB.syncNow(syncConfig);
+      expect(resB.catalogWorksSynced, 2);
+      expect(resB.catalogSourcesAdded, 0);
+      expect((await repoB.getMediaSources()).length, 1);
+      expect((await repoB.getAllWorks()).length, 2);
+      final variantsB = await repoB.getAllVariants();
+      expect(variantsB.length, 6);
+      expect(
+        variantsB.every((v) => v.sourceId == 'android_preconfigured_src'),
+        isTrue,
+        reason: '同址媒体源应自动复用本机已有 sourceId 以守护本机加密密码',
+      );
+
+      // 设备 A 删除作品 2 并记录删除墓碑 -> 同步 -> 设备 B 同步后应自动移除作品 2 且设备 A 再次同步不会复活
+      clock = DateTime(2026, 11, 24, 11, 0);
+      final doomed = (await repoA.findWorkById('pc_w2'))!;
+      await backupA.recordWorkDeletionTombstone(doomed);
+      await repoA.deleteWork(doomed.id);
+      await coordA.syncNow(syncConfig);
+
+      clock = DateTime(2026, 11, 24, 11, 5);
+      final resB2 = await coordB.syncNow(syncConfig);
+      expect(resB2.catalogWorksDeleted, 1);
+      final remainingB = await repoB.getAllWorks();
+      expect(remainingB.length, 1);
+      expect(remainingB.single.tmdbId, 100565);
+
+      clock = DateTime(2026, 11, 24, 11, 10);
+      await coordA.syncNow(syncConfig);
+      expect((await repoA.getAllWorks()).length, 1);
+    });
+
+    test('覆盖还原完整媒体库时若未勾选播放记录则保留本机进度，且编辑媒体源切换协议不丢失已关联文件', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final dbA = KonataDatabase(NativeDatabase.memory());
+      addTearDown(dbA.close);
+      final repoA = DriftLibraryRepository(dbA);
+      final storeA = KonataSyncStore(dbA);
+      await _seedDeviceAnime(
+        repo: repoA,
+        sourceId: 'src_pc_local',
+        sourceKind: MediaSourceKind.local,
+        location: r'D:\Anime',
+        workId: 'w_pc_1',
+        tmdbId: 100565,
+        tmdbType: TmdbMediaType.tv,
+        bangumiId: 302189,
+        title: '86 -不存在的战区-',
+      );
+      final archiveBytes = await KonataBackupService(
+        repository: repoA,
+        syncStore: storeA,
+      ).exportKonataArchiveBytes();
+
+      final dbB = KonataDatabase(NativeDatabase.memory());
+      addTearDown(dbB.close);
+      final repoB = DriftLibraryRepository(dbB);
+      final storeB = KonataSyncStore(dbB);
+      await _seedDeviceAnime(
+        repo: repoB,
+        sourceId: 'src_old',
+        sourceKind: MediaSourceKind.local,
+        location: r'C:\OldAnime',
+        workId: 'w_old_1',
+        tmdbId: 100565,
+        tmdbType: TmdbMediaType.tv,
+        bangumiId: 302189,
+        title: '86 -不存在的战区-',
+      );
+      await _seedDeviceAnime(
+        repo: repoB,
+        sourceId: 'src_old',
+        sourceKind: MediaSourceKind.local,
+        location: r'C:\OldAnime',
+        workId: 'w_stale',
+        tmdbId: 999999,
+        tmdbType: TmdbMediaType.tv,
+        bangumiId: 888888,
+        title: '过期旧作品',
+      );
+      await repoB.recordPlayback(
+        PlaybackRecord(
+          id: 'w_old_1::w_old_1_e1',
+          workId: 'w_old_1',
+          episodeId: 'w_old_1_e1',
+          variantId: 'w_old_1_v1',
+          seasonNumber: 1,
+          episodeNumber: 1,
+          episodeTitle: '第 1 话',
+          sourceType: MediaSourceKind.local,
+          playedAt: DateTime(2026, 11, 22, 12, 0),
+          positionSeconds: 520,
+          durationSeconds: 1420,
+          isCompleted: false,
+        ),
+      );
+
+      final backupB = KonataBackupService(repository: repoB, syncStore: storeB);
+      await backupB.restoreFromKonataArchiveBytes(
+        archiveBytes,
+        mode: KonataBackupRestoreMode.overwrite,
+        scope: const KonataSyncDataScope(
+          includePlaybacks: false,
+          includeWorkOverrides: true,
+          includePreferences: false,
+        ),
+      );
+
+      final worksB = await repoB.getAllWorks();
+      expect(worksB.length, 1);
+      expect(worksB.single.id, 'w_pc_1');
+      final preservedPb = await repoB.getPlaybacksByWork('w_pc_1');
+      expect(preservedPb.length, 1);
+      expect(preservedPb.single.positionSeconds, 520);
+
+      // 将还原后的本地目录源切换协议为 WebDAV，验证 3 条文件变体完好无损
+      final src = (await repoB.getMediaSources()).single;
+      await repoB.upsertMediaSource(
+        src.copyWith(
+          kind: MediaSourceKind.webdav,
+          location: 'http://192.168.1.192:29798/dav',
+          username: 'konata',
+        ),
+      );
+      final updatedSrc = (await repoB.findSourceById(src.id))!;
+      expect(updatedSrc.kind, MediaSourceKind.webdav);
+      expect((await repoB.getVariantsBySource(src.id)).length, 3);
+    });
+
+    test('WebDavSyncController.restoreLocalBackup 即时热重载全部偏好 Provider 并持久化最近恢复状态', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      FlutterSecureStorage.setMockInitialValues(<String, String>{});
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'konata_v2_theme_mode': 'light',
+        'konata.detail.show_overview': false,
+        'konata.playback.preferences.v1': jsonEncode(<String, Object?>{
+          'autoNextEpisode': false,
+          'showLyricRomaji': true,
+        }),
+        'konata_v2_tmdb_backup_api': 'https://mirror.example.com/3',
+      });
+      final dbA = KonataDatabase(NativeDatabase.memory());
+      addTearDown(dbA.close);
+      final archiveBytes = await KonataBackupService(
+        repository: DriftLibraryRepository(dbA),
+        syncStore: KonataSyncStore(dbA),
+      ).exportKonataArchiveBytes();
+
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'konata_v2_theme_mode': 'dark',
+        'konata.detail.show_overview': true,
+        'konata.playback.preferences.v1': jsonEncode(<String, Object?>{
+          'autoNextEpisode': true,
+          'showLyricRomaji': false,
+        }),
+        'konata_v2_tmdb_backup_api': 'https://api.tmdb.org/3',
+      });
+      final dbB = KonataDatabase(NativeDatabase.memory());
+      addTearDown(dbB.close);
+      final repoB = DriftLibraryRepository(dbB);
+      final storeB = KonataSyncStore(dbB);
+      final memConfigRepo = _InMemoryWebDavConfigRepo(const WebDavSyncConfig());
+
+      final container = ProviderContainer(
+        overrides: [
+          libraryRepositoryProvider.overrideWithValue(repoB),
+          konataSyncStoreProvider.overrideWithValue(storeB),
+          webDavSyncConfigRepositoryProvider.overrideWithValue(memConfigRepo),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      // 预先激活全部偏好 Provider，模拟应用运行中各页面已读取过旧状态
+      container.read(themeModeProvider);
+      container.read(detailDisplayPreferencesProvider);
+      container.read(playbackPreferencesProvider);
+      await container.read(tmdbNetworkConfigProvider.future);
+      container.read(webDavSyncControllerProvider);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(container.read(themeModeProvider), ThemeMode.dark);
+      expect(container.read(detailDisplayPreferencesProvider).showOverview, isTrue);
+      expect(container.read(playbackPreferencesProvider).autoNextEpisode, isTrue);
+
+      await container
+          .read(webDavSyncControllerProvider.notifier)
+          .restoreLocalBackup(
+            archiveBytes,
+            mode: KonataBackupRestoreMode.smartMerge,
+          );
+
+      expect(container.read(themeModeProvider), ThemeMode.light);
+      expect(
+        container.read(detailDisplayPreferencesProvider).showOverview,
+        isFalse,
+      );
+      expect(
+        container.read(playbackPreferencesProvider).autoNextEpisode,
+        isFalse,
+      );
+      expect(
+        container.read(playbackPreferencesProvider).showLyricRomaji,
+        isTrue,
+      );
+      final reloadedNet = await container.read(tmdbNetworkConfigProvider.future);
+      expect(reloadedNet.tmdbBackupApiBase, 'https://mirror.example.com/3');
+
+      final uiState = container.read(webDavSyncControllerProvider);
+      expect(uiState.lastBackupAt, isNotNull);
+      expect(uiState.lastBackupSummary, contains('恢复'));
+
+      // 确认持久化摘要可在重建控制器后还原
+      final container2 = ProviderContainer(
+        overrides: [
+          libraryRepositoryProvider.overrideWithValue(repoB),
+          konataSyncStoreProvider.overrideWithValue(storeB),
+          webDavSyncConfigRepositoryProvider.overrideWithValue(memConfigRepo),
+        ],
+      );
+      addTearDown(container2.dispose);
+      container2.read(webDavSyncControllerProvider);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      final restoredUi = container2.read(webDavSyncControllerProvider);
+      expect(restoredUi.lastBackupAt, isNotNull);
+      expect(restoredUi.lastBackupSummary, uiState.lastBackupSummary);
+    });
+
+    testWidgets('恢复预览弹窗在桌面与手机视口无溢出展示本机匹配数、未入库提示，恢复后展示持久摘要并热更新网络面板', (
+      tester,
+    ) async {
+      FlutterSecureStorage.setMockInitialValues(<String, String>{});
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'konata_v2_theme_mode': 'light',
+        'konata_v2_tmdb_backup_api': 'https://restored-mirror.example.com/3',
+      });
+      final dbA = KonataDatabase(NativeDatabase.memory());
+      addTearDown(dbA.close);
+      final repoA = DriftLibraryRepository(dbA);
+      final storeA = KonataSyncStore(dbA);
+      await _seedDeviceAnime(
+        repo: repoA,
+        sourceId: 'src_a',
+        sourceKind: MediaSourceKind.local,
+        location: r'D:\Anime',
+        workId: 'w_a1',
+        tmdbId: 100565,
+        tmdbType: TmdbMediaType.tv,
+        bangumiId: 302189,
+        title: '86 -不存在的战区-',
+      );
+      await _seedDeviceAnime(
+        repo: repoA,
+        sourceId: 'src_a',
+        sourceKind: MediaSourceKind.local,
+        location: r'D:\Anime',
+        workId: 'w_a2',
+        tmdbId: 209867,
+        tmdbType: TmdbMediaType.tv,
+        bangumiId: 400602,
+        title: '葬送的芙莉莲',
+      );
+      await repoA.recordPlayback(
+        PlaybackRecord(
+          id: 'w_a1::w_a1_e1',
+          workId: 'w_a1',
+          episodeId: 'w_a1_e1',
+          variantId: 'w_a1_v1',
+          seasonNumber: 1,
+          episodeNumber: 1,
+          episodeTitle: '第 1 话',
+          sourceType: MediaSourceKind.local,
+          playedAt: DateTime(2026, 11, 22, 10, 0),
+          positionSeconds: 700,
+          durationSeconds: 1420,
+          isCompleted: false,
+        ),
+      );
+      await repoA.recordPlayback(
+        PlaybackRecord(
+          id: 'w_a2::w_a2_e1',
+          workId: 'w_a2',
+          episodeId: 'w_a2_e1',
+          variantId: 'w_a2_v1',
+          seasonNumber: 1,
+          episodeNumber: 1,
+          episodeTitle: '第 1 话',
+          sourceType: MediaSourceKind.local,
+          playedAt: DateTime(2026, 11, 22, 11, 0),
+          positionSeconds: 800,
+          durationSeconds: 1420,
+          isCompleted: false,
+        ),
+      );
+      final archiveBytes = await KonataBackupService(
+        repository: repoA,
+        syncStore: storeA,
+      ).exportKonataArchiveBytes();
+
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'konata_v2_theme_mode': 'dark',
+        'konata_v2_tmdb_backup_api': 'https://api.tmdb.org/3',
+      });
+      final dbB = KonataDatabase(NativeDatabase.memory());
+      addTearDown(dbB.close);
+      final repoB = DriftLibraryRepository(dbB);
+      final storeB = KonataSyncStore(dbB);
+      await _seedDeviceAnime(
+        repo: repoB,
+        sourceId: 'src_b',
+        sourceKind: MediaSourceKind.webdav,
+        location: 'https://nas.local/dav',
+        workId: 'w_b1',
+        tmdbId: 100565,
+        tmdbType: TmdbMediaType.tv,
+        bangumiId: 302189,
+        title: '86 -不存在的战区-',
+      );
+      final mockPicker = KonataSystemFilePicker(
+        pickFilesImpl: ({
+          String? dialogTitle,
+          String? initialDirectory,
+          FileType type = FileType.any,
+          List<String>? allowedExtensions,
+          WindowsOptions windowsOptions = const WindowsOptions(),
+        }) async {
+          return <PlatformFile>[
+            _MemoryPlatformFile(name: 'from_pc.konata', content: archiveBytes),
+          ];
+        },
+      );
+      final memConfigRepo = _InMemoryWebDavConfigRepo(const WebDavSyncConfig());
+
+      for (final viewport in const [Size(1200, 800), Size(375, 812)]) {
+        tester.view.physicalSize = viewport;
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              libraryRepositoryProvider.overrideWithValue(repoB),
+              konataSyncStoreProvider.overrideWithValue(storeB),
+              webDavSyncConfigRepositoryProvider.overrideWithValue(
+                memConfigRepo,
+              ),
+              konataSystemFilePickerProvider.overrideWithValue(mockPicker),
+              bangumiTmdbSnapshotProvider.overrideWith(
+                (ref) async => BangumiTmdbSnapshot(
+                  index: BangumiTmdbIndex.empty(),
+                  source: BangumiTmdbMapSource.staticFallback,
+                  snapshotDate: '2026-11-24',
+                  sha256Hex: '',
+                ),
+              ),
+            ],
+            child: MaterialApp(
+              theme: KonataTheme.darkTheme(),
+              home: const Scaffold(
+                body: SingleChildScrollView(
+                  child: Column(
+                    children: [
+                      SettingsBackupSyncPanel(),
+                      SettingsNetworkPanel(),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const ValueKey('settings_import_konata_backup')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('观看进度与播放历史（2 条）'), findsOneWidget);
+        expect(find.text('整理好的媒体库（2 部作品 · 1 个媒体源）'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('backup_restore_catalog_notice')),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+
+        if (viewport == const Size(1200, 800)) {
+          await tester.tap(find.text('取消'));
+          await tester.pumpAndSettle();
+        } else {
+          await tester.tap(
+            find.byKey(const ValueKey('backup_restore_confirm_btn')),
+          );
+          await tester.pumpAndSettle();
+          expect(
+            find.byKey(const ValueKey('settings_local_backup_last_status')),
+            findsOneWidget,
+          );
+          expect(
+            find.text('https://restored-mirror.example.com/3'),
+            findsOneWidget,
+          );
+          expect((await repoB.getAllWorks()).length, 2);
+          expect(tester.takeException(), isNull);
+        }
+      }
     });
   });
 }

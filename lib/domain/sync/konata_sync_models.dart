@@ -3,6 +3,9 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 
 import '../models/work.dart';
+import 'konata_library_sync_models.dart';
+
+export 'konata_library_sync_models.dart';
 
 /// 跨设备稳定作品身份键解析器。
 ///
@@ -434,8 +437,8 @@ class SyncPreferencesBundle {
 
 /// 本地 `.konata` 备份文件与 WebDAV 设备分片共用的统一带校验信封。
 class KonataSyncSnapshotEnvelope {
-  /// 当前备份与分片协议版本号。
-  static const int currentFormatVersion = 1;
+  /// 当前备份与分片协议版本号（v2 支持内嵌完整已整理媒体库，同时 100% 向后兼容 v1 备份校验）。
+  static const int currentFormatVersion = 2;
 
   /// 备份信封固定 Schema 标识。
   static const String schemaIdentifier = 'konata.sync.snapshot.v1';
@@ -454,6 +457,7 @@ class KonataSyncSnapshotEnvelope {
     required this.tombstones,
     required this.preferences,
     required this.payloadSha256,
+    this.libraryCatalog,
   });
 
   final int formatVersion;
@@ -469,6 +473,13 @@ class KonataSyncSnapshotEnvelope {
   final SyncPreferencesBundle preferences;
   final String payloadSha256;
 
+  /// 完整已整理媒体库目录快照（v2 备份与 WebDAV 同步包含；旧版 v1 文件为空）。
+  final SyncLibraryCatalog? libraryCatalog;
+
+  /// 当前快照是否携带完整的已整理媒体库目录。
+  bool get hasLibraryCatalog =>
+      libraryCatalog != null && libraryCatalog!.hasContent;
+
   /// 自动计算规范化载荷 SHA-256 校验和并构造不可变信封。
   factory KonataSyncSnapshotEnvelope.create({
     required int exportedAtMs,
@@ -480,16 +491,22 @@ class KonataSyncSnapshotEnvelope {
     required List<SyncWorkOverrideEntry> workOverrides,
     required List<SyncTombstoneEntry> tombstones,
     required SyncPreferencesBundle preferences,
+    SyncLibraryCatalog? libraryCatalog,
   }) {
+    final effectiveCatalog =
+        (libraryCatalog != null && libraryCatalog.hasContent)
+        ? libraryCatalog
+        : null;
     final payload = _buildPayloadMap(
       playbackEntries: playbackEntries,
       workOverrides: workOverrides,
       tombstones: tombstones,
       preferences: preferences,
+      libraryCatalog: effectiveCatalog,
     );
     final digest = computePayloadSha256(payload);
     return KonataSyncSnapshotEnvelope(
-      formatVersion: currentFormatVersion,
+      formatVersion: effectiveCatalog != null ? currentFormatVersion : 1,
       schema: schemaIdentifier,
       exportedAtMs: exportedAtMs,
       deviceId: deviceId,
@@ -501,6 +518,7 @@ class KonataSyncSnapshotEnvelope {
       tombstones: tombstones,
       preferences: preferences,
       payloadSha256: digest,
+      libraryCatalog: effectiveCatalog,
     );
   }
 
@@ -515,12 +533,14 @@ class KonataSyncSnapshotEnvelope {
     required List<SyncWorkOverrideEntry> workOverrides,
     required List<SyncTombstoneEntry> tombstones,
     required SyncPreferencesBundle preferences,
+    SyncLibraryCatalog? libraryCatalog,
   }) {
     return <String, Object?>{
       'playbackEntries': [for (final e in playbackEntries) e.toJson()],
       'workOverrides': [for (final e in workOverrides) e.toJson()],
       'tombstones': [for (final e in tombstones) e.toJson()],
       'preferences': preferences.toJson(),
+      if (libraryCatalog != null) 'libraryCatalog': libraryCatalog.toJson(),
     };
   }
 
@@ -539,6 +559,7 @@ class KonataSyncSnapshotEnvelope {
       workOverrides: workOverrides,
       tombstones: tombstones,
       preferences: preferences,
+      libraryCatalog: libraryCatalog,
     ),
   };
 
@@ -612,6 +633,13 @@ class KonataSyncSnapshotEnvelope {
             rawPrefs.map((k, v) => MapEntry(k.toString(), v)),
           )
         : const SyncPreferencesBundle();
+    final hasRawCatalog = payloadMap.containsKey('libraryCatalog');
+    final rawCatalog = payloadMap['libraryCatalog'];
+    final catalog = hasRawCatalog && rawCatalog is Map
+        ? SyncLibraryCatalog.fromJson(
+            rawCatalog.map((k, v) => MapEntry(k.toString(), v)),
+          )
+        : null;
 
     final expectedHash = (root['payloadSha256'] ?? '').toString().trim();
     final recomputed = computePayloadSha256(
@@ -620,6 +648,7 @@ class KonataSyncSnapshotEnvelope {
         workOverrides: overrideList,
         tombstones: tombstoneList,
         preferences: prefs,
+        libraryCatalog: catalog,
       ),
     );
     if (expectedHash.isEmpty || expectedHash != recomputed) {
@@ -639,6 +668,7 @@ class KonataSyncSnapshotEnvelope {
       tombstones: tombstoneList,
       preferences: prefs,
       payloadSha256: expectedHash,
+      libraryCatalog: catalog,
     );
   }
 }
@@ -780,7 +810,7 @@ class KonataSyncDataScope {
   String describeLabel() {
     final parts = <String>[
       if (includePlaybacks) '观看进度',
-      if (includeWorkOverrides) '作品整理',
+      if (includeWorkOverrides) '媒体库与整理',
       if (includePreferences) '偏好设置',
     ];
     return parts.isEmpty ? '未选择' : parts.join('、');
@@ -812,6 +842,17 @@ class KonataBackupPreview {
     required this.workOverrideCount,
     required this.tombstoneCount,
     required this.preferenceCount,
+    this.matchedPlaybackCount,
+    this.matchedWorkOverrideCount,
+    this.localWorkCount,
+    this.hasLibraryCatalog = false,
+    this.catalogWorkCount = 0,
+    this.catalogSourceCount = 0,
+    this.catalogEpisodeCount = 0,
+    this.catalogVariantCount = 0,
+    this.catalogRemoteSourceCount = 0,
+    this.catalogLocalSourceCount = 0,
+    this.remoteSourcesNeedingPassword = 0,
   });
 
   final DateTime exportedAt;
@@ -822,6 +863,59 @@ class KonataBackupPreview {
   final int workOverrideCount;
   final int tombstoneCount;
   final int preferenceCount;
+
+  /// 本机已入库媒体中可匹配的观看进度条数（纯离线解析时为空）。
+  final int? matchedPlaybackCount;
+
+  /// 本机已入库媒体中可匹配的作品整理项数（纯离线解析时为空）。
+  final int? matchedWorkOverrideCount;
+
+  /// 本机当前已入库作品总数（纯离线解析时为空）。
+  final int? localWorkCount;
+
+  /// 备份是否包含完整已整理媒体库目录（v2 格式为 `true`，旧版 v1 精简格式为 `false`）。
+  final bool hasLibraryCatalog;
+
+  /// 备份包含的完整已整理作品总数。
+  final int catalogWorkCount;
+
+  /// 备份包含的媒体源数量。
+  final int catalogSourceCount;
+
+  /// 备份包含的逻辑剧集与特典总数。
+  final int catalogEpisodeCount;
+
+  /// 备份包含的物理文件映射总数。
+  final int catalogVariantCount;
+
+  /// 备份包含的远程媒体源数量（WebDAV / SMB）。
+  final int catalogRemoteSourceCount;
+
+  /// 备份包含的本地磁盘媒体源数量。
+  final int catalogLocalSourceCount;
+
+  /// 本机尚未保存对应配置且带用户名的新增远程媒体源数量（用于提醒恢复后补填密码）。
+  final int remoteSourcesNeedingPassword;
+
+  /// 本机尚未入库而将被跳过的观看进度条数（v2 含完整库时直接还原作品，默认归零）。
+  int get unmatchedPlaybackCount {
+    if (hasLibraryCatalog) return 0;
+    final matched = matchedPlaybackCount;
+    if (matched == null) return 0;
+    return (playbackCount - matched).clamp(0, playbackCount);
+  }
+
+  /// 本机尚未入库而将被跳过的作品整理项数（v2 含完整库时直接还原作品，默认归零）。
+  int get unmatchedWorkOverrideCount {
+    if (hasLibraryCatalog) return 0;
+    final matched = matchedWorkOverrideCount;
+    if (matched == null) return 0;
+    return (workOverrideCount - matched).clamp(0, workOverrideCount);
+  }
+
+  /// 是否存在因旧版精简备份且本机未扫描对应作品而将被跳过的条目。
+  bool get hasUnmatchedEntries =>
+      unmatchedPlaybackCount > 0 || unmatchedWorkOverrideCount > 0;
 }
 
 /// 备份恢复或 WebDAV 多设备同步的执行结果统计报告。
@@ -833,6 +927,11 @@ class KonataSyncOutcome {
     required this.workOverridesApplied,
     required this.tombstonesApplied,
     required this.preferencesRestored,
+    this.workOverridesSkippedUnmatched = 0,
+    this.catalogWorksSynced = 0,
+    this.catalogSourcesAdded = 0,
+    this.catalogWorksDeleted = 0,
+    this.sourcesNeedingPassword = 0,
     this.remoteDevicesMerged = 0,
     this.uploadedShard = false,
   });
@@ -840,21 +939,67 @@ class KonataSyncOutcome {
   final int playbacksUpdated;
   final int playbacksSkippedUnmatched;
   final int workOverridesApplied;
+  final int workOverridesSkippedUnmatched;
   final int tombstonesApplied;
   final int preferencesRestored;
+
+  /// 本次直接新增或更新的完整媒体库作品数量。
+  final int catalogWorksSynced;
+
+  /// 本次新增写入的媒体源配置数量。
+  final int catalogSourcesAdded;
+
+  /// 本次依远端删除墓碑移除的已删除作品数量。
+  final int catalogWorksDeleted;
+
+  /// 本次新导入且带用户名、需用户到「媒体源」补填密码的远程源数量。
+  final int sourcesNeedingPassword;
+
   final int remoteDevicesMerged;
   final bool uploadedShard;
 
-  /// 生成用于 Toast 与设置页展示的简明中文摘要。
+  /// 是否存在因本机尚未扫描对应作品而被跳过的条目。
+  bool get hasSkippedUnmatched =>
+      playbacksSkippedUnmatched > 0 || workOverridesSkippedUnmatched > 0;
+
+  /// 是否存在需用户关注的长提示（跳过未入库项或新远程源需补填密码）。
+  bool get needsExtendedToast =>
+      hasSkippedUnmatched || sourcesNeedingPassword > 0;
+
+  /// 生成用于提示胶囊与设置页展示的简明中文摘要。
   String toSummaryMessage() {
     final parts = <String>[];
+    if (catalogWorksSynced > 0) parts.add('同步 $catalogWorksSynced 部作品');
+    if (catalogSourcesAdded > 0) parts.add('新增 $catalogSourcesAdded 个媒体源');
+    if (catalogWorksDeleted > 0) parts.add('移除 $catalogWorksDeleted 部已删作品');
     if (playbacksUpdated > 0) parts.add('更新 $playbacksUpdated 条观看进度');
-    if (workOverridesApplied > 0) parts.add('同步 $workOverridesApplied 项作品整理');
+    if (workOverridesApplied > 0 && catalogWorksSynced == 0) {
+      parts.add('同步 $workOverridesApplied 项作品整理');
+    }
     if (tombstonesApplied > 0) parts.add('应用 $tombstonesApplied 条删除记录');
     if (preferencesRestored > 0) parts.add('恢复 $preferencesRestored 项偏好');
     if (remoteDevicesMerged > 0) parts.add('合并 $remoteDevicesMerged 台远端设备');
+
+    final skippedParts = <String>[];
+    if (playbacksSkippedUnmatched > 0) {
+      skippedParts.add('$playbacksSkippedUnmatched 条未入库进度');
+    }
+    if (workOverridesSkippedUnmatched > 0) {
+      skippedParts.add('$workOverridesSkippedUnmatched 项未入库整理');
+    }
+
     if (parts.isEmpty) {
+      if (skippedParts.isNotEmpty) {
+        final suffix = uploadedShard ? ' · 已刷新本机云端分片' : '';
+        return '本机已入库数据已最新 · 跳过 ${skippedParts.join('、')}$suffix';
+      }
       return uploadedShard ? '两端数据已一致，已刷新本机云端分片' : '无需变更，数据已保持最新';
+    }
+    if (skippedParts.isNotEmpty) {
+      parts.add('跳过 ${skippedParts.join('、')}');
+    }
+    if (sourcesNeedingPassword > 0) {
+      parts.add('请到「媒体源」为 $sourcesNeedingPassword 个远程源补填密码');
     }
     return parts.join(' · ');
   }

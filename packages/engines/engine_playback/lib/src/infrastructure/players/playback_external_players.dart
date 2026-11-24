@@ -1,0 +1,9 @@
+export 'desktop_external_player_store.dart';
+export 'foobar_beefweb_tracker.dart';
+export 'mpv_ipc_tracker.dart';
+export 'player_tracking_isolates.dart';
+export 'potplayer_win32_tracker.dart';
+export 'real_external_player_launcher.dart';
+export 'win32_ffi_bindings.dart';
+export 'windows_code_page_decoder.dart';
+export 'windows_desktop_relay_gateway.dart';

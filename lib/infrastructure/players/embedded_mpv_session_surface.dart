@@ -367,6 +367,31 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
     return Directory(p.join(photosRoot.path, 'work [$safeTag]'));
   }
 
+  /// 关闭会话前立即同步静音暂停并解绑底层硬件表面，消除退页残留声音与 Surface 销毁竞态报错。
+  void silenceAndDetachForClose() {
+    _closingSilenced = true;
+    ++_loadGeneration;
+    _firstFrameWatchdogTimer?.cancel();
+    _firstFrameWatchdogTimer = null;
+    final client = _client;
+    if (_disposed ||
+        client == null ||
+        client.isDisposed ||
+        !client.isInitialized) {
+      return;
+    }
+    client.setPropertyFlag('pause', true);
+    client.setPropertyFlag('mute', true);
+    if (_useAndroidSurfaceSession || _usingGpuNextUnderlay) {
+      client.setPropertyString('vo', 'null');
+      client.setPropertyString('wid', '0');
+      _boundAndroidWid = 0;
+      _boundAndroidWidth = 0;
+      _boundAndroidHeight = 0;
+      _boundAndroidHdrPeak = -1;
+    }
+  }
+
   /// Android 画中画退出或回前台时按需重绑当前底层 `Surface`（不重建解码器与播放会话）。
   Future<void> rebindCurrentAndroidSurface() async {
     final surf = _androidSurface;
@@ -624,10 +649,161 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
     }
   }
 
+  /// 装载前依据已解析的结构化视频编码/位深预判硬件解码安全性，避免对已知 Hi10P / HEVC Rext 启动无效 MediaCodec。
+  void _applyPreLoadHwdecPolicy(LibMpvClient client, MediaVariant variant) {
+    if (!_hwdecWasEnabled || _closingSilenced) return;
+    final platform = _useAndroidSurfaceSession
+        ? HwdecPlatformKind.android
+        : (Platform.isWindows
+              ? HwdecPlatformKind.windows
+              : HwdecPlatformKind.other);
+    final decision = HwdecSafetyPolicy.evaluateVariantMetadata(
+      platform: platform,
+      videoCodec: variant.videoCodec,
+      bitDepth: variant.bitDepth,
+    );
+    if (!decision.allowHardwareDecode) {
+      _hwdecFallbackAttempted = true;
+      _usingSoftwareFallback = true;
+      _setHwdecWithAndroidVoGuard(client, 'no', threads: '0');
+      logStore?.record(
+        'mpv-hwdec-guard',
+        'preload rule=${decision.matchedRule} codec=${variant.videoCodec} bitDepth=${variant.bitDepth} -> hwdec=no',
+      );
+      onHwdecChanged?.call('no');
+      if (decision.reason != null) {
+        onNotice?.call(decision.reason!);
+      }
+      return;
+    }
+    if (_usingSoftwareFallback) {
+      _usingSoftwareFallback = false;
+      final restored = MpvQualityProfile.resolveHwdecValue(
+        config: _lastQualityConfig,
+        isWindows: Platform.isWindows,
+        isAndroid: _useAndroidSurfaceSession,
+        desktopDelegate: desktopProfileDelegate,
+      );
+      _setHwdecWithAndroidVoGuard(client, restored);
+    }
+  }
+
+  /// Android 表面挂载态切换 `hwdec` 时先暂停并置空 `vo=null`，待解码器属性落定后再恢复原画输出，
+  /// 避免 MediaCodec 与 `AImageReader` 同步栅栏交叉卸载触发 `-30001` 超时或 `fdsan` 崩溃。
+  void _setHwdecWithAndroidVoGuard(
+    LibMpvClient client,
+    String targetHwdec, {
+    String? threads,
+  }) {
+    final hadBoundSurface =
+        _useAndroidSurfaceSession && _boundAndroidWid > 0 && _videoTrackEnabled;
+    final wasPaused = hadBoundSurface
+        ? (client.getPropertyFlag('pause') ?? false)
+        : false;
+    if (hadBoundSurface) {
+      client.setPropertyFlag('pause', true);
+      client.setPropertyString('vo', 'null');
+    }
+    client.setPropertyString('hwdec', targetHwdec);
+    if (threads != null) {
+      client.setPropertyString('vd-lavc-threads', threads);
+    }
+    if (hadBoundSurface && !_closingSilenced) {
+      _applyAndroidVo(client);
+      client.setPropertyFlag('pause', wasPaused);
+    }
+  }
+
+  /// 安全执行硬件解码向多线程软解的过渡（支持 `video-reload` 热切与 `loadfile replace` 兜底重载）。
+  void _applySoftwareDecodeTransition(
+    LibMpvClient client, {
+    required bool reloadFile,
+  }) {
+    final hadBoundSurface =
+        _useAndroidSurfaceSession && _boundAndroidWid > 0 && _videoTrackEnabled;
+    final wasPaused = client.getPropertyFlag('pause') ?? false;
+    if (hadBoundSurface) {
+      client.setPropertyFlag('pause', true);
+      client.setPropertyString('vo', 'null');
+    }
+    client.setPropertyString('hwdec', 'no');
+    client.setPropertyString('vd-lavc-threads', '0');
+
+    if (reloadFile) {
+      final canPreservePos =
+          _lastPositionSeconds > 0.5 &&
+          (_totalDurationSeconds <= 0 ||
+              _lastPositionSeconds < _totalDurationSeconds - 1.0);
+      if (canPreservePos) {
+        client.setPropertyDouble('start', _lastPositionSeconds);
+      } else {
+        client.setPropertyString('start', 'none');
+      }
+      if (hadBoundSurface && !_closingSilenced) {
+        _applyAndroidVo(client);
+      }
+      client.setPropertyFlag('pause', false);
+      client.command(['loadfile', _currentMediaTarget, 'replace']);
+      return;
+    }
+
+    if (_useAndroidSurfaceSession) {
+      // 移动端先在 vo=null 静默态重建视频轨以干净销毁伪支持 MediaCodec 实例，再重新挂载原画输出。
+      client.command(['video-reload']);
+      if (hadBoundSurface && !_closingSilenced) {
+        _applyAndroidVo(client);
+        client.setPropertyFlag('pause', wasPaused);
+      }
+    }
+  }
+
+  /// 运行中更新画质配置时对 Android 硬软解切换施加 `vo=null` 隔离保护。
+  void _applyLiveQualityWithAndroidSurfaceGuard(
+    LibMpvClient client, {
+    required PlaybackQualityConfig config,
+    required List<String> verifiedShaders,
+  }) {
+    final nextHwdec = MpvQualityProfile.resolveHwdecValue(
+      config: config,
+      isWindows: Platform.isWindows,
+      isAndroid: _useAndroidSurfaceSession,
+      desktopDelegate: desktopProfileDelegate,
+    );
+    final currentHwdec = client.getPropertyString('hwdec') ?? '';
+    final needAndroidVoGuard =
+        _useAndroidSurfaceSession &&
+        _boundAndroidWid > 0 &&
+        _videoTrackEnabled &&
+        nextHwdec != currentHwdec;
+    final wasPaused = needAndroidVoGuard
+        ? (client.getPropertyFlag('pause') ?? false)
+        : false;
+    if (needAndroidVoGuard) {
+      client.setPropertyFlag('pause', true);
+      client.setPropertyString('vo', 'null');
+    }
+    MpvQualityProfile.applyLiveQualityUpdate(
+      client,
+      config: config,
+      isHdrSource: _lastDynamicHdrActive ?? false,
+      hasSecondarySubtitle: _hasSecondarySubtitle,
+      isAndroidOverride: _useAndroidSurfaceSession,
+      desktopDelegate: desktopProfileDelegate,
+      verifiedShaderPaths: verifiedShaders,
+      onExclusiveFallbackNotice: onNotice,
+      logStore: logStore,
+    );
+    if (needAndroidVoGuard && !_disposed && !_closingSilenced && !client.isDisposed) {
+      _applyAndroidVo(client);
+      client.setPropertyFlag('pause', wasPaused);
+    }
+  }
+
   /// 解码层精准拦截 AVC Hi10P / 非 4:2:0 与 HEVC Rext / >10-bit 流，在首帧花屏前自动回落多线程 SIMD 软解。
   void _enforceHwdecSafetyPolicy() {
     final client = _client;
     if (_disposed ||
+        _closingSilenced ||
         client == null ||
         client.isDisposed ||
         !_hwdecWasEnabled ||
@@ -665,13 +841,7 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
     }
     _hwdecFallbackAttempted = true;
     _usingSoftwareFallback = true;
-    client.setPropertyString('hwdec', 'no');
-    client.setPropertyString('vd-lavc-threads', '0');
-    if (_useAndroidSurfaceSession) {
-      // 移动端硬件解码器对 HEVC Rext/Main12 等伪支持流可能已卡死首帧，
-      // 主动重载视频轨即可立即销毁硬解实例并无缝切入多线程软解。
-      client.command(['video-reload']);
-    }
+    _applySoftwareDecodeTransition(client, reloadFile: false);
     logStore?.record(
       'mpv-hwdec-guard',
       'rule=${decision.matchedRule} codec=$codec profile=$profile pixfmt=$pixfmt hw=$hwPixfmt -> hwdec=no',

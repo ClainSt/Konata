@@ -21,6 +21,9 @@ class KonataKeepAliveTabSwitcher extends StatefulWidget {
     this.incomingSlidePixels = 10.0,
     this.outgoingSlidePixels = 8.0,
     this.scrimFadeColor,
+    this.idleEvictAfter,
+    this.pinnedIndices = const <int>{0},
+    this.clock,
   });
 
   /// 当前激活页面索引。
@@ -41,6 +44,15 @@ class KonataKeepAliveTabSwitcher extends StatefulWidget {
   /// 可选实底画布淡入遮罩色；非空时用零 `saveLayer` 顶层同色遮罩等价替代 `FadeTransition`。
   final Color? scrimFadeColor;
 
+  /// 非锁定后台页超时懒回收阈值；非空时在切页、退场动画结束或应用生命周期变化时卸载超期失活子树（零后台定时器）。
+  final Duration? idleEvictAfter;
+
+  /// 永不因闲置被自动卸载的常驻页索引集合（默认锁定 0 号媒体库首页）。
+  final Set<int> pinnedIndices;
+
+  /// 可选时钟注入（仅用于确定性单元测试，不传时默认使用系统时间）。
+  final DateTime Function()? clock;
+
   @override
   State<KonataKeepAliveTabSwitcher> createState() =>
       _KonataKeepAliveTabSwitcherState();
@@ -48,7 +60,7 @@ class KonataKeepAliveTabSwitcher extends StatefulWidget {
 
 class _KonataKeepAliveTabSwitcherState
     extends State<KonataKeepAliveTabSwitcher>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   static const AlwaysStoppedAnimation<Offset> _kZeroOffsetAnimation =
       AlwaysStoppedAnimation<Offset>(Offset.zero);
 
@@ -60,14 +72,18 @@ class _KonataKeepAliveTabSwitcherState
   late Animation<Offset> _incomingSlide;
   late Animation<Offset> _outgoingSlide;
   late List<bool> _mountedFlags;
+  late List<DateTime?> _lastDeactivatedAt;
   late List<Widget> _wrappedChildren;
   bool _animating = false;
   int? _outgoingIndex;
   double _direction = 1.0;
 
+  DateTime _now() => (widget.clock ?? DateTime.now)();
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initChildrenCache();
     _animCtrl = AnimationController(
       vsync: this,
@@ -124,6 +140,7 @@ class _KonataKeepAliveTabSwitcherState
         setState(() {
           _animating = false;
           _outgoingIndex = null;
+          _evictIdleOffstageTabs(_now());
         });
       } else {
         _animating = false;
@@ -137,10 +154,48 @@ class _KonataKeepAliveTabSwitcherState
       widget.children.length,
       (i) => i == widget.activeIndex,
     );
+    _lastDeactivatedAt = List<DateTime?>.filled(widget.children.length, null);
     _wrappedChildren = [
       for (var i = 0; i < widget.children.length; i++)
         RepaintBoundary(child: widget.children[i]),
     ];
+  }
+
+  bool _evictIdleOffstageTabs(DateTime now, {int? excludeIndex}) {
+    final ttl = widget.idleEvictAfter;
+    if (ttl == null) return false;
+    var evictedAny = false;
+    for (var i = 0; i < _mountedFlags.length; i++) {
+      if (!_mountedFlags[i] ||
+          i == widget.activeIndex ||
+          i == excludeIndex ||
+          widget.pinnedIndices.contains(i)) {
+        continue;
+      }
+      final deactivatedAt = _lastDeactivatedAt[i];
+      if (deactivatedAt != null && now.difference(deactivatedAt) >= ttl) {
+        _mountedFlags[i] = false;
+        _lastDeactivatedAt[i] = null;
+        evictedAny = true;
+      }
+    }
+    return evictedAny;
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!mounted) return;
+    if (state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.resumed) {
+      final changed = _evictIdleOffstageTabs(
+        _now(),
+        excludeIndex: _outgoingIndex,
+      );
+      if (changed) {
+        setState(() {});
+      }
+    }
   }
 
   @override
@@ -148,9 +203,11 @@ class _KonataKeepAliveTabSwitcherState
     super.didUpdateWidget(oldWidget);
     if (oldWidget.children.length != widget.children.length) {
       final prevMounted = _mountedFlags;
+      final prevDeactivated = _lastDeactivatedAt;
       _initChildrenCache();
       for (var i = 0; i < prevMounted.length && i < _mountedFlags.length; i++) {
         _mountedFlags[i] = _mountedFlags[i] || prevMounted[i];
+        _lastDeactivatedAt[i] = prevDeactivated[i];
       }
     } else if (!identical(oldWidget.children, widget.children)) {
       _wrappedChildren = [
@@ -160,7 +217,13 @@ class _KonataKeepAliveTabSwitcherState
     }
 
     if (oldWidget.activeIndex != widget.activeIndex) {
+      final now = _now();
+      if (oldWidget.activeIndex >= 0 &&
+          oldWidget.activeIndex < _lastDeactivatedAt.length) {
+        _lastDeactivatedAt[oldWidget.activeIndex] = now;
+      }
       _mountedFlags[widget.activeIndex] = true;
+      _lastDeactivatedAt[widget.activeIndex] = null;
       _direction = widget.activeIndex >= oldWidget.activeIndex ? 1.0 : -1.0;
       _incomingSlide = _buildIncomingSlide(_direction);
       _outgoingSlide = _buildOutgoingSlide(_direction);
@@ -169,17 +232,20 @@ class _KonataKeepAliveTabSwitcherState
         _animating = false;
         _outgoingIndex = null;
         _animCtrl.value = 1.0;
+        _evictIdleOffstageTabs(now);
       } else {
         _animating = true;
         _outgoingIndex = oldWidget.activeIndex;
         _animCtrl.duration = widget.duration;
         _animCtrl.forward(from: 0.0);
+        _evictIdleOffstageTabs(now, excludeIndex: _outgoingIndex);
       }
     }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _animCtrl.removeStatusListener(_handleAnimationStatus);
     _incomingOpacity.dispose();
     _outgoingOpacityCurve.dispose();

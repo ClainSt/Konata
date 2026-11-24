@@ -24,6 +24,7 @@ import '../../domain/playback/track_preferences.dart';
 import '../../domain/playback/video_aspect_mode.dart';
 import '../../domain/playback/watched_tracker.dart';
 import '../../domain/repositories/desktop_relay_service.dart';
+import '../../domain/repositories/library_repository.dart';
 import '../../infrastructure/logging/diagnostics_log_store.dart';
 import '../../infrastructure/players/android/android_video_surface_controller.dart';
 import '../../infrastructure/players/embedded_mpv_session.dart';
@@ -691,7 +692,7 @@ class VideoPlaybackController extends Notifier<VideoPlaybackState> {
               ? () => _androidSurfaceCompleter.future
               : null,
         );
-        if (!mounted) return;
+        if (!mounted || _closedCleanly) return;
         _engine.bindActiveNativeClient(
           session.activeClient,
           stage: PlaybackStageKind.video,
@@ -1107,89 +1108,9 @@ class VideoPlaybackController extends Notifier<VideoPlaybackState> {
   }
 
   /// 安全保存进度、退出全屏并在串行互斥锁内彻底释放底层硬件资源（允许多次幂等调用）。
-  Future<void> closeAndRelease() async {
-    if (_closedCleanly) return;
-    _closedCleanly = true;
+  Future<void> closeAndRelease() => _closeAndReleaseImpl();
 
-    _microFadeDriver.cancel();
-    _safetyCoordinator.detachSession(this);
-    _persistTimer?.cancel();
-    _probeTimer?.cancel();
-    _skipFadeTimer?.cancel();
-    _chapterSkipWakeTimer?.cancel();
-    _subtitleMemoryEngine?.dispose();
-    _subtitleMemoryEngine = null;
-    _disposePrewarmedNextEpisode();
-    await _releaseThumbnailService(disposeNotifier: true);
-
-    if (mounted) {
-      state = state.copyWith(isClosing: true);
-    }
-
-    if (state.isFullscreen && KonataPlatform.isWindows) {
-      await _ref.read(konataWindowHostProvider).setFullScreen(false);
-    } else if (KonataPlatform.isAndroid) {
-      await AndroidPlaybackWindowBridge.applyVideoOrientationAndWindow(
-        landscape: false,
-        hideSystemBars: false,
-      );
-      await AndroidPlaybackWindowBridge.endWindow();
-      await _ref.read(androidAudioFocusServiceProvider).abandonAudioFocus();
-    }
-
-    await _persistProgress(isFinal: true);
-
-    final sessionToDispose = _session;
-    _session = null;
-    if (sessionToDispose != null) {
-      await _sessionMutex.runExclusive(() => sessionToDispose.dispose());
-    }
-    final leasedTokens = _engine.resetSession(stage: PlaybackStageKind.video);
-    for (final token in leasedTokens) {
-      unawaited(
-        _streamBridge.unregisterSession(token).catchError((Object e) {
-          _logStore.record('VIDEO', '释放统一引擎流租约 $token 失败：$e');
-        }),
-      );
-    }
-
-    if (mounted) {
-      _ref.read(videoPlaybackActiveProvider.notifier).state = false;
-    }
-    _ref.read(konataMemoryCoordinatorProvider).schedulePostPlaybackTrim();
-  }
-
-  void _disposeResources() {
-    _microFadeDriver.cancel();
-    _safetyCoordinator.detachSession(this);
-    _persistTimer?.cancel();
-    _probeTimer?.cancel();
-    _skipFadeTimer?.cancel();
-    _chapterSkipWakeTimer?.cancel();
-    _subtitleMemoryEngine?.dispose();
-    _subtitleMemoryEngine = null;
-    _disposePrewarmedNextEpisode();
-
-    if (!_closedCleanly) {
-      _closedCleanly = true;
-      unawaited(_releaseThumbnailService(disposeNotifier: true));
-      final sessionToDispose = _session;
-      _session = null;
-      if (sessionToDispose != null) {
-        unawaited(_sessionMutex.runExclusive(() => sessionToDispose.dispose()));
-      }
-      final leasedTokens = _engine.resetSession(stage: PlaybackStageKind.video);
-      for (final token in leasedTokens) {
-        unawaited(
-          _streamBridge.unregisterSession(token).catchError((Object e) {
-            _logStore.record('VIDEO', '销毁期释放流租约 $token 失败：$e');
-          }),
-        );
-      }
-    }
-    _thumbnailRevision.dispose();
-    _positionListenable.dispose();
-  }
+  void _disposeResources() => _disposeResourcesImpl();
 }
 
 /// 内置视频播放控制器 Family Provider（按单次播放请求自动挂载与释放）。

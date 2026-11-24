@@ -46,7 +46,6 @@ import io.flutter.embedding.android.FlutterActivityLaunchConfigs
 import io.flutter.embedding.android.FlutterSurfaceView
 import io.flutter.embedding.android.RenderMode
 import io.flutter.embedding.engine.FlutterEngine
-import io.flutter.embedding.engine.FlutterShellArgs
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.StandardMethodCodec
 import java.io.ByteArrayOutputStream
@@ -189,12 +188,41 @@ class MainActivity : FlutterActivity() {
         flutterSurfaceView.holder.setFormat(PixelFormat.TRANSLUCENT)
     }
 
-    override fun getFlutterShellArgs(): FlutterShellArgs {
-        val args = super.getFlutterShellArgs()
-        // 强制 Android 渲染管线使用 OpenGL ES 并关闭 HCPP，消除 Vulkan 交换链句柄冲突崩溃与旋转残影
-        args.add("--impeller-backend=opengles")
-        args.add("--enable-hcpp-and-surface-control=false")
-        return args
+    /// 识别联发科 / Mali 平台：Flutter 3.50 Release 模式会静默忽略 `ImpellerBackend=opengles` 并强启 Vulkan，
+    /// 在联发科 Mali（如 mt6989 + libged）与 libmpv OpenGL ES 并发渲染时会触发 BLASTBufferQueue 耗尽与 fdsan 闪退。
+    private fun shouldDisableImpellerForCurrentDevice(): Boolean {
+        val hardware = Build.HARDWARE.orEmpty().lowercase()
+        val board = Build.BOARD.orEmpty().lowercase()
+        val socManufacturer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            Build.SOC_MANUFACTURER.orEmpty().lowercase()
+        } else {
+            ""
+        }
+        val socModel = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            Build.SOC_MODEL.orEmpty().lowercase()
+        } else {
+            ""
+        }
+        return hardware.startsWith("mt") ||
+            board.startsWith("mt") ||
+            socManufacturer.contains("mediatek") ||
+            socModel.startsWith("mt")
+    }
+
+    override fun getFlutterEngineFlags(): List<String> {
+        val flags = super.getFlutterEngineFlags().toMutableList()
+        if (shouldDisableImpellerForCurrentDevice()) {
+            // 联发科/Mali 机型显式关闭 Impeller，统一落回 OpenGL ES 避免与 libmpv/libged 争抢 Vulkan 栅栏句柄。
+            if (flags.none { it.startsWith("--enable-impeller") }) {
+                flags.add("--enable-impeller=false")
+            }
+        } else if (flags.none { it.startsWith("--impeller-backend=") }) {
+            flags.add("--impeller-backend=opengles")
+        }
+        if (flags.none { it.startsWith("--enable-hcpp-and-surface-control") }) {
+            flags.add("--enable-hcpp-and-surface-control=false")
+        }
+        return flags
     }
 
     private fun ensurePipReceiverRegistered() {

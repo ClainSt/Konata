@@ -185,9 +185,97 @@ class _TopHoverPreviewBubble extends StatelessWidget {
   }
 }
 
+class _CapsuleTimeTextLeaf extends StatefulWidget {
+  const _CapsuleTimeTextLeaf({
+    required this.positionListenable,
+    required this.fallbackPositionSeconds,
+    required this.dragSeconds,
+    required this.totalDurationSeconds,
+    required this.style,
+  });
+
+  final ValueListenable<double>? positionListenable;
+  final double fallbackPositionSeconds;
+  final double? dragSeconds;
+  final double totalDurationSeconds;
+  final TextStyle style;
+
+  @override
+  State<_CapsuleTimeTextLeaf> createState() => _CapsuleTimeTextLeafState();
+}
+
+class _CapsuleTimeTextLeafState extends State<_CapsuleTimeTextLeaf> {
+  late int _renderedWholeSecond;
+
+  double _resolveClampedSeconds() {
+    final total = widget.totalDurationSeconds;
+    final raw =
+        widget.dragSeconds ??
+        widget.positionListenable?.value ??
+        widget.fallbackPositionSeconds;
+    return raw.clamp(0.0, total > 0 ? total : 1.0);
+  }
+
+  void _handlePositionTick() {
+    if (!mounted || widget.dragSeconds != null) return;
+    final nextWhole = _resolveClampedSeconds().floor();
+    if (nextWhole == _renderedWholeSecond) return;
+    setState(() => _renderedWholeSecond = nextWhole);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _renderedWholeSecond = _resolveClampedSeconds().floor();
+    widget.positionListenable?.addListener(_handlePositionTick);
+  }
+
+  @override
+  void didUpdateWidget(covariant _CapsuleTimeTextLeaf oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.positionListenable, widget.positionListenable)) {
+      oldWidget.positionListenable?.removeListener(_handlePositionTick);
+      widget.positionListenable?.addListener(_handlePositionTick);
+    }
+    _renderedWholeSecond = _resolveClampedSeconds().floor();
+  }
+
+  @override
+  void dispose() {
+    widget.positionListenable?.removeListener(_handlePositionTick);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final total = widget.totalDurationSeconds;
+    final showHours = total >= 3600;
+    final effectivePos = _resolveClampedSeconds();
+    final currentText = PlaybackFormatters.formatMediaDuration(
+      total > 0 ? effectivePos : 0.0,
+      alwaysShowHours: showHours,
+    );
+    final totalText = PlaybackFormatters.formatMediaDuration(
+      total,
+      alwaysShowHours: showHours,
+    );
+    return RepaintBoundary(
+      child: Text(
+        '$currentText / $totalText',
+        maxLines: 1,
+        softWrap: false,
+        overflow: TextOverflow.ellipsis,
+        style: widget.style,
+      ),
+    );
+  }
+}
+
 class _InsetTopProgressRail extends StatelessWidget {
   const _InsetTopProgressRail({
-    required this.progressRatio,
+    required this.positionListenable,
+    required this.fallbackPositionSeconds,
+    required this.dragSeconds,
     required this.totalDurationSeconds,
     required this.chapters,
     required this.activeChapterIndex,
@@ -201,7 +289,9 @@ class _InsetTopProgressRail extends StatelessWidget {
     required this.onScrubCommitRatio,
   });
 
-  final double progressRatio;
+  final ValueListenable<double>? positionListenable;
+  final double fallbackPositionSeconds;
+  final double? dragSeconds;
   final double totalDurationSeconds;
   final List<PlaybackChapter> chapters;
   final int activeChapterIndex;
@@ -213,6 +303,56 @@ class _InsetTopProgressRail extends StatelessWidget {
   final ValueChanged<double> onScrubStartOrUpdate;
   final VoidCallback onScrubEnd;
   final ValueChanged<double> onScrubCommitRatio;
+
+  double _resolveProgressRatio(double? listenableSeconds) {
+    if (totalDurationSeconds <= 0) return 0.0;
+    final raw =
+        dragSeconds ?? listenableSeconds ?? fallbackPositionSeconds;
+    return (raw / totalDurationSeconds).clamp(0.0, 1.0);
+  }
+
+  Widget _buildHoveredThumb({
+    required double width,
+    required double visualHeight,
+    required double thumbSize,
+    required List<double> acceptedCenters,
+    required double progressRatio,
+  }) {
+    final thumbLeft = (progressRatio * width - thumbSize / 2).clamp(
+      0.0,
+      (width - thumbSize).clamp(0.0, width),
+    );
+    final thumbCenterX = thumbLeft + thumbSize / 2;
+    for (final cx in acceptedCenters) {
+      if ((cx - thumbCenterX).abs() < thumbSize * 0.72) {
+        return const SizedBox.shrink();
+      }
+    }
+    return Positioned(
+      left: thumbLeft,
+      top: math.max(
+        0.5,
+        KonataPlaybackTokens.capsuleProgressTopInset +
+            (visualHeight - thumbSize) / 2,
+      ),
+      child: IgnorePointer(
+        child: Container(
+          width: thumbSize,
+          height: thumbSize,
+          decoration: BoxDecoration(
+            color: activeColor,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: activeColor.withValues(alpha: isDark ? 0.72 : 0.30),
+                blurRadius: 7,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -227,11 +367,6 @@ class _InsetTopProgressRail extends StatelessWidget {
             ? KonataPlaybackTokens.capsuleProgressHoverHeight
             : KonataPlaybackTokens.capsuleProgressRestHeight;
         final thumbSize = visualHeight + 3.0;
-        final thumbLeft = (progressRatio * width - thumbSize / 2).clamp(
-          0.0,
-          (width - thumbSize).clamp(0.0, width),
-        );
-        final thumbCenterX = thumbLeft + thumbSize / 2;
 
         final markerSizeForBounds = hovered
             ? KonataPlaybackTokens.chapterDiamondHoverSize
@@ -286,16 +421,7 @@ class _InsetTopProgressRail extends StatelessWidget {
           return a.compareTo(b);
         });
 
-        var thumbOverlapsMarker = false;
-        if (hovered) {
-          for (final cx in acceptedCenters) {
-            if ((cx - thumbCenterX).abs() < thumbSize * 0.72) {
-              thumbOverlapsMarker = true;
-              break;
-            }
-          }
-        }
-
+        final listenable = positionListenable;
         return MouseRegion(
           cursor: SystemMouseCursors.click,
           onEnter: (e) => onHoverChanged(true, ratioAt(e.localPosition.dx)),
@@ -328,12 +454,9 @@ class _InsetTopProgressRail extends StatelessWidget {
                       ),
                     ),
                     clipBehavior: Clip.antiAlias,
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: FractionallySizedBox(
-                        widthFactor: progressRatio,
-                        heightFactor: 1.0,
-                        child: DecoratedBox(
+                    child: RepaintBoundary(
+                      child: () {
+                        final fillBox = DecoratedBox(
                           decoration: BoxDecoration(
                             color: activeColor,
                             borderRadius: BorderRadius.only(
@@ -350,39 +473,56 @@ class _InsetTopProgressRail extends StatelessWidget {
                               ),
                             ],
                           ),
-                        ),
-                      ),
+                        );
+                        if (dragSeconds == null && listenable != null) {
+                          return ValueListenableBuilder<double>(
+                            valueListenable: listenable,
+                            child: fillBox,
+                            builder: (_, liveSec, child) => Align(
+                              alignment: Alignment.centerLeft,
+                              child: FractionallySizedBox(
+                                widthFactor: _resolveProgressRatio(liveSec),
+                                heightFactor: 1.0,
+                                child: child,
+                              ),
+                            ),
+                          );
+                        }
+                        return Align(
+                          alignment: Alignment.centerLeft,
+                          child: FractionallySizedBox(
+                            widthFactor: _resolveProgressRatio(
+                              listenable?.value,
+                            ),
+                            heightFactor: 1.0,
+                            child: fillBox,
+                          ),
+                        );
+                      }(),
                     ),
                   ),
                 ),
                 // 进度圆点置于章节点下方，且与章节点重合时自动退让，彻底防止开头章节点被圆点遮挡。
-                if (hovered && !thumbOverlapsMarker)
-                  Positioned(
-                    left: thumbLeft,
-                    top: math.max(
-                      0.5,
-                      KonataPlaybackTokens.capsuleProgressTopInset +
-                          (visualHeight - thumbSize) / 2,
-                    ),
-                    child: IgnorePointer(
-                      child: Container(
-                        width: thumbSize,
-                        height: thumbSize,
-                        decoration: BoxDecoration(
-                          color: activeColor,
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: activeColor.withValues(
-                                alpha: isDark ? 0.72 : 0.30,
-                              ),
-                              blurRadius: 7,
-                            ),
-                          ],
-                        ),
+                if (hovered)
+                  if (dragSeconds == null && listenable != null)
+                    ValueListenableBuilder<double>(
+                      valueListenable: listenable,
+                      builder: (_, liveSec, _) => _buildHoveredThumb(
+                        width: width,
+                        visualHeight: visualHeight,
+                        thumbSize: thumbSize,
+                        acceptedCenters: acceptedCenters,
+                        progressRatio: _resolveProgressRatio(liveSec),
                       ),
+                    )
+                  else
+                    _buildHoveredThumb(
+                      width: width,
+                      visualHeight: visualHeight,
+                      thumbSize: thumbSize,
+                      acceptedCenters: acceptedCenters,
+                      progressRatio: _resolveProgressRatio(listenable?.value),
                     ),
-                  ),
                 for (final i in visibleIndices)
                   _ChapterDiamondMarker(
                     key: ValueKey(

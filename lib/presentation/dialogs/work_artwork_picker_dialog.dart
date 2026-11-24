@@ -458,6 +458,13 @@ class _WorkArtworkPickerDialogState
   }
 
   String _buildCandidateHeaderText() {
+    if (_loading) {
+      return switch (widget.kind) {
+        WorkArtworkKind.poster => '正在获取在线候选封面...',
+        WorkArtworkKind.backdrop => '正在获取在线候选背景图...',
+        WorkArtworkKind.logo => '正在获取在线透明标题徽标...',
+      };
+    }
     if (_candidates.isEmpty) {
       if (widget.work.tmdbId == null &&
           widget.work.bangumiId == null &&

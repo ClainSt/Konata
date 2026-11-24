@@ -14,6 +14,7 @@ import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
 import '../theme/konata_theme.dart';
+import '../widgets/design_system/konata_adaptive_blur.dart';
 import '../widgets/design_system/konata_pill_button.dart';
 import '../widgets/managed_image.dart';
 import 'detail_hero_info.dart';
@@ -480,8 +481,8 @@ class WorkDetailBackCircle extends StatelessWidget {
           width: btnSize,
           height: btnSize,
           child: ClipOval(
-            child: BackdropFilter(
-              filter: KonataTheme.blurFilterControl,
+            child: KonataAdaptiveBackdropBlur(
+              filter: KonataTheme.blurFilterMedium,
               child: Material(
                 color: bgColor,
                 shape: CircleBorder(side: BorderSide(color: borderColor)),
@@ -663,33 +664,23 @@ class DetailWideBackdropStage extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-        if (bgPath.isNotEmpty)
-          SmartManagedImageAlignmentBuilder(
-            url: bgPath,
+        if (bgPath.isNotEmpty && hasBackdrop)
+          ManagedImage(
+            bgPath,
             loader: imageLoader,
             owner: workId,
-            artwork: hasBackdrop
-                ? ManagedArtwork.backdrop
-                : ManagedArtwork.poster,
-            targetAspectRatio: 16 / 9,
-            enabled: !hasBackdrop,
-            builder: (_, alignment) => ManagedImage(
-              bgPath,
-              loader: imageLoader,
-              owner: workId,
-              artwork: hasBackdrop
-                  ? ManagedArtwork.backdrop
-                  : ManagedArtwork.poster,
-              isHeroBackdrop: true,
-              imageSize: TmdbImageSize.original,
-              fit: BoxFit.cover,
-              alignment: alignment,
-            ),
-          ),
-        if (!hasBackdrop && bgPath.isNotEmpty)
-          BackdropFilter(
-            filter: KonataTheme.blurFilterCapsule,
-            child: Container(color: KonataTheme.scrimBlackMedium),
+            artwork: ManagedArtwork.backdrop,
+            isHeroBackdrop: true,
+            imageSize: TmdbImageSize.original,
+            fit: BoxFit.cover,
+            alignment: Alignment.center,
+          )
+        else if (bgPath.isNotEmpty)
+          _BlurredPosterBackdrop(
+            posterPath: bgPath,
+            workId: workId,
+            imageLoader: imageLoader,
+            scrimColor: KonataTheme.scrimBlackMedium,
           ),
         // 左下角定向斜角柔晕：仅聚光承托左下标题与简介区，左上人物面部与右半屏原画保持鲜艳通透。
         IgnorePointer(
@@ -757,30 +748,35 @@ class _BlurredPosterBackdrop extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ClipRect(
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          SmartManagedImageAlignmentBuilder(
-            url: posterPath,
-            loader: imageLoader,
-            owner: workId,
-            artwork: ManagedArtwork.poster,
-            targetAspectRatio: 16 / 9,
-            builder: (_, alignment) => ManagedImage(
-              posterPath,
-              loader: imageLoader,
-              owner: workId,
-              artwork: ManagedArtwork.poster,
-              fit: BoxFit.cover,
-              alignment: alignment,
+    // 无横版背景时采用 480px 轻量图单次 ImageFiltered 模糊并锁定在独立 RepaintBoundary，
+    // 像素计算量降至全屏原画实时 BackdropFilter 的 1/16，且窗口拉伸不重算模糊核。
+    return RepaintBoundary(
+      child: ClipRect(
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            ImageFiltered(
+              imageFilter: KonataTheme.blurFilterMedium,
+              child: SmartManagedImageAlignmentBuilder(
+                url: posterPath,
+                loader: imageLoader,
+                owner: workId,
+                artwork: ManagedArtwork.poster,
+                targetAspectRatio: 16 / 9,
+                builder: (_, alignment) => ManagedImage(
+                  posterPath,
+                  loader: imageLoader,
+                  owner: workId,
+                  artwork: ManagedArtwork.poster,
+                  decodeWidth: 480,
+                  fit: BoxFit.cover,
+                  alignment: alignment,
+                ),
+              ),
             ),
-          ),
-          BackdropFilter(
-            filter: KonataTheme.blurFilterMedium,
-            child: ColoredBox(color: scrimColor),
-          ),
-        ],
+            ColoredBox(color: scrimColor),
+          ],
+        ),
       ),
     );
   }

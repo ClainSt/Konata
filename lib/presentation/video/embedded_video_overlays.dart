@@ -441,12 +441,15 @@ class _VideoBottomHudLeaf extends ConsumerWidget {
     final narrowAndroidHud = isAndroid && screenWidth < 680;
     final ultraNarrowAndroidHud = isAndroid && screenWidth < 400;
 
-    Widget buildCapsule(double posSeconds) => RepaintBoundary(
+    return RepaintBoundary(
       child: KonataPlaybackCapsule(
         maxWidth: isTablet ? KonataAdaptiveTokens.tabletPlayerMaxWidth : null,
         enableBackdropBlur: !isAndroid || audioOnlyMode,
         title: null,
-        positionSeconds: posSeconds,
+        positionSeconds: ref.read(videoPlaybackProvider(request)).positionSeconds,
+        positionListenable: subscribeProgress
+            ? controller.positionListenable
+            : null,
         durationSeconds: durationSeconds,
         isPlaying: isPlaying,
         chapters: chapters.cast(),
@@ -550,14 +553,6 @@ class _VideoBottomHudLeaf extends ConsumerWidget {
           ],
         ),
       ),
-    );
-
-    if (!subscribeProgress) {
-      return buildCapsule(ref.read(videoPlaybackProvider(request)).positionSeconds);
-    }
-    return ValueListenableBuilder<double>(
-      valueListenable: controller.positionListenable,
-      builder: (_, posSeconds, _) => buildCapsule(posSeconds),
     );
   }
 }

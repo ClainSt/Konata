@@ -243,11 +243,18 @@ abstract final class KonataTheme {
     tileMode: ui.TileMode.clamp,
   );
 
-  /// 按动态模糊半径构造统一钳制毛玻璃滤镜（供逐行歌词失焦与动态背景模糊复用）。
+  /// 按动态模糊半径构造统一钳制毛玻璃滤镜（供背景层毛玻璃复用）。
   static ui.ImageFilter blurFilterOf(double sigma) => ui.ImageFilter.blur(
     sigmaX: sigma,
     sigmaY: sigma,
     tileMode: ui.TileMode.clamp,
+  );
+
+  /// 按动态模糊半径构造边缘透明衰减滤镜（供前景倒影等独立图层模糊，避免边缘像素外延发亮）。
+  static ui.ImageFilter blurFilterDecalOf(double sigma) => ui.ImageFilter.blur(
+    sigmaX: sigma,
+    sigmaY: sigma,
+    tileMode: ui.TileMode.decal,
   );
 
   /// 暗底单色深黑 ClearLogo 的保色相亮度反相滤镜（180° 色相旋转复合反转，黑字柔化为光学象牙白且少量彩色点缀保持原色相）。

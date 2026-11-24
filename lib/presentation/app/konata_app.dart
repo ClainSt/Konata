@@ -71,26 +71,28 @@ class KonataApp extends ConsumerWidget {
     final logStore = ref.watch(diagnosticsLogStoreProvider);
     final appTitle = KonataLaneConfig.resolveDesktopWindowTitle();
 
-    return MaterialApp(
-      navigatorKey: navKey,
-      navigatorObservers: [
-        routeObserver,
-        _KonataDiagnosticRouteObserver(logStore),
-      ],
-      title: appTitle,
-      debugShowCheckedModeBanner: false,
-      scrollBehavior: const KonataScrollBehavior(),
-      locale: const Locale('zh', 'CN'),
-      supportedLocales: const [Locale('zh', 'CN')],
-      localizationsDelegates: GlobalMaterialLocalizations.delegates,
-      themeMode: themeMode,
-      theme: ref.watch(konataLightThemeProvider),
-      darkTheme: ref.watch(konataDarkThemeProvider),
-      builder: (context, child) => AndroidScrollCaptureScope(
+    return KonataRootBackGate(
+      child: MaterialApp(
         navigatorKey: navKey,
-        child: MiniAudioOverlayHost(child: child ?? const SizedBox.shrink()),
+        navigatorObservers: [
+          routeObserver,
+          _KonataDiagnosticRouteObserver(logStore),
+        ],
+        title: appTitle,
+        debugShowCheckedModeBanner: false,
+        scrollBehavior: const KonataScrollBehavior(),
+        locale: const Locale('zh', 'CN'),
+        supportedLocales: const [Locale('zh', 'CN')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        themeMode: themeMode,
+        theme: ref.watch(konataLightThemeProvider),
+        darkTheme: ref.watch(konataDarkThemeProvider),
+        builder: (context, child) => AndroidScrollCaptureScope(
+          navigatorKey: navKey,
+          child: MiniAudioOverlayHost(child: child ?? const SizedBox.shrink()),
+        ),
+        home: const DesktopShell(),
       ),
-      home: const DesktopShell(),
     );
   }
 }

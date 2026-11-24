@@ -9,6 +9,7 @@ import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
 import '../theme/konata_theme.dart';
+import '../widgets/design_system/konata_adaptive_blur.dart';
 import '../widgets/managed_image.dart';
 import 'detail_full_list_dialog.dart';
 import 'detail_gear_menu.dart';
@@ -177,6 +178,30 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
   DetailDrawerTab _lastComputedTab = DetailDrawerTab.main;
   String? _lastComputedSecondaryKey;
   int _lastComputedRawCount = 0;
+  WorkDetailBundle? _cachedViewDataBundle;
+  bool? _cachedViewDataShowCd;
+  bool? _cachedViewDataShowScan;
+  DetailSupplementaryViewData? _cachedViewData;
+
+  DetailSupplementaryViewData _resolveViewData() {
+    final cached = _cachedViewData;
+    if (cached != null &&
+        identical(_cachedViewDataBundle, widget.bundle) &&
+        _cachedViewDataShowCd == widget.showCdTab &&
+        _cachedViewDataShowScan == widget.showScanTab) {
+      return cached;
+    }
+    final next = DetailSupplementaryViewData.fromBundle(
+      bundle: widget.bundle,
+      showCdTab: widget.showCdTab,
+      showScanTab: widget.showScanTab,
+    );
+    _cachedViewDataBundle = widget.bundle;
+    _cachedViewDataShowCd = widget.showCdTab;
+    _cachedViewDataShowScan = widget.showScanTab;
+    _cachedViewData = next;
+    return next;
+  }
 
   /// 由外部（如手机竖屏右上角「完整列表」按钮）按当前激活分类与二级筛选直接打开完整列表弹窗。
   Future<void> openCurrentFullList() {
@@ -249,11 +274,7 @@ class DetailBottomDrawerState extends State<DetailBottomDrawer> {
 
   @override
   Widget build(BuildContext context) {
-    final viewData = DetailSupplementaryViewData.fromBundle(
-      bundle: widget.bundle,
-      showCdTab: widget.showCdTab,
-      showScanTab: widget.showScanTab,
-    );
+    final viewData = _resolveViewData();
     final mainEps = viewData.mainEpisodes;
     final extraEps = viewData.extraEpisodes;
     final cdList = viewData.cdList;
@@ -866,7 +887,7 @@ class _FrostedNavCapsule extends StatelessWidget {
     final p = context.palette;
     return ClipRRect(
       borderRadius: KonataTheme.borderRadiusPill,
-      child: BackdropFilter(
+      child: KonataAdaptiveBackdropBlur(
         filter: KonataTheme.blurFilterMedium,
         child: Container(
           padding: padding,

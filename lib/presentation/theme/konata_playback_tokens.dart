@@ -295,6 +295,18 @@ abstract final class KonataPlaybackTokens {
     milliseconds: 650,
   );
 
+  /// 详情页后台目录自检与远程预热错峰延迟，避免与首帧渲染及窗口交互争抢主线程与磁盘。
+  static const Duration detailBackgroundTaskDelay = Duration(milliseconds: 350);
+
+  /// Windows 拖拽窗口缩放态安全兜底上限（防止异常丢失 WM_EXITSIZEMOVE 导致毛玻璃永久挂起）。
+  static const Duration windowResizeGuardTimeout = Duration(seconds: 3);
+
+  /// 详情页数据包离开页面后的短驻留保活时长（快速折返零重查，超时自动释放对象图）。
+  static const Duration detailBundleKeepAliveDuration = Duration(seconds: 30);
+
+  /// 桌面端非活跃一级后台页自动卸载渲染树以回收内存的闲置阈值（仅保留轻量滚动偏移）。
+  static const Duration backgroundTabEvictIdleDuration = Duration(seconds: 90);
+
   /// Windows 左方向键按住连发快退节流周期（250ms）。
   static const Duration arrowLeftRepeatThrottle = Duration(milliseconds: 250);
 
@@ -387,6 +399,9 @@ abstract final class KonataPlaybackTokens {
   static const double albumCoverRadius = 14.0;
   static const double albumReflectionHeight = 104.0;
   static const double albumReflectionBlurSigma = 2.8;
+
+  /// 封面倒影遮罩四侧安全外扩边距（需大于 3×模糊半径，防止分数缩放比设备边缘漏出 1px 未遮罩亮线）。
+  static const double albumReflectionMaskBleed = 12.0;
   static const double auroraBlurSigma = 88.0;
   static const List<Color> albumReflectionMaskColors = [
     Color(0x52FFFFFF),

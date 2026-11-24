@@ -697,54 +697,39 @@ class WebDavSourceGateway
       final hrefPath = Uri.decodeFull(parsedHref?.path ?? rawHref);
       if (_normalizeComparePath(hrefPath) == requestPath) continue;
 
-      final prop = node
-          .findAllElements('propstat', namespaceUri: '*')
-          .expand((ps) => ps.findElements('prop', namespaceUri: '*'))
-          .firstOrNull;
-      if (prop == null) continue;
+      // 兼容 CloudDrive2 等返回多段 propstat（200 OK 与 404 分离）的 WebDAV 服务，合并 2xx 属性防目录被误判。
+      final propstats = node.findAllElements('propstat', namespaceUri: '*').toList();
+      final okProps = <XmlElement>[
+        for (final ps in propstats)
+          if (() {
+            final st = ps.findElements('status', namespaceUri: '*').firstOrNull?.innerText.trim() ?? '';
+            return st.isEmpty || RegExp(r'\b2\d\d\b').hasMatch(st);
+          }())
+            ...ps.findElements('prop', namespaceUri: '*'),
+      ];
+      if (okProps.isEmpty) {
+        okProps.addAll(propstats.expand((ps) => ps.findElements('prop', namespaceUri: '*')));
+      }
+      if (okProps.isEmpty) continue;
 
-      final isDir =
-          prop
-              .findElements('resourcetype', namespaceUri: '*')
-              .expand((rt) => rt.findElements('collection', namespaceUri: '*'))
-              .isNotEmpty ||
-          hrefPath.endsWith('/');
-
-      final sizeText =
-          prop
-              .findElements('getcontentlength', namespaceUri: '*')
-              .firstOrNull
-              ?.innerText
-              .trim() ??
-          '0';
+      final isDir = okProps.expand((pr) => pr.findElements('resourcetype', namespaceUri: '*')).expand((rt) => rt.findElements('collection', namespaceUri: '*')).isNotEmpty || hrefPath.endsWith('/');
+      final sizeText = okProps.expand((pr) => pr.findElements('getcontentlength', namespaceUri: '*')).map((e) => e.innerText.trim()).firstWhere((t) => t.isNotEmpty, orElse: () => '0');
       final size = int.tryParse(sizeText) ?? 0;
-
-      final modifiedText = prop
-          .findElements('getlastmodified', namespaceUri: '*')
-          .firstOrNull
-          ?.innerText
-          .trim();
+      final modifiedText = okProps.expand((pr) => pr.findElements('getlastmodified', namespaceUri: '*')).map((e) => e.innerText.trim()).where((t) => t.isNotEmpty).firstOrNull;
       DateTime? modifiedAt;
-      if (modifiedText != null && modifiedText.isNotEmpty) {
+      if (modifiedText != null) {
         try {
           modifiedAt = HttpDate.parse(modifiedText);
         } on HttpException {
           modifiedAt = null;
         }
       }
-
-      final etagText = prop
-          .findElements('getetag', namespaceUri: '*')
-          .firstOrNull
-          ?.innerText
-          .trim();
-      final etag = (etagText != null && etagText.isNotEmpty) ? etagText : null;
+      final etag = okProps.expand((pr) => pr.findElements('getetag', namespaceUri: '*')).map((e) => e.innerText.trim()).where((t) => t.isNotEmpty).firstOrNull;
 
       var relPath = hrefPath;
-      if (relPath.startsWith(rootPrefix)) {
+      if (relPath.startsWith(rootPrefix) || relPath.toLowerCase().startsWith(rootPrefix.toLowerCase())) {
         relPath = relPath.substring(rootPrefix.length);
-      } else if (_normalizeComparePath(relPath) ==
-          _normalizeComparePath(rootPrefix)) {
+      } else if (_normalizeComparePath(relPath) == _normalizeComparePath(rootPrefix)) {
         continue;
       }
       relPath = relPath.replaceAll(RegExp(r'^/+|/+$'), '');

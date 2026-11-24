@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
@@ -11,6 +12,7 @@ import '../../application/providers/bangumi_sync_providers.dart';
 import '../../application/providers/detail_display_preferences_provider.dart';
 import '../../application/providers/konata_value_notifier.dart';
 import '../../application/providers/library_providers.dart';
+import '../../application/providers/memory_coordinator.dart';
 import '../../application/providers/playback_providers.dart';
 import '../../application/providers/scraping_providers.dart';
 import '../../application/providers/work_management_provider.dart';
@@ -27,6 +29,7 @@ import '../dialogs/work_artwork_picker_dialog.dart';
 import '../sources/tmdb_scrape_guard.dart';
 import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
+import '../theme/konata_playback_tokens.dart';
 import '../theme/konata_theme.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
 import '../widgets/design_system/konata_toast.dart';
@@ -70,10 +73,13 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
   final Set<String> _directorySyncRequested = <String>{};
   late final ScanThumbnailScheduler _scanScheduler;
   late final WorkDetailWarmupService _warmupService;
+  late final KonataMemoryCoordinator _memoryCoordinator;
   final ScrollController _portraitScrollCtrl = ScrollController();
   final ScrollController _tabletLandscapeScrollCtrl = ScrollController();
   final GlobalKey<DetailBottomDrawerState> _drawerKey =
       GlobalKey<DetailBottomDrawerState>();
+  Timer? _warmupTimer;
+  Timer? _directorySyncTimer;
   bool _phonePortraitExpanded = true;
 
   @override
@@ -81,12 +87,15 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
     super.initState();
     _scanScheduler = ref.read(scanThumbnailSchedulerProvider);
     _warmupService = ref.read(workDetailWarmupServiceProvider);
+    _memoryCoordinator = ref.read(konataMemoryCoordinatorProvider);
   }
 
   @override
   void didUpdateWidget(covariant WorkDetailPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.workId != widget.workId) {
+      _warmupTimer?.cancel();
+      _directorySyncTimer?.cancel();
       _scanScheduler.cancelAll();
       _warmupService.cancelPending();
       _activeWorkId = widget.workId;
@@ -100,17 +109,24 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
 
   @override
   void dispose() {
+    _warmupTimer?.cancel();
+    _directorySyncTimer?.cancel();
     _scanScheduler.cancelAll();
     _warmupService.cancelPending();
     _portraitScrollCtrl.dispose();
     _tabletLandscapeScrollCtrl.dispose();
+    // 下一帧详情页背景图监听全部解绑后，立即驱逐失活 1920px 背景大图与压缩字节缓存。
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _memoryCoordinator.onExitWorkDetail(),
+    );
     super.dispose();
   }
 
   void _maybeWarmupRemoteSources(WorkDetailBundle bundle) {
     if (!_remoteWarmupRequested.add(bundle.work.id)) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
+    _warmupTimer?.cancel();
+    _warmupTimer = Timer(KonataPlaybackTokens.detailBackgroundTaskDelay, () {
+      if (!mounted || bundle.work.id != _activeWorkId) return;
       _warmupService.warmupForVariants(
         variants: bundle.variants,
         sourcesById: bundle.sourcesById,
@@ -118,11 +134,12 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
     });
   }
 
-  /// 进入详情页后静默核验作品目录：自动追加追番新集、自动清理源目录已删文件与幽灵剧集。
+  /// 进入详情页后错峰静默核验作品目录：自动追加追番新集、自动清理源目录已删文件与幽灵剧集。
   void _maybeSyncWorkDirectory(String workId) {
     if (!_directorySyncRequested.add(workId)) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (!mounted) return;
+    _directorySyncTimer?.cancel();
+    _directorySyncTimer = Timer(KonataPlaybackTokens.detailBackgroundTaskDelay, () async {
+      if (!mounted || workId != _activeWorkId) return;
       final result = await ref
           .read(scrapeControllerProvider.notifier)
           .syncWorkDirectorySilently(workId);
@@ -135,9 +152,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
       } else if (result.removedFileCount > 0 && result.addedFileCount == 0) {
         _showToast('检测到源文件已移除，已自动清理 ${result.removedFileCount} 个失效条目');
       } else if (result.addedFileCount > 0 && result.removedFileCount > 0) {
-        _showToast(
-          '已自动同步目录变更（+${result.addedFileCount} / -${result.removedFileCount}）',
-        );
+        _showToast('已自动同步目录变更（+${result.addedFileCount} / -${result.removedFileCount}）');
       }
     });
   }
@@ -645,10 +660,12 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
     final effectiveActiveTab = isDrawerExpanded ? preferredTab : null;
     final bottomClearance = KonataBottomClearanceScope.resolve(context, ref);
     final forceLightChrome = p.isDark;
-    final outerSize = MediaQuery.sizeOf(context);
-    final outerPad = MediaQuery.paddingOf(context);
+    final isAndroid = KonataAdaptiveTokens.isAndroid;
+    // 仅移动端订阅 MediaQuery 尺寸与安全区以区分横竖屏形态；Windows 桌面端零尺寸依赖，拉伸窗口不触发整页重建。
+    final outerSize = isAndroid ? MediaQuery.sizeOf(context) : Size.zero;
+    final outerPad = isAndroid ? MediaQuery.paddingOf(context) : EdgeInsets.zero;
     final isOuterPhone =
-        KonataAdaptiveTokens.isAndroid &&
+        isAndroid &&
         outerSize.shortestSide < KonataAdaptiveTokens.tabletBreakpoint;
     final isOuterPhoneLandscape =
         isOuterPhone && outerSize.width > outerSize.height;
@@ -658,8 +675,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
     final showPortraitOpsInTopBar =
         isOuterPhonePortrait && bundleAsync.value != null;
     final useLightTopBarIcons =
-        forceLightChrome ||
-        (KonataAdaptiveTokens.isAndroid && hasActiveBundle);
+        forceLightChrome || (isAndroid && hasActiveBundle);
 
     return Listener(
       onPointerDown: (event) {
@@ -680,38 +696,32 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
             body: Stack(
               fit: StackFit.expand,
               children: [
-                bundleAsync.when(
-                  data: (bundle) {
-                    if (bundle == null) {
-                      if (redirectTarget != _activeWorkId) {
-                        return const Center(child: CircularProgressIndicator());
+                  bundleAsync.when(
+                    data: (bundle) {
+                      if (bundle == null) {
+                        if (redirectTarget != _activeWorkId) {
+                          return const Center(child: CircularProgressIndicator());
+                        }
+                        return MissingWorkFallbackView(
+                          onReturnToLibrary: _returnToLibrary,
+                        );
                       }
-                      return MissingWorkFallbackView(
-                        onReturnToLibrary: _returnToLibrary,
-                      );
-                    }
-                    final work = bundle.work;
-                    _maybeBackfillBangumiScore(work.id, work.bangumiScore);
-                    _maybeBackfillTmdbArtwork(work);
-                    _maybeWarmupRemoteSources(bundle);
-                    _maybeSyncWorkDirectory(work.id);
-                    final screenSize = MediaQuery.sizeOf(context);
-                    final safePad = MediaQuery.paddingOf(context);
-                    final isAndroidPhone =
-                        KonataAdaptiveTokens.isAndroid &&
-                        screenSize.shortestSide <
-                            KonataAdaptiveTokens.tabletBreakpoint;
-                    final isPhonePortrait =
-                        isAndroidPhone && screenSize.height >= screenSize.width;
-                    final isPhoneLandscape =
-                        isAndroidPhone && screenSize.width > screenSize.height;
-                    final isAndroidTablet =
-                        KonataAdaptiveTokens.isAndroid &&
-                        screenSize.shortestSide >=
-                            KonataAdaptiveTokens.tabletBreakpoint;
-                    final isTabletPortrait =
-                        isAndroidTablet &&
-                        screenSize.height >= screenSize.width;
+                      final work = bundle.work;
+                      _maybeBackfillBangumiScore(work.id, work.bangumiScore);
+                      _maybeBackfillTmdbArtwork(work);
+                      _maybeWarmupRemoteSources(bundle);
+                      _maybeSyncWorkDirectory(work.id);
+                      final screenSize = outerSize;
+                      final safePad = outerPad;
+                      final isPhonePortrait = isOuterPhonePortrait;
+                      final isPhoneLandscape = isOuterPhoneLandscape;
+                      final isAndroidTablet =
+                          isAndroid &&
+                          screenSize.shortestSide >=
+                              KonataAdaptiveTokens.tabletBreakpoint;
+                      final isTabletPortrait =
+                          isAndroidTablet &&
+                          screenSize.height >= screenSize.width;
                     final hasLogo =
                         work.logoPath != null &&
                         work.logoPath!.trim().isNotEmpty;
@@ -1007,51 +1017,53 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                       },
                     );
 
-                    final heroInfoWidget = DetailHeroInfo(
-                      bundle: bundle,
-                      imageLoader: imageLoader,
-                      showTitleText: displayPrefs.showTitleText,
-                      showTitleLogo: displayPrefs.showTitleLogo,
-                      showOverview: displayPrefs.showOverview,
-                      viewportProfile: isAndroidTablet
-                          ? DetailTitleViewportProfile.tabletLandscape
-                          : DetailTitleViewportProfile.desktop,
-                      onBackdrop: true,
-                      logoMaxHeight: 80.0,
-                      logoMaxWidth: 340.0,
-                      onPrimaryPlay: () =>
-                          DetailActionHandlers.handlePrimaryPlay(
-                            context: context,
-                            ref: ref,
-                            bundle: bundle,
-                            players: players,
-                          ),
-                      onManualMatch: () => _handleOpenManualMatch(bundle),
-                      onDismissReview: () =>
-                          DetailActionHandlers.dismissReviewPrompt(
-                            context: context,
-                            ref: ref,
-                            workId: work.id,
-                          ),
+                    final heroInfoWidget = RepaintBoundary(
+                      child: DetailHeroInfo(
+                        bundle: bundle,
+                        imageLoader: imageLoader,
+                        showTitleText: displayPrefs.showTitleText,
+                        showTitleLogo: displayPrefs.showTitleLogo,
+                        showOverview: displayPrefs.showOverview,
+                        viewportProfile: isAndroidTablet
+                            ? DetailTitleViewportProfile.tabletLandscape
+                            : DetailTitleViewportProfile.desktop,
+                        onBackdrop: true,
+                        logoMaxHeight: 80.0,
+                        logoMaxWidth: 340.0,
+                        onPrimaryPlay: () =>
+                            DetailActionHandlers.handlePrimaryPlay(
+                              context: context,
+                              ref: ref,
+                              bundle: bundle,
+                              players: players,
+                            ),
+                        onManualMatch: () => _handleOpenManualMatch(bundle),
+                        onDismissReview: () =>
+                            DetailActionHandlers.dismissReviewPrompt(
+                              context: context,
+                              ref: ref,
+                              workId: work.id,
+                            ),
+                      ),
                     );
 
                     return Stack(
                       fit: StackFit.expand,
                       children: [
                         Positioned(
-                          key: const ValueKey(
-                            'detail_wide_backdrop_stage',
-                          ),
+                          key: const ValueKey('detail_wide_backdrop_stage'),
                           top: KonataAdaptiveTokens.isAndroid ? safeTop : 0.0,
                           left: 0,
                           right: 0,
                           bottom: 0,
-                          child: DetailWideBackdropStage(
-                            workId: work.id,
-                            bgPath: bgPath,
-                            hasBackdrop: hasBackdrop,
-                            isDrawerExpanded: isDrawerExpanded,
-                            imageLoader: imageLoader,
+                          child: RepaintBoundary(
+                            child: DetailWideBackdropStage(
+                              workId: work.id,
+                              bgPath: bgPath,
+                              hasBackdrop: hasBackdrop,
+                              isDrawerExpanded: isDrawerExpanded,
+                              imageLoader: imageLoader,
+                            ),
                           ),
                         ),
                         // Android 平板横屏使用底部 padding 避让迷你播放胶囊的纵向滚动流，防止分类栏向上硬推遮挡播放按钮。
@@ -1135,7 +1147,9 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                                   padding: EdgeInsets.only(
                                     bottom: bottomClearance,
                                   ),
-                                  child: overlayDrawerWidget,
+                                  child: RepaintBoundary(
+                                    child: overlayDrawerWidget,
+                                  ),
                                 ),
                               ],
                             ),
@@ -1157,25 +1171,27 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                     top: KonataAdaptiveTokens.isAndroid ? outerPad.top + 7 : 12,
                     left: KonataAdaptiveTokens.isAndroid ? 12 : 16,
                     right: 14,
-                    child: WorkDetailTopBar(
-                      forceLightIcons: useLightTopBarIcons,
-                      showGlassChrome: hasActiveBundle,
-                      onBack: _returnToLibrary,
-                      trailingOps: showPortraitOpsInTopBar
-                          ? _buildTopOpsCapsule(
-                              bundleAsync.value!,
-                              preferredTab,
-                              displayPrefs,
-                              isExpanded: _phonePortraitExpanded,
-                            )
-                          : null,
+                    child: RepaintBoundary(
+                      child: WorkDetailTopBar(
+                        forceLightIcons: useLightTopBarIcons,
+                        showGlassChrome: hasActiveBundle,
+                        onBack: _returnToLibrary,
+                        trailingOps: showPortraitOpsInTopBar
+                            ? _buildTopOpsCapsule(
+                                bundleAsync.value!,
+                                preferredTab,
+                                displayPrefs,
+                                isExpanded: _phonePortraitExpanded,
+                              )
+                            : null,
+                      ),
                     ),
                   ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
-      ),
-    );
+      );
   }
 }

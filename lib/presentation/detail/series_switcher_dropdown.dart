@@ -8,6 +8,7 @@ import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
 import '../theme/konata_theme.dart';
+import '../widgets/design_system/konata_adaptive_blur.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
 import '../widgets/design_system/konata_popover_option_tile.dart';
 
@@ -134,7 +135,7 @@ class _SeriesSwitcherDropdownState extends State<SeriesSwitcherDropdown> {
     const radius = KonataPlaybackTokens.detailActionCapsuleRadius;
     final pill = ClipRRect(
       borderRadius: BorderRadius.circular(radius),
-      child: BackdropFilter(
+      child: KonataAdaptiveBackdropBlur(
         filter: KonataTheme.blurFilterMedium,
         child: Material(
           color: isOpen

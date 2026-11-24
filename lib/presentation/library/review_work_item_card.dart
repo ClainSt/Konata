@@ -145,7 +145,7 @@ class _ReviewWorkItemCardState extends ConsumerState<ReviewWorkItemCard>
                 ],
                 const SizedBox(height: 3),
                 Text(
-                  '${item.variants.length} 个文件${work.year != null ? ' · ${work.year}' : ''}',
+                  '${item.variantCount} 个文件${work.year != null ? ' · ${work.year}' : ''}',
                   style: TextStyle(color: p.textSecondary, fontSize: KonataTheme.fontSizeCaption),
                 ),
               ],
@@ -581,8 +581,9 @@ class _ReviewCandidateRow extends StatelessWidget {
 }
 
 String _deriveFolderLabel(WorkLibraryItem item) {
-  if (item.variants.isEmpty) return '';
-  final rel = item.variants.first.relativePath.replaceAll('\\', '/');
+  final rawPath = item.firstVariantRelativePath;
+  if (rawPath == null || rawPath.isEmpty) return '';
+  final rel = rawPath.replaceAll('\\', '/');
   final idx = rel.lastIndexOf('/');
   return idx > 0 ? rel.substring(0, idx) : rel;
 }

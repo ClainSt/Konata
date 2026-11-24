@@ -516,6 +516,8 @@ class _RenderUnderlayCutout extends RenderBox {
   @override
   void paint(PaintingContext context, Offset offset) {
     if (size.isEmpty) return;
+    // 禁止 Skia 离屏光栅缓存提升本层，确保底栏切页动画期间 BlendMode.clear 始终直穿根帧缓冲。
+    context.setWillChangeHint();
     final rect = offset & size;
     if (_cornerRadius > 0.5) {
       context.canvas.drawRRect(

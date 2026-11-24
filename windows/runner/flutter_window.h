@@ -3,6 +3,8 @@
 
 #include <flutter/dart_project.h>
 #include <flutter/flutter_view_controller.h>
+#include <flutter/method_channel.h>
+#include <flutter/standard_method_codec.h>
 
 #include <memory>
 
@@ -36,6 +38,13 @@ class FlutterWindow : public Win32Window {
 
   // 在主界面线程同线程安全调起 Win32 系统文件/目录对话框的桥接器。
   std::unique_ptr<WindowsFilePickerBridge> file_picker_bridge_;
+
+  // 向 Flutter 层实时广播 Win32 边框拖拽缩放起止状态（WM_ENTERSIZEMOVE / WM_EXITSIZEMOVE）。
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      resize_channel_;
+
+  // 当前是否处于系统窗口拖拽缩放模态循环中。
+  bool is_live_resizing_ = false;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

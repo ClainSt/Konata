@@ -97,8 +97,18 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
     super.dispose();
   }
 
-  bool _isAudioRecord(PlaybackRecord rec, WorkLibraryItem? item) {
+  bool _isAudioRecord(
+    PlaybackRecord rec,
+    WorkLibraryItem? item,
+    Map<String, List<MediaVariant>> historyCdVariantsByWork,
+  ) {
     if (rec.isAudioRecord) return true;
+    final cdVariants = historyCdVariantsByWork[rec.workId];
+    if (cdVariants != null) {
+      for (final v in cdVariants) {
+        if (v.id == rec.variantId) return true;
+      }
+    }
     final variants = item?.variants;
     if (variants != null) {
       for (final v in variants) {
@@ -589,15 +599,19 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
   String? _resolveAudioDirectoryLabel(
     PlaybackRecord rec,
     WorkLibraryItem? item,
+    Map<String, List<MediaVariant>> historyCdVariantsByWork,
     Map<String, CdAlbumGroupSummary> cdSummaryCache,
   ) {
     if (item == null) {
       return null;
     }
     final summary = cdSummaryCache.putIfAbsent(item.work.id, () {
-      final cdVariants = item.variants
-          .where((v) => v.assetKind == AssetKind.cdAlbum)
-          .toList(growable: false);
+      final fetched = historyCdVariantsByWork[item.work.id];
+      final cdVariants = (fetched != null && fetched.isNotEmpty)
+          ? fetched
+          : item.variants
+                .where((v) => v.assetKind == AssetKind.cdAlbum)
+                .toList(growable: false);
       return SupplementarySubclassifier.groupCdVariants(cdVariants);
     });
     final label = summary.byVariantId[rec.variantId]?.chipLabel.trim();
@@ -635,6 +649,7 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
     required BuildContext context,
     required PlaybackHistoryWorkGroup group,
     required Map<String, WorkLibraryItem> workById,
+    required Map<String, List<MediaVariant>> historyCdVariantsByWork,
     required ManagedImageLoader imageLoader,
     required bool isAudioTab,
     required Set<String> expandedGroups,
@@ -659,6 +674,7 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
       audioDirLabelResolver: (rec) => _resolveAudioDirectoryLabel(
         rec,
         workById[rec.workId],
+        historyCdVariantsByWork,
         cdSummaryCache,
       ),
       onTapCover: () {
@@ -714,6 +730,7 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
     required List<PlaybackRecord> loadedRecords,
     required List<PlaybackRecord> records,
     required Map<String, WorkLibraryItem> workById,
+    required Map<String, List<MediaVariant>> historyCdVariantsByWork,
     required ManagedImageLoader imageLoader,
     required bool isAudioTab,
     required bool inSelection,
@@ -820,6 +837,7 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
                           context: context,
                           group: group,
                           workById: workById,
+                          historyCdVariantsByWork: historyCdVariantsByWork,
                           imageLoader: imageLoader,
                           isAudioTab: isAudioTab,
                           expandedGroups: expandedGroups,
@@ -844,6 +862,9 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
     final p = context.palette;
     final historyAsync = ref.watch(playbackHistoryProvider);
     final itemsAsync = ref.watch(libraryItemsProvider);
+    final historyCdVariantsByWork =
+        ref.watch(historyAudioVariantsByWorkProvider).value ??
+        const <String, List<MediaVariant>>{};
     final imageLoader = ref.watch(tmdbImageLoaderProvider);
     final bottomClearance = KonataBottomClearanceScope.resolve(context, ref);
     final workById = <String, WorkLibraryItem>{
@@ -856,7 +877,11 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
     final isAudioTab = _activeTab == PlaybackHistoryCategory.audio;
     final records = allRecords
         .where((r) {
-          final isAudio = _isAudioRecord(r, workById[r.workId]);
+          final isAudio = _isAudioRecord(
+            r,
+            workById[r.workId],
+            historyCdVariantsByWork,
+          );
           return isAudioTab ? isAudio : !isAudio;
         })
         .toList(growable: false);
@@ -878,6 +903,7 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
         loadedRecords: loadedRecords,
         records: records,
         workById: workById,
+        historyCdVariantsByWork: historyCdVariantsByWork,
         imageLoader: imageLoader,
         isAudioTab: isAudioTab,
         inSelection: inSelection,

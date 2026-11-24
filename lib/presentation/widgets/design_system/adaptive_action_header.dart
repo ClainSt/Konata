@@ -364,52 +364,60 @@ class _AdaptiveActionHeaderState extends State<AdaptiveActionHeader> {
           );
         }
 
-        // 窄屏原地展开搜索框模式
+        // 窄屏原地展开搜索框模式（拦截系统返回键先收起搜索栏而非直接退出应用）
         if (hasSearch && _narrowSearchExpanded) {
-          return Padding(
-            padding: EdgeInsets.fromLTRB(
-              horizontalPad,
-              KonataAdaptiveTokens.safeGap,
-              horizontalPad,
-              KonataAdaptiveTokens.safeGap,
-            ),
-            child: Row(
-              children: [
-                KonataCapsuleIconButton(
-                  key: const ValueKey('adaptive_header_search_back'),
-                  icon: Icons.arrow_back_rounded,
-                  tooltip: '收起搜索',
-                  color: p.textPrimary,
-                  size: 20,
-                  fixedSize: KonataAdaptiveTokens.touchTarget,
-                  onTap: _closeNarrowSearch,
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: KonataSoftTextField(
-                    controller: _searchCtrl,
-                    focusNode: _effectiveFocusNode,
-                    hintText: widget.searchHint,
-                    height: 40,
-                    prefixIcon: Icons.search_rounded,
-                    suffix: _searchCtrl.text.isNotEmpty
-                        ? IconButton(
-                            tooltip: '清除搜索',
-                            onPressed: () {
-                              _searchCtrl.clear();
-                              widget.onSearchChanged?.call('');
-                            },
-                            icon: Icon(
-                              Icons.close_rounded,
-                              size: 18,
-                              color: p.textSecondary,
-                            ),
-                          )
-                        : null,
-                    onChanged: widget.onSearchChanged,
+          return PopScope(
+            canPop: false,
+            onPopInvokedWithResult: (didPop, _) {
+              if (!didPop && _narrowSearchExpanded) {
+                _closeNarrowSearch();
+              }
+            },
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                horizontalPad,
+                KonataAdaptiveTokens.safeGap,
+                horizontalPad,
+                KonataAdaptiveTokens.safeGap,
+              ),
+              child: Row(
+                children: [
+                  KonataCapsuleIconButton(
+                    key: const ValueKey('adaptive_header_search_back'),
+                    icon: Icons.arrow_back_rounded,
+                    tooltip: '收起搜索',
+                    color: p.textPrimary,
+                    size: 20,
+                    fixedSize: KonataAdaptiveTokens.touchTarget,
+                    onTap: _closeNarrowSearch,
                   ),
-                ),
-              ],
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: KonataSoftTextField(
+                      controller: _searchCtrl,
+                      focusNode: _effectiveFocusNode,
+                      hintText: widget.searchHint,
+                      height: 40,
+                      prefixIcon: Icons.search_rounded,
+                      suffix: _searchCtrl.text.isNotEmpty
+                          ? IconButton(
+                              tooltip: '清除搜索',
+                              onPressed: () {
+                                _searchCtrl.clear();
+                                widget.onSearchChanged?.call('');
+                              },
+                              icon: Icon(
+                                Icons.close_rounded,
+                                size: 18,
+                                color: p.textSecondary,
+                              ),
+                            )
+                          : null,
+                      onChanged: widget.onSearchChanged,
+                    ),
+                  ),
+                ],
+              ),
             ),
           );
         }

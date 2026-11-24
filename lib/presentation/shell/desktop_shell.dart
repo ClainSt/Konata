@@ -17,6 +17,7 @@ import '../settings/settings_page.dart';
 import '../sources/sources_page.dart';
 import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
+import '../theme/konata_playback_tokens.dart';
 import '../theme/konata_theme.dart';
 import '../widgets/design_system/konata_keep_alive_tab_switcher.dart';
 import '../widgets/playback/konata_cached_artwork_backdrop.dart';
@@ -231,6 +232,7 @@ class _ShellTabBodySlot extends ConsumerWidget {
     return KonataKeepAliveTabSwitcher(
       activeIndex: activeIndex,
       scrimFadeColor: scrimFadeColor,
+      idleEvictAfter: KonataPlaybackTokens.backgroundTabEvictIdleDuration,
       children: pages,
     );
   }

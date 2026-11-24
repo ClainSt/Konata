@@ -757,4 +757,116 @@ extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
     );
     await commitLiveSubtitleStyle();
   }
+
+  Future<void> _closeAndReleaseImpl() async {
+    if (_closedCleanly) return;
+    _closedCleanly = true;
+
+    // 同步前置段：在首个 await 及宿主卸载播放器视图前立即静音解绑并捕获依赖快照，
+    // 防止 autoDispose 提前触发导致 UnmountedRefException 或底层音轨持续漏放。
+    final snap = mounted ? _state : null;
+    final posDouble = _hudProgressActive
+        ? currentPositionSeconds
+        : (_session?.readCurrentPositionSeconds() ?? currentPositionSeconds);
+    _cancelRuntimeResources();
+    final sessionToDispose = _session;
+    _session = null;
+    sessionToDispose?.silenceAndDetachForClose();
+
+    final isMountedAtStart = mounted;
+    final windowHost =
+        isMountedAtStart &&
+            (snap?.isFullscreen ?? false) &&
+            KonataPlatform.isWindows
+        ? _ref.read(konataWindowHostProvider)
+        : null;
+    final audioFocus = isMountedAtStart && KonataPlatform.isAndroid
+        ? _ref.read(androidAudioFocusServiceProvider)
+        : null;
+    final memoryCoordinator = isMountedAtStart
+        ? _ref.read(konataMemoryCoordinatorProvider)
+        : null;
+    final repo = isMountedAtStart ? _ref.read(libraryRepositoryProvider) : null;
+    final bangumiSync = isMountedAtStart
+        ? _ref.read(bangumiSyncControllerProvider.notifier)
+        : null;
+
+    if (isMountedAtStart) {
+      _state = _state.copyWith(isClosing: true);
+    }
+
+    try {
+      await _releaseThumbnailService(disposeNotifier: true);
+      if (windowHost != null) {
+        await windowHost.setFullScreen(false).catchError((Object _) {});
+      } else if (KonataPlatform.isAndroid) {
+        await AndroidPlaybackWindowBridge.applyVideoOrientationAndWindow(
+          landscape: false,
+          hideSystemBars: false,
+        ).catchError((Object _) {});
+        await AndroidPlaybackWindowBridge.endWindow().catchError((Object _) {});
+        await audioFocus?.abandonAudioFocus().catchError((Object _) {});
+      }
+      if (snap != null && repo != null) {
+        await _persistProgress(
+          isFinal: true,
+          snapshotOverride: snap,
+          positionOverride: posDouble,
+          repoOverride: repo,
+          bangumiSyncOverride: bangumiSync,
+        ).catchError((Object e) {
+          _logStore.record('VIDEO', '退出保存观看进度失败：$e');
+        });
+      }
+    } finally {
+      if (sessionToDispose != null) {
+        await _sessionMutex.runExclusive(() => sessionToDispose.dispose());
+      }
+      _releaseEngineLeases('释放统一引擎流租约');
+      if (mounted) {
+        _ref.read(videoPlaybackActiveProvider.notifier).state = false;
+      }
+      memoryCoordinator?.schedulePostPlaybackTrim();
+    }
+  }
+
+  void _cancelRuntimeResources() {
+    _microFadeDriver.cancel();
+    _safetyCoordinator.detachSession(this);
+    _persistTimer?.cancel();
+    _probeTimer?.cancel();
+    _skipFadeTimer?.cancel();
+    _chapterSkipWakeTimer?.cancel();
+    _subtitleMemoryEngine?.dispose();
+    _subtitleMemoryEngine = null;
+    _disposePrewarmedNextEpisode();
+  }
+
+  void _releaseEngineLeases(String logPrefix) {
+    final leasedTokens = _engine.resetSession(stage: PlaybackStageKind.video);
+    for (final token in leasedTokens) {
+      unawaited(
+        _streamBridge.unregisterSession(token).catchError((Object e) {
+          _logStore.record('VIDEO', '$logPrefix $token 失败：$e');
+        }),
+      );
+    }
+  }
+
+  void _disposeResourcesImpl() {
+    _cancelRuntimeResources();
+    if (!_closedCleanly) {
+      _closedCleanly = true;
+      unawaited(_releaseThumbnailService(disposeNotifier: true));
+      final sessionToDispose = _session;
+      _session = null;
+      sessionToDispose?.silenceAndDetachForClose();
+      if (sessionToDispose != null) {
+        unawaited(_sessionMutex.runExclusive(() => sessionToDispose.dispose()));
+      }
+      _releaseEngineLeases('销毁期释放流租约');
+    }
+    _thumbnailRevision.dispose();
+    _positionListenable.dispose();
+  }
 }

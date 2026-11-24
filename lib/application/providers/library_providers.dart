@@ -43,7 +43,9 @@ class WorkLibraryItem {
   /// 创建媒体库列表项。
   const WorkLibraryItem({
     required this.work,
-    required this.variants,
+    this.variants = const <MediaVariant>[],
+    int? variantCount,
+    String? firstVariantRelativePath,
     required this.episodeCount,
     required this.releaseGroups,
     this.maxEpisodeVariantCount = 1,
@@ -51,13 +53,17 @@ class WorkLibraryItem {
     this.primarySourceKind,
     this.primarySourceLabel,
     this.crossSourceBadgeLabel,
-  });
+  }) : _storedVariantCount = variantCount,
+       _storedFirstVariantRelativePath = firstVariantRelativePath;
 
   /// 作品实体。
   final Work work;
 
-  /// 关联物理版本列表。
+  /// 关联物理版本列表（主库常驻列表默认留空以节省堆内存，测试或显式构造场景可按需注入）。
   final List<MediaVariant> variants;
+
+  final int? _storedVariantCount;
+  final String? _storedFirstVariantRelativePath;
 
   /// 正片逻辑剧集数量。
   final int episodeCount;
@@ -80,6 +86,14 @@ class WorkLibraryItem {
   /// 仅当不同媒体源存在相同作品卡片时计算出的右上角来源角标文案（单源唯一作品恒为 `null`）。
   final String? crossSourceBadgeLabel;
 
+  /// 关联物理媒体文件总数（优先读取预聚合标量，避免主库列表滞留全量变体对象）。
+  int get variantCount => _storedVariantCount ?? variants.length;
+
+  /// 首个物理变体相对路径摘要（用于待复核卡片目录展示）。
+  String? get firstVariantRelativePath =>
+      _storedFirstVariantRelativePath ??
+      (variants.isNotEmpty ? variants.first.relativePath : null);
+
   /// 是否包含同一正片剧集的真实多版本压制文件。
   bool get hasMultiVariants => maxEpisodeVariantCount > 1;
 
@@ -89,6 +103,8 @@ class WorkLibraryItem {
     return WorkLibraryItem(
       work: work,
       variants: variants,
+      variantCount: _storedVariantCount,
+      firstVariantRelativePath: _storedFirstVariantRelativePath,
       episodeCount: episodeCount,
       releaseGroups: releaseGroups,
       maxEpisodeVariantCount: maxEpisodeVariantCount,
@@ -314,7 +330,11 @@ final libraryItemsProvider = FutureProvider<List<WorkLibraryItem>>((ref) async {
     items.add(
       WorkLibraryItem(
         work: work,
-        variants: variants,
+        variants: const <MediaVariant>[],
+        variantCount: variants.length,
+        firstVariantRelativePath: variants.isNotEmpty
+            ? variants.first.relativePath
+            : null,
         episodeCount: mainEpisodeIds.length,
         maxEpisodeVariantCount: maxVariantCount,
         releaseGroups: groups.toList(growable: false),
@@ -798,9 +818,12 @@ _reconcileWorkExtraEpisodesCached({
   return reconciled;
 }
 
-/// 查询单部作品详情页所需的完整数据包。
+/// 查询单部作品详情页所需的完整数据包（退出详情页且无外部监听时自动释放堆内存）。
 final workDetailBundleProvider =
-    FutureProvider.family<WorkDetailBundle?, String>((ref, workId) async {
+    FutureProvider.autoDispose.family<WorkDetailBundle?, String>((
+      ref,
+      workId,
+    ) async {
       final repo = ref.watch(libraryRepositoryProvider);
       final photos = ref.watch(photosStorageProvider);
       final extraCache = ref.watch(extraReconcileSignatureCacheProvider);
@@ -1049,6 +1072,27 @@ final mediaSourcesProvider = FutureProvider<List<MediaSource>>((ref) {
 final playbackHistoryProvider = FutureProvider<List<PlaybackRecord>>((ref) {
   return ref.watch(libraryRepositoryProvider).getPlaybackHistory();
 });
+
+/// 播放记录页按需读取历史涉及作品的 CD 音轨变体（仅覆盖历史记录命中的作品，避免主库常驻全量变体）。
+final historyAudioVariantsByWorkProvider =
+    FutureProvider.autoDispose<Map<String, List<MediaVariant>>>((ref) async {
+      final records = await ref.watch(playbackHistoryProvider.future);
+      if (records.isEmpty) return const <String, List<MediaVariant>>{};
+      final workIds = <String>{
+        for (final r in records)
+          if (r.workId.isNotEmpty) r.workId,
+      };
+      if (workIds.isEmpty) return const <String, List<MediaVariant>>{};
+      final variants = await ref
+          .watch(libraryRepositoryProvider)
+          .getVariantsByWorkIds(workIds.toList(growable: false));
+      final grouped = <String, List<MediaVariant>>{};
+      for (final v in variants) {
+        if (v.assetKind != AssetKind.cdAlbum) continue;
+        grouped.putIfAbsent(v.workId, () => <MediaVariant>[]).add(v);
+      }
+      return grouped;
+    });
 
 /// 全站 `photos/` 图片存储全局汇总与按作品明细快照 Provider。
 final photosStorageSnapshotProvider = FutureProvider<PhotosStorageSnapshot>((

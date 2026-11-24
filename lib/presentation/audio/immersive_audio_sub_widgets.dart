@@ -49,34 +49,32 @@ class ImmersiveAudioCapsuleDockLeaf extends ConsumerWidget {
     final durationSeconds = ref.watch(
       audioPlaybackProvider.select((s) => s.durationSeconds),
     );
-    return ValueListenableBuilder<double>(
-      valueListenable: notifier.positionListenable,
-      builder: (_, posSeconds, _) => RepaintBoundary(
-        child: KonataPlaybackCapsule(
-          maxWidth: maxWidth,
-          leading: leading,
-          title: title,
-          positionSeconds: posSeconds,
-          durationSeconds: durationSeconds,
-          isPlaying: isPlaying,
-          onTogglePlayPause: notifier.togglePlayPause,
-          onSeek: notifier.seekRelativeTrackSeconds,
-          onPrevious: notifier.previous,
-          onNext: notifier.next,
-          leadingCenterButton: KonataAudioLoopButton(
-            icon: switch (loopMode) {
-              AudioLoopMode.sequence => Icons.trending_flat_rounded,
-              AudioLoopMode.loopAll => Icons.repeat_rounded,
-              AudioLoopMode.loopOne => Icons.repeat_one_rounded,
-            },
-            tooltip: '循环模式：${loopMode.label}',
-            highlighted: loopMode != AudioLoopMode.sequence,
-            onTap: notifier.cycleLoopMode,
-          ),
-          trailingCenterPrimaryButton: trailingCenterPrimaryButton,
-          trailingCenterButtons: trailingCenterButtons,
-          rightSlot: rightSlot,
+    return RepaintBoundary(
+      child: KonataPlaybackCapsule(
+        maxWidth: maxWidth,
+        leading: leading,
+        title: title,
+        positionSeconds: notifier.positionListenable.value,
+        positionListenable: notifier.positionListenable,
+        durationSeconds: durationSeconds,
+        isPlaying: isPlaying,
+        onTogglePlayPause: notifier.togglePlayPause,
+        onSeek: notifier.seekRelativeTrackSeconds,
+        onPrevious: notifier.previous,
+        onNext: notifier.next,
+        leadingCenterButton: KonataAudioLoopButton(
+          icon: switch (loopMode) {
+            AudioLoopMode.sequence => Icons.trending_flat_rounded,
+            AudioLoopMode.loopAll => Icons.repeat_rounded,
+            AudioLoopMode.loopOne => Icons.repeat_one_rounded,
+          },
+          tooltip: '循环模式：${loopMode.label}',
+          highlighted: loopMode != AudioLoopMode.sequence,
+          onTap: notifier.cycleLoopMode,
         ),
+        trailingCenterPrimaryButton: trailingCenterPrimaryButton,
+        trailingCenterButtons: trailingCenterButtons,
+        rightSlot: rightSlot,
       ),
     );
   }
@@ -602,37 +600,67 @@ class ImmersiveCoverWithReflection extends ConsumerWidget {
                   key: const ValueKey('immersive_cover_reflection'),
                   width: coverSize,
                   height: reflectionHeight,
-                  child: ClipRect(
-                    child: OverflowBox(
-                      alignment: Alignment.topCenter,
-                      maxHeight: coverSize,
-                      child: ShaderMask(
-                        shaderCallback: (bounds) =>
-                            const LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              colors: KonataPlaybackTokens
-                                  .albumReflectionMaskColors,
-                              stops: [0.0, 0.34, 0.92],
-                            ).createShader(
-                              Rect.fromLTWH(0, 0, coverSize, reflectionHeight),
+                  child: Stack(
+                    clipBehavior: Clip.hardEdge,
+                    children: [
+                      // 四侧外扩遮罩边界并使用 decal 模糊，避免高分屏小数像素坐标下
+                      // ShaderMask 遗漏边缘 1px 导致倒影侧边出现未淡出刺眼亮线。
+                      Positioned(
+                        left: -KonataPlaybackTokens.albumReflectionMaskBleed,
+                        top: -KonataPlaybackTokens.albumReflectionMaskBleed,
+                        width:
+                            coverSize +
+                            KonataPlaybackTokens.albumReflectionMaskBleed * 2,
+                        height:
+                            coverSize +
+                            KonataPlaybackTokens.albumReflectionMaskBleed * 2,
+                        child: ShaderMask(
+                          shaderCallback: (bounds) =>
+                              const LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: KonataPlaybackTokens
+                                    .albumReflectionMaskColors,
+                                stops: [0.0, 0.34, 0.92],
+                              ).createShader(
+                                Rect.fromLTWH(
+                                  0,
+                                  KonataPlaybackTokens.albumReflectionMaskBleed,
+                                  bounds.width,
+                                  reflectionHeight,
+                                ),
+                              ),
+                          blendMode: BlendMode.dstIn,
+                          child: Padding(
+                            padding: const EdgeInsets.all(
+                              KonataPlaybackTokens.albumReflectionMaskBleed,
                             ),
-                        blendMode: BlendMode.dstIn,
-                        child: ImageFiltered(
-                          imageFilter: KonataTheme.blurFilterOf(
-                            KonataPlaybackTokens.albumReflectionBlurSigma,
-                          ),
-                          child: Transform(
-                            alignment: Alignment.center,
-                            transform: Matrix4.diagonal3Values(1.0, -1.0, 1.0),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(borderRadius),
-                              child: buildArtwork(coverSize, coverAlignment),
+                            child: ImageFiltered(
+                              imageFilter: KonataTheme.blurFilterDecalOf(
+                                KonataPlaybackTokens.albumReflectionBlurSigma,
+                              ),
+                              child: Transform(
+                                alignment: Alignment.center,
+                                transform: Matrix4.diagonal3Values(
+                                  1.0,
+                                  -1.0,
+                                  1.0,
+                                ),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(
+                                    borderRadius,
+                                  ),
+                                  child: buildArtwork(
+                                    coverSize,
+                                    coverAlignment,
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
                         ),
                       ),
-                    ),
+                    ],
                   ),
                 ),
               ),

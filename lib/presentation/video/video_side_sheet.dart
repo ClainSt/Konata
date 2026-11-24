@@ -195,7 +195,20 @@ class _VideoSideSheetState extends ConsumerState<VideoSideSheet> {
         allowMultiple: false,
       );
       if (!mounted) return;
-      final path = result.isEmpty ? null : result.first.path;
+      if (result.isEmpty) return;
+      final picked = result.first;
+      if (!KonataSystemFilePicker.matchesAllowedExtension(
+        picked.name,
+        KonataMediaExtensions.subtitleExtensionsNoDot,
+      )) {
+        showKonataToast(
+          context,
+          '请选择受支持的字幕文件（${KonataMediaExtensions.subtitle.join(' / ')}）',
+          isError: true,
+        );
+        return;
+      }
+      final path = picked.path;
       if (path != null && path.trim().isNotEmpty) {
         controller.addExternalSubtitleFile(path.trim());
       }

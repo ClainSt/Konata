@@ -91,7 +91,8 @@ const wchar_t* WindowClassRegistrar::GetWindowClass() {
     WNDCLASS window_class{};
     window_class.hCursor = LoadCursor(nullptr, IDC_ARROW);
     window_class.lpszClassName = kWindowClassName;
-    window_class.style = CS_HREDRAW | CS_VREDRAW;
+    // Flutter 经 ANGLE/D3D11 交换链独立绘制客户区，去除 CS_HREDRAW/CS_VREDRAW 避免拉伸每像素触发多余 GDI 重绘。
+    window_class.style = 0;
     window_class.cbClsExtra = 0;
     window_class.cbWndExtra = 0;
     window_class.hInstance = GetModuleHandle(nullptr);
@@ -198,12 +199,16 @@ Win32Window::MessageHandler(HWND hwnd,
 
       return 0;
     }
+    case WM_ERASEBKGND:
+      // 跳过 Win32 GDI 背景擦除，防止窗口拖拽缩放期间出现空白闪烁与多余重绘开销。
+      return 1;
+
     case WM_SIZE: {
       RECT rect = GetClientArea();
       if (child_content_ != nullptr) {
-        // 同步刷新所托管子视图窗口的客户区几何位置与尺寸。
+        // 同步刷新所托管子视图窗口的客户区几何位置与尺寸，关闭多余 GDI 擦除重绘标记。
         MoveWindow(child_content_, rect.left, rect.top, rect.right - rect.left,
-                   rect.bottom - rect.top, TRUE);
+                   rect.bottom - rect.top, FALSE);
       }
       return 0;
     }

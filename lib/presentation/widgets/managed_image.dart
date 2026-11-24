@@ -3,8 +3,10 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../../composition/platform_composition.dart';
 import '../../domain/models/managed_artwork.dart';
 import '../../domain/models/tmdb_models.dart';
 
@@ -176,7 +178,7 @@ class ManagedImageProvider extends ImageProvider<ManagedImageKey> {
 ///
 /// 对列表海报按需降维解码以防内存膨胀；对详情页背景、ClearLogo 与显式 `original` 档位
 /// 绕过小尺寸缩放重采样限制，配合高画质滤波渲染无损锐利原画。
-class ManagedImage extends StatelessWidget {
+class ManagedImage extends StatefulWidget {
   /// 创建受管图片组件。
   const ManagedImage(
     this.url, {
@@ -235,78 +237,98 @@ class ManagedImage extends StatelessWidget {
   final void Function(ui.Image image, ImageProvider provider)? onImageResolved;
 
   @override
-  Widget build(BuildContext context) {
+  State<ManagedImage> createState() => _ManagedImageState();
+}
+
+class _ManagedImageState extends State<ManagedImage> {
+  int? _lockedTargetWidth;
+  String? _lockedIdentity;
+
+  String get _currentIdentity =>
+      '${widget.url}|${widget.owner}|${widget.artwork.name}|${widget.imageSize?.name}|${widget.isHeroBackdrop}|${widget.decodeWidth}';
+
+  Widget _buildResolvedImage(BuildContext context, {required bool resizing}) {
+    final identity = _currentIdentity;
+    if (_lockedIdentity != identity) {
+      _lockedIdentity = identity;
+      _lockedTargetWidth = null;
+    }
     return LayoutBuilder(
       builder: (context, constraints) {
         final dpr = MediaQuery.devicePixelRatioOf(context);
         final logicalWidth =
-            width ??
+            widget.width ??
             (constraints.hasBoundedWidth ? constraints.maxWidth : 1280.0);
         final rawPhysicalWidth = (logicalWidth * dpr).ceil().clamp(1, 3840);
 
         final keepFullResolution =
-            isHeroBackdrop ||
-            imageSize == TmdbImageSize.original ||
-            artwork == ManagedArtwork.backdrop ||
-            artwork == ManagedArtwork.logo;
+            widget.isHeroBackdrop ||
+            widget.imageSize == TmdbImageSize.original ||
+            widget.artwork == ManagedArtwork.backdrop ||
+            widget.artwork == ManagedArtwork.logo;
         final effectiveSize =
-            imageSize ??
+            widget.imageSize ??
             (keepFullResolution ? TmdbImageSize.original : null);
-        final int target;
-        if (artwork == ManagedArtwork.logo) {
-          target = quantizeManagedImageWidth(
+        final int computedTarget;
+        if (widget.artwork == ManagedArtwork.logo) {
+          computedTarget = quantizeManagedImageWidth(
             math.min(rawPhysicalWidth, 1280),
             maxWidth: 1280,
           );
         } else if (keepFullResolution) {
-          // 保持下载 original 高清原图落盘，但解码位图按显示物理像素封顶以防 4K 背景图浪费 33MB+ 内存；
-          // 仅全幅背景订阅视口宽度，避免普通海报卡片在窗口缩放时产生无谓 MediaQuery 依赖重建。
-          final viewportPhysicalWidth =
-              (MediaQuery.sizeOf(context).width * dpr).ceil().clamp(1, 3840);
-          final displayMax = math.max(viewportPhysicalWidth, 1920).clamp(
-            1,
-            3840,
-          );
-          target = quantizeManagedImageWidth(
+          // 保持下载 original 原图落盘，但按当前约束物理宽度封顶，零 MediaQuery.sizeOf 重复依赖；
+          // 窗口拉伸期间锁定既有解码档位，松手后再升级，杜绝拖拽中途同步重解码 4K 位图卡顿。
+          final displayMax = math.max(rawPhysicalWidth, 1920).clamp(1, 2560);
+          computedTarget = quantizeManagedImageWidth(
             math.min(rawPhysicalWidth, displayMax),
             maxWidth: displayMax,
           );
         } else {
-          target = quantizeManagedImageWidth(
-            rawPhysicalWidth.clamp(1, decodeWidth),
-            maxWidth: decodeWidth,
+          computedTarget = quantizeManagedImageWidth(
+            rawPhysicalWidth.clamp(1, widget.decodeWidth),
+            maxWidth: widget.decodeWidth,
           );
+        }
+        final int target;
+        if (resizing && _lockedTargetWidth != null) {
+          target = _lockedTargetWidth!;
+        } else {
+          target = computedTarget;
+          _lockedTargetWidth = computedTarget;
         }
 
         final ImageProvider baseProvider = ManagedImageProvider(
-          url,
-          loader: loader,
+          widget.url,
+          loader: widget.loader,
           targetWidth: target,
-          artwork: artwork,
+          artwork: widget.artwork,
           imageSize: effectiveSize,
-          isHeroBackdrop: isHeroBackdrop,
+          isHeroBackdrop: widget.isHeroBackdrop,
           applyDecodeWidthCap: keepFullResolution,
-          owner: owner,
+          owner: widget.owner,
         );
 
         final effectiveProvider = keepFullResolution
             ? baseProvider
             : ResizeImage.resizeIfNeeded(target, null, baseProvider);
 
+        // 窗口拖拽期暂降 FilterQuality.low 省去高分背景实时三线性重采样，松手即刻还原原画高画质滤波。
+        final filterQuality = resizing
+            ? FilterQuality.low
+            : (keepFullResolution ? FilterQuality.high : FilterQuality.medium);
+
         final imageWidget = Image(
           image: effectiveProvider,
-          width: width,
-          height: height,
-          fit: fit,
-          alignment: alignment,
-          filterQuality: keepFullResolution
-              ? FilterQuality.high
-              : FilterQuality.medium,
+          width: widget.width,
+          height: widget.height,
+          fit: widget.fit,
+          alignment: widget.alignment,
+          filterQuality: filterQuality,
           gaplessPlayback: true,
-          errorBuilder: errorBuilder,
+          errorBuilder: widget.errorBuilder,
         );
 
-        final observer = onImageResolved;
+        final observer = widget.onImageResolved;
         if (observer == null) {
           return imageWidget;
         }
@@ -315,6 +337,22 @@ class ManagedImage extends StatelessWidget {
           onImageResolved: observer,
           child: imageWidget,
         );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasScope =
+        context.findAncestorWidgetOfExactType<UncontrolledProviderScope>() !=
+        null;
+    if (!hasScope) {
+      return _buildResolvedImage(context, resizing: false);
+    }
+    return Consumer(
+      builder: (ctx, ref, _) {
+        final resizing = ref.watch(windowLiveResizingProvider);
+        return _buildResolvedImage(ctx, resizing: resizing);
       },
     );
   }

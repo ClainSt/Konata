@@ -13,6 +13,7 @@ import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
 import '../theme/konata_theme.dart';
 import '../widgets/design_system/ellipsis_text_with_tooltip.dart';
+import '../widgets/design_system/konata_adaptive_blur.dart';
 
 /// 详情页底部抽屉与完整列表共用的剧集、特典、CD 与 Scan 二级分组聚合数据。
 class DetailSupplementaryViewData {
@@ -305,8 +306,8 @@ class _SecondaryFilterChipState extends State<_SecondaryFilterChip> {
 
     final pill = ClipRRect(
       borderRadius: KonataTheme.borderRadiusPill,
-      child: BackdropFilter(
-        filter: KonataTheme.blurFilterSubtle,
+      child: KonataAdaptiveBackdropBlur(
+        filter: KonataTheme.blurFilterMedium,
         child: AnimatedContainer(
           duration: KonataTheme.motionStandard,
           curve: Curves.easeOutCubic,

@@ -8,6 +8,7 @@ import 'package:window_manager/window_manager.dart' as wm;
 import '../../application/providers/platform_capability.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_theme.dart';
+import '../widgets/design_system/konata_adaptive_blur.dart';
 
 /// 极简无框窗口控制按钮组（最小化 / 最大化还原状态实时同步 / 关闭）。
 class WindowControls extends StatefulWidget {
@@ -252,8 +253,8 @@ class WindowControlsState extends State<WindowControls>
       ),
       child: ClipRRect(
         borderRadius: KonataTheme.borderRadiusPill,
-        child: BackdropFilter(
-          filter: KonataTheme.blurFilterControl,
+        child: KonataAdaptiveBackdropBlur(
+          filter: KonataTheme.blurFilterMedium,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
             decoration: BoxDecoration(

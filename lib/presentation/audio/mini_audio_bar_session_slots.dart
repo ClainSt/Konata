@@ -159,44 +159,7 @@ class _PlaybackSessionCoordinator extends ConsumerWidget {
         syncForegroundAudioObservation();
         ref.read(activeVideoSessionProvider.notifier).handleAppForegrounded();
       },
-      onInterceptBack: () async {
-        if (videoSession.isActive &&
-            videoSession.isExpanded &&
-            !videoSession.isInPipMode) {
-          final vState = ref.read(videoPlaybackProvider(videoSession.request!));
-          if (vState.sideSheetOpen) {
-            ref
-                .read(videoPlaybackProvider(videoSession.request!).notifier)
-                .setSideSheetOpen(false);
-            return true;
-          }
-          if (ref.read(playbackPreferencesProvider).videoFloatingMiniEnabled) {
-            await ref.read(activeVideoSessionProvider.notifier).collapseToMini();
-          } else {
-            await ref.read(activeVideoSessionProvider.notifier).closeVideo();
-          }
-          return true;
-        }
-        if (audioExpanded) {
-          final audioNav = ref.read(_immersiveAudioNavigatorKeyProvider).currentState;
-          if (audioNav != null && audioNav.canPop()) {
-            await audioNav.maybePop();
-            return true;
-          }
-          if (ref.read(immersivePortraitQueueSheetOpenProvider)) {
-            ref.read(immersivePortraitQueueSheetOpenProvider.notifier).state =
-                false;
-            return true;
-          }
-          if (ref.read(playbackPreferencesProvider).audioFloatingMiniEnabled) {
-            ref.read(immersiveAudioExpandedProvider.notifier).state = false;
-          } else {
-            await ref.read(audioPlaybackProvider.notifier).stopAndClose();
-          }
-          return true;
-        }
-        return false;
-      },
+      onInterceptBack: () => _interceptFullscreenMediaBack(ref),
       child: child,
     );
   }

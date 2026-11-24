@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../application/providers/konata_value_notifier.dart';
 import '../application/providers/library_providers.dart';
 import '../application/providers/theme_providers.dart';
 import '../domain/models/relay_target_descriptor.dart';
@@ -187,3 +188,12 @@ final platformBitstreamTitleProvider = Provider<String>(
 final systemProxyResolverProvider = Provider<SystemProxyResolver?>(
   (ref) => null,
 );
+
+/// Windows 原生拖拽窗口边框起止状态广播通道名（对应 `WM_ENTERSIZEMOVE` / `WM_EXITSIZEMOVE`）。
+const String konataWindowResizeChannelName = 'konata/window_resize';
+
+/// 当前桌面窗口是否处于实时边框拖拽缩放状态（拉伸期自动挂起离屏毛玻璃并锁定原画解码档位）。
+final windowLiveResizingProvider =
+    NotifierProvider<KonataValueNotifier<bool>, bool>(
+      () => KonataValueNotifier<bool>.value(false),
+    );

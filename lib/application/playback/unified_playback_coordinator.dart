@@ -708,6 +708,16 @@ class ActiveVideoSessionNotifier extends Notifier<ActiveVideoSessionState> {
   /// 彻底停止并释放当前视频会话。
   Future<void> closeVideo() async {
     final req = state.request;
+    // 在清空活跃会话态卸载播放器页面前，先同步启动 closeAndRelease 的同步前置段
+    // （立即静音并解绑 Surface、提前捕获依赖快照），杜绝 autoDispose 提前销毁引发
+    // UnmountedRefException 或 Surface 销毁竞态漏音。
+    final controller = req != null
+        ? _ref.read(videoPlaybackProvider(req).notifier)
+        : null;
+    final closedWorkId = req != null
+        ? (_ref.read(videoPlaybackProvider(req)).currentWork?.id ?? req.work.id)
+        : null;
+    final closeFuture = controller?.closeAndRelease();
     state = const ActiveVideoSessionState();
     _lastRecoveryMode = PipRecoveryMode.none;
     unawaited(_clearPersistedSnapshot());
@@ -732,8 +742,15 @@ class ActiveVideoSessionNotifier extends Notifier<ActiveVideoSessionState> {
             ),
           ),
     );
-    if (req != null) {
-      await _ref.read(videoPlaybackProvider(req).notifier).closeAndRelease();
+    if (closeFuture != null) {
+      await closeFuture;
+      _ref.invalidate(playbackHistoryProvider);
+      if (closedWorkId != null) {
+        _ref.invalidate(workDetailBundleProvider(closedWorkId));
+      }
+      if (req != null && closedWorkId != null && req.work.id != closedWorkId) {
+        _ref.invalidate(workDetailBundleProvider(req.work.id));
+      }
     }
   }
 

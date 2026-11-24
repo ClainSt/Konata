@@ -274,6 +274,7 @@ class EmbeddedMpvSession {
   Timer? _metadataSnapshotTimer;
   String _activeAndroidVo = MpvQualityProfile.androidVideoDriver;
   bool _disposed = false;
+  bool _closingSilenced = false;
   bool _videoTrackEnabled = true;
   String? _savedVidBeforeDisable;
   VideoAspectMode _aspectMode = VideoAspectMode.auto;
@@ -500,18 +501,7 @@ class EmbeddedMpvSession {
     _firstFrameWatchdogTimer?.cancel();
     _hwdecFallbackAttempted = false;
     _lastDynamicHdrActive = null;
-    if (_hwdecWasEnabled && _usingSoftwareFallback) {
-      _usingSoftwareFallback = false;
-      client.setPropertyString(
-        'hwdec',
-        MpvQualityProfile.resolveHwdecValue(
-          config: _lastQualityConfig,
-          isWindows: Platform.isWindows,
-          isAndroid: _useAndroidSurfaceSession,
-          desktopDelegate: desktopProfileDelegate,
-        ),
-      );
-    }
+    _applyPreLoadHwdecPolicy(client, request.variant);
     _lastPositionSeconds = request.startSeconds > 0
         ? request.startSeconds.toDouble()
         : 0.0;
@@ -588,6 +578,7 @@ class EmbeddedMpvSession {
       client.setPropertyString('start', 'none');
       _pendingInitialSeekSeconds = null;
     }
+    if (_disposed || _closingSilenced || generation != _loadGeneration) return;
     client.setPropertyDouble('sub-delay', 0.0);
     client.setPropertyDouble('audio-delay', 0.0);
     client.setPropertyString('vid', _videoTrackEnabled ? 'auto' : 'no');
@@ -822,7 +813,18 @@ class EmbeddedMpvSession {
             msg.contains('hardware decoding'));
     final isExplicitUnrecoverable =
         msg.contains('hardware decoding failed') || isDesktopHwdecWarn;
-    if (isFatalHwdecError || isExplicitUnrecoverable) {
+    final isAndroidRuntimeHwdecBreak =
+        _useAndroidSurfaceSession &&
+        !_closingSilenced &&
+        _boundAndroidWid > 0 &&
+        !_hasRestartedFirstFrame &&
+        !msg.contains('both surface and native_window are null') &&
+        (msg.contains('acquirelatestimage failed') ||
+            (msg.contains('mediacodec') &&
+                (msg.contains('failed') || msg.contains('configure'))));
+    if (isFatalHwdecError ||
+        isExplicitUnrecoverable ||
+        isAndroidRuntimeHwdecBreak) {
       _triggerSoftwareDecodeFallback();
     }
   }
@@ -866,6 +868,7 @@ class EmbeddedMpvSession {
   void _triggerSoftwareDecodeFallback() {
     final client = _client;
     if (_disposed ||
+        _closingSilenced ||
         client == null ||
         client.isDisposed ||
         _hwdecFallbackAttempted ||
@@ -875,19 +878,8 @@ class EmbeddedMpvSession {
     _hwdecFallbackAttempted = true;
     _usingSoftwareFallback = true;
     _firstFrameWatchdogTimer?.cancel();
-    client.setPropertyString('hwdec', 'no');
-    client.setPropertyString('vd-lavc-threads', '0');
-    final canPreservePos =
-        _lastPositionSeconds > 0.5 &&
-        (_totalDurationSeconds <= 0 ||
-            _lastPositionSeconds < _totalDurationSeconds - 1.0);
-    if (canPreservePos) {
-      client.setPropertyDouble('start', _lastPositionSeconds);
-    } else {
-      client.setPropertyString('start', 'none');
-    }
-    client.setPropertyFlag('pause', false);
-    client.command(['loadfile', _currentMediaTarget, 'replace']);
+    _applySoftwareDecodeTransition(client, reloadFile: true);
+    onHwdecChanged?.call('no');
     onNotice?.call('硬件解码受限，已保留当前进度无缝切回软件解码');
   }
 
@@ -941,16 +933,11 @@ class EmbeddedMpvSession {
     final verifiedShaders = await MpvQualityProfile.filterExistingShaderPaths(
       config.activeShaderPaths,
     );
-    if (_disposed || client.isDisposed) return;
-    MpvQualityProfile.applyLiveQualityUpdate(
+    if (_disposed || _closingSilenced || client.isDisposed) return;
+    _applyLiveQualityWithAndroidSurfaceGuard(
       client,
       config: config,
-      isHdrSource: _lastDynamicHdrActive ?? false,
-      hasSecondarySubtitle: _hasSecondarySubtitle,
-      desktopDelegate: desktopProfileDelegate,
-      verifiedShaderPaths: verifiedShaders,
-      onExclusiveFallbackNotice: onNotice,
-      logStore: logStore,
+      verifiedShaders: verifiedShaders,
     );
     onApplyAudiophileSafetyChain?.call(client);
     _emitMediaMetadataSnapshot();

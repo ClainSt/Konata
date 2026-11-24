@@ -140,8 +140,8 @@ class MpvThumbnailService extends ChangeNotifier {
     this.idleReleaseDuration = defaultIdleReleaseDuration,
   }) : _cache = ThumbnailBucketCache(capacity: cacheCapacity);
 
-  /// 离开进度条且无抽帧任务后的自动释放辅助原生实例时长（默认 45 秒）。
-  static const Duration defaultIdleReleaseDuration = Duration(seconds: 45);
+  /// 离开进度条且无抽帧任务后的自动释放辅助原生实例时长（默认 15 秒，快速回吐后台解码器堆）。
+  static const Duration defaultIdleReleaseDuration = Duration(seconds: 15);
 
   final LocalStreamBridge streamBridge;
   final MediaSourceGatewayFactory gatewayFactory;

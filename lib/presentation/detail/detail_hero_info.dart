@@ -20,6 +20,7 @@ import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
 import '../theme/konata_theme.dart';
+import '../widgets/design_system/konata_adaptive_blur.dart';
 import '../widgets/managed_image.dart';
 import 'detail_stylized_title_block.dart';
 import 'inline_expandable_synopsis.dart';
@@ -667,8 +668,8 @@ class _FrostedPlayButtonState extends State<FrostedPlayButton> {
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(radius),
-            child: BackdropFilter(
-              filter: KonataTheme.blurFilterOverlay,
+            child: KonataAdaptiveBackdropBlur(
+              filter: KonataTheme.blurFilterMedium,
               child: AnimatedContainer(
                 duration: KonataTheme.motionFast,
                 curve: Curves.easeOutCubic,

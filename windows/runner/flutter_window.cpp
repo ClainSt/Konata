@@ -47,6 +47,10 @@ bool FlutterWindow::OnCreate() {
     file_picker_bridge_ =
         std::make_unique<WindowsFilePickerBridge>(GetHandle(), picker_registrar);
   }
+  resize_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(), "konata/window_resize",
+          &flutter::StandardMethodCodec::GetInstance());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -62,6 +66,8 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  resize_channel_.reset();
+  is_live_resizing_ = false;
   if (file_picker_bridge_) {
     file_picker_bridge_->Shutdown();
     file_picker_bridge_.reset();
@@ -84,6 +90,24 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   // 窗口最小化时在无活跃视频会话的前提下即时回收闲置 D3D11 设备与系统工作集。
   if (message == WM_SIZE && wparam == SIZE_MINIMIZED && d3d11_bridge_) {
     d3d11_bridge_->TrimMemoryOnMinimize();
+  } else if (message == WM_ENTERSIZEMOVE) {
+    if (!is_live_resizing_) {
+      is_live_resizing_ = true;
+      if (resize_channel_) {
+        resize_channel_->InvokeMethod(
+            "resizeStateChanged",
+            std::make_unique<flutter::EncodableValue>(true));
+      }
+    }
+  } else if (message == WM_EXITSIZEMOVE) {
+    if (is_live_resizing_) {
+      is_live_resizing_ = false;
+      if (resize_channel_) {
+        resize_channel_->InvokeMethod(
+            "resizeStateChanged",
+            std::make_unique<flutter::EncodableValue>(false));
+      }
+    }
   }
 
   // 优先交由 Flutter 引擎与已注册插件拦截处理窗口消息。

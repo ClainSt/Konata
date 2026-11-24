@@ -44,8 +44,8 @@ extension _ScanLightboxDialogViews on _ScanLightboxDialogState {
                 ),
                 Text(
                   '${safeIdx + 1} / ${_scopedScans.length}'
-                  '${_activePixelWidth != null && _activePixelHeight != null ? ' · $_activePixelWidth×$_activePixelHeight' : ''}'
-                  ' · ${current.relativePath}',
+                  '${!compact && _activePixelWidth != null && _activePixelHeight != null ? ' · $_activePixelWidth×$_activePixelHeight' : ''}'
+                  '${compact ? '' : ' · ${current.relativePath}'}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: KonataTheme.detailTextStyle(

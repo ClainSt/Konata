@@ -161,6 +161,9 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
       });
     }
 
+    final isLibraryActive = ref.watch(
+      selectedNavSectionProvider.select((s) => s == KonataNavSection.library),
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -171,6 +174,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
           reviewCount: reviewCount,
           searchQuery: searchQuery,
           searchOpen: _searchBarOpen,
+          interceptSystemBack: isLibraryActive,
           searchController: _searchCtrl,
           searchFocusNode: _searchFocusNode,
           onOpenHidden: () => showHiddenWorksDialog(context),
@@ -257,6 +261,7 @@ class _LibraryHeaderBar extends StatelessWidget {
     required this.reviewCount,
     required this.searchQuery,
     required this.searchOpen,
+    required this.interceptSystemBack,
     required this.searchController,
     required this.searchFocusNode,
     required this.onOpenHidden,
@@ -273,6 +278,7 @@ class _LibraryHeaderBar extends StatelessWidget {
   final int reviewCount;
   final String searchQuery;
   final bool searchOpen;
+  final bool interceptSystemBack;
   final TextEditingController searchController;
   final FocusNode searchFocusNode;
   final VoidCallback onOpenHidden;
@@ -404,71 +410,79 @@ class _LibraryHeaderBar extends StatelessWidget {
         final searchExpanded = searchOpen || hasQuery;
 
         if (searchExpanded) {
-          return Material(
-            type: MaterialType.transparency,
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(
-                padH,
-                KonataAdaptiveTokens.safeGap,
-                padH,
-                10,
-              ),
-            child: SizedBox(
-              height: KonataAdaptiveTokens.touchTarget,
-              child: Row(
-                key: const ValueKey('library_header_search_row'),
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  KonataCapsuleIconButton(
-                    key: const ValueKey('library_header_search_close'),
-                    icon: Icons.arrow_back_rounded,
-                    tooltip: '关闭搜索',
-                    color: p.textPrimary,
-                    size: 20,
-                    fixedSize: KonataAdaptiveTokens.touchTarget,
-                    onTap: onCloseSearch,
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: CallbackShortcuts(
-                      bindings: {
-                        const SingleActivator(LogicalKeyboardKey.escape):
-                            onCloseSearch,
-                      },
-                      child: KonataSoftTextField(
-                        controller: searchController,
-                        focusNode: searchFocusNode,
-                        height: 42,
-                        prefixIcon: Icons.search_rounded,
-                        hintText: '搜索番剧名称、原名、压制组或 TMDB ID',
-                        suffix: searchController.text.isNotEmpty
-                            ? IconButton(
-                                key: const ValueKey(
-                                  'library_header_search_clear',
-                                ),
-                                tooltip: '清空搜索',
-                                constraints: const BoxConstraints.tightFor(
-                                  width: 36,
-                                  height: 36,
-                                ),
-                                padding: EdgeInsets.zero,
-                                icon: Icon(
-                                  Icons.close_rounded,
-                                  size: 18,
-                                  color: p.textSecondary,
-                                ),
-                                onPressed: onClearSearch,
-                              )
-                            : null,
-                        onChanged: onSearchChanged,
+          return PopScope(
+            canPop: !interceptSystemBack,
+            onPopInvokedWithResult: (didPop, _) {
+              if (!didPop && interceptSystemBack) {
+                onCloseSearch();
+              }
+            },
+            child: Material(
+              type: MaterialType.transparency,
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  padH,
+                  KonataAdaptiveTokens.safeGap,
+                  padH,
+                  10,
+                ),
+                child: SizedBox(
+                  height: KonataAdaptiveTokens.touchTarget,
+                  child: Row(
+                    key: const ValueKey('library_header_search_row'),
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      KonataCapsuleIconButton(
+                        key: const ValueKey('library_header_search_close'),
+                        icon: Icons.arrow_back_rounded,
+                        tooltip: '关闭搜索',
+                        color: p.textPrimary,
+                        size: 20,
+                        fixedSize: KonataAdaptiveTokens.touchTarget,
+                        onTap: onCloseSearch,
                       ),
-                    ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: CallbackShortcuts(
+                          bindings: {
+                            const SingleActivator(LogicalKeyboardKey.escape):
+                                onCloseSearch,
+                          },
+                          child: KonataSoftTextField(
+                            controller: searchController,
+                            focusNode: searchFocusNode,
+                            height: 42,
+                            prefixIcon: Icons.search_rounded,
+                            hintText: '搜索番剧名称、原名、压制组或 TMDB ID',
+                            suffix: searchController.text.isNotEmpty
+                                ? IconButton(
+                                    key: const ValueKey(
+                                      'library_header_search_clear',
+                                    ),
+                                    tooltip: '清空搜索',
+                                    constraints: const BoxConstraints.tightFor(
+                                      width: 36,
+                                      height: 36,
+                                    ),
+                                    padding: EdgeInsets.zero,
+                                    icon: Icon(
+                                      Icons.close_rounded,
+                                      size: 18,
+                                      color: p.textSecondary,
+                                    ),
+                                    onPressed: onClearSearch,
+                                  )
+                                : null,
+                            onChanged: onSearchChanged,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
-          ),
-        );
+          );
         }
 
         final availWidth = math.max(0.0, constraints.maxWidth - padH * 2);

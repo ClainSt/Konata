@@ -35,11 +35,11 @@ class KonataMemoryCoordinator {
   /// 创建内存与资源回吐协调器。
   KonataMemoryCoordinator(this._ref);
 
-  /// 桌面端 Flutter `ImageCache` 推荐解码位图上限（64 MiB）。
-  static const int desktopImageCacheMaxBytes = 64 * 1024 * 1024;
+  /// 桌面端 Flutter `ImageCache` 推荐解码位图上限（36 MiB）。
+  static const int desktopImageCacheMaxBytes = 36 * 1024 * 1024;
 
   /// 桌面端 Flutter `ImageCache` 推荐条目上限。
-  static const int desktopImageCacheMaxEntries = 180;
+  static const int desktopImageCacheMaxEntries = 120;
 
   /// 移动端 Flutter `ImageCache` 推荐解码位图上限（48 MiB）。
   static const int androidImageCacheMaxBytes = 48 * 1024 * 1024;
@@ -64,6 +64,14 @@ class KonataMemoryCoordinator {
   void onEnterFullscreenVideo() {
     if (_disposed) return;
     cancelPostPlaybackTrim();
+    _trimManagedImageCaches(includeAudioCovers: false);
+  }
+
+  /// 退出作品详情页后立即驱逐已失活的 1920px 背景大图与压缩字节缓存，避免静息常驻堆高企。
+  ///
+  /// 仅清理无活跃监听的非活体缓存条目，媒体库正在展示的海报位图仍受 `liveImages` 保护不会闪烁。
+  void onExitWorkDetail() {
+    if (_disposed) return;
     _trimManagedImageCaches(includeAudioCovers: false);
   }
 

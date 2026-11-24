@@ -4,6 +4,7 @@ import '../../theme/konata_adaptive_tokens.dart';
 import '../../theme/konata_palette.dart';
 import '../../theme/konata_playback_tokens.dart';
 import '../../theme/konata_theme.dart';
+import 'konata_adaptive_blur.dart';
 
 /// 跨端共用的圆角毛玻璃表面，保持桌面播控的材质与描边。
 class KonataGlassCapsule extends StatelessWidget {
@@ -72,7 +73,7 @@ class KonataGlassCapsule extends StatelessWidget {
     Widget capsule = enableBackdropBlur
         ? ClipRRect(
             borderRadius: borderRadius,
-            child: BackdropFilter(
+            child: KonataAdaptiveBackdropBlur(
               filter: KonataTheme.blurFilterCapsule,
               child: decorated,
             ),

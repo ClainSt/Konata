@@ -262,23 +262,31 @@ class WorkMatcherScoring {
     return folded.replaceAll(_stripSymbols, '').trim();
   }
 
-  /// 计算二元组 Dice 系数相似度。
+  /// 计算二元组 Dice 系数相似度（将 UTF-16 双字符打包为 32 位整数键，避免热路径子串分配）。
   static double bigramDice(String a, String b) {
-    if (a.length < 2 || b.length < 2) return a == b ? 1.0 : 0.0;
-    final grams = <String, int>{};
-    for (var i = 0; i < a.length - 1; i++) {
-      final g = a.substring(i, i + 2);
-      grams[g] = (grams[g] ?? 0) + 1;
+    final lenA = a.length;
+    final lenB = b.length;
+    if (lenA < 2 || lenB < 2) return a == b ? 1.0 : 0.0;
+    final grams = <int, int>{};
+    var prev = a.codeUnitAt(0);
+    for (var i = 1; i < lenA; i++) {
+      final curr = a.codeUnitAt(i);
+      final key = (prev << 16) | curr;
+      grams[key] = (grams[key] ?? 0) + 1;
+      prev = curr;
     }
     var shared = 0;
-    for (var i = 0; i < b.length - 1; i++) {
-      final g = b.substring(i, i + 2);
-      final left = grams[g] ?? 0;
-      if (left > 0) {
+    prev = b.codeUnitAt(0);
+    for (var i = 1; i < lenB; i++) {
+      final curr = b.codeUnitAt(i);
+      final key = (prev << 16) | curr;
+      final left = grams[key];
+      if (left != null && left > 0) {
         shared++;
-        grams[g] = left - 1;
+        grams[key] = left - 1;
       }
+      prev = curr;
     }
-    return 2.0 * shared / (a.length + b.length - 2);
+    return 2.0 * shared / (lenA + lenB - 2);
   }
 }

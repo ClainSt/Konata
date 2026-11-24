@@ -6,6 +6,7 @@ import '../shell/adaptive_capsule_layout.dart';
 import '../theme/konata_adaptive_tokens.dart';
 import '../theme/konata_palette.dart';
 import '../theme/konata_playback_tokens.dart';
+import '../widgets/design_system/konata_adaptive_blur.dart';
 import '../widgets/design_system/konata_draggable_scrollbar.dart';
 import '../widgets/design_system/konata_popover_option_tile.dart';
 import '../theme/konata_theme.dart';
@@ -149,7 +150,7 @@ class _DetailOpsCapsuleState extends State<DetailOpsCapsule> {
     final compactPad = KonataAdaptiveTokens.isAndroid;
     return ClipRRect(
       borderRadius: KonataTheme.borderRadiusPill,
-      child: BackdropFilter(
+      child: KonataAdaptiveBackdropBlur(
         filter: KonataTheme.blurFilterMedium,
         child: Container(
           padding: compactPad

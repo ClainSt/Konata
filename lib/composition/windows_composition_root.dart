@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:developer' as developer;
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -262,11 +264,43 @@ class WindowsCompositionRoot {
       if (storageRoot != null) storageRootProvider.overrideWithValue(storageRoot),
       if (materialController != null)
         windowMaterialControllerProvider.overrideWithValue(materialController),
-      konataWindowHostProvider.overrideWith(
-        (ref) => WindowsKonataWindowHost(
+      konataWindowHostProvider.overrideWith((ref) {
+        if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+          const resizeChannel = MethodChannel(konataWindowResizeChannelName);
+          Timer? guardTimer;
+          resizeChannel.setMethodCallHandler((call) async {
+            if (call.method != 'resizeStateChanged') return null;
+            final resizing = call.arguments == true;
+            guardTimer?.cancel();
+            guardTimer = null;
+            final notifier = ref.read(windowLiveResizingProvider.notifier);
+            if (!notifier.isMounted) return null;
+            if (notifier.state != resizing) {
+              notifier.state = resizing;
+            }
+            if (resizing) {
+              guardTimer = Timer(
+                KonataPlaybackTokens.windowResizeGuardTimeout,
+                () {
+                  guardTimer = null;
+                  if (notifier.isMounted && notifier.state) {
+                    notifier.state = false;
+                  }
+                },
+              );
+            }
+            return null;
+          });
+          ref.onDispose(() {
+            guardTimer?.cancel();
+            guardTimer = null;
+            resizeChannel.setMethodCallHandler(null);
+          });
+        }
+        return WindowsKonataWindowHost(
           materialController: ref.watch(windowMaterialControllerProvider),
-        ),
-      ),
+        );
+      }),
       konataVideoBridgeFactoryProvider.overrideWithValue(
         () => D3D11VideoBridge(),
       ),

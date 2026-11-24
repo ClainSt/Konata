@@ -43,7 +43,11 @@ class _ScanProgressDialogState extends ConsumerState<ScanProgressDialog> {
         final sid = progress.sourceId;
         if (sid == null) return items;
         return items
-            .where((item) => item.variants.any((v) => v.sourceId == sid))
+            .where(
+              (item) =>
+                  item.sourceIds.contains(sid) ||
+                  item.variants.any((v) => v.sourceId == sid),
+            )
             .toList(growable: false);
       },
       orElse: () => const <WorkLibraryItem>[],

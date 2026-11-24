@@ -857,15 +857,25 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
         );
   }
 
-  Future<void> _persistProgress({required bool isFinal}) async {
-    final work = activeWork;
-    final bundle = activeBundle;
-    final ep = _state.currentEpisode;
-    final variant = _state.currentVariant;
-    final durDouble = _state.durationSeconds;
-    final posDouble = _hudProgressActive
-        ? currentPositionSeconds
-        : (_session?.readCurrentPositionSeconds() ?? currentPositionSeconds);
+  Future<void> _persistProgress({
+    required bool isFinal,
+    VideoPlaybackState? snapshotOverride,
+    double? positionOverride,
+    LibraryRepository? repoOverride,
+    BangumiSyncController? bangumiSyncOverride,
+  }) async {
+    final snap = snapshotOverride ?? (mounted ? _state : null);
+    if (snap == null) return;
+    final work = snap.currentWork ?? request.work;
+    final bundle = snap.currentBundle ?? request.bundle;
+    final ep = snap.currentEpisode;
+    final variant = snap.currentVariant;
+    final durDouble = snap.durationSeconds;
+    final posDouble =
+        positionOverride ??
+        (_hudProgressActive
+            ? currentPositionSeconds
+            : (_session?.readCurrentPositionSeconds() ?? currentPositionSeconds));
     _latestPositionSeconds = posDouble;
     if (!isFinal) {
       _maybeScheduleNextEpisodePrewarm(posDouble);
@@ -885,7 +895,9 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
 
     if (posDouble < 1.0 && !completed && !isFinal) return;
 
-    final repo = _ref.read(libraryRepositoryProvider);
+    final repo =
+        repoOverride ?? (mounted ? _ref.read(libraryRepositoryProvider) : null);
+    if (repo == null) return;
     final src = bundle.sourcesById[variant.sourceId];
     final recordId = '${work.id}::${ep.id}';
     final record = PlaybackRecord(
@@ -913,11 +925,12 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
     await repo.recordPlayback(record);
     _alreadyPersistedCompleted = completed;
     if (newlyCompleted) {
-      unawaited(
-        _ref
-            .read(bangumiSyncControllerProvider.notifier)
-            .notifyEpisodeCompleted(work: work, episode: ep),
-      );
+      final bangumiSync =
+          bangumiSyncOverride ??
+          (mounted ? _ref.read(bangumiSyncControllerProvider.notifier) : null);
+      if (bangumiSync != null) {
+        unawaited(bangumiSync.notifyEpisodeCompleted(work: work, episode: ep));
+      }
     }
 
     final cachedBundle = _bundleCacheByWorkId[work.id] ?? bundle;

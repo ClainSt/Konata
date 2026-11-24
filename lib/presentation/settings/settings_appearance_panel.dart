@@ -178,6 +178,41 @@ class _ThemeOptionCard extends StatelessWidget {
   final VoidCallback onTap;
   final bool isSplitPreview;
 
+  Widget _buildThemePreviewTile({
+    required Color bg,
+    required Color pill,
+    required Color card,
+  }) {
+    return DecoratedBox(
+      decoration: BoxDecoration(color: bg),
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            DecoratedBox(
+              decoration: BoxDecoration(
+                color: pill,
+                borderRadius: KonataTheme.borderRadiusPill,
+              ),
+              child: const SizedBox(width: 28, height: 7),
+            ),
+            const SizedBox(height: 7),
+            Expanded(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: card,
+                  borderRadius: KonataTheme.borderRadiusChipSm,
+                ),
+                child: const SizedBox.expand(),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
@@ -210,38 +245,32 @@ class _ThemeOptionCard extends StatelessWidget {
                     width: double.infinity,
                     child: isSplitPreview
                         ? Row(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              Expanded(child: ColoredBox(color: previewBg)),
-                              Expanded(child: ColoredBox(color: previewCard)),
+                              Expanded(
+                                child: _buildThemePreviewTile(
+                                  bg: KonataTheme.cinemaObsidian,
+                                  pill: KonataPalette.dark.primaryButtonBg,
+                                  card: KonataTheme.themePreviewDarkCard,
+                                ),
+                              ),
+                              ColoredBox(
+                                color: p.hairline,
+                                child: const SizedBox(width: 1),
+                              ),
+                              Expanded(
+                                child: _buildThemePreviewTile(
+                                  bg: KonataTheme.themePreviewLightCanvas,
+                                  pill: KonataPalette.light.primaryButtonBg,
+                                  card: KonataTheme.pureWhite,
+                                ),
+                              ),
                             ],
                           )
-                        : DecoratedBox(
-                            decoration: BoxDecoration(color: previewBg),
-                            child: Padding(
-                              padding: const EdgeInsets.all(8),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  DecoratedBox(
-                                    decoration: BoxDecoration(
-                                      color: previewPill,
-                                      borderRadius: KonataTheme.borderRadiusPill,
-                                    ),
-                                    child: const SizedBox(width: 38, height: 8),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Expanded(
-                                    child: DecoratedBox(
-                                      decoration: BoxDecoration(
-                                        color: previewCard,
-                                        borderRadius: KonataTheme.borderRadiusChipSm,
-                                      ),
-                                      child: const SizedBox.expand(),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
+                        : _buildThemePreviewTile(
+                            bg: previewBg,
+                            pill: previewPill,
+                            card: previewCard,
                           ),
                   ),
                 ),

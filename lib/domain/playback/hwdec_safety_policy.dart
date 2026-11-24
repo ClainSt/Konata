@@ -47,6 +47,26 @@ class HwdecSafetyPolicy {
   static const String safeAndroidHwdecCodecs =
       'h264,hevc,mpeg4,mpeg2video,vp8,vp9,av1';
 
+  /// 根据入库已解析的结构化视频编码与位深，在装载前预判是否应直接绕过硬解。
+  ///
+  /// 仅当结构化 `videoCodec` 存在时生效，避免对未解析文件名的普通样本误判；
+  /// 命中时可阻止 Android `MediaCodec` + `AImageReader` 对 Hi10P / HEVC Rext 等伪支持流进行无效初始化。
+  static HwdecSafetyDecision evaluateVariantMetadata({
+    required HwdecPlatformKind platform,
+    String? videoCodec,
+    String? bitDepth,
+  }) {
+    final codec = (videoCodec ?? '').trim();
+    if (codec.isEmpty) {
+      return const HwdecSafetyDecision.allow();
+    }
+    return evaluate(
+      platform: platform,
+      videoCodec: codec,
+      pixelFormat: bitDepth,
+    );
+  }
+
   /// 根据平台与流编码参数判定是否应拦截硬解并自动切换多线程软解。
   static HwdecSafetyDecision evaluate({
     required HwdecPlatformKind platform,

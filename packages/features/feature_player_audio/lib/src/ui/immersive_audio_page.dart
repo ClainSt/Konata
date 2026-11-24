@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:engine_playback/engine_playback.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:konata_contracts/konata_contracts.dart';
@@ -16,8 +18,9 @@ import 'immersive_audio_stages.dart';
 
 /// Salt 风格全屏流光音频舞台主页面。
 ///
-/// 支持桌面双栏、平板、矮屏手机横屏与手机竖屏四态自适应布局；
-/// 仅依赖 `konata_contracts` 动态拼装外挂歌词视口与 `PlayerMediaMode.audio` 侧栏。
+/// 支持桌面双栏、平板横/竖屏与 Android 手机独占纯竖屏自适应布局；
+/// 全舞台恒定锁定深邃暗光域与纯白发光排版，绝不随外部浅色主题漂白；
+/// 仅依赖 `konata_contracts` 动态拼装外挂歌词视口与 `PlayerMediaMode.audio` 面板。
 class ImmersiveAudioPage extends StatefulWidget {
   /// 创建全屏沉浸式音频舞台。
   const ImmersiveAudioPage({
@@ -46,7 +49,7 @@ class ImmersiveAudioPage extends StatefulWidget {
   /// 可选外部歌词滚动视图构建器（为空时舞台优雅降级为纯音频信息展示）。
   final AudioLyricsViewportBuilder? lyricsViewportBuilder;
 
-  /// 从各插件收集的播放器右侧扩展抽屉贡献项（内部自动按 `PlayerMediaMode.audio` 与平台过滤）。
+  /// 从各插件收集的播放器扩展面板贡献项（内部自动按 `PlayerMediaMode.audio` 与平台过滤）。
   final List<PlayerSidePanelContribution> extraSidePanels;
 
   /// 当前运行平台枚举。
@@ -74,7 +77,42 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
   AudioStageRightTab _rightTab = AudioStageRightTab.lyrics;
   bool _portraitShowLyrics = false;
   bool _sideQueueOpen = false;
+  bool _portraitQueueOpen = false;
+  bool _menuOpen = false;
+  bool _topChromeHovered = false;
+  bool _didLockPortraitOrientation = false;
   PlayerSidePanelContribution? _activeSidePanel;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncOrientationLock();
+  }
+
+  @override
+  void didUpdateWidget(covariant ImmersiveAudioPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.platform != widget.platform) {
+      _syncOrientationLock();
+    }
+  }
+
+  void _syncOrientationLock() {
+    if (kIsWeb) return;
+    if (widget.platform == KonataPlatform.androidPhone) {
+      _didLockPortraitOrientation = true;
+      unawaited(
+        SystemChrome.setPreferredOrientations(const <DeviceOrientation>[
+          DeviceOrientation.portraitUp,
+        ]),
+      );
+    } else if (_didLockPortraitOrientation) {
+      _didLockPortraitOrientation = false;
+      unawaited(
+        SystemChrome.setPreferredOrientations(const <DeviceOrientation>[]),
+      );
+    }
+  }
 
   List<PlayerSidePanelContribution> get _eligibleSidePanels {
     final matched = widget.extraSidePanels
@@ -86,36 +124,28 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
 
   void _handleSidePanelTap(PlayerSidePanelContribution panel) {
     setState(() {
+      _menuOpen = false;
       if (_activeSidePanel?.id == panel.id) {
         _activeSidePanel = null;
       } else {
         _sideQueueOpen = false;
+        _portraitQueueOpen = false;
         _activeSidePanel = panel;
       }
     });
   }
 
-  void _handleToggleQueue(bool isNarrowPortrait) {
-    if (isNarrowPortrait) {
-      unawaited(
-        showKonataGlassBottomSheet<void>(
-          context: context,
-          title: '播放队列 (${widget.controller.snapshot.queue.length})',
-          builder: (_) => SizedBox(
-            height: 360,
-            child: ValueListenableBuilder<AudioPlaybackSnapshot>(
-              valueListenable: widget.controller.snapshotListenable,
-              builder: (_, snap, _) => AudioQueueListView(
-                controller: widget.controller,
-                snapshot: snap,
-              ),
-            ),
-          ),
-        ),
-      );
+  void _handleToggleQueue(bool isVertical) {
+    if (isVertical) {
+      setState(() {
+        _menuOpen = false;
+        _activeSidePanel = null;
+        _portraitQueueOpen = !_portraitQueueOpen;
+      });
       return;
     }
     setState(() {
+      _menuOpen = false;
       _activeSidePanel = null;
       _sideQueueOpen = !_sideQueueOpen;
     });
@@ -154,10 +184,15 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
         );
         return KeyEventResult.handled;
       case LogicalKeyboardKey.escape:
-        if (_activeSidePanel != null || _sideQueueOpen) {
+        if (_menuOpen ||
+            _activeSidePanel != null ||
+            _sideQueueOpen ||
+            _portraitQueueOpen) {
           setState(() {
+            _menuOpen = false;
             _activeSidePanel = null;
             _sideQueueOpen = false;
+            _portraitQueueOpen = false;
           });
           return KeyEventResult.handled;
         }
@@ -171,8 +206,9 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
   Widget _buildSidePanelContent(
     BuildContext context,
     PlayerSidePanelContribution panel,
-    AudioQueueItem? currentItem,
-  ) {
+    AudioQueueItem? currentItem, {
+    bool embedded = false,
+  }) {
     final built = panel.viewBuilder(
       ViewSlotContext(
         platformContext: context,
@@ -184,6 +220,7 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
           'artist': currentItem?.artist,
           'album': currentItem?.album,
           'controller': widget.controller,
+          'embedded': embedded,
         },
       ),
     );
@@ -192,243 +229,857 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
 
   @override
   void dispose() {
+    if (_didLockPortraitOrientation && !kIsWeb) {
+      unawaited(
+        SystemChrome.setPreferredOrientations(const <DeviceOrientation>[]),
+      );
+    }
     _keyboardFocusNode.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Focus(
-      focusNode: _keyboardFocusNode,
-      autofocus: true,
-      onKeyEvent: _handleKeyEvent,
-      child: ValueListenableBuilder<AudioPlaybackSnapshot>(
-        valueListenable: widget.controller.snapshotListenable,
-        builder: (context, snap, _) {
-          final currentItem = snap.currentItem;
-          final sidePanels = _eligibleSidePanels;
+    return Theme(
+      data: KonataTheme.darkTheme(),
+      child: Focus(
+        focusNode: _keyboardFocusNode,
+        autofocus: true,
+        onKeyEvent: _handleKeyEvent,
+        child: ValueListenableBuilder<AudioPlaybackSnapshot>(
+          valueListenable: widget.controller.snapshotListenable,
+          builder: (context, snap, _) {
+            final currentItem = snap.currentItem;
+            final sidePanels = _eligibleSidePanels;
 
-          return AudioAuroraBackdrop(
-            cover: snap.cover,
-            coverVariantTag: snap.coverVariantTag,
-            paletteCache: widget.paletteCache,
-            child: SafeArea(
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final width = constraints.maxWidth;
-                  final height = constraints.maxHeight;
-                  final isPortraitPhone = width < 720 && height >= 520;
-                  final isShortLandscape = height < 520;
+            return AudioAuroraBackdrop(
+              cover: snap.cover,
+              coverVariantTag: snap.coverVariantTag,
+              paletteCache: widget.paletteCache,
+              child: SafeArea(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final width = constraints.maxWidth;
+                    final height = constraints.maxHeight;
+                    final isVertical =
+                        widget.platform == KonataPlatform.androidPhone ||
+                        width < 720 ||
+                        (widget.platform == KonataPlatform.androidTablet &&
+                            width < height);
+                    final isTabletPortrait =
+                        isVertical &&
+                        widget.platform == KonataPlatform.androidTablet;
 
-                  return Stack(
-                    children: [
-                      Column(
-                        children: [
-                          // 顶部栏：最小化收拢、专辑标题与安全护耳状态入口、关闭按钮。
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
-                            child: Row(
-                              children: [
-                                if (widget.onMinimizeToMiniBar != null)
-                                  KonataCapsuleIconButton(
-                                    icon: Icons.keyboard_arrow_down_rounded,
-                                    tooltip: '收起为悬浮迷你唱片 (Esc)',
-                                    color: Colors.white.withValues(alpha: 0.90),
-                                    size: 24,
-                                    fixedSize: 38.0,
-                                    onTap: widget.onMinimizeToMiniBar,
+                    return Stack(
+                      children: [
+                        Column(
+                          children: [
+                            // 顶栏：手机竖屏封面态极简留白（左 ⌄ + 右菜单），歌词态顶部中央淡入迷你封面胶囊；
+                            // 宽屏顶栏常态静默隐形（0.36 -> 悬停 0.92）并完整保留宿主窗口控制。
+                            isVertical
+                                ? _buildPortraitTopBar(
+                                    context: context,
+                                    snap: snap,
+                                    currentItem: currentItem,
+                                  )
+                                : _buildWidescreenTopBar(
+                                    context: context,
+                                    snap: snap,
+                                    currentItem: currentItem,
+                                    sidePanels: sidePanels,
                                   ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: KonataDesktopWindowChromeScope.wrapDragToMove(
-                                    context,
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          currentItem?.album ?? '沉浸式 CD 音乐舞台',
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                        if (snap.errorMessage != null)
-                                          Text(
-                                            snap.errorMessage!,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                              color: Color(0xFFFFB4AB),
-                                              fontSize: 11.5,
-                                            ),
-                                          ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                                if (snap.audiophilePlan.safetyLimiterEngaged)
-                                  Padding(
-                                    padding: const EdgeInsets.only(right: 8),
-                                    child: GestureDetector(
-                                      onTap: () => unawaited(
+                            // 核心舞台：Android 手机锁纯竖屏，桌面与平板横屏双栏。
+                            Expanded(
+                              child: isVertical
+                                  ? PortraitPhoneAudioStage(
+                                      controller: widget.controller,
+                                      snapshot: snap,
+                                      alignmentCache: widget.alignmentCache,
+                                      showingLyrics: _portraitShowLyrics,
+                                      isTabletPortrait: isTabletPortrait,
+                                      onToggleShowLyrics: () => setState(
+                                        () => _portraitShowLyrics =
+                                            !_portraitShowLyrics,
+                                      ),
+                                      lyricsViewportBuilder:
+                                          widget.lyricsViewportBuilder,
+                                    )
+                                  : DesktopAudioDualStage(
+                                      controller: widget.controller,
+                                      snapshot: snap,
+                                      alignmentCache: widget.alignmentCache,
+                                      rightTab: _rightTab,
+                                      stageHeight: height,
+                                      onRightTabChanged: (t) =>
+                                          setState(() => _rightTab = t),
+                                      onOpenSafetyDialog: () => unawaited(
                                         showAudiophileSafetyDialog(
                                           context,
                                           widget.controller,
+                                          forceDarkTheme: true,
                                         ),
                                       ),
-                                      child: const KonataSpecBadge(
-                                        label: '-12 dBFS',
-                                        icon: Icons.verified_user_outlined,
-                                        highlighted: true,
-                                        darkOverlay: true,
+                                      lyricsViewportBuilder:
+                                          widget.lyricsViewportBuilder,
+                                    ),
+                            ),
+                            // 底部区：宽屏为超轻烟熏玻璃隐形胶囊，手机竖屏为纯白通透播控区。
+                            isVertical
+                                ? _buildPortraitBottomControls(
+                                    snap: snap,
+                                    isTabletPortrait: isTabletPortrait,
+                                  )
+                                : Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      24,
+                                      4,
+                                      24,
+                                      18,
+                                    ),
+                                    child: Center(
+                                      child: ConstrainedBox(
+                                        constraints: const BoxConstraints(
+                                          maxWidth: 880.0,
+                                        ),
+                                        child: AudioPlaybackCapsule(
+                                          controller: widget.controller,
+                                          snapshot: snap,
+                                          sidePanels: const [],
+                                          compact: false,
+                                          isQueueOpen: _sideQueueOpen,
+                                          activeSidePanelId:
+                                              _activeSidePanel?.id,
+                                          onToggleQueue: () =>
+                                              _handleToggleQueue(false),
+                                          onOpenSafetyDialog: () => unawaited(
+                                            showAudiophileSafetyDialog(
+                                              context,
+                                              widget.controller,
+                                              forceDarkTheme: true,
+                                            ),
+                                          ),
+                                          onOpenSidePanel: _handleSidePanelTap,
+                                          onRelayToDesktop:
+                                              widget.desktopRelayAvailable
+                                              ? () => unawaited(
+                                                  widget.controller
+                                                      .relayActiveToDesktop(),
+                                                )
+                                              : null,
+                                        ),
                                       ),
                                     ),
                                   ),
-                                if (widget.onClosePage != null)
-                                  KonataCapsuleIconButton(
-                                    icon: Icons.close_rounded,
-                                    tooltip: '关闭音频播放会话',
-                                    color: Colors.white.withValues(alpha: 0.85),
-                                    size: 20,
-                                    fixedSize: 38.0,
-                                    onTap: () {
-                                      unawaited(
-                                        widget.controller.stopAndClose(),
-                                      );
-                                      widget.onClosePage?.call();
-                                    },
-                                  ),
-                                if (KonataDesktopWindowChromeScope.buildWindowControls(
+                          ],
+                        ),
+                        // 桌面/平板右侧自定义扩展面板或队列抽屉。
+                        if ((_sideQueueOpen || _activeSidePanel != null) &&
+                            !isVertical)
+                          Positioned.fill(
+                            child: KonataGlassSideSheet(
+                              title: _activeSidePanel?.label ??
+                                  '播放队列 (${snap.queue.length})',
+                              width: math.min(420.0, width * 0.46),
+                              bottomInset: 96.0,
+                              onClose: () => setState(() {
+                                _sideQueueOpen = false;
+                                _activeSidePanel = null;
+                              }),
+                              child: _activeSidePanel != null
+                                  ? _buildSidePanelContent(
                                       context,
-                                      forceLightIcons: true,
+                                      _activeSidePanel!,
+                                      currentItem,
                                     )
-                                    case final desktopControls?) ...[
-                                  const SizedBox(width: 8),
-                                  desktopControls,
-                                ],
-                              ],
-                            ),
-                          ),
-                          // 自适应核心舞台区域。
-                          Expanded(
-                            child: isShortLandscape
-                                ? ShortPhoneLandscapeStage(
-                                    controller: widget.controller,
-                                    snapshot: snap,
-                                    lyricsViewportBuilder:
-                                        widget.lyricsViewportBuilder,
-                                  )
-                                : (isPortraitPhone
-                                      ? PortraitPhoneAudioStage(
-                                          controller: widget.controller,
-                                          snapshot: snap,
-                                          alignmentCache: widget.alignmentCache,
-                                          showingLyrics: _portraitShowLyrics,
-                                          onToggleShowLyrics: () => setState(
-                                            () => _portraitShowLyrics =
-                                                !_portraitShowLyrics,
-                                          ),
-                                          lyricsViewportBuilder:
-                                              widget.lyricsViewportBuilder,
-                                        )
-                                      : DesktopAudioDualStage(
-                                          controller: widget.controller,
-                                          snapshot: snap,
-                                          alignmentCache: widget.alignmentCache,
-                                          rightTab: _rightTab,
-                                          onRightTabChanged: (t) =>
-                                              setState(() => _rightTab = t),
-                                          lyricsViewportBuilder:
-                                              widget.lyricsViewportBuilder,
-                                        )),
-                          ),
-                          // 底部玻璃胶囊控制条。
-                          Padding(
-                            padding: EdgeInsets.fromLTRB(
-                              isPortraitPhone ? 12 : 24,
-                              4,
-                              isPortraitPhone ? 12 : 24,
-                              isShortLandscape ? 8 : 16,
-                            ),
-                            child: Center(
-                              child: ConstrainedBox(
-                                constraints: const BoxConstraints(
-                                  maxWidth:
-                                      KonataPlaybackTokens.capsuleAudioMaxWidth,
-                                ),
-                                child: AudioPlaybackCapsule(
-                                  controller: widget.controller,
-                                  snapshot: snap,
-                                  sidePanels: sidePanels,
-                                  compact: isPortraitPhone || isShortLandscape,
-                                  isQueueOpen: _sideQueueOpen,
-                                  activeSidePanelId: _activeSidePanel?.id,
-                                  onToggleQueue: () =>
-                                      _handleToggleQueue(isPortraitPhone),
-                                  onOpenSafetyDialog: () => unawaited(
-                                    showAudiophileSafetyDialog(
-                                      context,
-                                      widget.controller,
+                                  : AudioQueueListView(
+                                      controller: widget.controller,
+                                      snapshot: snap,
                                     ),
-                                  ),
-                                  onOpenSidePanel: _handleSidePanelTap,
-                                  onRelayToDesktop: widget.desktopRelayAvailable
-                                      ? () => unawaited(
-                                          widget.controller
-                                              .relayActiveToDesktop(),
-                                        )
-                                      : null,
-                                  onToggleDesktopMini:
-                                      widget.desktopMiniWindowSupported
-                                      ? () => unawaited(
-                                          widget.controller
-                                              .setDesktopMiniWindow(
-                                                !snap.isDesktopMiniWindow,
-                                              ),
-                                        )
-                                      : null,
-                                ),
-                              ),
                             ),
                           ),
-                        ],
+                        // 竖屏暗色玻璃队列底部弹出层。
+                        if (_portraitQueueOpen && isVertical)
+                          _buildPortraitQueueOverlay(
+                            snap: snap,
+                            maxHeight: height,
+                          ),
+                        // 右上角菜单统一弹层：整合双语译文、歌词延迟、词源切换与无损输出链路信息。
+                        if (_menuOpen)
+                          _buildUnifiedMenuOverlay(
+                            context: context,
+                            snap: snap,
+                            currentItem: currentItem,
+                            sidePanels: sidePanels,
+                            isVertical: isVertical,
+                            viewportW: width,
+                            viewportH: height,
+                          ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWidescreenTopBar({
+    required BuildContext context,
+    required AudioPlaybackSnapshot snap,
+    required AudioQueueItem? currentItem,
+    required List<PlayerSidePanelContribution> sidePanels,
+  }) {
+    final activeChrome =
+        _topChromeHovered ||
+        _menuOpen ||
+        _sideQueueOpen ||
+        _activeSidePanel != null;
+    final quickPanels = sidePanels
+        .where((p) => p.id != 'lyrics_control')
+        .toList(growable: false);
+    final windowControls =
+        KonataDesktopWindowChromeScope.buildWindowControls(
+          context,
+          forceLightIcons: true,
+        );
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _topChromeHovered = true),
+      onExit: (_) => setState(() => _topChromeHovered = false),
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+        opacity: activeChrome ? 0.92 : 0.36,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 10, 16, 4),
+          child: Row(
+            children: [
+              if (widget.onMinimizeToMiniBar != null) ...[
+                KonataCapsuleIconButton(
+                  icon: Icons.keyboard_arrow_down_rounded,
+                  tooltip: '收起为悬浮迷你唱片 (Esc)',
+                  color: Colors.white.withValues(alpha: 0.92),
+                  size: 24,
+                  fixedSize: 38.0,
+                  onTap: widget.onMinimizeToMiniBar,
+                ),
+                const SizedBox(width: 6),
+              ],
+              if (widget.desktopMiniWindowSupported) ...[
+                KonataCapsuleIconButton(
+                  icon: snap.isDesktopMiniWindow
+                      ? Icons.open_in_full_rounded
+                      : Icons.picture_in_picture_alt_rounded,
+                  tooltip: snap.isDesktopMiniWindow ? '还原主窗口' : '置顶便携小窗',
+                  color: Colors.white.withValues(alpha: 0.90),
+                  highlighted: snap.isDesktopMiniWindow,
+                  size: 19,
+                  fixedSize: 36.0,
+                  onTap: () => unawaited(
+                    widget.controller.setDesktopMiniWindow(
+                      !snap.isDesktopMiniWindow,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
+              Expanded(
+                child: KonataDesktopWindowChromeScope.wrapDragToMove(
+                  context,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        currentItem?.album ?? '沉浸式 CD 音乐舞台',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.84),
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                      // 桌面/平板右侧悬浮玻璃抽屉（队列或动态注入面板，自带全屏遮罩与边缘手势关闭）。
-                      if ((_sideQueueOpen || _activeSidePanel != null) &&
-                          !isPortraitPhone)
-                        Positioned.fill(
-                          child: KonataGlassSideSheet(
-                            title: _activeSidePanel?.label ??
-                                '播放队列 (${snap.queue.length})',
-                            width: math.min(390.0, width * 0.45),
-                            bottomInset: 104.0,
-                            onClose: () => setState(() {
-                              _sideQueueOpen = false;
-                              _activeSidePanel = null;
-                            }),
-                            child: _activeSidePanel != null
-                                ? _buildSidePanelContent(
-                                    context,
-                                    _activeSidePanel!,
-                                    currentItem,
-                                  )
-                                : AudioQueueListView(
-                                    controller: widget.controller,
-                                    snapshot: snap,
-                                  ),
+                      if (snap.errorMessage != null)
+                        Text(
+                          snap.errorMessage!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Color(0xFFFFB4AB),
+                            fontSize: 11.5,
                           ),
                         ),
                     ],
-                  );
-                },
+                  ),
+                ),
+              ),
+              if (snap.audiophilePlan.safetyLimiterEngaged)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: GestureDetector(
+                    onTap: () => unawaited(
+                      showAudiophileSafetyDialog(
+                        context,
+                        widget.controller,
+                        forceDarkTheme: true,
+                      ),
+                    ),
+                    child: const KonataSpecBadge(
+                      label: '-12 dBFS',
+                      icon: Icons.verified_user_outlined,
+                      highlighted: true,
+                      darkOverlay: true,
+                    ),
+                  ),
+                ),
+              for (final panel in quickPanels) ...[
+                KonataCapsuleIconButton(
+                  icon: KonataIconRegistry.resolve(panel.iconKey),
+                  tooltip: panel.label,
+                  color: Colors.white.withValues(alpha: 0.90),
+                  highlighted: _activeSidePanel?.id == panel.id,
+                  size: 19,
+                  fixedSize: 36.0,
+                  onTap: () => _handleSidePanelTap(panel),
+                ),
+                const SizedBox(width: 4),
+              ],
+              KonataCapsuleIconButton(
+                icon: Icons.queue_music_rounded,
+                tooltip: '播放队列 (${snap.queue.length})',
+                color: Colors.white.withValues(alpha: 0.90),
+                highlighted: _sideQueueOpen || _rightTab == AudioStageRightTab.queue,
+                size: 19,
+                fixedSize: 36.0,
+                onTap: () => _handleToggleQueue(false),
+              ),
+              const SizedBox(width: 4),
+              KonataCapsuleIconButton(
+                key: const ValueKey('audio_top_menu_button'),
+                icon: Icons.tune_rounded,
+                tooltip: '歌词控制与无损输出菜单',
+                color: Colors.white.withValues(alpha: 0.92),
+                highlighted: _menuOpen,
+                size: 19,
+                fixedSize: 36.0,
+                onTap: () => setState(() {
+                  _sideQueueOpen = false;
+                  _activeSidePanel = null;
+                  _menuOpen = !_menuOpen;
+                }),
+              ),
+              if (widget.onClosePage != null) ...[
+                const SizedBox(width: 4),
+                KonataCapsuleIconButton(
+                  icon: Icons.close_rounded,
+                  tooltip: '关闭音频播放会话',
+                  color: Colors.white.withValues(alpha: 0.88),
+                  size: 20,
+                  fixedSize: 36.0,
+                  onTap: () {
+                    unawaited(widget.controller.stopAndClose());
+                    widget.onClosePage?.call();
+                  },
+                ),
+              ],
+              if (windowControls != null) ...[
+                const SizedBox(width: 8),
+                windowControls,
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPortraitTopBar({
+    required BuildContext context,
+    required AudioPlaybackSnapshot snap,
+    required AudioQueueItem? currentItem,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 8, 14, 4),
+      child: Row(
+        children: [
+          if (widget.onMinimizeToMiniBar != null)
+            KonataCapsuleIconButton(
+              icon: Icons.keyboard_arrow_down_rounded,
+              tooltip: '收起为悬浮迷你唱片',
+              color: Colors.white.withValues(alpha: 0.90),
+              size: 26,
+              fixedSize: 44.0,
+              onTap: widget.onMinimizeToMiniBar,
+            )
+          else
+            const SizedBox(width: 44, height: 44),
+          Expanded(
+            child: Center(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 220),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                child: _portraitShowLyrics
+                    ? GestureDetector(
+                        key: const ValueKey('portrait_top_mini_cover_pill'),
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () =>
+                            setState(() => _portraitShowLyrics = false),
+                        child: Container(
+                          padding: const EdgeInsets.fromLTRB(5, 4, 12, 4),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.10),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.16),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              ImmersiveMicroCover(
+                                cover: snap.cover,
+                                coverKey: snap.coverVariantTag,
+                                size: 28,
+                              ),
+                              const SizedBox(width: 8),
+                              Flexible(
+                                child: Text(
+                                  currentItem?.title ?? '返回封面',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: Colors.white.withValues(alpha: 0.92),
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    : const SizedBox.shrink(
+                        key: ValueKey('portrait_top_empty_center'),
+                      ),
               ),
             ),
-          );
-        },
+          ),
+          KonataCapsuleIconButton(
+            key: const ValueKey('audio_top_menu_button'),
+            icon: Icons.tune_rounded,
+            tooltip: '歌词控制与无损输出菜单',
+            color: Colors.white.withValues(alpha: 0.90),
+            highlighted: _menuOpen,
+            size: 21,
+            fixedSize: 44.0,
+            onTap: () => setState(() {
+              _portraitQueueOpen = false;
+              _menuOpen = !_menuOpen;
+            }),
+          ),
+          if (widget.onClosePage != null) ...[
+            const SizedBox(width: 2),
+            KonataCapsuleIconButton(
+              icon: Icons.close_rounded,
+              tooltip: '关闭音频播放会话',
+              color: Colors.white.withValues(alpha: 0.84),
+              size: 20,
+              fixedSize: 40.0,
+              onTap: () {
+                unawaited(widget.controller.stopAndClose());
+                widget.onClosePage?.call();
+              },
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPortraitBottomControls({
+    required AudioPlaybackSnapshot snap,
+    required bool isTabletPortrait,
+  }) {
+    final loopIcon = switch (snap.loopMode) {
+      AudioLoopMode.sequence => Icons.repeat_rounded,
+      AudioLoopMode.loopAll => Icons.repeat_rounded,
+      AudioLoopMode.loopOne => Icons.repeat_one_rounded,
+    };
+    final loopTooltip = switch (snap.loopMode) {
+      AudioLoopMode.sequence => '顺序播放',
+      AudioLoopMode.loopAll => '列表循环',
+      AudioLoopMode.loopOne => '单曲循环',
+    };
+    final loopActive = snap.loopMode != AudioLoopMode.sequence;
+
+    return Padding(
+      key: const ValueKey('salt_portrait_bottom_controls'),
+      padding: EdgeInsets.fromLTRB(
+        isTabletPortrait ? 56 : 24,
+        4,
+        isTabletPortrait ? 56 : 24,
+        18,
+      ),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 520),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AudioLeafDurationScrubber(
+              positionListenable: widget.controller.positionListenable,
+              durationListenable: widget.controller.durationListenable,
+              onSeekTo: widget.controller.seekToTrackPosition,
+              compact: true,
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                KonataCapsuleIconButton(
+                  icon: loopIcon,
+                  tooltip: loopTooltip,
+                  color: Colors.white.withValues(
+                    alpha: loopActive ? 0.96 : 0.66,
+                  ),
+                  highlighted: loopActive,
+                  onTap: widget.controller.cycleLoopMode,
+                  size: 21,
+                  fixedSize: 44.0,
+                ),
+                KonataCapsuleIconButton(
+                  icon: Icons.skip_previous_rounded,
+                  tooltip: '上一曲',
+                  color: Colors.white.withValues(alpha: 0.94),
+                  onTap: () => unawaited(widget.controller.previous()),
+                  size: 30,
+                  fixedSize: 48.0,
+                ),
+                ValueListenableBuilder<bool>(
+                  valueListenable: widget.controller.playingListenable,
+                  builder: (context, isPlaying, _) {
+                    return Semantics(
+                      button: true,
+                      label: isPlaying ? '暂停' : '继续播放',
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () =>
+                            unawaited(widget.controller.togglePlayPause()),
+                        child: Container(
+                          width: 60,
+                          height: 60,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.white.withValues(alpha: 0.16),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.26),
+                              width: 1.0,
+                            ),
+                          ),
+                          alignment: Alignment.center,
+                          child: Icon(
+                            isPlaying
+                                ? Icons.pause_rounded
+                                : Icons.play_arrow_rounded,
+                            size: 34,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                KonataCapsuleIconButton(
+                  icon: Icons.skip_next_rounded,
+                  tooltip: '下一曲',
+                  color: Colors.white.withValues(alpha: 0.94),
+                  onTap: () => unawaited(widget.controller.next(manual: true)),
+                  size: 30,
+                  fixedSize: 48.0,
+                ),
+                KonataCapsuleIconButton(
+                  icon: Icons.queue_music_rounded,
+                  tooltip: '播放队列 (${snap.queue.length})',
+                  color: Colors.white.withValues(alpha: 0.84),
+                  highlighted: _portraitQueueOpen,
+                  onTap: () => _handleToggleQueue(true),
+                  size: 21,
+                  fixedSize: 44.0,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPortraitQueueOverlay({
+    required AudioPlaybackSnapshot snap,
+    required double maxHeight,
+  }) {
+    return Positioned.fill(
+      key: const ValueKey('audio_portrait_queue_sheet'),
+      child: Stack(
+        children: [
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => setState(() => _portraitQueueOpen = false),
+            child: ColoredBox(color: Colors.black.withValues(alpha: 0.48)),
+          ),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560.0),
+              child: KonataFollowFingerSheetSurface(
+                height: math.min(480.0, maxHeight * 0.72),
+                surfaceColor: const Color(0xE014111C),
+                borderColor: Colors.white.withValues(alpha: 0.14),
+                onDismiss: () => setState(() => _portraitQueueOpen = false),
+                headerBuilder: (_) => Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 6, 12, 10),
+                  child: Row(
+                    children: [
+                      Text(
+                        '播放队列 (${snap.queue.length})',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const Spacer(),
+                      KonataGlassCloseButton(
+                        onPressed: () =>
+                            setState(() => _portraitQueueOpen = false),
+                      ),
+                    ],
+                  ),
+                ),
+                body: Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(10, 0, 10, 14),
+                    child: AudioQueueListView(
+                      controller: widget.controller,
+                      snapshot: snap,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUnifiedMenuOverlay({
+    required BuildContext context,
+    required AudioPlaybackSnapshot snap,
+    required AudioQueueItem? currentItem,
+    required List<PlayerSidePanelContribution> sidePanels,
+    required bool isVertical,
+    required double viewportW,
+    required double viewportH,
+  }) {
+    final plan = snap.audiophilePlan;
+    final routeLabel = switch (plan.routeMode) {
+      AudioOutputRouteMode.sharedResampled => '系统共享重采样',
+      AudioOutputRouteMode.exclusiveAudioOutput => '桌面独占直通',
+      AudioOutputRouteMode.bitstreamPassthrough => 'HDMI / S/PDIF 透传',
+      AudioOutputRouteMode.androidBitPerfectUsb => 'USB DAC 逐位直通',
+    };
+    final detailSpec = [
+      if (snap.formattedAudioSpec.isNotEmpty) snap.formattedAudioSpec,
+      if (snap.channelCount > 0) '${snap.channelCount}声道',
+      routeLabel,
+    ].join(' · ');
+
+    final menuBody = SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // 无损输出链路信息与发烧安全控制卡片。
+          KonataSurfaceCard(
+            key: const ValueKey('audio_lossless_chain_card'),
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      Icons.graphic_eq_rounded,
+                      size: 18,
+                      color: Colors.white.withValues(alpha: 0.90),
+                    ),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        '无损输出链路',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    KonataSpecBadge(
+                      label: plan.safetyLimiterEngaged
+                          ? '-12 dBFS 已保护'
+                          : '直通未限幅',
+                      highlighted: plan.safetyLimiterEngaged,
+                      darkOverlay: true,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  detailSpec.isNotEmpty ? detailSpec : routeLabel,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.72),
+                    fontSize: 12.5,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    KonataPillButton.secondary(
+                      key: const ValueKey('audio_menu_safety_button'),
+                      label: '安全链与设备输出',
+                      icon: Icons.verified_user_outlined,
+                      compact: true,
+                      onPressed: () {
+                        setState(() => _menuOpen = false);
+                        unawaited(
+                          showAudiophileSafetyDialog(
+                            context,
+                            widget.controller,
+                            forceDarkTheme: true,
+                          ),
+                        );
+                      },
+                    ),
+                    KonataPillButton.secondary(
+                      key: const ValueKey('audio_menu_shuffle_button'),
+                      label: snap.shuffleEnabled ? '随机：已开启' : '随机播放',
+                      icon: Icons.shuffle_rounded,
+                      compact: true,
+                      onPressed: widget.controller.toggleShuffle,
+                    ),
+                    if (widget.desktopRelayAvailable)
+                      KonataPillButton.secondary(
+                        key: const ValueKey('audio_menu_relay_button'),
+                        label: '桌面外发接力',
+                        icon: Icons.open_in_new_rounded,
+                        compact: true,
+                        onPressed: () =>
+                            unawaited(widget.controller.relayActiveToDesktop()),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          // 动态渲染所有与音频舞台协作的扩展控制面板（如 feature_lyrics 的歌词控制面板）。
+          for (final panel in sidePanels) ...[
+            const SizedBox(height: 12),
+            _buildSidePanelContent(
+              context,
+              panel,
+              currentItem,
+              embedded: true,
+            ),
+          ],
+        ],
+      ),
+    );
+
+    final panelWidth = isVertical
+        ? math.min(540.0, viewportW)
+        : math.min(440.0, viewportW - 32.0);
+    final panelMaxHeight = isVertical
+        ? math.min(620.0, viewportH * 0.82)
+        : math.max(240.0, viewportH - 130.0);
+
+    return Positioned.fill(
+      key: const ValueKey('audio_unified_menu_overlay'),
+      child: Stack(
+        children: [
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => setState(() => _menuOpen = false),
+            child: ColoredBox(color: Colors.black.withValues(alpha: 0.44)),
+          ),
+          Align(
+            alignment: isVertical ? Alignment.bottomCenter : Alignment.topRight,
+            child: Padding(
+              padding: isVertical
+                  ? EdgeInsets.zero
+                  : const EdgeInsets.fromLTRB(16, 54, 18, 16),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: panelWidth,
+                  maxHeight: panelMaxHeight,
+                ),
+                child: ClipRRect(
+                  borderRadius: isVertical
+                      ? const BorderRadius.vertical(top: Radius.circular(24))
+                      : BorderRadius.circular(22),
+                  child: KonataAdaptiveBackdropBlur(
+                    filter: KonataTheme.blurFilterOverlay,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: const Color(0xE014111C),
+                        borderRadius: isVertical
+                            ? const BorderRadius.vertical(
+                                top: Radius.circular(24),
+                              )
+                            : BorderRadius.circular(22),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.14),
+                        ),
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(18, 14, 12, 8),
+                            child: Row(
+                              children: [
+                                const Text(
+                                  '歌词与音频菜单',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const Spacer(),
+                                KonataGlassCloseButton(
+                                  onPressed: () =>
+                                      setState(() => _menuOpen = false),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Flexible(child: menuBody),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

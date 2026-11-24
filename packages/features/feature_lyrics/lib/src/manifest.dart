@@ -159,11 +159,18 @@ FeatureManifest _buildManifest({
         iconKey: 'lyrics',
         order: 20,
         supportedModes: const <PlayerMediaMode>{PlayerMediaMode.audio},
-        viewBuilder: (slotContext) => _PlayerLyricControlPanelSlot(
-          controller:
-              slotContext.arguments['controller'] as LyricDisplayController?,
-          onClose: slotContext.arguments['onClose'] as VoidCallback?,
-        ),
+        viewBuilder: (slotContext) {
+          final rawLyricCtrl = slotContext.arguments['lyricController'];
+          final rawCtrl = slotContext.arguments['controller'];
+          final resolvedArgCtrl = rawLyricCtrl is LyricDisplayController
+              ? rawLyricCtrl
+              : (rawCtrl is LyricDisplayController ? rawCtrl : null);
+          return _PlayerLyricControlPanelSlot(
+            controller: resolvedArgCtrl,
+            onClose: slotContext.arguments['onClose'] as VoidCallback?,
+            embedded: slotContext.arguments['embedded'] == true,
+          );
+        },
       ),
     ],
     dataProviders: dataProviders,
@@ -186,10 +193,15 @@ class _SettingsLyricsSectionSlot extends ConsumerWidget {
 }
 
 class _PlayerLyricControlPanelSlot extends ConsumerWidget {
-  const _PlayerLyricControlPanelSlot({this.controller, this.onClose});
+  const _PlayerLyricControlPanelSlot({
+    this.controller,
+    this.onClose,
+    this.embedded = false,
+  });
 
   final LyricDisplayController? controller;
   final VoidCallback? onClose;
+  final bool embedded;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -199,6 +211,7 @@ class _PlayerLyricControlPanelSlot extends ConsumerWidget {
     return ImmersiveLyricControlSheet(
       controller: resolvedController,
       onClose: onClose ?? () {},
+      embedded: embedded,
     );
   }
 }

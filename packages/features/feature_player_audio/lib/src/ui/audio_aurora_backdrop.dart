@@ -93,74 +93,123 @@ class _AudioAuroraBackdropState extends State<AudioAuroraBackdrop> {
 
   @override
   Widget build(BuildContext context) {
-    final primary = Color(_palette.primaryArgb);
-    final secondary = Color(_palette.secondaryArgb);
+    final q1 = Color(_palette.quadrantTopLeftArgb);
+    final q2 = Color(_palette.quadrantTopRightArgb);
+    final q3 = Color(_palette.quadrantBottomLeftArgb);
+    final q4 = Color(_palette.quadrantBottomRightArgb);
     final accent = Color(_palette.accentArgb);
     final tint = Color(_palette.surfaceTintArgb);
-    final baseBg = Color.lerp(const Color(0xFF0C0F14), tint, 0.35)!;
+    // 恒定电影感深邃暗基底（#0E0B12），严禁随外部浅色主题漂白。
+    final baseBg = Color.lerp(const Color(0xFF0E0B12), tint, 0.18)!;
 
     return RepaintBoundary(
       child: AnimatedContainer(
+        key: const ValueKey('salt_audio_aurora_backdrop'),
         duration: const Duration(milliseconds: 520),
         curve: Curves.easeOutCubic,
         color: baseBg,
         child: Stack(
           fit: StackFit.expand,
           children: [
-            // 左上主色流光斑。
+            // 象限 1：左上高饱和丝绒色点。
             DecoratedBox(
               decoration: BoxDecoration(
                 gradient: RadialGradient(
-                  center: const Alignment(-0.72, -0.68),
+                  center: const Alignment(-0.78, -0.72),
                   radius: 1.05,
                   colors: [
-                    primary.withValues(alpha: 0.44),
-                    primary.withValues(alpha: 0.14),
+                    q1.withValues(alpha: 0.56),
+                    q1.withValues(alpha: 0.16),
+                    Colors.transparent,
+                  ],
+                  stops: const [0.0, 0.46, 1.0],
+                ),
+              ),
+            ),
+            // 象限 2：右上高饱和丝绒色点。
+            DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  center: const Alignment(0.76, -0.68),
+                  radius: 1.02,
+                  colors: [
+                    q2.withValues(alpha: 0.48),
+                    q2.withValues(alpha: 0.12),
                     Colors.transparent,
                   ],
                   stops: const [0.0, 0.48, 1.0],
                 ),
               ),
             ),
-            // 右下辅色均衡流光斑。
+            // 象限 3：左下高饱和丝绒色点。
             DecoratedBox(
               decoration: BoxDecoration(
                 gradient: RadialGradient(
-                  center: const Alignment(0.75, 0.65),
-                  radius: 1.15,
+                  center: const Alignment(-0.72, 0.74),
+                  radius: 1.05,
                   colors: [
-                    secondary.withValues(alpha: 0.38),
-                    secondary.withValues(alpha: 0.10),
+                    q3.withValues(alpha: 0.44),
+                    q3.withValues(alpha: 0.10),
                     Colors.transparent,
                   ],
-                  stops: const [0.0, 0.52, 1.0],
+                  stops: const [0.0, 0.50, 1.0],
                 ),
               ),
             ),
-            // 中心高光提亮光晕，增强玻璃胶囊景深。
+            // 象限 4：右下高饱和丝绒色点。
             DecoratedBox(
               decoration: BoxDecoration(
                 gradient: RadialGradient(
-                  center: const Alignment(0.0, -0.10),
-                  radius: 0.90,
+                  center: const Alignment(0.76, 0.72),
+                  radius: 1.10,
                   colors: [
-                    accent.withValues(alpha: 0.18),
+                    q4.withValues(alpha: 0.52),
+                    q4.withValues(alpha: 0.14),
+                    Colors.transparent,
+                  ],
+                  stops: const [0.0, 0.50, 1.0],
+                ),
+              ),
+            ),
+            // 中景温和呼吸点亮晕，承托透明玻璃胶囊与纯白歌词发光层。
+            DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  center: const Alignment(0.0, -0.08),
+                  radius: 0.88,
+                  colors: [
+                    accent.withValues(alpha: 0.14),
                     Colors.transparent,
                   ],
                   stops: const [0.0, 1.0],
                 ),
               ),
             ),
-            // 深色安全暗角遮罩，保证高可读对比度。
+            // 四角柔和收边暗晕，塑造电影感暗房景深与边界收敛。
+            DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  center: Alignment.center,
+                  radius: 1.15,
+                  colors: [
+                    Colors.transparent,
+                    Colors.black.withValues(alpha: 0.22),
+                    Colors.black.withValues(alpha: 0.52),
+                  ],
+                  stops: const [0.35, 0.78, 1.0],
+                ),
+              ),
+            ),
+            // 上下暗幕保护层，确保纯白顶栏与底部烟熏玻璃播控胶囊高对比度可读。
             DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    Colors.black.withValues(alpha: 0.24),
-                    Colors.black.withValues(alpha: 0.32),
-                    Colors.black.withValues(alpha: 0.48),
+                    Colors.black.withValues(alpha: 0.18),
+                    Colors.black.withValues(alpha: 0.14),
+                    Colors.black.withValues(alpha: 0.42),
                   ],
                 ),
               ),
@@ -273,6 +322,7 @@ class AudioCoverArtworkView extends StatelessWidget {
     this.borderRadius = 18.0,
     this.fit = BoxFit.cover,
     this.discLabel = 'CD',
+    this.showBorder = false,
   });
 
   /// 封面数据来源。
@@ -292,6 +342,9 @@ class AudioCoverArtworkView extends StatelessWidget {
 
   /// 回退占位唱片上的短标牌文案。
   final String discLabel;
+
+  /// 是否叠加柔和外描边（大舞台沉浸封面默认关闭硬白边）。
+  final bool showBorder;
 
   @override
   Widget build(BuildContext context) {
@@ -367,12 +420,14 @@ class AudioCoverArtworkView extends StatelessWidget {
       borderRadius: BorderRadius.circular(borderRadius),
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: const Color(0xFF1A1E26),
+          color: const Color(0xFF16131D),
           borderRadius: BorderRadius.circular(borderRadius),
-          border: Border.all(
-            color: Colors.white.withValues(alpha: 0.14),
-            width: 0.8,
-          ),
+          border: showBorder
+              ? Border.all(
+                  color: Colors.white.withValues(alpha: 0.14),
+                  width: 0.8,
+                )
+              : null,
         ),
         child: inner,
       ),
@@ -380,7 +435,7 @@ class AudioCoverArtworkView extends StatelessWidget {
   }
 }
 
-/// 带底部镜面柔化倒影的桌面与移动端主封面舞台图。
+/// 带底部模糊渐变水面倒影的桌面与移动端主封面舞台图。
 class ImmersiveCoverWithReflection extends StatelessWidget {
   /// 创建带镜面倒影的沉浸封面组件。
   const ImmersiveCoverWithReflection({
@@ -390,15 +445,30 @@ class ImmersiveCoverWithReflection extends StatelessWidget {
     this.coverKey,
     this.alignmentCache,
     this.borderRadius = 20.0,
-    this.reflectionHeight = 36.0,
+    this.reflectionHeight = 52.0,
+    this.showBorder = false,
   });
 
+  /// 封面数据源。
   final AudioCoverSource cover;
+
+  /// 封面方形边长。
   final double size;
+
+  /// 封面唯一缓存键。
   final String? coverKey;
+
+  /// 智能构图缓存。
   final SmartCoverAlignmentCache? alignmentCache;
+
+  /// 圆角半径。
   final double borderRadius;
+
+  /// 底部水面倒影高度（为 0 时隐藏倒影）。
   final double reflectionHeight;
+
+  /// 是否显示边缘描边。
+  final bool showBorder;
 
   @override
   Widget build(BuildContext context) {
@@ -409,9 +479,15 @@ class ImmersiveCoverWithReflection extends StatelessWidget {
           borderRadius: BorderRadius.circular(borderRadius),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.45),
-              blurRadius: 36,
-              offset: const Offset(0, 18),
+              color: Colors.black.withValues(alpha: 0.56),
+              blurRadius: 48,
+              spreadRadius: -6,
+              offset: const Offset(0, 24),
+            ),
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.28),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
             ),
           ],
         ),
@@ -420,6 +496,7 @@ class ImmersiveCoverWithReflection extends StatelessWidget {
           coverKey: coverKey,
           alignmentCache: alignmentCache,
           borderRadius: borderRadius,
+          showBorder: showBorder,
         ),
       ),
     );
@@ -430,7 +507,7 @@ class ImmersiveCoverWithReflection extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         coverArt,
-        const SizedBox(height: 6),
+        const SizedBox(height: 4),
         SizedBox(
           width: size,
           height: reflectionHeight,
@@ -438,26 +515,40 @@ class ImmersiveCoverWithReflection extends StatelessWidget {
             borderRadius: BorderRadius.vertical(
               top: Radius.circular(borderRadius * 0.5),
             ),
-            child: ShaderMask(
-              shaderCallback: (bounds) => const LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [Color(0x38FFFFFF), Colors.transparent],
-              ).createShader(bounds),
-              blendMode: BlendMode.dstIn,
-              child: Transform(
-                alignment: Alignment.center,
-                transform: Matrix4.diagonal3Values(1.0, -1.0, 1.0),
-                child: OverflowBox(
-                  alignment: Alignment.topCenter,
-                  minHeight: size,
-                  maxHeight: size,
-                  child: SizedBox.square(
-                    dimension: size,
-                    child: AudioCoverArtworkView(
-                      cover: cover,
-                      coverKey: coverKey,
-                      borderRadius: borderRadius,
+            child: Opacity(
+              opacity: 0.62,
+              child: ImageFiltered(
+                imageFilter: KonataTheme.blurFilterDecalOf(
+                  KonataPlaybackTokens.albumReflectionBlurSigma,
+                ),
+                child: ShaderMask(
+                  shaderCallback: (bounds) => const LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Color(0x78FFFFFF),
+                      Color(0x28FFFFFF),
+                      Colors.transparent,
+                    ],
+                    stops: [0.0, 0.45, 0.90],
+                  ).createShader(bounds),
+                  blendMode: BlendMode.dstIn,
+                  child: Transform(
+                    alignment: Alignment.center,
+                    transform: Matrix4.diagonal3Values(1.0, -1.0, 1.0),
+                    child: OverflowBox(
+                      alignment: Alignment.topCenter,
+                      minHeight: size,
+                      maxHeight: size,
+                      child: SizedBox.square(
+                        dimension: size,
+                        child: AudioCoverArtworkView(
+                          cover: cover,
+                          coverKey: coverKey,
+                          borderRadius: borderRadius,
+                          showBorder: false,
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -470,7 +561,7 @@ class ImmersiveCoverWithReflection extends StatelessWidget {
   }
 }
 
-/// 手机横屏矮视口专用迷你方形封面图。
+/// 歌词态顶部与紧凑视图专用迷你方形封面图。
 class ImmersiveMicroCover extends StatelessWidget {
   /// 创建紧凑方形封面缩略图。
   const ImmersiveMicroCover({

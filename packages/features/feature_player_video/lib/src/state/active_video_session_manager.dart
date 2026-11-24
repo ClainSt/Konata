@@ -14,9 +14,7 @@ typedef VideoPlaybackControllerFactory = VideoPlaybackController Function();
 /// 保证用户收拢至跨页 16:9 悬浮视频小窗或从小窗回弹全屏舞台时绝不重建底层解码会话。
 class ActiveVideoSessionManager extends ChangeNotifier {
   /// 创建全局活跃视频会话总管。
-  ActiveVideoSessionManager({
-    required VideoPlaybackControllerFactory this._controllerFactory,
-  });
+  ActiveVideoSessionManager({required this._controllerFactory});
 
   final VideoPlaybackControllerFactory _controllerFactory;
 

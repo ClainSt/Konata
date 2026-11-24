@@ -7,10 +7,10 @@ import 'package:konata_storage/konata_storage.dart';
 final class HostDiagnosticsRuntimeBridge {
   /// 创建并挂载全局未捕获异常与运行时状态快照采集桥接器。
   HostDiagnosticsRuntimeBridge({
-    required DiagnosticLogPort this._diagnosticLog,
-    required KonataDatabaseBundle this._databases,
-    required KonataHttpClientPort this._httpClient,
-    required Map<String, String> Function() this._uiSnapshotProvider,
+    required this._diagnosticLog,
+    required this._databases,
+    required this._httpClient,
+    required this._uiSnapshotProvider,
   }) {
     _installGlobalErrorHooks();
     _registerSnapshotContributors();

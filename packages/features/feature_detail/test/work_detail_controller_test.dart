@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:engine_scraping/engine_scraping.dart';
@@ -11,14 +12,51 @@ import 'support/detail_test_fixtures.dart';
 
 void main() {
   group('DetailDisplayPreferencesStore 展示偏好持久化切片', () {
-    test('读取默认值、写入同步事件流与跨实例往返一致', () async {
+    test('读取默认值、写入同步事件流、10 键共享切片与未知扩展字段透传往返一致', () async {
       final harness = await DetailTestHarness.create();
       final store = DetailDisplayPreferencesStore(harness.scopedPrefs);
 
       final initial = store.read();
+      expect(initial.showTitleText, isTrue);
+      expect(initial.showTitleLogo, isTrue);
+      expect(initial.showOverview, isTrue);
+      expect(initial.showRawVideoFilename, isFalse);
+      expect(initial.showCdTab, isTrue);
+      expect(initial.showScanTab, isTrue);
+      expect(initial.showMainHeroBackdrop, isTrue);
       expect(initial.showEpisodeStillThumbnails, isTrue);
       expect(initial.showOriginalSubtitlesOnCards, isTrue);
-      expect(initial.showMainHeroBackdrop, isTrue);
+      expect(initial.autoSilentWarmup, isTrue);
+
+      final rawWithExtras = <String, Object?>{
+        'showTitleText': false,
+        'showRawVideoFilename': true,
+        'showCdTab': false,
+        'futureExperimentalToggle': 'keep_me',
+        'customDensity': 2,
+      };
+      final decoded = DetailDisplayPreferences.decodeJson(rawWithExtras, 1);
+      expect(decoded.showTitleText, isFalse);
+      expect(decoded.showRawVideoFilename, isTrue);
+      expect(decoded.showCdTab, isFalse);
+      expect(decoded.extraFields['futureExperimentalToggle'], 'keep_me');
+      expect(decoded.extraFields['customDensity'], 2);
+
+      store.write(decoded);
+      store.setShowOverview(false);
+      store.setShowScanTab(false);
+
+      final reloaded = store.read();
+      expect(reloaded.showTitleText, isFalse);
+      expect(reloaded.showOverview, isFalse);
+      expect(reloaded.showRawVideoFilename, isTrue);
+      expect(reloaded.showCdTab, isFalse);
+      expect(reloaded.showScanTab, isFalse);
+      expect(reloaded.extraFields['futureExperimentalToggle'], 'keep_me');
+      expect(
+        DetailDisplayPreferences.encodeJson(reloaded)['customDensity'],
+        2,
+      );
 
       final emissions = <DetailDisplayPreferences>[];
       final sub = store.watch().listen(emissions.add);
@@ -29,9 +67,9 @@ void main() {
       store.setShowOriginalSubtitlesOnCards(false);
       await Future<void>.delayed(Duration.zero);
 
-      final reloaded = store.read();
-      expect(reloaded.showEpisodeStillThumbnails, isFalse);
-      expect(reloaded.showOriginalSubtitlesOnCards, isFalse);
+      final updated = store.read();
+      expect(updated.showEpisodeStillThumbnails, isFalse);
+      expect(updated.showOriginalSubtitlesOnCards, isFalse);
       expect(emissions, isNotEmpty);
       expect(emissions.last.showEpisodeStillThumbnails, isFalse);
     });
@@ -373,6 +411,104 @@ void main() {
       expect(File(savedPath).existsSync(), isTrue);
       expect(ctrl.bundle!.work.posterLocked, isTrue);
       expect(ctrl.bundle!.work.posterRef, isA<LocalCustomArtworkRef>());
+
+      final portraitSaved = await ctrl.cropAndSaveLocalArtwork(
+        isPoster: true,
+        isPortraitBackdrop: true,
+        source: loaded,
+        cropRect: cropRect,
+      );
+      expect(File(portraitSaved).existsSync(), isTrue);
+      expect(ctrl.bundle!.work.portraitBackdropLocked, isTrue);
+      expect(
+        ctrl.bundle!.work.portraitBackdropRef,
+        isA<LocalCustomArtworkRef>(),
+      );
+
+      // 手动更新基础信息时严禁丢失已锁定的竖版原画路径与锁定状态
+      await ctrl.updateWorkManualMetadata(title: '保留竖版原画测试');
+      expect(ctrl.bundle!.work.portraitBackdropPath, portraitSaved);
+      expect(ctrl.bundle!.work.portraitBackdropLocked, isTrue);
+
+      await ctrl.resetArtworkLockToAuto(resetPortraitBackdrop: true);
+      expect(ctrl.bundle!.work.portraitBackdropLocked, isFalse);
+      expect(ctrl.bundle!.work.portraitBackdropPath, isNull);
+    });
+
+    test('ArtworkDominantColor 正确吸色并适配深浅主题背景溶底，空载荷安全降级', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      final recorder = ui.PictureRecorder();
+      final canvas = ui.Canvas(recorder);
+      canvas.drawRect(
+        const ui.Rect.fromLTWH(0, 0, 48, 48),
+        ui.Paint()..color = const ui.Color(0xFF3E6BE0),
+      );
+      final pic = recorder.endRecording();
+      final img = await pic.toImage(48, 48);
+      final bytes = (await img.toByteData(format: ui.ImageByteFormat.png))!
+          .buffer
+          .asUint8List();
+      img.dispose();
+      pic.dispose();
+
+      final darkDissolve = await ArtworkDominantColor.sampleBottomDissolveColor(
+        bytes: bytes,
+        cacheKey: 'test_palette_key',
+        isDark: true,
+        themeBackground: const ui.Color(0xFF0F1117),
+      );
+      final lightDissolve = await ArtworkDominantColor.sampleBottomDissolveColor(
+        bytes: bytes,
+        cacheKey: 'test_palette_key',
+        isDark: false,
+        themeBackground: const ui.Color(0xFFF5F6FA),
+      );
+      expect(darkDissolve, isNotNull);
+      expect(lightDissolve, isNotNull);
+      expect(darkDissolve!.computeLuminance(), lessThan(0.15));
+      expect(lightDissolve!.computeLuminance(), greaterThan(0.65));
+
+      final emptyFallback = await ArtworkDominantColor.sampleBottomDissolveColor(
+        bytes: Uint8List(0),
+        cacheKey: 'empty_key',
+        isDark: true,
+        themeBackground: const ui.Color(0xFF0F1117),
+      );
+      expect(emptyFallback, isNull);
+    });
+
+    test('WorkArtworkOptionsService.mergePortraitBackdropOptions 无字竖版原画排在有字海报之前', () {
+      const detail = TmdbWorkDetail(
+        tmdbId: 501,
+        mediaType: TmdbMediaType.tv,
+        title: '测试番剧',
+        candidatePosters: <TmdbArtworkImage>[
+          TmdbArtworkImage(
+            filePath: '/texted_zh.jpg',
+            isoLanguage: 'zh',
+            voteAverage: 9.0,
+          ),
+          TmdbArtworkImage(
+            filePath: '/textless_portrait.jpg',
+            isoLanguage: null,
+            voteAverage: 7.5,
+          ),
+        ],
+      );
+      final merged = WorkArtworkOptionsService.mergePortraitBackdropOptions(
+        tmdbDetail: detail,
+        fanartPosters: const <FanartPosterCandidate>[
+          FanartPosterCandidate(
+            id: 'f1',
+            url: 'https://assets.fanart.tv/fanart/tv/1/tvposter/clean.jpg',
+            lang: '00',
+            likes: 12,
+          ),
+        ],
+      );
+      expect(merged.length, greaterThanOrEqualTo(3));
+      expect(merged.first.langTag, '无字');
+      expect(merged.last.filePath, '/texted_zh.jpg');
     });
   });
 }

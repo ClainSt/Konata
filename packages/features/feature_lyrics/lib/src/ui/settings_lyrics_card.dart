@@ -156,6 +156,17 @@ class SettingsLyricsCard extends StatelessWidget {
               ),
               Divider(height: 1, color: p.hairline, indent: 18, endIndent: 18),
               KonataListTile(
+                key: const ValueKey('settings_lyric_show_translation'),
+                title: '显示双语歌词译文',
+                subtitle: '歌曲包含中文或双语译文轨道时在原句下方同步展示译文',
+                trailing: KonataSwitch(
+                  key: const ValueKey('settings_lyric_show_translation_switch'),
+                  value: prefs.showTranslation,
+                  onChanged: preferencesStore.setShowTranslation,
+                ),
+              ),
+              Divider(height: 1, color: p.hairline, indent: 18, endIndent: 18),
+              KonataListTile(
                 key: const ValueKey('settings_lyric_show_romaji'),
                 title: '显示歌词罗马音注音',
                 subtitle: '歌曲包含罗马音轨道时在原文下方独立显示注音，不与中文译文混排',

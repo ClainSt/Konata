@@ -10,13 +10,14 @@ import '../state/lyric_display_controller.dart';
 
 enum _LyricControlTab { candidates, offsets }
 
-/// 全端统一沉浸歌词控制侧栏：换候选、手动重搜、恢复自动与单曲/专辑/输出路由三级偏移实时校准。
+/// 全端统一沉浸歌词控制侧栏：换候选、手动重搜、恢复自动、双语/罗马音开关与单曲/专辑/输出路由三级偏移实时校准。
 class ImmersiveLyricControlSheet extends StatefulWidget {
   /// 创建歌词控制侧栏。
   const ImmersiveLyricControlSheet({
     super.key,
     required this.controller,
     required this.onClose,
+    this.embedded = false,
   });
 
   /// 歌词展示与控制状态协调器。
@@ -24,6 +25,9 @@ class ImmersiveLyricControlSheet extends StatefulWidget {
 
   /// 关闭侧栏回调。
   final VoidCallback onClose;
+
+  /// 是否内嵌在右上角统一菜单面板中（内嵌时不套外层侧栏壳并使用自适应高度）。
+  final bool embedded;
 
   @override
   State<ImmersiveLyricControlSheet> createState() =>
@@ -106,80 +110,228 @@ class _ImmersiveLyricControlSheetState
 
   @override
   Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: widget.controller,
-      builder: (context, _) {
-        final p = context.palette;
-        final state = widget.controller.state;
-        final prefs = widget.controller.preferences;
-        final query = state.activeQuery;
+    return Theme(
+      data: KonataTheme.darkTheme(),
+      child: ListenableBuilder(
+        listenable: widget.controller,
+        builder: (context, _) {
+          const p = KonataPalette.dark;
+          final state = widget.controller.state;
+          final prefs = widget.controller.preferences;
+          final query = state.activeQuery;
 
-        if (query != null && query.trackKey != _boundTrackKey) {
-          _boundTrackKey = query.trackKey;
-          _titleCtrl.text = query.title;
-          _artistCtrl.text = query.artist;
-          _hasManualSearched = false;
-        }
+          if (query != null && query.trackKey != _boundTrackKey) {
+            _boundTrackKey = query.trackKey;
+            _titleCtrl.text = query.title;
+            _artistCtrl.text = query.artist;
+            _hasManualSearched = false;
+          }
 
-        return KonataGlassSideSheet(
-          key: const ValueKey('immersive_lyric_control_sheet'),
-          title: '歌词换源与校准',
-          width: 440,
-          onClose: widget.onClose,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+          final tabCapsule = KonataSegmentedCapsule<_LyricControlTab>(
+            key: const ValueKey('lyric_control_tab_capsule'),
+            selected: _activeTab,
+            expand: true,
+            onChanged: (tab) => setState(() => _activeTab = tab),
+            options: const [
+              KonataSegmentOption(
+                value: _LyricControlTab.candidates,
+                label: '换候选与重搜',
+                icon: Icons.manage_search_rounded,
+              ),
+              KonataSegmentOption(
+                value: _LyricControlTab.offsets,
+                label: '三级时间轴校准',
+                icon: Icons.tune_rounded,
+              ),
+            ],
+          );
+
+          final activeTabChildren = _activeTab == _LyricControlTab.candidates
+              ? _buildCandidatesTab(
+                  p: p,
+                  source: state.activeSource,
+                  sourceId: state.activeSourceId,
+                  userEdited: state.isUserEdited,
+                  candidates: state.candidates,
+                  showRomaji: prefs.showRomaji,
+                  showTranslation: prefs.showTranslation,
+                  includeDisplayTogglesInCard: !widget.embedded,
+                )
+              : _buildOffsetsTab(
+                  p: p,
+                  albumTitle: query?.album ?? '',
+                  offset: state.offsetSnapshot,
+                  wiredOffsetMs: prefs.wiredOffsetMillis,
+                  btOffsetMs: prefs.bluetoothOffsetMillis,
+                  includeQuickOffsetBar: !widget.embedded,
+                );
+
+          if (widget.embedded) {
+            return Column(
+              key: const ValueKey('immersive_lyric_control_sheet'),
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildQuickControlCard(
+                  p: p,
+                  showTranslation: prefs.showTranslation,
+                  showRomaji: prefs.showRomaji,
+                  offset: state.offsetSnapshot,
+                ),
+                const SizedBox(height: 12),
+                tabCapsule,
+                const SizedBox(height: 12),
+                ...activeTabChildren,
+              ],
+            );
+          }
+
+          return KonataGlassSideSheet(
+            key: const ValueKey('immersive_lyric_control_sheet'),
+            title: '歌词换源与校准',
+            width: 440,
+            onClose: widget.onClose,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
+                  child: tabCapsule,
+                ),
+                Expanded(
+                  child: KonataDraggableScrollbar(
+                    controller: _scrollCtrl,
+                    trackInsets: const EdgeInsets.only(right: 4, bottom: 10),
+                    builder: (_, ctrl) => ListView(
+                      controller: ctrl,
+                      padding: const EdgeInsets.fromLTRB(18, 0, 20, 20),
+                      children: activeTabChildren,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildQuickControlCard({
+    required KonataPalette p,
+    required bool showTranslation,
+    required bool showRomaji,
+    required LyricOffsetSnapshot offset,
+  }) {
+    final totalLabel = LyricOffsetResolver.formatOffsetSeconds(
+      offset.totalOffsetMillis,
+    );
+    return KonataSurfaceCard(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
-                child: KonataSegmentedCapsule<_LyricControlTab>(
-                  key: const ValueKey('lyric_control_tab_capsule'),
-                  selected: _activeTab,
-                  expand: true,
-                  onChanged: (tab) => setState(() => _activeTab = tab),
-                  options: const [
-                    KonataSegmentOption(
-                      value: _LyricControlTab.candidates,
-                      label: '换候选与重搜',
-                      icon: Icons.manage_search_rounded,
-                    ),
-                    KonataSegmentOption(
-                      value: _LyricControlTab.offsets,
-                      label: '三级时间轴校准',
-                      icon: Icons.tune_rounded,
-                    ),
-                  ],
+              Expanded(
+                child: Text(
+                  '显示双语译文',
+                  style: TextStyle(
+                    color: p.textPrimary,
+                    fontSize: KonataTheme.fontSizeBodySm,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ),
+              KonataSwitch(
+                key: const ValueKey('lyric_control_translation_switch'),
+                value: showTranslation,
+                onChanged: widget.controller.setShowTranslation,
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Divider(height: 1, color: p.hairline),
+          const SizedBox(height: 10),
+          Row(
+            children: [
               Expanded(
-                child: KonataDraggableScrollbar(
-                  controller: _scrollCtrl,
-                  trackInsets: const EdgeInsets.only(right: 4, bottom: 10),
-                  builder: (_, ctrl) => ListView(
-                    controller: ctrl,
-                    padding: const EdgeInsets.fromLTRB(18, 0, 20, 20),
-                    children: _activeTab == _LyricControlTab.candidates
-                        ? _buildCandidatesTab(
-                            p: p,
-                            source: state.activeSource,
-                            sourceId: state.activeSourceId,
-                            userEdited: state.isUserEdited,
-                            candidates: state.candidates,
-                            showRomaji: prefs.showRomaji,
-                          )
-                        : _buildOffsetsTab(
-                            p: p,
-                            albumTitle: query?.album ?? '',
-                            offset: state.offsetSnapshot,
-                            wiredOffsetMs: prefs.wiredOffsetMillis,
-                            btOffsetMs: prefs.bluetoothOffsetMillis,
-                          ),
+                child: Text(
+                  '显示罗马音注音',
+                  style: TextStyle(
+                    color: p.textPrimary,
+                    fontSize: KonataTheme.fontSizeBodySm,
+                    fontWeight: FontWeight.w500,
                   ),
+                ),
+              ),
+              KonataSwitch(
+                key: const ValueKey('lyric_control_romaji_switch'),
+                value: showRomaji,
+                onChanged: widget.controller.setShowRomaji,
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Divider(height: 1, color: p.hairline),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Text(
+                '歌词延迟微调',
+                style: TextStyle(
+                  color: p.textPrimary,
+                  fontSize: KonataTheme.fontSizeBodySm,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                totalLabel,
+                key: const ValueKey('lyric_quick_offset_value'),
+                style: TextStyle(
+                  color: p.textSecondary,
+                  fontSize: KonataTheme.fontSizeCaption,
+                  fontWeight: FontWeight.w600,
+                  fontFeatures: KonataPlaybackTokens.tabularNumbers,
                 ),
               ),
             ],
           ),
-        );
-      },
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              KonataPillButton.secondary(
+                key: const ValueKey('lyric_quick_offset_minus_200'),
+                label: '-0.2s',
+                compact: true,
+                onPressed: () =>
+                    unawaited(widget.controller.adjustTrackOffsetMillis(-200)),
+              ),
+              KonataPillButton.secondary(
+                key: const ValueKey('lyric_quick_offset_reset'),
+                label: '归零',
+                compact: true,
+                onPressed: () => unawaited(
+                  widget.controller.setTrackOffsetMillis(
+                    0,
+                    userOffsetLocked: false,
+                  ),
+                ),
+              ),
+              KonataPillButton.secondary(
+                key: const ValueKey('lyric_quick_offset_plus_200'),
+                label: '+0.2s',
+                compact: true,
+                onPressed: () =>
+                    unawaited(widget.controller.adjustTrackOffsetMillis(200)),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
@@ -190,10 +342,12 @@ class _ImmersiveLyricControlSheetState
     required bool userEdited,
     required List<ScoredLyricCandidate> candidates,
     required bool showRomaji,
+    required bool showTranslation,
+    required bool includeDisplayTogglesInCard,
   }) {
     return [
       KonataSurfaceCard(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -232,27 +386,54 @@ class _ImmersiveLyricControlSheetState
                 ],
               ],
             ),
-            const SizedBox(height: 10),
-            Divider(height: 1, color: p.hairline),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    '显示罗马音注音',
-                    style: TextStyle(
-                      color: p.textSecondary,
-                      fontSize: KonataTheme.fontSizeBodySm,
-                    ),
+            if (includeDisplayTogglesInCard) ...[
+              const SizedBox(height: 8),
+              Divider(height: 1, color: p.hairline),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 14,
+                runSpacing: 6,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '双语译文',
+                        style: TextStyle(
+                          color: p.textSecondary,
+                          fontSize: KonataTheme.fontSizeBodySm,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      KonataSwitch(
+                        key: const ValueKey('lyric_control_translation_switch'),
+                        value: showTranslation,
+                        onChanged: widget.controller.setShowTranslation,
+                      ),
+                    ],
                   ),
-                ),
-                KonataSwitch(
-                  key: const ValueKey('lyric_control_romaji_switch'),
-                  value: showRomaji,
-                  onChanged: widget.controller.setShowRomaji,
-                ),
-              ],
-            ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '罗马音注音',
+                        style: TextStyle(
+                          color: p.textSecondary,
+                          fontSize: KonataTheme.fontSizeBodySm,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      KonataSwitch(
+                        key: const ValueKey('lyric_control_romaji_switch'),
+                        value: showRomaji,
+                        onChanged: widget.controller.setShowRomaji,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),
@@ -435,6 +616,7 @@ class _ImmersiveLyricControlSheetState
     required LyricOffsetSnapshot offset,
     required int wiredOffsetMs,
     required int btOffsetMs,
+    bool includeQuickOffsetBar = false,
   }) {
     final totalLabel = LyricOffsetResolver.formatOffsetSeconds(
       offset.totalOffsetMillis,
@@ -482,6 +664,42 @@ class _ImmersiveLyricControlSheetState
               '正值歌词提前 · 负值歌词延后（单曲 $trackLabel + 专辑 $albumLabel + ${offset.activeRouteKind.label} $routeLabel）',
               style: KonataTheme.captionStyle(p),
             ),
+            if (includeQuickOffsetBar) ...[
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  KonataPillButton.secondary(
+                    key: const ValueKey('lyric_quick_offset_minus_200'),
+                    label: '-0.2s',
+                    compact: true,
+                    onPressed: () => unawaited(
+                      widget.controller.adjustTrackOffsetMillis(-200),
+                    ),
+                  ),
+                  KonataPillButton.secondary(
+                    key: const ValueKey('lyric_quick_offset_reset'),
+                    label: '归零',
+                    compact: true,
+                    onPressed: () => unawaited(
+                      widget.controller.setTrackOffsetMillis(
+                        0,
+                        userOffsetLocked: false,
+                      ),
+                    ),
+                  ),
+                  KonataPillButton.secondary(
+                    key: const ValueKey('lyric_quick_offset_plus_200'),
+                    label: '+0.2s',
+                    compact: true,
+                    onPressed: () => unawaited(
+                      widget.controller.adjustTrackOffsetMillis(200),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),

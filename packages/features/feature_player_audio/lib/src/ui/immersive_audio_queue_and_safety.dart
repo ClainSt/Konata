@@ -90,14 +90,16 @@ class AudioQueueListView extends StatelessWidget {
 /// 弹出发烧音频 `-12 dBFS` 安全门锁验证与输出设备调节弹窗。
 Future<void> showAudiophileSafetyDialog(
   BuildContext context,
-  AudioPlaybackController controller,
-) {
+  AudioPlaybackController controller, {
+  bool forceDarkTheme = true,
+}) {
   return showKonataGlassDialog<void>(
     context: context,
     builder: (dialogCtx) {
-      return ValueListenableBuilder<AudioPlaybackSnapshot>(
+      final body = ValueListenableBuilder<AudioPlaybackSnapshot>(
         valueListenable: controller.snapshotListenable,
         builder: (context, snap, _) {
+          final p = context.palette;
           final plan = snap.audiophilePlan;
           final safety = snap.audiophileSafetyState;
           final routeLabel = switch (plan.routeMode) {
@@ -115,13 +117,14 @@ Future<void> showAudiophileSafetyDialog(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Row(
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
                     children: [
                       KonataSpecBadge(
                         label: routeLabel,
                         icon: Icons.surround_sound_outlined,
                       ),
-                      const SizedBox(width: 8),
                       KonataSpecBadge(
                         label: plan.safetyLimiterEngaged
                             ? '-12 dBFS 限幅保护生效中'
@@ -136,14 +139,16 @@ Future<void> showAudiophileSafetyDialog(
                     Text(
                       plan.fullScaleLockNotice!,
                       style: TextStyle(
-                        color: dialogCtx.palette.textSecondary,
+                        color: p.textSecondary,
                         fontSize: 12.5,
                         height: 1.45,
                       ),
                     ),
                   ],
                   const SizedBox(height: 16),
-                  Row(
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 8,
                     children: [
                       KonataPillButton.secondary(
                         label: safety.isBackendMeterVerified
@@ -154,7 +159,6 @@ Future<void> showAudiophileSafetyDialog(
                         onPressed: () =>
                             unawaited(controller.verifyAudiophileHardwareRoute()),
                       ),
-                      const SizedBox(width: 10),
                       KonataPillButton.primary(
                         label: '解锁当次会话满幅输出',
                         compact: true,
@@ -178,7 +182,7 @@ Future<void> showAudiophileSafetyDialog(
                     Text(
                       '可用音频输出终端（切换设备会自动重置安全门锁）',
                       style: TextStyle(
-                        color: dialogCtx.palette.textPrimary,
+                        color: p.textPrimary,
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
                       ),
@@ -207,6 +211,8 @@ Future<void> showAudiophileSafetyDialog(
           );
         },
       );
+      if (!forceDarkTheme) return body;
+      return Theme(data: KonataTheme.darkTheme(), child: body);
     },
   );
 }
@@ -238,15 +244,15 @@ class _QueueRowTile extends StatelessWidget {
       onTap: onTap,
       child: Container(
         margin: EdgeInsets.only(left: indented ? 14 : 0),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
         decoration: BoxDecoration(
           color: isActive
-              ? Colors.white.withValues(alpha: 0.18)
-              : Colors.white.withValues(alpha: 0.04),
-          borderRadius: BorderRadius.circular(12),
+              ? Colors.white.withValues(alpha: 0.14)
+              : Colors.white.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: isActive
-                ? Colors.white.withValues(alpha: 0.34)
+                ? Colors.white.withValues(alpha: 0.28)
                 : Colors.white.withValues(alpha: 0.08),
           ),
         ),

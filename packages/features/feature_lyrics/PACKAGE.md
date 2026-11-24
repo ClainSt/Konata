@@ -21,8 +21,8 @@ Konata 歌词解析、多源竞速、双语与罗马音对齐、三级时间轴�
   - 多设备同步切片（`lyric_overrides_sync_slice.dart`，`sliceId: 'lyric_overrides_slice'`）；
   - 分级预取与解析协调器（`lyrics_resolver.dart`，非计量网络 2 首 / 计量网络 1 首）。
 - **状态与界面（`lib/src/state/`、`lib/src/ui/`）**：
-  - `LyricDisplayController`（0 Riverpod）：实现 `LyricDisplayPort` 与句边界安全热替换；
-  - `ImmersiveKaraokeSweepText`、`ImmersiveLyricLineLeaf`、`ImmersiveLyricsViewport`、`ImmersiveLyricControlSheet`、`SettingsLyricsCard`（全量复用 `konata_design_system`，零空闲帧时钟空转）。
+  - `LyricDisplayController`（0 Riverpod）：实现 `LyricDisplayPort`、双语译文/罗马音显示开关控制与句边界安全热替换；
+  - `ImmersiveKaraokeSweepText`、`ImmersiveLyricLineLeaf`、`ImmersiveLyricsViewport`（100% 纯净纯白发光扫白视口与 `1.0 / 0.44 / 0.25 / 0.14` 景深分级，无漂浮胶囊遮挡）、`ImmersiveLyricControlSheet`（恒定深邃暗色玻璃，支持独立侧栏与 `embedded` 内嵌右上角菜单，提供双语开关、`-0.2s / 归零 / +0.2s` 快速偏移与词源切换）、`SettingsLyricsCard`（全量复用 `konata_design_system`，零空闲帧时钟空转）。
 - **清单与离线基准**：
   - `featureLyricsManifest` 与 `createFeatureLyricsManifest`（声明播放侧栏 `lyrics_control`、设置分区、歌词源提供者与同步切片）；
   - `dart run packages/features/feature_lyrics/tool/lyric_bench.dart` 执行 70 首离线夹具评测。

@@ -230,5 +230,83 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpAndSettle();
     });
+
+    testWidgets('浅色系统主题下歌词仍保持纯白发光排版、无右下角漂浮胶囊且响应双语译文开关', (
+      tester,
+    ) async {
+      final bundle = KonataDatabaseBundle.openInMemory();
+      addTearDown(bundle.close);
+      final prefsStore = LyricsPreferencesStore(ScopedPrefsStore(bundle.userState));
+      final pos = ValueNotifier<Duration>(const Duration(seconds: 10));
+      final playing = ValueNotifier<bool>(false);
+      addTearDown(pos.dispose);
+      addTearDown(playing.dispose);
+
+      final controller = LyricDisplayController(
+        resolver: LyricsResolver(
+          cacheRepository: StorageLyricCacheRepository.fromBundle(bundle),
+          sourcesFactory: () async => const [],
+        ),
+        preferencesStore: prefsStore,
+        positionListenable: pos,
+        isPlayingListenable: playing,
+      );
+      addTearDown(controller.dispose);
+
+      await controller.resolveForTrack(
+        const LyricTrackQuery(
+          trackKey: 'bilingual-light-guard',
+          albumKey: 'bilingual-album',
+          title: '双语测试曲',
+          artist: 'Singer',
+          durationSeconds: 180.0,
+          embeddedLrcText: kSampleBilingualLrc,
+        ),
+      );
+
+      await tester.pumpWidget(
+        wrapLyricsTestApp(
+          child: Theme(
+            data: KonataTheme.lightTheme(),
+            child: SizedBox(
+              width: 480,
+              height: 520,
+              child: ImmersiveLyricsViewport(
+                itemId: 'bilingual-light-guard',
+                controller: controller,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      // 视口保持 100% 纯净：绝不存在漂浮「译 / -0.2s / +0.2s」按钮或胶囊。
+      expect(find.text('译'), findsNothing);
+      expect(find.text('-0.2s'), findsNothing);
+      expect(find.text('+0.2s'), findsNothing);
+
+      // 浅色外部主题下，后续歌词行仍强制使用纯白字体而非深墨灰。
+      final secondLineText = tester.widget<Text>(find.text('風の歌が今響いてる'));
+      expect(secondLineText.style?.color, isNotNull);
+      expect(secondLineText.style!.color!.r, greaterThan(0.95));
+      expect(secondLineText.style!.color!.g, greaterThan(0.95));
+      expect(secondLineText.style!.color!.b, greaterThan(0.95));
+
+      // 双语译文初始展示，关闭 showTranslation 后立即隐藏译文行并保留原句。
+      expect(find.text('风的歌声此刻正在回响'), findsOneWidget);
+      controller.setShowTranslation(false);
+      await tester.pump();
+      expect(find.text('风的歌声此刻正在回响'), findsNothing);
+      expect(find.text('風の歌が今響いてる'), findsOneWidget);
+
+      controller.setShowTranslation(true);
+      await tester.pump();
+      expect(find.text('风的歌声此刻正在回响'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+    });
   });
 }

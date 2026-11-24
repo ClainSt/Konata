@@ -24,6 +24,9 @@ class DetailStylizedTitleBlock extends StatefulWidget {
     this.maxLogoHeight,
     this.maxLogoWidth,
     this.onTapEditLogo,
+    this.showTitleText = true,
+    this.showTitleLogo = true,
+    this.onDarkBackdrop = true,
   });
 
   /// 目标作品。
@@ -46,6 +49,15 @@ class DetailStylizedTitleBlock extends StatefulWidget {
 
   /// 可选交互编辑徽标回调。
   final VoidCallback? onTapEditLogo;
+
+  /// 是否显示作品标题文字。
+  final bool showTitleText;
+
+  /// 是否显示透明标题徽标。
+  final bool showTitleLogo;
+
+  /// 是否处于深色原画护字遮罩之上（影响浅色模式下竖屏文字/徽标底衬对比度）。
+  final bool onDarkBackdrop;
 
   @override
   State<DetailStylizedTitleBlock> createState() =>
@@ -71,7 +83,7 @@ class _DetailStylizedTitleBlockState extends State<DetailStylizedTitleBlock> {
   void _handleLogoResolved(ui.Image image, String url) {
     if (_analyzedUrl == url) return;
     _analyzedUrl = url;
-    final surfaceBg = context.palette.isDark
+    final surfaceBg = widget.onDarkBackdrop || context.palette.isDark
         ? KonataTheme.cinemaObsidian
         : KonataTheme.themePreviewLightCanvas;
     unawaited(
@@ -91,9 +103,15 @@ class _DetailStylizedTitleBlockState extends State<DetailStylizedTitleBlock> {
 
   @override
   Widget build(BuildContext context) {
+    if (!widget.showTitleText && !widget.showTitleLogo) {
+      return const SizedBox.shrink();
+    }
     final logoUrl = widget.work.logoPath?.trim() ?? '';
-    if (logoUrl.isNotEmpty && !_logoLoadFailed) {
+    if (widget.showTitleLogo && logoUrl.isNotEmpty && !_logoLoadFailed) {
       return _buildLogoView(context, logoUrl);
+    }
+    if (!widget.showTitleText) {
+      return const SizedBox.shrink();
     }
     return _buildStylizedTextTitle(context);
   }
@@ -222,7 +240,7 @@ class _DetailStylizedTitleBlockState extends State<DetailStylizedTitleBlock> {
                     : FontWeight.w800,
                 height: plan.primaryLineHeight,
                 letterSpacing: plan.primaryLetterSpacing,
-                color: p.isDark
+                color: (widget.onDarkBackdrop || p.isDark)
                     ? KonataTheme.pureWhite
                     : KonataTheme.detailPrimaryTextColor(p),
               ),
@@ -240,7 +258,7 @@ class _DetailStylizedTitleBlockState extends State<DetailStylizedTitleBlock> {
                       : KonataTheme.fontSizeSubtitle,
                   fontWeight: FontWeight.w500,
                   letterSpacing: 0.4,
-                  color: p.isDark
+                  color: (widget.onDarkBackdrop || p.isDark)
                       ? KonataTheme.overlayWhiteTextSub
                       : KonataTheme.detailSecondaryTextColor(p),
                 ),

@@ -655,10 +655,9 @@ class MpvThumbnailService extends ChangeNotifier {
 
   @override
   void dispose() {
-    if (!_disposed) {
-      _disposed = true;
-      unawaited(_resetSessionOnly());
-    }
+    if (_disposed) return;
+    _disposed = true;
+    unawaited(_resetSessionOnly());
     super.dispose();
   }
 }

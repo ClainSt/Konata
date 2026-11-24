@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:engine_playback/engine_playback.dart';
 import 'package:flutter/widgets.dart';
@@ -104,6 +105,21 @@ class _VideoSideSheetState extends State<VideoSideSheet> {
   Widget build(BuildContext context) {
     final p = context.palette;
     final panels = _supportedPanels;
+    final mq = MediaQuery.of(context);
+    final isShortLandscape =
+        mq.size.height < KonataAdaptiveTokens.shortViewportHeight;
+    final isTouch = widget.controller.env.platform != KonataPlatform.windows;
+    // 确保右滑侧栏在任意三端横屏视口（含矮屏手机横屏）下均稳定停留在 52px 播控胶囊上方呼吸间距处。
+    final capsuleBottomMargin = isTouch
+        ? math.max(mq.padding.bottom, 14.0)
+        : KonataPlaybackTokens.capsuleBottomOffset;
+    final desiredBottomInset = capsuleBottomMargin + 52.0 + 14.0;
+    final effectiveMq = isShortLandscape &&
+            mq.padding.bottom + 8.0 < desiredBottomInset
+        ? mq.copyWith(
+            padding: mq.padding.copyWith(bottom: desiredBottomInset - 8.0),
+          )
+        : mq;
 
     return ListenableBuilder(
       listenable: widget.controller,
@@ -111,50 +127,53 @@ class _VideoSideSheetState extends State<VideoSideSheet> {
         final state = widget.controller.state;
         final prefs = widget.controller.env.preferencesStore.read();
 
-        return KonataGlassSideSheet(
-          key: const ValueKey('video_side_sheet'),
-          title: '播放面板',
-          width: KonataPlaybackTokens.videoSideSheetWidth,
-          bottomInset: KonataPlaybackTokens.videoSideSheetBottomInset,
-          onClose: widget.onClose,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    for (final tab in VideoSideSheetTab.values)
-                      Padding(
-                        padding: const EdgeInsets.only(right: 6),
-                        child: _SheetTabButton(
-                          key: ValueKey('side_sheet_tab_${tab.name}'),
-                          label: tab.label,
-                          selected: _selectedKey == tab.name,
-                          onTap: () => setState(() => _selectedKey = tab.name),
-                        ),
-                      ),
-                    for (final panel in panels)
-                      Padding(
-                        padding: const EdgeInsets.only(right: 6),
-                        child: _SheetTabButton(
-                          key: ValueKey('side_sheet_tab_contrib_${panel.id}'),
-                          label: panel.label,
-                          icon: KonataIconRegistry.resolve(panel.iconKey),
-                          selected: _selectedKey == '$_contribPrefix${panel.id}',
-                          onTap: () => setState(
-                            () => _selectedKey = '$_contribPrefix${panel.id}',
+        return MediaQuery(
+          data: effectiveMq,
+          child: KonataGlassSideSheet(
+            key: const ValueKey('video_side_sheet'),
+            title: '播放面板',
+            width: KonataPlaybackTokens.videoSideSheetWidth,
+            bottomInset: desiredBottomInset,
+            onClose: widget.onClose,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      for (final tab in VideoSideSheetTab.values)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: _SheetTabButton(
+                            key: ValueKey('side_sheet_tab_${tab.name}'),
+                            label: tab.label,
+                            selected: _selectedKey == tab.name,
+                            onTap: () => setState(() => _selectedKey = tab.name),
                           ),
                         ),
-                      ),
-                  ],
+                      for (final panel in panels)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: _SheetTabButton(
+                            key: ValueKey('side_sheet_tab_contrib_${panel.id}'),
+                            label: panel.label,
+                            icon: KonataIconRegistry.resolve(panel.iconKey),
+                            selected: _selectedKey == '$_contribPrefix${panel.id}',
+                            onTap: () => setState(
+                              () => _selectedKey = '$_contribPrefix${panel.id}',
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              Expanded(
-                child: _buildSelectedBody(context, p, state, prefs, panels),
-              ),
-            ],
+                const SizedBox(height: 12),
+                Expanded(
+                  child: _buildSelectedBody(context, p, state, prefs, panels),
+                ),
+              ],
+            ),
           ),
         );
       },

@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:engine_playback/engine_playback.dart';
+import 'package:flutter/gestures.dart' show PointerScrollEvent;
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:konata_contracts/konata_contracts.dart';
@@ -16,10 +18,10 @@ import 'video_floating_mini_player.dart';
 import 'video_probe_overlay.dart';
 import 'video_touch_gesture_layer.dart';
 
-/// 全屏内置视频播放舞台页面。
+/// 全屏内置视频播放舞台页面（Windows / 平板 / 手机三端一律采用纯横屏舞台）。
 ///
-/// 接收宿主平台按需注入的底层画面渲染回调（如桌面共享纹理或移动平台硬件表面）；
-/// 当未注入渲染回调时自动优雅渲染无头测试占位舞台，支持零原生插件环境测试与预览。
+/// Android 手机与平板进入本页时自动锁定横屏（`landscapeLeft` / `landscapeRight`），
+/// 退出或销毁时自动恢复原有屏幕方向；未注入渲染回调时自动优雅渲染无头测试占位舞台。
 class EmbeddedVideoPage extends ConsumerStatefulWidget {
   /// 创建全屏视频播放舞台页面。
   const EmbeddedVideoPage({
@@ -62,6 +64,14 @@ class EmbeddedVideoPage extends ConsumerStatefulWidget {
 class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
   final GlobalKey _overlaysKey = GlobalKey();
 
+  bool _screenLocked = false;
+  bool _lockButtonPeek = false;
+  bool _hudVisible = true;
+  Timer? _lockPeekTimer;
+
+  bool _lockedAndroidLandscape = false;
+  VideoPlaybackController? _landscapeLockedController;
+
   VideoPlaybackController _resolveController() {
     final explicit = widget.controller;
     if (explicit != null) return explicit;
@@ -78,7 +88,113 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
     return ref.watch(featurePlayerVideoDependenciesProvider).playerSidePanels;
   }
 
+  bool _isAndroidDevice(VideoPlaybackController controller) {
+    return controller.env.platform == KonataPlatform.androidPhone ||
+        controller.env.platform == KonataPlatform.androidTablet ||
+        KonataAdaptiveTokens.isAndroid;
+  }
+
+  void _ensureAndroidLandscapeLock(VideoPlaybackController controller) {
+    if (!_isAndroidDevice(controller)) return;
+    if (_lockedAndroidLandscape &&
+        identical(_landscapeLockedController, controller)) {
+      return;
+    }
+    _lockedAndroidLandscape = true;
+    _landscapeLockedController = controller;
+    unawaited(controller.env.hostWindow.setPreferredLandscape(true));
+    unawaited(
+      SystemChrome.setPreferredOrientations(const <DeviceOrientation>[
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]),
+    );
+  }
+
+  void _restoreAndroidOrientation() {
+    if (!_lockedAndroidLandscape) return;
+    _lockedAndroidLandscape = false;
+    final ctrl = _landscapeLockedController;
+    _landscapeLockedController = null;
+    if (ctrl != null) {
+      unawaited(ctrl.env.hostWindow.setPreferredLandscape(false));
+    }
+    unawaited(
+      SystemChrome.setPreferredOrientations(const <DeviceOrientation>[]),
+    );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    final explicit = widget.controller;
+    if (explicit != null) {
+      _ensureAndroidLandscapeLock(explicit);
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (widget.controller == null) {
+      _ensureAndroidLandscapeLock(_resolveController());
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant EmbeddedVideoPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller && widget.controller != null) {
+      _ensureAndroidLandscapeLock(widget.controller!);
+    }
+  }
+
+  @override
+  void dispose() {
+    _lockPeekTimer?.cancel();
+    _lockPeekTimer = null;
+    _restoreAndroidOrientation();
+    super.dispose();
+  }
+
+  void _toggleScreenLock() {
+    _lockPeekTimer?.cancel();
+    final nextLocked = !_screenLocked;
+    setState(() {
+      _screenLocked = nextLocked;
+      _lockButtonPeek = nextLocked;
+    });
+    if (nextLocked) {
+      _lockPeekTimer = Timer(widget.autoHideDelay, () {
+        if (mounted) {
+          setState(() => _lockButtonPeek = false);
+        }
+      });
+    }
+  }
+
+  void _handleCanvasSingleTap() {
+    if (_screenLocked) {
+      _lockPeekTimer?.cancel();
+      final nextPeek = !_lockButtonPeek;
+      setState(() => _lockButtonPeek = nextPeek);
+      if (nextPeek) {
+        _lockPeekTimer = Timer(widget.autoHideDelay, () {
+          if (mounted) {
+            setState(() => _lockButtonPeek = false);
+          }
+        });
+      }
+      return;
+    }
+    final overlayState = _overlaysKey.currentState;
+    if (overlayState != null) {
+      (overlayState as dynamic).toggleHudVisibility();
+    }
+  }
+
   void _handleExit(VideoPlaybackController controller) {
+    _restoreAndroidOrientation();
     if (widget.onClose != null) {
       widget.onClose!();
       return;
@@ -93,6 +209,9 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
   @override
   Widget build(BuildContext context) {
     final controller = _resolveController();
+    if (!controller.state.isMiniPlayer) {
+      _ensureAndroidLandscapeLock(controller);
+    }
     final sidePanels = _resolveSidePanels();
 
     return ColoredBox(
@@ -112,12 +231,33 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
             displayFeatures: displayFeatures,
             systemBarsHidden: state.isFullscreen,
           );
-          final isTouchPlatform =
-              controller.env.platform != KonataPlatform.windows;
+          final isTouchPlatform = _isAndroidDevice(controller);
 
-          return Stack(
-            fit: StackFit.expand,
-            children: [
+          return MouseRegion(
+            hitTestBehavior: HitTestBehavior.translucent,
+            onHover: isTouchPlatform
+                ? null
+                : (_) {
+                    final overlayState = _overlaysKey.currentState;
+                    if (overlayState != null) {
+                      (overlayState as dynamic).notifyPointerHover();
+                    }
+                  },
+            child: Listener(
+              behavior: HitTestBehavior.translucent,
+              onPointerSignal: (signal) {
+                if (signal is PointerScrollEvent) {
+                  final overlayState = _overlaysKey.currentState;
+                  if (overlayState != null) {
+                    (overlayState as dynamic).handlePointerWheel(
+                      signal.scrollDelta.dy,
+                    );
+                  }
+                }
+              },
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
               Padding(
                 padding: cutoutPadding,
                 child: _buildVideoStage(context, state),
@@ -126,8 +266,8 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
                 IgnorePointer(
                   child: ColoredBox(
                     color: Colors.black.withValues(
-                      alpha: (1.0 - state.windowBrightness.clamp(0.15, 1.0)) *
-                          0.65,
+                      alpha:
+                          (1.0 - state.windowBrightness.clamp(0.15, 1.0)) * 0.65,
                     ),
                   ),
                 ),
@@ -139,12 +279,10 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
                   currentVolume: state.volume,
                   currentBrightness: state.windowBrightness,
                   enableTouchGestures: isTouchPlatform,
-                  onSingleTap: () {
-                    final overlayState = _overlaysKey.currentState;
-                    if (overlayState != null) {
-                      (overlayState as dynamic).toggleHudVisibility();
-                    }
-                  },
+                  screenLocked: _screenLocked,
+                  showLockButton: _screenLocked ? _lockButtonPeek : _hudVisible,
+                  onToggleScreenLock: _toggleScreenLock,
+                  onSingleTap: _handleCanvasSingleTap,
                   onDoubleTapCenter: () =>
                       unawaited(controller.togglePlayPause()),
                   onDoubleTapLeftSeek: () =>
@@ -168,12 +306,18 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
                   playerSidePanels: sidePanels,
                   autoHideDelay: widget.autoHideDelay,
                   isTouchPlatform: isTouchPlatform,
+                  screenLocked: _screenLocked,
+                  onHudVisibilityChanged: (visible) {
+                    if (_hudVisible != visible && mounted) {
+                      setState(() => _hudVisible = visible);
+                    }
+                  },
                   onExitRequested: () => _handleExit(controller),
                   onEnterMiniRequested: widget.onEnterMiniPlayer ??
                       () => unawaited(controller.enterMiniPlayer()),
                 ),
               ),
-              if (state.probeOverlayVisible)
+              if (state.probeOverlayVisible && !_screenLocked)
                 Positioned(
                   left: 16 + cutoutPadding.left,
                   top: 68,
@@ -182,7 +326,8 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
                     renderBackend: state.renderBackend,
                     adapterName: state.adapterName,
                     positionSeconds:
-                        controller.positionNotifier.value.inMilliseconds / 1000.0,
+                        controller.positionNotifier.value.inMilliseconds /
+                        1000.0,
                     durationSeconds: state.durationSeconds,
                     hwdecForcedReason: state.hwdecForcedSoftwareReason,
                   ),
@@ -191,7 +336,8 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
                 Center(
                   child: _FatalStageCard(
                     message: state.errorMessage!,
-                    onRetry: () => unawaited(controller.initialize(widget.request)),
+                    onRetry: () =>
+                        unawaited(controller.initialize(widget.request)),
                     onClose: () => _handleExit(controller),
                   ),
                 ),
@@ -205,6 +351,8 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
                   onClose: () => _handleExit(controller),
                 ),
             ],
+              ),
+            ),
           );
         },
       ),

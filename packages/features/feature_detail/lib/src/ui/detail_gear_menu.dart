@@ -17,6 +17,9 @@ enum DetailBuiltInGearAction {
   /// 编辑横版背景原画。
   editBackdrop,
 
+  /// 编辑竖版无字原画。
+  editPortraitBackdrop,
+
   /// 编辑透明标题徽标。
   editLogo,
 
@@ -114,8 +117,13 @@ class DetailGearMenu extends StatelessWidget {
       ),
       const KonataGlassMenuItem<String>(
         value: 'editBackdrop',
-        label: '编辑背景原画 / 抽帧',
+        label: '编辑横版背景原画 / 抽帧',
         icon: Icons.wallpaper_outlined,
+      ),
+      const KonataGlassMenuItem<String>(
+        value: 'editPortraitBackdrop',
+        label: '编辑竖版原画',
+        icon: Icons.photo_outlined,
       ),
       const KonataGlassMenuItem<String>(
         value: 'editLogo',
@@ -176,6 +184,7 @@ class DetailGearMenu extends StatelessWidget {
       'syncDirectory' => DetailBuiltInGearAction.syncDirectory,
       'editPoster' => DetailBuiltInGearAction.editPoster,
       'editBackdrop' => DetailBuiltInGearAction.editBackdrop,
+      'editPortraitBackdrop' => DetailBuiltInGearAction.editPortraitBackdrop,
       'editLogo' => DetailBuiltInGearAction.editLogo,
       'manualEdit' => DetailBuiltInGearAction.manualEdit,
       'manualMatch' => DetailBuiltInGearAction.manualMatch,

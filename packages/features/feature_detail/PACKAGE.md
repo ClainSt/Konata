@@ -16,15 +16,18 @@ Konata v3 番剧详情页、正片 / 特典 / CD 编排、正片单并发流式�
   - `FeatureDetailDependencies`（完整承接 `databases`、`storageRoot`、`diagnosticLog`、`scopedPrefs`、`domainEventBus`、`navigator`、`filePicker`、`urlOpener`、`httpClient`、`gatewayFactory`、`streamBridge`、`warmupService`、`photosStorage`、`artworkCache`、`platform`、`detailTabs`、`detailActions`）与 `featureDetailDependenciesProvider`。
 - **领域辅助与抽帧服务（`lib/src/data/`）**：
   - `DetailTitleTypographyResolver`、`ClearLogoLegibility`、`MediaDisplayFormatter`、`ArtworkCropMath`、`LocalArtworkCropper`；
-  - `DetailDisplayPreferences` / `DetailDisplayPreferencesStore`（`ScopedPrefsStore` 分命名空间切片 `feature_detail.display`）；
+  - `SeriesMemberLabelResolver` / `SeriesWorkMediaFilter`（同系列形态识别、简洁胶囊摘要、20+ 长系列多形态筛选与搜索）与 `ArtworkDominantColor`（竖版原画底部吸色适配深/浅主题溶底）；
+  - `DetailDisplayPreferences` / `DetailDisplayPreferencesStore`（与设置中心共享 `feature_detail.display` 全部 10 个便携键与未知扩展字段透传）；
   - `MainEpisodeFrameExtractor`（全局单并发串行、`LibMpvClient` + `LocalStreamBridgePort` + `VideoFrameSelector`）与 `MainEpisodeFrameBackfillService`（严格仅对 `EpisodeCategory.main` 正片抽帧，绝不碰特典）；
-  - `WorkArtworkOptionsService`、`DetailWorkActionsService`（变更同步发布 `LibraryWorkChangedEvent`）。
+  - `WorkArtworkOptionsService`、`DetailWorkActionsService`（支持封面/横版背景/`portraitBackdrop` 竖版原画锁定与重置，并同步发布 `LibraryWorkChangedEvent`）。
 - **状态管理（`lib/src/state/`）**：
   - `WorkDetailController`（监听三库变更总线、`DomainEventBus` 与偏好切片；驱动静默预热、正片补图、人工锁定、系列编组与拆合操作）；
   - `WorkRescrapeState` 密封状态机（`WorkRescrapeIdle` / `WorkRescrapeRunning` / `WorkRescrapeSucceeded` / `WorkRescrapeFailed`）。
 - **三端同源 UI 与弹窗（`lib/src/ui/`）**：
-  - `WorkDetailPage`（桌面/平板全幅原画沉浸舞台与手机竖/横屏自适应流式舞台）、`DetailHeroInfo`、`DetailStylizedTitleBlock`、`SeriesSwitcherDropdown`、`InlineExpandableSynopsis`、`WorkReviewBanner`、`DetailRescrapeProgressPill`、`DetailSecondaryFilterBar`、`EpisodeDrawerCard`、`CdDrawerCard`、`DetailGearMenu`、`DetailBottomDrawer`、`DetailFullListDialog`；
-  - `WorkArtworkPickerDialog`、`ArtworkCropDialog`、`VideoFrameCandidateTile`、`WorkManualEditDialog`、`ManualMatchDialog`、`SeriesManageDialog`、`VariantPickerDialog`、`EpisodeMediaInfoDialog`、`FileMappingPanel`、`EpisodeSlotPickerButton`、`SupplementaryScopePanel`、`SourceFilesReviewDialog`、`WorkMergeTargetDialog`。
+  - `WorkDetailPage`、`DetailWideOverlayStageLayout`、`DetailPortraitStageLayout`（Android 手机纯竖屏锁定与 `portraitBackdropRef` 吸色溶底；Windows/平板横屏清澈 16:9 原画舞台并完整保留桌面窗口控制栏；统一所有外部扩展动作进入唯一 `⚙`）；
+  - `DetailHeroInfo`（统一保留 `[开始/继续播放]` + `[系列胶囊]` 双胶囊主操作行）、`DetailStylizedTitleBlock`、`SeriesSwitcherDropdown` + `showSeriesSelectorModal`（手机底部全宽抽屉 / 桌面平板居中宽弹窗，支持 `全部 / TV / 剧场版 / OVA` 筛选与实时搜索）；
+  - `DetailSecondaryFilterBar`、`DetailBottomDrawer`（三端统一单条毛玻璃分类胶囊、展开态右端弹性伸出 `⊞`、彻底移除 `⌄`、三端保留横向大剧照选集卡轨道）、`EpisodeDrawerCard`、`CdDrawerCard`、`DetailGearMenu`、`DetailFullListDialog`；
+  - `WorkArtworkPickerDialog`（含 `WorkArtworkKind.portraitBackdrop` 竖版无字原画挑选、本地裁切与重置）、`ArtworkCropDialog`、`VideoFrameCandidateTile`、`WorkManualEditDialog`、`ManualMatchDialog`、`SeriesManageDialog`、`VariantPickerDialog`、`EpisodeMediaInfoDialog`、`FileMappingPanel`、`EpisodeSlotPickerButton`、`SupplementaryScopePanel`、`SourceFilesReviewDialog`、`WorkMergeTargetDialog`。
 
 ## 验证说明
 

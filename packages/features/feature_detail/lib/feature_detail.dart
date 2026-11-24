@@ -10,6 +10,7 @@ export 'src/data/artwork_crop_math.dart'
         ArtworkDisplayRect,
         ArtworkNormalizedCropRect,
         ArtworkSourcePixelRect;
+export 'src/data/artwork_dominant_color.dart' show ArtworkDominantColor;
 export 'src/data/clear_logo_legibility.dart'
     show ClearLogoLegibility, ClearLogoLegibilityResult, ClearLogoLumaStats;
 export 'src/data/detail_display_preferences.dart'
@@ -35,6 +36,8 @@ export 'src/data/main_episode_frame_backfill_service.dart'
 export 'src/data/main_episode_frame_extractor.dart'
     show MainEpisodeFrameExtractor, MainEpisodeFrameTask;
 export 'src/data/media_display_formatter.dart' show MediaDisplayFormatter;
+export 'src/data/series_member_label_resolver.dart'
+    show SeriesMemberLabelResolver, SeriesWorkMediaFilter;
 export 'src/data/work_artwork_options.dart'
     show WorkArtworkOption, WorkArtworkOptions, WorkArtworkOptionsService;
 export 'src/manifest.dart' show featureDetailManifest;

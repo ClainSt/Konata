@@ -227,5 +227,70 @@ void main() {
       expect(controller.positionNotifier.value.inSeconds, 90);
       expect(controller.state.activeSkipWindow, isNull);
     });
+
+    test('底栏呼出按真实占高与 16dp 留白抬升 sub-pos 且隐藏瞬间复原 0 而不修改 sub-ass-override', () async {
+      final harness = await VideoTestHarness.create();
+      addTearDown(harness.dispose);
+      final seeded = await harness.seedSampleAnime();
+
+      final fakeClient = FakeLibMpvClient();
+      final controller = harness.createController(
+        libMpvClientFactory: () => fakeClient,
+        enablePeriodicTimers: false,
+      );
+      addTearDown(controller.dispose);
+
+      await controller.initialize(VideoLaunchRequest(workId: seeded.work.id));
+      expect(controller.currentSubtitleHudLiftPercent, 0.0);
+      expect(fakeClient.options['sub-ass-override'], 'no');
+      final baselineSubPos = fakeClient.properties['sub-pos'] as double?;
+      expect(baselineSubPos, 100.0);
+
+      // 模拟 720p 视口下 20dp 底边距 + 52dp 胶囊 + 16dp 留白 = 88dp 占高。
+      final lifted = controller.updateHudSubtitleLift(
+        hudVisible: true,
+        bottomCapsuleOccupiedHeight: 88.0,
+        viewportHeight: 720.0,
+      );
+      const expectedPercent = 88.0 / 720.0 * 100.0;
+      expect(lifted, closeTo(expectedPercent, 0.05));
+      expect(
+        controller.currentSubtitleHudLiftPercent,
+        closeTo(expectedPercent, 0.05),
+      );
+      expect(
+        fakeClient.properties['sub-pos'] as double,
+        closeTo(100.0 - expectedPercent, 0.1),
+      );
+      expect(
+        fakeClient.properties['secondary-sub-pos'] as double,
+        closeTo(100.0 - expectedPercent, 0.1),
+      );
+      // 严禁改写 sub-ass-override 以保障 ASS \pos() 绝对坐标屏幕字不受干扰。
+      expect(fakeClient.options['sub-ass-override'], 'no');
+      expect(fakeClient.properties['sub-ass-override'], 'no');
+
+      // 切换双语副字幕轨道时保持当前 HUD 上抬比例不回落。
+      await controller.selectSecondarySubtitleTrack(2);
+      expect(
+        fakeClient.properties['secondary-sub-pos'] as double,
+        closeTo(100.0 - expectedPercent, 0.1),
+      );
+
+      // OSD 隐藏瞬间立即复原为 0.0，副字幕复原 100.0，主字幕复原双语基准位；关闭副字幕后主字幕复原 100.0。
+      final restored = controller.updateHudSubtitleLift(
+        hudVisible: false,
+        bottomCapsuleOccupiedHeight: 88.0,
+        viewportHeight: 720.0,
+      );
+      expect(restored, 0.0);
+      expect(controller.currentSubtitleHudLiftPercent, 0.0);
+      expect(
+        fakeClient.properties['secondary-sub-pos'] as double,
+        closeTo(100.0, 0.01),
+      );
+      await controller.selectSecondarySubtitleTrack(null);
+      expect(fakeClient.properties['sub-pos'] as double, closeTo(100.0, 0.01));
+    });
   });
 }

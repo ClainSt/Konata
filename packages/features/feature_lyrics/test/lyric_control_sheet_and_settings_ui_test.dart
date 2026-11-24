@@ -251,6 +251,116 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpAndSettle();
     });
+
+    testWidgets('embedded 内嵌暗色菜单支持双语开关、-0.2s/归零/+0.2s 微调及词源候选切换', (
+      tester,
+    ) async {
+      final bundle = KonataDatabaseBundle.openInMemory();
+      addTearDown(bundle.close);
+      final prefsStore = LyricsPreferencesStore(ScopedPrefsStore(bundle.userState));
+      final resolver = LyricsResolver(
+        cacheRepository: StorageLyricCacheRepository.fromBundle(bundle),
+        raceEngine: const LyricRaceEngine(
+          firstPaintGrace: Duration(milliseconds: 20),
+          lowConfidencePaintAfter: Duration(milliseconds: 60),
+          deadline: Duration(milliseconds: 250),
+        ),
+        sourcesFactory: () async => [
+          FakeLyricCandidateSource(
+            label: 'Catalog',
+            streamBuilder: (q) => Stream.fromIterable([
+              LyricCandidate(
+                source: LyricSource.netease,
+                sourceId: 'ne-1',
+                title: q.title,
+                artist: 'Singer',
+                durationSeconds: 180.0,
+                lrcContent: kSampleBilingualLrc,
+                hasTranslation: true,
+              ),
+              LyricCandidate(
+                source: LyricSource.qq,
+                sourceId: 'qq-2',
+                title: '${q.title} (备选源)',
+                artist: 'Singer',
+                durationSeconds: 180.0,
+                lrcContent: kSampleJapaneseLrc,
+              ),
+            ]),
+          ),
+        ],
+      );
+      final controller = LyricDisplayController(
+        resolver: resolver,
+        preferencesStore: prefsStore,
+      );
+      addTearDown(controller.dispose);
+
+      await controller.resolveForTrack(
+        const LyricTrackQuery(
+          trackKey: 'embedded-track',
+          albumKey: 'embedded-album',
+          title: 'Menu Lyric Test',
+          artist: 'Singer',
+          durationSeconds: 180.0,
+        ),
+      );
+
+      tester.view.physicalSize = const Size(420, 820);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      await tester.pumpWidget(
+        wrapLyricsTestApp(
+          dark: false,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: ImmersiveLyricControlSheet(
+              controller: controller,
+              onClose: () {},
+              embedded: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+
+      // 双语开关在浅色外部主题下也可正常交互切换并持久化。
+      expect(prefsStore.read().showTranslation, isTrue);
+      await tester.tap(
+        find.byKey(const ValueKey('lyric_control_translation_switch')),
+      );
+      await tester.pumpAndSettle();
+      expect(prefsStore.read().showTranslation, isFalse);
+
+      // -0.2s / +0.2s / 归零快速偏移控制。
+      await tester.tap(
+        find.byKey(const ValueKey('lyric_quick_offset_minus_200')),
+      );
+      await tester.pumpAndSettle();
+      expect(controller.state.offsetSnapshot.trackOffsetMillis, -200);
+
+      await tester.tap(
+        find.byKey(const ValueKey('lyric_quick_offset_plus_200')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('lyric_quick_offset_plus_200')),
+      );
+      await tester.pumpAndSettle();
+      expect(controller.state.offsetSnapshot.trackOffsetMillis, 200);
+
+      await tester.tap(find.byKey(const ValueKey('lyric_quick_offset_reset')));
+      await tester.pumpAndSettle();
+      expect(controller.state.offsetSnapshot.trackOffsetMillis, 0);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+    });
   });
 
   group('SettingsLyricsCard 来源开关与非官方免责弹窗流转', () {

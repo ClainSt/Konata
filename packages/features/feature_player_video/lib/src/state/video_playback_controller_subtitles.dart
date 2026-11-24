@@ -2,6 +2,51 @@ part of 'video_playback_controller.dart';
 
 /// 视频控制器内存字幕引擎、音轨选择、着色器热更新与原画截图扩展。
 extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
+  /// 计算底部播控胶囊显隐对应的常规字幕上抬百分比（隐藏或无效视口返回 `0.0`）。
+  static double computeSubtitleHudLiftPercent({
+    required bool hudVisible,
+    required double bottomCapsuleOccupiedHeight,
+    required double viewportHeight,
+  }) {
+    if (!hudVisible ||
+        !bottomCapsuleOccupiedHeight.isFinite ||
+        !viewportHeight.isFinite ||
+        bottomCapsuleOccupiedHeight <= 0 ||
+        viewportHeight <= 0) {
+      return 0.0;
+    }
+    return ((bottomCapsuleOccupiedHeight / viewportHeight) * 100.0)
+        .clamp(0.0, 45.0)
+        .toDouble();
+  }
+
+  /// 按底部播控胶囊真实占高同步 `libmpv` 主/副字幕垂直上抬比例，隐藏瞬间立即归零复原。
+  ///
+  /// 底层仅平移常规对话字幕 `sub-pos` / `secondary-sub-pos`，绝不修改 `sub-ass-override`
+  /// 或干扰 ASS `\pos()` 绝对坐标屏幕字。
+  double updateHudSubtitleLift({
+    required bool hudVisible,
+    required double bottomCapsuleOccupiedHeight,
+    required double viewportHeight,
+  }) {
+    if (_disposed) return 0.0;
+    final targetPercent = _closing
+        ? 0.0
+        : computeSubtitleHudLiftPercent(
+            hudVisible: hudVisible,
+            bottomCapsuleOccupiedHeight: bottomCapsuleOccupiedHeight,
+            viewportHeight: viewportHeight,
+          );
+    final changed =
+        (_currentSubtitleHudLiftPercent - targetPercent).abs() >= 0.05 ||
+        (targetPercent == 0.0 && _currentSubtitleHudLiftPercent != 0.0);
+    if (changed) {
+      _currentSubtitleHudLiftPercent = targetPercent;
+      _session?.setSubtitleHudLiftPercent(targetPercent);
+    }
+    return _currentSubtitleHudLiftPercent;
+  }
+
   SubtitleMemoryEngine _ensureSubtitleMemoryEngine() {
     return _subtitleMemoryEngine ??= SubtitleMemoryEngine(
       clientSupplier: () => _session?.activeClient,
@@ -236,6 +281,11 @@ extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
       ),
     );
     session.applySecondarySubtitleLayout(trackId != null);
+    if (_currentSubtitleHudLiftPercent > 0.0) {
+      // 双语副字幕布局重算会重置基准 sub-pos，需重新触发底层应用当前底栏上抬比例。
+      session.setSubtitleHudLiftPercent(0.0);
+      session.setSubtitleHudLiftPercent(_currentSubtitleHudLiftPercent);
+    }
   }
 
   /// 切换当前主字幕的内存即时繁简转换模式。

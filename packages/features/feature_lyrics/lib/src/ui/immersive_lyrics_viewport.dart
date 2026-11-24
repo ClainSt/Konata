@@ -455,9 +455,9 @@ class _ImmersiveLyricsViewportState extends State<ImmersiveLyricsViewport> {
     return ListenableBuilder(
       listenable: widget.controller,
       builder: (context, _) {
-        final p = context.palette;
         final st = widget.controller.state;
         final showRomaji = widget.controller.preferences.showRomaji;
+        final showTranslation = widget.controller.preferences.showTranslation;
         final lrc = st.lrcDocument;
         final spanLines = st.activeSpanLines;
 
@@ -469,13 +469,17 @@ class _ImmersiveLyricsViewportState extends State<ImmersiveLyricsViewport> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.lyrics_outlined, size: 40, color: p.textMuted),
+                  Icon(
+                    Icons.lyrics_outlined,
+                    size: 40,
+                    color: KonataTheme.pureWhite.withValues(alpha: 0.42),
+                  ),
                   const SizedBox(height: 12),
                   Text(
                     st.isLookupInFlight ? '正在查找歌词…' : '当前曲目暂无同步歌词',
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      color: p.textSecondary,
+                      color: KonataTheme.pureWhite.withValues(alpha: 0.72),
                       fontSize: KonataTheme.fontSizeBodyMd,
                     ),
                   ),
@@ -688,6 +692,7 @@ class _ImmersiveLyricsViewportState extends State<ImmersiveLyricsViewport> {
                                       isPlayingListenable:
                                           _effectiveIsPlayingListenable,
                                       showRomaji: showRomaji,
+                                      showTranslation: showTranslation,
                                       lyricOffsetSeconds:
                                           st.offsetSnapshot.totalOffsetSeconds,
                                       nextLineStartSeconds: nextStart,
@@ -735,7 +740,9 @@ class _ImmersiveLyricsViewportState extends State<ImmersiveLyricsViewport> {
                                 ),
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
-                                  color: p.textSecondary.withValues(alpha: 0.9),
+                                  color: KonataTheme.pureWhite.withValues(
+                                    alpha: 0.88,
+                                  ),
                                   fontSize: KonataTheme.fontSizeCaption,
                                   fontWeight: FontWeight.w500,
                                   fontFeatures:
@@ -754,8 +761,8 @@ class _ImmersiveLyricsViewportState extends State<ImmersiveLyricsViewport> {
                                       'lyric_timeline_dashed_line',
                                     ),
                                     painter: _LyricScrubDashedLinePainter(
-                                      color: p.textPrimary.withValues(
-                                        alpha: p.isDark ? 0.28 : 0.24,
+                                      color: KonataTheme.pureWhite.withValues(
+                                        alpha: 0.28,
                                       ),
                                       excludeLeft: textExcludeLeft,
                                       excludeRight: textExcludeRight,
@@ -788,7 +795,9 @@ class _ImmersiveLyricsViewportState extends State<ImmersiveLyricsViewport> {
                                   child: Icon(
                                     Icons.play_arrow_rounded,
                                     size: 20,
-                                    color: p.textPrimary.withValues(alpha: 0.9),
+                                    color: KonataTheme.pureWhite.withValues(
+                                      alpha: 0.92,
+                                    ),
                                   ),
                                 ),
                               ),

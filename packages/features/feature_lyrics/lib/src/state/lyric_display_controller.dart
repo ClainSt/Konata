@@ -349,6 +349,14 @@ class LyricDisplayController extends ChangeNotifier
     }
   }
 
+  /// 切换双语翻译显示偏好并实时生效。
+  void setShowTranslation(bool enabled) {
+    if (_disposed) return;
+    _preferencesStore.setShowTranslation(enabled);
+    _preferences = _preferencesStore.read();
+    notifyListeners();
+  }
+
   /// 切换罗马音注音显示偏好并实时生效。
   void setShowRomaji(bool enabled) {
     if (_disposed) return;

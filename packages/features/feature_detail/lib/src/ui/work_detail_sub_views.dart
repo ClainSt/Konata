@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:engine_scraping/engine_scraping.dart';
@@ -14,6 +13,7 @@ class WorkDetailTopBar extends StatelessWidget {
     super.key,
     required this.onBack,
     this.forceLightChrome = true,
+    this.showDesktopChrome = true,
     this.trailing,
   });
 
@@ -22,6 +22,9 @@ class WorkDetailTopBar extends StatelessWidget {
 
   /// 是否强制在背景原画之上使用深底高反差白色返回胶囊。
   final bool forceLightChrome;
+
+  /// 是否挂载桌面端窗口控制按钮区（手机端纯竖屏可关闭）。
+  final bool showDesktopChrome;
 
   /// 可选右上角扩展按钮插槽。
   final Widget? trailing;
@@ -37,10 +40,12 @@ class WorkDetailTopBar extends StatelessWidget {
         ? KonataTheme.overlayWhiteBorderStrong
         : p.hairline;
 
-    final desktopControls = KonataDesktopWindowChromeScope.buildWindowControls(
-      context,
-      showGlassPill: true,
-    );
+    final desktopControls = showDesktopChrome
+        ? KonataDesktopWindowChromeScope.buildWindowControls(
+            context,
+            showGlassPill: true,
+          )
+        : null;
 
     return Row(
       children: [
@@ -172,6 +177,7 @@ class DetailWideBackdropStage extends StatelessWidget {
     this.backdropOwnerWorkId,
     this.fallbackPosterPath = '',
     this.showHeroBackdrop = true,
+    this.isDrawerExpanded = true,
   });
 
   /// 作品唯一主键。
@@ -188,6 +194,9 @@ class DetailWideBackdropStage extends StatelessWidget {
 
   /// 是否允许渲染背景原画。
   final bool showHeroBackdrop;
+
+  /// 底部选集抽屉是否处于展开状态（收起时进一步减弱底部遮罩，清澈透出全幅 16:9 原画）。
+  final bool isDrawerExpanded;
 
   /// 受管图片加载器。
   final ManagedImageLoader imageLoader;
@@ -246,9 +255,9 @@ class DetailWideBackdropStage extends StatelessWidget {
                   end: const Alignment(-0.08, 0.14),
                   stops: const [0.0, 0.42, 0.78, 1.0],
                   colors: [
-                    KonataTheme.cinemaObsidian.withValues(alpha: 0.76),
-                    KonataTheme.cinemaObsidian.withValues(alpha: 0.44),
-                    KonataTheme.cinemaObsidian.withValues(alpha: 0.12),
+                    KonataTheme.cinemaObsidian.withValues(alpha: 0.70),
+                    KonataTheme.cinemaObsidian.withValues(alpha: 0.38),
+                    KonataTheme.cinemaObsidian.withValues(alpha: 0.08),
                     Colors.transparent,
                   ],
                 ),
@@ -256,15 +265,22 @@ class DetailWideBackdropStage extends StatelessWidget {
             ),
           ),
           IgnorePointer(
-            child: DecoratedBox(
+            child: AnimatedContainer(
+              duration: KonataTheme.motionNormal,
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.bottomCenter,
                   end: Alignment.topCenter,
-                  stops: const [0.0, 0.24, 0.56],
+                  stops: isDrawerExpanded
+                      ? const [0.0, 0.24, 0.52]
+                      : const [0.0, 0.18, 0.42],
                   colors: [
-                    KonataTheme.cinemaObsidian.withValues(alpha: 0.86),
-                    KonataTheme.cinemaObsidian.withValues(alpha: 0.42),
+                    KonataTheme.cinemaObsidian.withValues(
+                      alpha: isDrawerExpanded ? 0.82 : 0.44,
+                    ),
+                    KonataTheme.cinemaObsidian.withValues(
+                      alpha: isDrawerExpanded ? 0.36 : 0.14,
+                    ),
                     Colors.transparent,
                   ],
                 ),
@@ -277,7 +293,9 @@ class DetailWideBackdropStage extends StatelessWidget {
   }
 }
 
-/// 手机与窄屏竖向详情页顶部沉浸海报 / 横幅头图组件。
+/// 手机纯竖屏与平板竖屏详情页顶部沉浸竖版原画组件。
+///
+/// 优先展示 `work.portraitBackdropPath` 并吸色溶入主题底色；为空时回退常规竖版海报并抬高底部溶底渐变，绝不强裁 16:9 横图。
 class DetailPortraitHeroHeader extends StatelessWidget {
   /// 创建竖屏沉浸头图。
   const DetailPortraitHeroHeader({
@@ -288,6 +306,7 @@ class DetailPortraitHeroHeader extends StatelessWidget {
     required this.viewportHeight,
     this.backdropPathOverride,
     this.backdropOwnerWorkId,
+    this.dissolveColor,
     this.showHeroBackdrop = true,
   });
 
@@ -303,34 +322,36 @@ class DetailPortraitHeroHeader extends StatelessWidget {
   /// 当前视口高度。
   final double viewportHeight;
 
-  /// 可选共享横版背景路径。
+  /// 预留字段（竖屏阶段严禁强裁 16:9 横版原画）。
   final String? backdropPathOverride;
 
-  /// 可选共享横版背景归属作品主键。
+  /// 预留字段。
   final String? backdropOwnerWorkId;
+
+  /// 原画下缘吸色并适配深/浅主题后的背景溶底目标色（为空时回落 `palette.canvas`）。
+  final Color? dissolveColor;
 
   /// 是否允许展示头图原画。
   final bool showHeroBackdrop;
 
   @override
   Widget build(BuildContext context) {
-    final resolvedBackdrop = (backdropPathOverride?.trim().isNotEmpty ?? false)
-        ? backdropPathOverride!.trim()
-        : (work.backdropPath?.trim() ?? '');
-    final resolvedOwner = (backdropOwnerWorkId?.trim().isNotEmpty ?? false)
-        ? backdropOwnerWorkId!.trim()
-        : work.id;
+    final p = context.palette;
+    final portraitBackdrop = (work.portraitBackdropPath ?? '').trim();
     final posterPath = (work.posterPath?.trim().isNotEmpty ?? false)
         ? work.posterPath!.trim()
         : (work.bangumiPosterPath?.trim() ?? '');
+    final baseCanvas = dissolveColor ?? p.canvas;
 
-    final isWide = viewportWidth >= 560;
-    final double heroHeight;
-    if (isWide) {
-      heroHeight = math.max(150.0, math.min(viewportWidth * 9 / 16, viewportHeight * 0.42));
-    } else {
-      heroHeight = (viewportHeight * 0.42).clamp(180.0, 360.0);
-    }
+    final isTabletPortrait = viewportWidth >= 560;
+    final heroHeight = isTabletPortrait
+        ? (viewportHeight * 0.46).clamp(300.0, 520.0)
+        : (viewportHeight * 0.48).clamp(290.0, 420.0);
+
+    final bool hasPortraitBackdrop =
+        showHeroBackdrop && portraitBackdrop.isNotEmpty;
+    final bool isPosterFallback =
+        !hasPortraitBackdrop && showHeroBackdrop && posterPath.isNotEmpty;
 
     return SizedBox(
       key: const ValueKey<String>('detail_portrait_hero_header'),
@@ -339,43 +360,63 @@ class DetailPortraitHeroHeader extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          const ColoredBox(color: KonataTheme.cinemaObsidian),
-          if (showHeroBackdrop && !isWide && posterPath.isNotEmpty)
+          AnimatedContainer(
+            duration: KonataTheme.motionNormal,
+            color: baseCanvas,
+          ),
+          if (hasPortraitBackdrop)
+            DetailManagedImage(
+              portraitBackdrop,
+              key: const ValueKey<String>('detail_portrait_hero_artwork'),
+              loader: imageLoader,
+              owner: work.id,
+              artwork: ManagedArtwork.poster,
+              imageSize: TmdbImageSize.original,
+              fit: BoxFit.cover,
+              alignment: const Alignment(0, -0.25),
+              errorBuilder: (_, _, _) => posterPath.isNotEmpty
+                  ? DetailManagedImage(
+                      posterPath,
+                      key: const ValueKey<String>(
+                        'detail_portrait_hero_poster_fallback',
+                      ),
+                      loader: imageLoader,
+                      owner: work.id,
+                      artwork: ManagedArtwork.poster,
+                      imageSize: TmdbImageSize.original,
+                      fit: BoxFit.cover,
+                      alignment: DetailSmartCoverFraming.defaultPosterAlignment,
+                      errorBuilder: (_, _, _) => ColoredBox(color: baseCanvas),
+                    )
+                  : ColoredBox(color: baseCanvas),
+            )
+          else if (isPosterFallback)
             DetailManagedImage(
               posterPath,
+              key: const ValueKey<String>(
+                'detail_portrait_hero_poster_fallback',
+              ),
               loader: imageLoader,
               owner: work.id,
               artwork: ManagedArtwork.poster,
               imageSize: TmdbImageSize.original,
               fit: BoxFit.cover,
               alignment: DetailSmartCoverFraming.defaultPosterAlignment,
-              errorBuilder: (_, _, _) =>
-                  const ColoredBox(color: KonataTheme.cinemaObsidian),
+              errorBuilder: (_, _, _) => ColoredBox(color: baseCanvas),
             )
-          else if (showHeroBackdrop && resolvedBackdrop.isNotEmpty)
-            DetailManagedImage(
-              resolvedBackdrop,
-              loader: imageLoader,
-              owner: resolvedOwner,
-              artwork: ManagedArtwork.backdrop,
-              isHeroBackdrop: true,
-              imageSize: TmdbImageSize.original,
-              fit: BoxFit.cover,
-              errorBuilder: (_, _, _) => _BlurredPosterBackdrop(
-                posterPath: posterPath,
-                workId: work.id,
-                imageLoader: imageLoader,
-                blurFilter: KonataTheme.blurFilterMedium,
-                scrimColor: KonataTheme.scrimBlackLight,
+          else
+            DecoratedBox(
+              key: const ValueKey<String>('detail_portrait_hero_neutral'),
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  center: const Alignment(0, -0.35),
+                  radius: 1.15,
+                  colors: [
+                    p.accent.withValues(alpha: p.isDark ? 0.16 : 0.10),
+                    baseCanvas,
+                  ],
+                ),
               ),
-            )
-          else if (showHeroBackdrop && posterPath.isNotEmpty)
-            _BlurredPosterBackdrop(
-              posterPath: posterPath,
-              workId: work.id,
-              imageLoader: imageLoader,
-              blurFilter: KonataTheme.blurFilterMedium,
-              scrimColor: KonataTheme.scrimBlackLight,
             ),
           IgnorePointer(
             child: DecoratedBox(
@@ -383,14 +424,26 @@ class DetailPortraitHeroHeader extends StatelessWidget {
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  stops: const [0.0, 0.18, 0.58, 0.88, 1.0],
-                  colors: [
-                    KonataTheme.cinemaObsidian.withValues(alpha: 0.34),
-                    Colors.transparent,
-                    Colors.transparent,
-                    KonataTheme.cinemaObsidian.withValues(alpha: 0.78),
-                    KonataTheme.cinemaObsidian,
-                  ],
+                  stops: isPosterFallback
+                      ? const [0.0, 0.16, 0.30, 0.50, 0.72, 1.0]
+                      : const [0.0, 0.16, 0.42, 0.66, 0.86, 1.0],
+                  colors: isPosterFallback
+                      ? [
+                          KonataTheme.cinemaObsidian.withValues(alpha: 0.36),
+                          Colors.transparent,
+                          Colors.transparent,
+                          baseCanvas.withValues(alpha: 0.56),
+                          baseCanvas.withValues(alpha: 0.94),
+                          baseCanvas,
+                        ]
+                      : [
+                          KonataTheme.cinemaObsidian.withValues(alpha: 0.34),
+                          Colors.transparent,
+                          Colors.transparent,
+                          baseCanvas.withValues(alpha: 0.52),
+                          baseCanvas.withValues(alpha: 0.90),
+                          baseCanvas,
+                        ],
                 ),
               ),
             ),

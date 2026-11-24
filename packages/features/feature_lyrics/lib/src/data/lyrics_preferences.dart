@@ -5,13 +5,14 @@ import '../domain/lyric_offset_resolver.dart';
 
 /// 歌词引擎与全局播放偏好实体（持久化于分层配置切片命名空间 `lyrics`）。
 class LyricsPreferences {
-  /// 默认构造函数（内置开放与开源歌词源默认启用，非官方来源默认关闭）。
+  /// 默认构造函数（内置开放与开源歌词源默认启用，非官方来源默认关闭，双语翻译默认开启）。
   const LyricsPreferences({
     this.neteaseEnabled = true,
     this.amllEnabled = true,
     this.lrclibEnabled = true,
     this.qqEnabled = false,
     this.qqDisclaimerAccepted = false,
+    this.showTranslation = true,
     this.showRomaji = false,
     this.wiredOffsetMillis = 0,
     this.bluetoothOffsetMillis = 0,
@@ -34,6 +35,9 @@ class LyricsPreferences {
 
   /// 用户是否已阅读并同意非官方歌词源免责声明。
   final bool qqDisclaimerAccepted;
+
+  /// 沉浸歌词舞台是否展示双语翻译副行。
+  final bool showTranslation;
 
   /// 沉浸歌词舞台是否展示罗马音注音副行。
   final bool showRomaji;
@@ -59,6 +63,7 @@ class LyricsPreferences {
     bool? lrclibEnabled,
     bool? qqEnabled,
     bool? qqDisclaimerAccepted,
+    bool? showTranslation,
     bool? showRomaji,
     int? wiredOffsetMillis,
     int? bluetoothOffsetMillis,
@@ -69,6 +74,7 @@ class LyricsPreferences {
       lrclibEnabled: lrclibEnabled ?? this.lrclibEnabled,
       qqEnabled: qqEnabled ?? this.qqEnabled,
       qqDisclaimerAccepted: qqDisclaimerAccepted ?? this.qqDisclaimerAccepted,
+      showTranslation: showTranslation ?? this.showTranslation,
       showRomaji: showRomaji ?? this.showRomaji,
       wiredOffsetMillis: wiredOffsetMillis ?? this.wiredOffsetMillis,
       bluetoothOffsetMillis:
@@ -95,6 +101,7 @@ class LyricsPreferences {
         'lrclibEnabled': value.lrclibEnabled,
         'qqEnabled': value.qqEnabled,
         'qqDisclaimerAccepted': value.qqDisclaimerAccepted,
+        'showTranslation': value.showTranslation,
         'showRomaji': value.showRomaji,
         'wiredOffsetMillis': LyricOffsetSnapshot.clampRoute(
           value.wiredOffsetMillis,
@@ -117,6 +124,7 @@ class LyricsPreferences {
       lrclibEnabled: json['lrclibEnabled'] as bool? ?? true,
       qqEnabled: json['qqEnabled'] as bool? ?? false,
       qqDisclaimerAccepted: json['qqDisclaimerAccepted'] as bool? ?? false,
+      showTranslation: json['showTranslation'] as bool? ?? true,
       showRomaji: json['showRomaji'] as bool? ?? false,
       wiredOffsetMillis: LyricOffsetSnapshot.clampRoute(wiredRaw),
       bluetoothOffsetMillis: LyricOffsetSnapshot.clampRoute(bluetoothRaw),
@@ -132,6 +140,7 @@ class LyricsPreferences {
         other.lrclibEnabled == lrclibEnabled &&
         other.qqEnabled == qqEnabled &&
         other.qqDisclaimerAccepted == qqDisclaimerAccepted &&
+        other.showTranslation == showTranslation &&
         other.showRomaji == showRomaji &&
         other.wiredOffsetMillis == wiredOffsetMillis &&
         other.bluetoothOffsetMillis == bluetoothOffsetMillis;
@@ -144,6 +153,7 @@ class LyricsPreferences {
     lrclibEnabled,
     qqEnabled,
     qqDisclaimerAccepted,
+    showTranslation,
     showRomaji,
     wiredOffsetMillis,
     bluetoothOffsetMillis,
@@ -203,6 +213,10 @@ final class LyricsPreferencesStore {
     if (enabled && !current.qqDisclaimerAccepted) return;
     write(current.copyWith(qqEnabled: enabled));
   }
+
+  /// 切换双语翻译显示开关。
+  void setShowTranslation(bool enabled) =>
+      write(read().copyWith(showTranslation: enabled));
 
   /// 切换罗马音注音显示开关。
   void setShowRomaji(bool enabled) =>

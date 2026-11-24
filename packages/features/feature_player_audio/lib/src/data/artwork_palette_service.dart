@@ -5,28 +5,48 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-/// 从专辑封面提炼的三点式沉浸流光颜色（ARGB 32位无符号整数）。
+/// 从专辑封面提炼的四象限丝绒沉浸流光颜色（ARGB 32位无符号整数）。
 class ArtworkAuroraPalette {
-  /// 构造包含主色调、次色调、高光与底色微染的流光色板。
+  /// 构造包含主色调、次色调、高光、底色微染与四象限丝绒色点的流光色板。
   const ArtworkAuroraPalette({
     required this.primaryArgb,
     required this.secondaryArgb,
     required this.accentArgb,
     required this.surfaceTintArgb,
+    this.quadrantTopLeftArgb = fallbackTopLeftArgb,
+    this.quadrantTopRightArgb = fallbackTopRightArgb,
+    this.quadrantBottomLeftArgb = fallbackBottomLeftArgb,
+    this.quadrantBottomRightArgb = fallbackBottomRightArgb,
   });
+
+  /// 默认左上丝绒深蓝紫退化色点。
+  static const int fallbackTopLeftArgb = 0xFF4B4270;
+
+  /// 默认右上丝绒靛青退化色点。
+  static const int fallbackTopRightArgb = 0xFF3D5073;
+
+  /// 默认左下丝绒夜幕紫退化色点。
+  static const int fallbackBottomLeftArgb = 0xFF2E2A48;
+
+  /// 默认右下丝绒莓紫退化色点。
+  static const int fallbackBottomRightArgb = 0xFF5C3E62;
 
   /// 默认冷雾曜石静态流光底色（无封面图或色彩提取未完成时的优雅退化色板）。
   static const ArtworkAuroraPalette fallback = ArtworkAuroraPalette(
-    primaryArgb: 0xFF3E6178,
-    secondaryArgb: 0xFF564B70,
+    primaryArgb: 0xFF564B70,
+    secondaryArgb: 0xFF3E6178,
     accentArgb: 0xFFD9885B,
-    surfaceTintArgb: 0xFF14181E,
+    surfaceTintArgb: 0xFF0E0B12,
+    quadrantTopLeftArgb: fallbackTopLeftArgb,
+    quadrantTopRightArgb: fallbackTopRightArgb,
+    quadrantBottomLeftArgb: fallbackBottomLeftArgb,
+    quadrantBottomRightArgb: fallbackBottomRightArgb,
   );
 
-  /// 左上主色斑高饱和主色。
+  /// 主色调高饱和代表色。
   final int primaryArgb;
 
-  /// 右下辅色斑均衡副色。
+  /// 辅色调均衡代表色。
   final int secondaryArgb;
 
   /// 中心呼吸高光点亮色。
@@ -35,6 +55,18 @@ class ArtworkAuroraPalette {
   /// 深色玻璃基底微染基准色。
   final int surfaceTintArgb;
 
+  /// 左上象限高饱和丝绒色点。
+  final int quadrantTopLeftArgb;
+
+  /// 右上象限高饱和丝绒色点。
+  final int quadrantTopRightArgb;
+
+  /// 左下象限高饱和丝绒色点。
+  final int quadrantBottomLeftArgb;
+
+  /// 右下象限高饱和丝绒色点。
+  final int quadrantBottomRightArgb;
+
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -42,11 +74,23 @@ class ArtworkAuroraPalette {
           other.primaryArgb == primaryArgb &&
           other.secondaryArgb == secondaryArgb &&
           other.accentArgb == accentArgb &&
-          other.surfaceTintArgb == surfaceTintArgb;
+          other.surfaceTintArgb == surfaceTintArgb &&
+          other.quadrantTopLeftArgb == quadrantTopLeftArgb &&
+          other.quadrantTopRightArgb == quadrantTopRightArgb &&
+          other.quadrantBottomLeftArgb == quadrantBottomLeftArgb &&
+          other.quadrantBottomRightArgb == quadrantBottomRightArgb;
 
   @override
-  int get hashCode =>
-      Object.hash(primaryArgb, secondaryArgb, accentArgb, surfaceTintArgb);
+  int get hashCode => Object.hash(
+    primaryArgb,
+    secondaryArgb,
+    accentArgb,
+    surfaceTintArgb,
+    quadrantTopLeftArgb,
+    quadrantTopRightArgb,
+    quadrantBottomLeftArgb,
+    quadrantBottomRightArgb,
+  );
 }
 
 /// 纯 `Isolate` 像素聚类算法：将缩放后的 `RGBA8888` 缓冲区按 12 色相桶统计并生成平衡流光色板。
@@ -69,12 +113,18 @@ ArtworkAuroraPalette clusterAuroraPaletteArgb(
   double totalG = 0;
   double totalB = 0;
   double totalWeight = 0;
+  final quadR = Float64List(4);
+  final quadG = Float64List(4);
+  final quadB = Float64List(4);
+  final quadW = Float64List(4);
+  final halfW = width * 0.5;
+  final halfH = height * 0.5;
   double peakSatR = 0;
   double peakSatG = 0;
   double peakSatB = 0;
   double peakSatScore = -1;
 
-  final totalPixels = rgbaBytes.lengthInBytes ~/ 4;
+  final totalPixels = math.min(width * height, rgbaBytes.lengthInBytes ~/ 4);
   for (var i = 0; i < totalPixels; i++) {
     final offset = i * 4;
     final r = rgbaBytes[offset];
@@ -97,6 +147,14 @@ ArtworkAuroraPalette clusterAuroraPaletteArgb(
     totalG += g * w;
     totalB += b * w;
     totalWeight += w;
+
+    final x = i % width;
+    final y = i ~/ width;
+    final qIdx = (y < halfH ? 0 : 2) + (x < halfW ? 0 : 1);
+    quadR[qIdx] += r * w;
+    quadG[qIdx] += g * w;
+    quadB[qIdx] += b * w;
+    quadW[qIdx] += w;
 
     if (sat > 0.14 && chroma > 22) {
       final score = sat * (0.65 + (1.0 - (luma - 0.52).abs()));
@@ -208,8 +266,38 @@ ArtworkAuroraPalette clusterAuroraPaletteArgb(
     avgG,
     avgB,
     targetMinSat: 0.14,
-    targetMinLuma: 0.08,
-    targetMaxLuma: 0.16,
+    targetMinLuma: 0.05,
+    targetMaxLuma: 0.11,
+  );
+
+  int tuneQuadrant(int qIdx, int fallbackArgb) {
+    final w = quadW[qIdx];
+    if (w <= 0.001) return fallbackArgb;
+    return _tuneAuroraRgb(
+      quadR[qIdx] / w,
+      quadG[qIdx] / w,
+      quadB[qIdx] / w,
+      targetMinSat: 0.44,
+      targetMinLuma: 0.22,
+      targetMaxLuma: 0.42,
+    );
+  }
+
+  final qTopLeft = tuneQuadrant(
+    0,
+    _rotateHueAndDarken(primaryArgb, -12.0, 0.72),
+  );
+  final qTopRight = tuneQuadrant(
+    1,
+    _rotateHueAndDarken(secondaryArgb, 18.0, 0.74),
+  );
+  final qBottomLeft = tuneQuadrant(
+    2,
+    _rotateHueAndDarken(primaryArgb, 28.0, 0.62),
+  );
+  final qBottomRight = tuneQuadrant(
+    3,
+    _rotateHueAndDarken(secondaryArgb, -24.0, 0.68),
   );
 
   return ArtworkAuroraPalette(
@@ -217,6 +305,10 @@ ArtworkAuroraPalette clusterAuroraPaletteArgb(
     secondaryArgb: secondaryArgb,
     accentArgb: accentArgb,
     surfaceTintArgb: surfaceTintArgb,
+    quadrantTopLeftArgb: qTopLeft,
+    quadrantTopRightArgb: qTopRight,
+    quadrantBottomLeftArgb: qBottomLeft,
+    quadrantBottomRightArgb: qBottomRight,
   );
 }
 
@@ -254,7 +346,7 @@ int _tuneAuroraRgb(
   if (delta > 0.0001) {
     s = delta / (1.0 - (2.0 * l - 1.0).abs());
   }
-  var h = 0.0;
+  var h = 248.0;
   if (delta > 0.0001) {
     if (maxC == nr) {
       h = ((ng - nb) / delta) % 6.0;
@@ -267,7 +359,7 @@ int _tuneAuroraRgb(
     if (h < 0) h += 360.0;
   }
 
-  s = s.clamp(targetMinSat, 0.78);
+  s = delta <= 0.015 ? 0.16 : s.clamp(targetMinSat, 0.84);
   l = l.clamp(targetMinLuma, targetMaxLuma);
   return _hslToArgb(h, s, l);
 }

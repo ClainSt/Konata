@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:engine_scraping/engine_scraping.dart';
 import 'package:flutter/gestures.dart';
@@ -9,21 +8,21 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:konata_contracts/konata_contracts.dart';
 import 'package:konata_design_system/konata_design_system.dart';
 
+import '../data/artwork_dominant_color.dart';
 import '../data/detail_display_preferences.dart';
 import '../data/detail_edit_models.dart';
 import '../providers.dart';
 import '../state/detail_supplementary_view_data.dart';
 import '../state/work_detail_controller.dart';
-import 'detail_bottom_drawer.dart';
 import 'detail_full_list_dialog.dart';
 import 'detail_gear_menu.dart';
-import 'detail_hero_info.dart';
 import 'episode_media_info_dialog.dart';
 import 'manual_match_dialog.dart';
 import 'series_manage_dialog.dart';
 import 'source_files_review_dialog.dart';
 import 'variant_picker_dialog.dart';
 import 'work_artwork_picker_dialog.dart';
+import 'work_detail_stage_layouts.dart';
 import 'work_detail_sub_views.dart';
 import 'work_manual_edit_dialog.dart';
 import 'work_merge_target_dialog.dart';
@@ -60,9 +59,43 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
   final ScrollController _portraitScrollCtrl = ScrollController();
   final ScrollController _wideHeroScrollCtrl = ScrollController();
   bool _rematching = false;
+  bool _drawerExpanded = true;
+  bool _lockedPortraitOrientation = false;
+  String? _sampledDissolveKey;
+  Color? _sampledDissolveColor;
+
+  @override
+  void initState() {
+    super.initState();
+    final platform =
+        widget.controllerOverride?.platform ??
+        ref.read(workDetailControllerProvider(widget.workId)).platform;
+    if (platform == KonataPlatform.androidPhone) {
+      _lockedPortraitOrientation = true;
+      unawaited(
+        SystemChrome.setPreferredOrientations(const <DeviceOrientation>[
+          DeviceOrientation.portraitUp,
+        ]),
+      );
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant WorkDetailPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.workId != widget.workId ||
+        oldWidget.initialTabId != widget.initialTabId) {
+      _drawerExpanded = true;
+      _sampledDissolveKey = null;
+      _sampledDissolveColor = null;
+    }
+  }
 
   @override
   void dispose() {
+    if (_lockedPortraitOrientation) {
+      unawaited(SystemChrome.setPreferredOrientations(DeviceOrientation.values));
+    }
     _portraitScrollCtrl.dispose();
     _wideHeroScrollCtrl.dispose();
     super.dispose();
@@ -256,6 +289,17 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
             kind: WorkArtworkKind.backdrop,
           ),
         );
+      case DetailBuiltInGearAction.editPortraitBackdrop:
+        await showKonataGlassDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => WorkArtworkPickerDialog(
+            controller: controller,
+            work: bundle.work,
+            imageLoader: imageLoader,
+            kind: WorkArtworkKind.portraitBackdrop,
+          ),
+        );
       case DetailBuiltInGearAction.editLogo:
         await showKonataGlassDialog<bool>(
           context: context,
@@ -340,66 +384,12 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
     WorkDetailController controller,
     Work work,
   ) async {
-    var addToIgnore = false;
-    final confirmed = await showKonataGlassDialog<bool>(
-      context: context,
-      builder: (dialogCtx) => StatefulBuilder(
-        builder: (ctx, setDialogState) {
-          final p = ctx.palette;
-          return KonataGlassDialog(
-            width: 440,
-            title: '移出媒体库 · ${work.title}',
-            onClose: () => Navigator.of(ctx).pop(false),
-            actions: [
-              KonataPillButton.ghost(
-                label: '取消',
-                compact: true,
-                onPressed: () => Navigator.of(ctx).pop(false),
-              ),
-              KonataPillButton.danger(
-                label: '确认移出',
-                compact: true,
-                onPressed: () => Navigator.of(ctx).pop(true),
-              ),
-            ],
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '此操作仅移除媒体库索引记录与本地海报缓存，绝不会删除网盘或磁盘上的任何原始视频文件。',
-                  style: KonataTheme.bodyLabelStyle(
-                    p,
-                    color: p.textSecondary,
-                    height: 1.5,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    KonataSwitch(
-                      value: addToIgnore,
-                      onChanged: (v) => setDialogState(() => addToIgnore = v),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        '同时将该目录加入忽略扫描名单',
-                        style: KonataTheme.captionStyle(
-                          p,
-                        ).copyWith(color: p.textPrimary),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          );
-        },
-      ),
+    final result = await showConfirmDeleteWorkDialog(
+      context,
+      workTitle: work.title,
     );
-    if (confirmed == true && mounted) {
-      await controller.deleteWorkFromLibrary(addToIgnoreList: addToIgnore);
+    if (result != null && result.confirmed && mounted) {
+      await controller.deleteWorkFromLibrary(addToIgnoreList: result.addToIgnore);
       if (mounted) {
         await _handleBack(controller);
       }
@@ -438,286 +428,87 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final controller = _resolveController();
-    final imageLoader = _resolveImageLoader();
-    final bottomClearance = KonataBottomClearanceScope.of(context);
-    final safePad = MediaQuery.paddingOf(context);
-
-    return Listener(
-      onPointerDown: (event) {
-        if ((event.buttons & kBackMouseButton) != 0) {
-          unawaited(_handleBack(controller));
-        }
-      },
-      child: CallbackShortcuts(
-        bindings: <ShortcutActivator, VoidCallback>{
-          const SingleActivator(LogicalKeyboardKey.escape): () =>
-              unawaited(_handleBack(controller)),
-        },
-        child: Focus(
-          autofocus: true,
-          child: ColoredBox(
-            color: KonataTheme.cinemaObsidian,
-            child: ListenableBuilder(
-              listenable: controller,
-              builder: (ctx, _) {
-                final bundle = controller.bundle;
-                if (controller.isLoading && bundle == null) {
-                  return Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      const Center(child: CircularProgressIndicator()),
-                      Positioned(
-                        top: safePad.top + 12,
-                        left: 16,
-                        right: 16,
-                        child: WorkDetailTopBar(
-                          onBack: () => unawaited(_handleBack(controller)),
-                        ),
-                      ),
-                    ],
-                  );
-                }
-                if (controller.loadError != null && bundle == null) {
-                  return MissingWorkFallbackView(
-                    title: '加载作品详情失败',
-                    subtitle: '${controller.loadError}',
-                    isError: true,
-                    onReturnToLibrary: () => unawaited(_handleBack(controller)),
-                  );
-                }
-                if (bundle == null) {
-                  return MissingWorkFallbackView(
-                    onReturnToLibrary: () => unawaited(_handleBack(controller)),
-                  );
-                }
-
-                return LayoutBuilder(
-                  builder: (_, constraints) {
-                    final size = Size(
-                      constraints.maxWidth.isFinite
-                          ? constraints.maxWidth
-                          : MediaQuery.sizeOf(ctx).width,
-                      constraints.maxHeight.isFinite
-                          ? constraints.maxHeight
-                          : MediaQuery.sizeOf(ctx).height,
-                    );
-                    final isNarrowPortrait = size.width < 760;
-                    final isShortLandscape =
-                        size.height < 540 && size.width >= 480;
-
-                    if (isNarrowPortrait || isShortLandscape) {
-                      return _buildScrollableStage(
-                        controller: controller,
-                        bundle: bundle,
-                        imageLoader: imageLoader,
-                        viewport: size,
-                        safePad: safePad,
-                        bottomClearance: bottomClearance,
-                      );
-                    }
-                    return _buildWideOverlayStage(
-                      controller: controller,
-                      bundle: bundle,
-                      imageLoader: imageLoader,
-                      safePad: safePad,
-                      bottomClearance: bottomClearance,
-                    );
-                  },
-                );
-              },
-            ),
-          ),
-        ),
-      ),
-    );
+  List<DetailActionContribution> _mergedExternalActions(
+    WorkDetailBundle bundle,
+  ) {
+    final merged = <DetailActionContribution>[];
+    final seenIds = <String>{};
+    for (final action in bundle.primaryBarActions) {
+      if (seenIds.add(action.id)) {
+        merged.add(action);
+      }
+    }
+    for (final action in bundle.gearMenuActions) {
+      if (seenIds.add(action.id)) {
+        merged.add(action);
+      }
+    }
+    return merged;
   }
 
-  Widget _buildWideOverlayStage({
-    required WorkDetailController controller,
-    required WorkDetailBundle bundle,
+  Color? _resolvePortraitDissolveColor({
+    required Work work,
     required ManagedImageLoader imageLoader,
-    required EdgeInsets safePad,
-    required double bottomClearance,
+    required bool isDark,
+    required Color themeBg,
   }) {
-    final work = bundle.work;
-    final prefs = controller.displayPreferences;
-    final effectiveBackdrop = bundle.effectiveHeroBackdrop;
-    final hasBackdrop = effectiveBackdrop != null;
-    final fallbackPoster = (work.posterPath?.trim().isNotEmpty ?? false)
+    final portraitPath = (work.portraitBackdropPath ?? '').trim();
+    final posterPath = (work.posterPath?.trim().isNotEmpty ?? false)
         ? work.posterPath!.trim()
         : (work.bangumiPosterPath?.trim() ?? '');
-    final bgPath = hasBackdrop ? effectiveBackdrop.path : fallbackPoster;
+    final sourcePath = portraitPath.isNotEmpty ? portraitPath : posterPath;
+    if (sourcePath.isEmpty) {
+      return null;
+    }
 
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        Positioned.fill(
-          key: const ValueKey<String>('detail_wide_backdrop_stage'),
-          child: DetailWideBackdropStage(
-            workId: work.id,
-            backdropOwnerWorkId: hasBackdrop
-                ? effectiveBackdrop.ownerWorkId
-                : work.id,
-            bgPath: bgPath,
-            hasBackdrop: hasBackdrop,
-            fallbackPosterPath: fallbackPoster,
-            showHeroBackdrop: prefs.showMainHeroBackdrop,
-            imageLoader: imageLoader,
-          ),
-        ),
-        Positioned.fill(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              SizedBox(height: safePad.top + 58),
-              Expanded(
-                child: Align(
-                  alignment: Alignment.bottomLeft,
-                  child: SingleChildScrollView(
-                    controller: _wideHeroScrollCtrl,
-                    padding: const EdgeInsets.fromLTRB(36, 8, 36, 14),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _buildHeroInfo(controller, bundle, imageLoader, compact: false),
-                        if (work.scrapeStatus != ScrapeStatus.matched) ...[
-                          const SizedBox(height: 12),
-                          _buildReviewBanner(controller, bundle, imageLoader),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              Padding(
-                padding: EdgeInsets.only(bottom: math.max(12.0, bottomClearance)),
-                child: _buildBottomDrawer(
-                  controller,
-                  bundle,
-                  imageLoader,
-                  compact: false,
-                  inlineMode: false,
-                ),
-              ),
-            ],
-          ),
-        ),
-        Positioned(
-          top: safePad.top + 12,
-          left: math.max(16.0, safePad.left + 12),
-          right: math.max(16.0, safePad.right + 12),
-          child: WorkDetailTopBar(
-            onBack: () => unawaited(_handleBack(controller)),
-          ),
-        ),
-      ],
+    final cacheKey = '${work.id}|$sourcePath';
+    final cached = ArtworkDominantColor.getCached(
+      cacheKey: cacheKey,
+      isDark: isDark,
     );
+    if (cached != null) {
+      return cached;
+    }
+
+    final requestKey = '$cacheKey|${isDark ? 'd' : 'l'}';
+    if (_sampledDissolveKey != requestKey) {
+      _sampledDissolveKey = requestKey;
+      final Future<Uint8List> fetchFuture = imageLoader is ManagedArtworkLoader
+          ? imageLoader(
+              sourcePath,
+              targetWidth: 300,
+              ownerWorkId: work.id,
+              artwork: ManagedArtwork.poster,
+            )
+          : imageLoader(sourcePath, targetWidth: 300);
+      unawaited(
+        fetchFuture
+            .then(
+              (bytes) => ArtworkDominantColor.sampleBottomDissolveColor(
+                bytes: bytes,
+                cacheKey: cacheKey,
+                isDark: isDark,
+                themeBackground: themeBg,
+              ),
+            )
+            .then((color) {
+              if (!mounted || _sampledDissolveKey != requestKey || color == null) {
+                return;
+              }
+              setState(() => _sampledDissolveColor = color);
+            })
+            .catchError((Object _) {}),
+      );
+    }
+    return _sampledDissolveColor;
   }
 
-  Widget _buildScrollableStage({
-    required WorkDetailController controller,
-    required WorkDetailBundle bundle,
-    required ManagedImageLoader imageLoader,
-    required Size viewport,
-    required EdgeInsets safePad,
-    required double bottomClearance,
-  }) {
-    final work = bundle.work;
-    final prefs = controller.displayPreferences;
-    final effectiveBackdrop = bundle.effectiveHeroBackdrop;
-    final padH = math.max(16.0, safePad.left + 12);
-
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        SingleChildScrollView(
-          key: const ValueKey<String>('detail_scrollable_stage'),
-          controller: _portraitScrollCtrl,
-          padding: EdgeInsets.only(bottom: 24 + bottomClearance),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              DetailPortraitHeroHeader(
-                work: work,
-                imageLoader: imageLoader,
-                viewportWidth: viewport.width,
-                viewportHeight: viewport.height,
-                backdropPathOverride: effectiveBackdrop?.path,
-                backdropOwnerWorkId: effectiveBackdrop?.ownerWorkId,
-                showHeroBackdrop: prefs.showMainHeroBackdrop,
-              ),
-              Padding(
-                padding: EdgeInsets.fromLTRB(padH, 4, padH, 0),
-                child: _buildHeroInfo(
-                  controller,
-                  bundle,
-                  imageLoader,
-                  compact: true,
-                ),
-              ),
-              if (work.scrapeStatus != ScrapeStatus.matched) ...[
-                const SizedBox(height: 12),
-                Padding(
-                  padding: EdgeInsets.symmetric(horizontal: padH),
-                  child: _buildReviewBanner(controller, bundle, imageLoader),
-                ),
-              ],
-              const SizedBox(height: 16),
-              _buildBottomDrawer(
-                controller,
-                bundle,
-                imageLoader,
-                compact: true,
-                inlineMode: true,
-              ),
-            ],
-          ),
-        ),
-        Positioned(
-          top: safePad.top + 10,
-          left: padH,
-          right: padH,
-          child: WorkDetailTopBar(
-            onBack: () => unawaited(_handleBack(controller)),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildHeroInfo(
-    WorkDetailController controller,
-    WorkDetailBundle bundle,
-    ManagedImageLoader imageLoader, {
-    required bool compact,
-  }) {
-    return DetailHeroInfo(
-      bundle: bundle,
-      imageLoader: imageLoader,
-      rescrapeState: controller.rescrapeState,
-      displayPreferences: controller.displayPreferences,
-      compact: compact,
-      onPlayPrimary: () => unawaited(_handlePlayPrimary(controller, bundle)),
-      onSelectSeriesWork: (targetId) =>
-          unawaited(controller.switchSeriesMember(WorkId.trusted(targetId))),
-      onDismissRescrape: controller.dismissRescrapeStatus,
-      onBuiltInAction: (action) => unawaited(
-        _handleBuiltInAction(controller, bundle, imageLoader, action),
-      ),
-      onInvokeExternalAction: (action) =>
-          unawaited(_handleInvokeExternalAction(bundle, action)),
-    );
-  }
-
-  Widget _buildReviewBanner(
+  Widget? _maybeBuildReviewBanner(
     WorkDetailController controller,
     WorkDetailBundle bundle,
     ManagedImageLoader imageLoader,
   ) {
+    if (bundle.work.scrapeStatus == ScrapeStatus.matched) return null;
     return WorkReviewBanner(
       work: bundle.work,
       candidates: bundle.scrapeCandidates,
@@ -750,27 +541,238 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
     );
   }
 
-  Widget _buildBottomDrawer(
-    WorkDetailController controller,
-    WorkDetailBundle bundle,
-    ManagedImageLoader imageLoader, {
-    required bool compact,
-    required bool inlineMode,
-  }) {
-    final prefs = controller.displayPreferences;
-    return DetailBottomDrawer(
-      bundle: bundle,
-      imageLoader: imageLoader,
-      displayPreferences: prefs,
-      initialTabId: widget.initialTabId,
-      compact: compact,
-      inlineMode: inlineMode,
-      onTapEpisode: (ep) => unawaited(_handleTapEpisode(controller, bundle, ep)),
-      onTapCdVariant: (variant) =>
-          unawaited(_handleTapCdVariant(controller, variant)),
-      onInspectEpisodeInfo: (ep) => unawaited(_handleInspectEpisodeInfo(bundle, ep)),
-      onOpenFullList: (tabId) => unawaited(
-        _handleOpenFullList(controller, bundle, imageLoader, prefs, tabId),
+  @override
+  Widget build(BuildContext context) {
+    final controller = _resolveController();
+    final imageLoader = _resolveImageLoader();
+    final p = context.palette;
+    final bottomClearance = KonataBottomClearanceScope.of(context);
+    final safePad = MediaQuery.paddingOf(context);
+    final platform = controller.platform;
+
+    return Listener(
+      onPointerDown: (event) {
+        if ((event.buttons & kBackMouseButton) != 0) {
+          unawaited(_handleBack(controller));
+        }
+      },
+      child: CallbackShortcuts(
+        bindings: <ShortcutActivator, VoidCallback>{
+          const SingleActivator(LogicalKeyboardKey.escape): () {
+            if (platform != KonataPlatform.androidPhone && _drawerExpanded) {
+              setState(() => _drawerExpanded = false);
+              return;
+            }
+            unawaited(_handleBack(controller));
+          },
+        },
+        child: Focus(
+          autofocus: true,
+          child: ListenableBuilder(
+            listenable: controller,
+            builder: (ctx, _) {
+              final bundle = controller.bundle;
+              if (controller.isLoading && bundle == null) {
+                return ColoredBox(
+                  color: platform == KonataPlatform.androidPhone
+                      ? p.canvas
+                      : KonataTheme.cinemaObsidian,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      const Center(child: CircularProgressIndicator()),
+                      Positioned(
+                        top: safePad.top + 12,
+                        left: 16,
+                        right: 16,
+                        child: WorkDetailTopBar(
+                          showDesktopChrome:
+                              platform != KonataPlatform.androidPhone,
+                          onBack: () => unawaited(_handleBack(controller)),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }
+              if (controller.loadError != null && bundle == null) {
+                return ColoredBox(
+                  color: p.canvas,
+                  child: MissingWorkFallbackView(
+                    title: '加载作品详情失败',
+                    subtitle: '${controller.loadError}',
+                    isError: true,
+                    onReturnToLibrary: () =>
+                        unawaited(_handleBack(controller)),
+                  ),
+                );
+              }
+              if (bundle == null) {
+                return ColoredBox(
+                  color: p.canvas,
+                  child: MissingWorkFallbackView(
+                    onReturnToLibrary: () =>
+                        unawaited(_handleBack(controller)),
+                  ),
+                );
+              }
+
+              final mergedExternal = _mergedExternalActions(bundle);
+              final reviewBanner = _maybeBuildReviewBanner(
+                controller,
+                bundle,
+                imageLoader,
+              );
+              final prefs = controller.displayPreferences;
+
+              return LayoutBuilder(
+                builder: (_, constraints) {
+                  final size = Size(
+                    constraints.maxWidth.isFinite
+                        ? constraints.maxWidth
+                        : MediaQuery.sizeOf(ctx).width,
+                    constraints.maxHeight.isFinite
+                        ? constraints.maxHeight
+                        : MediaQuery.sizeOf(ctx).height,
+                  );
+                  final isPhone = platform == KonataPlatform.androidPhone;
+                  final isTabletPortrait =
+                      platform == KonataPlatform.androidTablet &&
+                      size.height > size.width;
+                  final isNarrowWindowFallback =
+                      !isPhone && size.width < 760;
+                  final isShortLandscapeFallback =
+                      !isPhone && size.height < 540 && size.width >= 480;
+
+                  if (isPhone ||
+                      isTabletPortrait ||
+                      isNarrowWindowFallback ||
+                      isShortLandscapeFallback) {
+                    final dissolveColor =
+                        _resolvePortraitDissolveColor(
+                          work: bundle.work,
+                          imageLoader: imageLoader,
+                          isDark: p.isDark,
+                          themeBg: p.canvas,
+                        ) ??
+                        p.canvas;
+                    return ColoredBox(
+                      color: dissolveColor,
+                      child: DetailPortraitStageLayout(
+                        bundle: bundle,
+                        displayPreferences: prefs,
+                        rescrapeState: controller.rescrapeState,
+                        imageLoader: imageLoader,
+                        scrollController: _portraitScrollCtrl,
+                        viewport: size,
+                        safePad: safePad,
+                        bottomClearance: bottomClearance,
+                        dissolveColor: dissolveColor,
+                        isPhone: isPhone,
+                        showDesktopChrome: platform == KonataPlatform.windows,
+                        drawerExpanded: _drawerExpanded,
+                        mergedExternalActions: mergedExternal,
+                        initialTabId: widget.initialTabId,
+                        reviewBanner: reviewBanner,
+                        onBack: () => unawaited(_handleBack(controller)),
+                        onDrawerExpandedChanged: (next) =>
+                            setState(() => _drawerExpanded = next),
+                        onPlayPrimary: () =>
+                            unawaited(_handlePlayPrimary(controller, bundle)),
+                        onSelectSeriesWork: (targetId) => unawaited(
+                          controller.switchSeriesMember(
+                            WorkId.trusted(targetId),
+                          ),
+                        ),
+                        onDismissRescrape: controller.dismissRescrapeStatus,
+                        onBuiltInAction: (action) => unawaited(
+                          _handleBuiltInAction(
+                            controller,
+                            bundle,
+                            imageLoader,
+                            action,
+                          ),
+                        ),
+                        onInvokeExternalAction: (action) => unawaited(
+                          _handleInvokeExternalAction(bundle, action),
+                        ),
+                        onTapEpisode: (ep) =>
+                            unawaited(_handleTapEpisode(controller, bundle, ep)),
+                        onTapCdVariant: (variant) =>
+                            unawaited(_handleTapCdVariant(controller, variant)),
+                        onInspectEpisodeInfo: (ep) =>
+                            unawaited(_handleInspectEpisodeInfo(bundle, ep)),
+                        onOpenFullList: (tabId) => unawaited(
+                          _handleOpenFullList(
+                            controller,
+                            bundle,
+                            imageLoader,
+                            prefs,
+                            tabId,
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+
+                  return ColoredBox(
+                    color: KonataTheme.cinemaObsidian,
+                    child: DetailWideOverlayStageLayout(
+                      bundle: bundle,
+                      displayPreferences: prefs,
+                      rescrapeState: controller.rescrapeState,
+                      imageLoader: imageLoader,
+                      heroScrollController: _wideHeroScrollCtrl,
+                      safePad: safePad,
+                      bottomClearance: bottomClearance,
+                      drawerExpanded: _drawerExpanded,
+                      mergedExternalActions: mergedExternal,
+                      initialTabId: widget.initialTabId,
+                      reviewBanner: reviewBanner,
+                      onBack: () => unawaited(_handleBack(controller)),
+                      onCollapseDrawer: () =>
+                          setState(() => _drawerExpanded = false),
+                      onDrawerExpandedChanged: (next) =>
+                          setState(() => _drawerExpanded = next),
+                      onPlayPrimary: () =>
+                          unawaited(_handlePlayPrimary(controller, bundle)),
+                      onSelectSeriesWork: (targetId) => unawaited(
+                        controller.switchSeriesMember(WorkId.trusted(targetId)),
+                      ),
+                      onDismissRescrape: controller.dismissRescrapeStatus,
+                      onBuiltInAction: (action) => unawaited(
+                        _handleBuiltInAction(
+                          controller,
+                          bundle,
+                          imageLoader,
+                          action,
+                        ),
+                      ),
+                      onInvokeExternalAction: (action) => unawaited(
+                        _handleInvokeExternalAction(bundle, action),
+                      ),
+                      onTapEpisode: (ep) =>
+                          unawaited(_handleTapEpisode(controller, bundle, ep)),
+                      onTapCdVariant: (variant) =>
+                          unawaited(_handleTapCdVariant(controller, variant)),
+                      onInspectEpisodeInfo: (ep) =>
+                          unawaited(_handleInspectEpisodeInfo(bundle, ep)),
+                      onOpenFullList: (tabId) => unawaited(
+                        _handleOpenFullList(
+                          controller,
+                          bundle,
+                          imageLoader,
+                          prefs,
+                          tabId,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
       ),
     );
   }

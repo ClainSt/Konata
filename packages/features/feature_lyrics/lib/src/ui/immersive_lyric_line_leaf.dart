@@ -20,6 +20,7 @@ class ImmersiveLyricLineLeaf extends StatelessWidget {
     required this.positionListenable,
     required this.isPlayingListenable,
     required this.showRomaji,
+    this.showTranslation = true,
     required this.compact,
     required this.userScrolling,
     this.lyricOffsetSeconds = 0.0,
@@ -49,6 +50,9 @@ class ImmersiveLyricLineLeaf extends StatelessWidget {
 
   /// 是否展示罗马音注音行。
   final bool showRomaji;
+
+  /// 是否展示双语译文行。
+  final bool showTranslation;
 
   /// 是否启用紧凑字号与内边距。
   final bool compact;
@@ -93,7 +97,7 @@ class ImmersiveLyricLineLeaf extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final p = context.palette;
+    const pureWhite = KonataTheme.pureWhite;
     final isActive = activeLyricIndex == index;
     final isIntroStandby = activeLyricIndex < 0 && index == 0;
     final bucket = _distanceBucket(
@@ -107,17 +111,17 @@ class ImmersiveLyricLineLeaf extends StatelessWidget {
         ? 0.0
         : switch (bucket) {
             0 => 0.0,
-            1 => KonataPlaybackTokens.lyricBlurStep1,
-            2 => KonataPlaybackTokens.lyricBlurStep2,
-            _ => KonataPlaybackTokens.lyricBlurStepFar,
+            1 => 0.70,
+            2 => 1.25,
+            _ => 1.90,
           };
     final lineOpacity = userScrolling
-        ? ((isFocused || isScrubFocused) ? 1.0 : 0.78)
+        ? ((isFocused || isScrubFocused) ? 1.0 : 0.74)
         : switch (bucket) {
             0 => 1.0,
-            1 => 0.56,
-            2 => 0.36,
-            _ => 0.24,
+            1 => 0.44,
+            2 => 0.25,
+            _ => 0.14,
           };
 
     final activeSize = compact
@@ -154,14 +158,18 @@ class ImmersiveLyricLineLeaf extends StatelessWidget {
         : line.primaryText;
     final normalizedLead = _normalizeCompare(effectiveLeadText);
     final filteredSecondary = <String>[];
-    final seenSecondary = <String>{if (normalizedLead.isNotEmpty) normalizedLead};
-    for (final rawSec in line.secondaryLines) {
-      final trimmed = rawSec.trim();
-      if (trimmed.isEmpty) continue;
-      if (harmonySpans.isNotEmpty && trimmed.startsWith('bg:')) continue;
-      final norm = _normalizeCompare(trimmed);
-      if (seenSecondary.add(norm)) {
-        filteredSecondary.add(trimmed);
+    if (showTranslation) {
+      final seenSecondary = <String>{
+        if (normalizedLead.isNotEmpty) normalizedLead,
+      };
+      for (final rawSec in line.secondaryLines) {
+        final trimmed = rawSec.trim();
+        if (trimmed.isEmpty) continue;
+        if (harmonySpans.isNotEmpty && trimmed.startsWith('bg:')) continue;
+        final norm = _normalizeCompare(trimmed);
+        if (seenSecondary.add(norm)) {
+          filteredSecondary.add(trimmed);
+        }
       }
     }
 
@@ -181,21 +189,15 @@ class ImmersiveLyricLineLeaf extends StatelessWidget {
         leadSpans: leadSpans,
         harmonySpans: harmonySpans,
         activeFontSize: activeSize,
-        palette: p,
+        palette: KonataPalette.dark,
         positionListenable: positionListenable,
         isPlayingListenable: isPlayingListenable,
         lyricOffsetSeconds: lyricOffsetSeconds,
         centerAligned: centerAligned,
       );
     } else if (isIntroStandby) {
-      // 前奏期第 0 句以大字号未扫白样式清晰就绪，进入演唱时间戳后再原位启动扫白。
-      final unlitAlpha = p.isDark
-          ? KonataPlaybackTokens.lyricKaraokeUnlitAlphaDark
-          : KonataPlaybackTokens.lyricKaraokeUnlitAlphaLight;
-      final standbyLeadColor =
-          (p.isDark ? KonataTheme.pureWhite : p.textPrimary).withValues(
-            alpha: unlitAlpha,
-          );
+      // 前奏期第 0 句以大字号纯白未扫白样式清晰就绪，进入演唱时间戳后再原位启动扫白。
+      final standbyLeadColor = pureWhite.withValues(alpha: 0.44);
       final standbyHarmonyText = harmonySpans.map((s) => s.text).join();
       primaryBody = Column(
         key: const ValueKey('intro_standby_first_lyric'),
@@ -208,7 +210,9 @@ class ImmersiveLyricLineLeaf extends StatelessWidget {
               textAlign: textAlign,
               softWrap: true,
               style: TextStyle(
-                color: isScrubFocused ? p.textPrimary : standbyLeadColor,
+                color: isScrubFocused
+                    ? pureWhite.withValues(alpha: 0.96)
+                    : standbyLeadColor,
                 fontSize: activeSize,
                 fontWeight: FontWeight.w700,
                 height: 1.36,
@@ -221,7 +225,7 @@ class ImmersiveLyricLineLeaf extends StatelessWidget {
               textAlign: textAlign,
               softWrap: true,
               style: TextStyle(
-                color: p.textMuted.withValues(alpha: p.isDark ? 0.45 : 0.42),
+                color: pureWhite.withValues(alpha: 0.42),
                 fontSize: KonataPlaybackTokens.lyricSecondaryFontSize,
                 fontWeight: FontWeight.w500,
                 height: 1.28,
@@ -242,9 +246,11 @@ class ImmersiveLyricLineLeaf extends StatelessWidget {
               textAlign: textAlign,
               softWrap: true,
               style: TextStyle(
-                color: isScrubFocused ? p.textPrimary : p.textSecondary,
+                color: pureWhite.withValues(
+                  alpha: isScrubFocused ? 0.96 : 0.94,
+                ),
                 fontSize: inactiveSize,
-                fontWeight: isScrubFocused ? FontWeight.w600 : FontWeight.w400,
+                fontWeight: isScrubFocused ? FontWeight.w600 : FontWeight.w500,
                 height: 1.38,
               ),
             ),
@@ -255,7 +261,9 @@ class ImmersiveLyricLineLeaf extends StatelessWidget {
               textAlign: textAlign,
               softWrap: true,
               style: TextStyle(
-                color: isScrubFocused ? p.textSecondary : p.textMuted,
+                color: pureWhite.withValues(
+                  alpha: isScrubFocused ? 0.72 : 0.68,
+                ),
                 fontSize: KonataPlaybackTokens.lyricSecondaryFontSize,
                 height: 1.28,
               ),
@@ -269,9 +277,9 @@ class ImmersiveLyricLineLeaf extends StatelessWidget {
         textAlign: textAlign,
         softWrap: true,
         style: TextStyle(
-          color: isScrubFocused ? p.textPrimary : p.textSecondary,
+          color: pureWhite.withValues(alpha: isScrubFocused ? 0.96 : 0.94),
           fontSize: inactiveSize,
-          fontWeight: isScrubFocused ? FontWeight.w600 : FontWeight.w400,
+          fontWeight: isScrubFocused ? FontWeight.w600 : FontWeight.w500,
           height: 1.38,
         ),
       );
@@ -307,9 +315,9 @@ class ImmersiveLyricLineLeaf extends StatelessWidget {
                 textAlign: textAlign,
                 softWrap: true,
                 style: TextStyle(
-                  color: (isFocused || isScrubFocused)
-                      ? p.textMuted.withValues(alpha: p.isDark ? 0.85 : 0.80)
-                      : p.textMuted.withValues(alpha: p.isDark ? 0.65 : 0.62),
+                  color: pureWhite.withValues(
+                    alpha: (isFocused || isScrubFocused) ? 0.64 : 0.56,
+                  ),
                   fontSize: KonataTheme.fontSizeCaption,
                   fontWeight: FontWeight.w400,
                   height: 1.28,
@@ -323,9 +331,9 @@ class ImmersiveLyricLineLeaf extends StatelessWidget {
                 textAlign: textAlign,
                 softWrap: true,
                 style: TextStyle(
-                  color: (isFocused || isScrubFocused)
-                      ? p.textSecondary
-                      : p.textMuted,
+                  color: pureWhite.withValues(
+                    alpha: (isFocused || isScrubFocused) ? 0.78 : 0.70,
+                  ),
                   fontSize: secondaryFontSize,
                   fontWeight: (isFocused || isScrubFocused)
                       ? FontWeight.w500
@@ -632,12 +640,9 @@ class _ActiveKaraokeSweepLeafState extends State<_ActiveKaraokeSweepLeaf>
 
   @override
   Widget build(BuildContext context) {
-    final p = widget.palette;
-    final unlitAlpha = p.isDark
-        ? KonataPlaybackTokens.lyricKaraokeUnlitAlphaDark
-        : KonataPlaybackTokens.lyricKaraokeUnlitAlphaLight;
-    final litLeadColor = p.isDark ? KonataTheme.pureWhite : p.textPrimary;
-    final baseLeadColor = litLeadColor.withValues(alpha: unlitAlpha);
+    const pureWhite = KonataTheme.pureWhite;
+    final litLeadColor = pureWhite.withValues(alpha: 0.96);
+    final baseLeadColor = pureWhite.withValues(alpha: 0.44);
     final leadBaseStyle = TextStyle(
       color: baseLeadColor,
       fontSize: widget.activeFontSize,
@@ -646,21 +651,25 @@ class _ActiveKaraokeSweepLeafState extends State<_ActiveKaraokeSweepLeaf>
     );
     final leadLitStyle = leadBaseStyle.copyWith(
       color: litLeadColor,
-      shadows: KonataPlaybackTokens.lyricGlowShadow(
-        p,
-        blurRadius: KonataPlaybackTokens.lyricSweepGlowBlurRadius,
-      ),
+      shadows: [
+        Shadow(
+          color: pureWhite.withValues(alpha: 0.34),
+          blurRadius: KonataPlaybackTokens.lyricSweepGlowBlurRadius,
+        ),
+      ],
     );
 
     final hasLeadSpans = widget.leadSpans.isNotEmpty;
     final harmonyText = widget.harmonySpans.map((s) => s.text).join();
     final harmonyBaseStyle = TextStyle(
-      color: p.textMuted.withValues(alpha: p.isDark ? 0.45 : 0.42),
+      color: pureWhite.withValues(alpha: 0.42),
       fontSize: KonataPlaybackTokens.lyricSecondaryFontSize,
       fontWeight: FontWeight.w500,
       height: 1.28,
     );
-    final harmonyLitStyle = harmonyBaseStyle.copyWith(color: p.textSecondary);
+    final harmonyLitStyle = harmonyBaseStyle.copyWith(
+      color: pureWhite.withValues(alpha: 0.78),
+    );
 
     return Column(
       crossAxisAlignment: widget.centerAligned

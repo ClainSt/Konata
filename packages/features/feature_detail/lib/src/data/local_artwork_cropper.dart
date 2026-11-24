@@ -92,9 +92,12 @@ abstract final class LocalArtworkCropper {
     required String workId,
     required String? workTitle,
     required bool isPoster,
+    PhotoSubfolder? subfolder,
     required LoadedLocalArtwork source,
     required ArtworkNormalizedCropRect cropRect,
   }) async {
+    final resolvedSubfolder =
+        subfolder ?? (isPoster ? PhotoSubfolder.posters : PhotoSubfolder.backdrops);
     final srcPx = ArtworkCropMath.toSourcePixelRect(
       cropRect,
       imageWidth: source.width,
@@ -137,9 +140,7 @@ abstract final class LocalArtworkCropper {
       );
       return await photosStorage.saveCustomArtwork(
         workId: workId,
-        subfolder: isPoster
-            ? PhotoSubfolder.posters
-            : PhotoSubfolder.backdrops,
+        subfolder: resolvedSubfolder,
         bytes: pngBytes,
         extension: '.png',
         title: workTitle,

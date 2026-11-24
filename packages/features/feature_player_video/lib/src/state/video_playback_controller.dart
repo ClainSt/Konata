@@ -95,6 +95,7 @@ class VideoPlaybackController extends ChangeNotifier {
   bool _disposed = false;
   bool _closing = false;
   bool _hudVisible = true;
+  double _currentSubtitleHudLiftPercent = 0.0;
   bool _hasCompletedCurrentEpisode = false;
   double _lastSavedPosSeconds = -1;
   double _speedBeforeBoost = 1.0;
@@ -105,6 +106,9 @@ class VideoPlaybackController extends ChangeNotifier {
   bool _autoSkippedEndingForEpisode = false;
   String? _lastIngestedCloudSubsetFontsDir;
   final Set<String> _emittedCompletedEpisodes = <String>{};
+
+  /// 当前由底部播控胶囊可见性触发的字幕上抬百分比（0.0 表示恢复原始基准位置）。
+  double get currentSubtitleHudLiftPercent => _currentSubtitleHudLiftPercent;
 
   void _bindEnvironmentListeners() {
     env.shaderDiscoveryService.addListener(_onShadersChanged);
@@ -301,6 +305,12 @@ class VideoPlaybackController extends ChangeNotifier {
         trackMemory: _state.trackMemory,
         trackPreferences: env.preferencesStore.read().trackPreferences,
       );
+      if (_currentSubtitleHudLiftPercent > 0.0) {
+        existingSession.setSubtitleHudLiftPercent(0.0);
+        existingSession.setSubtitleHudLiftPercent(
+          _currentSubtitleHudLiftPercent,
+        );
+      }
       return;
     }
 
@@ -344,6 +354,9 @@ class VideoPlaybackController extends ChangeNotifier {
     );
 
     if (_disposed) return;
+    if (_currentSubtitleHudLiftPercent > 0.0) {
+      session.setSubtitleHudLiftPercent(_currentSubtitleHudLiftPercent);
+    }
     unawaited(
       thumbnailService.warmUp(
         variant: variant,
@@ -709,6 +722,7 @@ class VideoPlaybackController extends ChangeNotifier {
 
   @override
   void dispose() {
+    if (_disposed) return;
     _disposed = true;
     _closing = true;
     _cancelAllTimers();

@@ -116,7 +116,7 @@ class AudioLyricsSlotPane extends StatelessWidget {
   }
 }
 
-/// 桌面端双栏舞台：左侧 1:1 封面与镜面倒影，右侧自由切换歌词与分轨队列。
+/// 桌面与平板横屏双栏舞台：左侧占比更大的无硬白边 1:1 封面与水面倒影，右侧大空气感纯白歌词与一键切换队列。
 class DesktopAudioDualStage extends StatelessWidget {
   /// 构造桌面双栏舞台。
   const DesktopAudioDualStage({
@@ -127,31 +127,60 @@ class DesktopAudioDualStage extends StatelessWidget {
     required this.rightTab,
     required this.onRightTabChanged,
     this.lyricsViewportBuilder,
+    this.stageHeight,
+    this.onOpenSafetyDialog,
   });
 
+  /// 核心音频播放控制器。
   final AudioPlaybackController controller;
+
+  /// 当前音频会话不可变快照。
   final AudioPlaybackSnapshot snapshot;
+
+  /// 智能构图对齐缓存。
   final SmartCoverAlignmentCache alignmentCache;
+
+  /// 右栏当前展示模式（歌词或队列）。
   final AudioStageRightTab rightTab;
+
+  /// 右栏模式切换回调。
   final ValueChanged<AudioStageRightTab> onRightTabChanged;
+
+  /// 可选外部歌词视口构建器。
   final AudioLyricsViewportBuilder? lyricsViewportBuilder;
+
+  /// 舞台总高度参考（用于将封面尺寸稳定在舞台高度的 `46%~50%` 黄金比例）。
+  final double? stageHeight;
+
+  /// 可选音质与安全护耳弹窗入口。
+  final VoidCallback? onOpenSafetyDialog;
 
   @override
   Widget build(BuildContext context) {
     final current = snapshot.currentItem;
     return LayoutBuilder(
       builder: (context, constraints) {
-        final coverSize = math.min(
-          340.0,
-          math.max(200.0, constraints.maxHeight * 0.56),
-        );
+        final effectiveStageH = stageHeight ?? constraints.maxHeight;
+        final desiredCover = effectiveStageH * 0.48;
+        final maxByWidth = constraints.maxWidth * 0.38;
+        final maxByAvailH = math.max(120.0, constraints.maxHeight - 156.0);
+        final coverSize = desiredCover
+            .clamp(
+              math.min(160.0, maxByAvailH),
+              math.max(160.0, math.min(440.0, math.min(maxByWidth, maxByAvailH))),
+            )
+            .toDouble();
+        final reflectionH = (coverSize * 0.24).clamp(32.0, 92.0);
+        final hGap = (constraints.maxWidth * 0.032).clamp(22.0, 48.0);
+        final hPad = (constraints.maxWidth * 0.038).clamp(24.0, 52.0);
+
         return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 42, vertical: 16),
+          padding: EdgeInsets.symmetric(horizontal: hPad, vertical: 10),
           child: Row(
             children: [
-              // 左侧专辑封面与元信息区。
+              // 左侧：大占比无硬白边专辑封面 + 水面倒影 + 精炼元数据。
               Expanded(
-                flex: 5,
+                flex: 44,
                 child: Center(
                   child: SingleChildScrollView(
                     child: Column(
@@ -162,10 +191,15 @@ class DesktopAudioDualStage extends StatelessWidget {
                           coverKey: snapshot.coverVariantTag,
                           alignmentCache: alignmentCache,
                           size: coverSize,
+                          borderRadius: 22.0,
+                          reflectionHeight: reflectionH,
+                          showBorder: false,
                         ),
-                        const SizedBox(height: 18),
+                        const SizedBox(height: 14),
                         ConstrainedBox(
-                          constraints: BoxConstraints(maxWidth: coverSize + 40),
+                          constraints: BoxConstraints(
+                            maxWidth: math.max(coverSize + 40, 260.0),
+                          ),
                           child: Column(
                             children: [
                               Text(
@@ -173,17 +207,17 @@ class DesktopAudioDualStage extends StatelessWidget {
                                 textAlign: TextAlign.center,
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 20,
+                                style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.96),
+                                  fontSize: 21,
                                   fontWeight: FontWeight.w700,
-                                  height: 1.25,
+                                  height: 1.24,
                                 ),
                               ),
                               if (current != null &&
                                   (current.artist.isNotEmpty ||
                                       current.album.isNotEmpty)) ...[
-                                const SizedBox(height: 6),
+                                const SizedBox(height: 5),
                                 Text(
                                   [
                                     if (current.artist.isNotEmpty)
@@ -194,19 +228,23 @@ class DesktopAudioDualStage extends StatelessWidget {
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
-                                    color: Colors.white.withValues(alpha: 0.68),
+                                    color: Colors.white.withValues(alpha: 0.62),
                                     fontSize: 13.5,
                                   ),
                                 ),
                               ],
                               if (snapshot.formattedAudioSpec.isNotEmpty) ...[
                                 const SizedBox(height: 10),
-                                KonataSpecBadge(
-                                  label: snapshot.formattedAudioSpec,
-                                  icon: Icons.high_quality_rounded,
-                                  darkOverlay: true,
-                                  highlighted:
-                                      snapshot.audiophilePlan.safetyLimiterEngaged,
+                                GestureDetector(
+                                  onTap: onOpenSafetyDialog,
+                                  child: KonataSpecBadge(
+                                    label: snapshot.formattedAudioSpec,
+                                    icon: Icons.high_quality_rounded,
+                                    darkOverlay: true,
+                                    highlighted: snapshot
+                                        .audiophilePlan
+                                        .safetyLimiterEngaged,
+                                  ),
                                 ),
                               ],
                             ],
@@ -217,16 +255,17 @@ class DesktopAudioDualStage extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(width: 36),
-              // 右侧歌词 / 队列分栏。
+              SizedBox(width: hGap),
+              // 右侧：大空气感纯白逐字歌词与一键切换播放队列。
               Expanded(
-                flex: 6,
+                flex: 56,
                 child: Column(
                   children: [
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisAlignment: MainAxisAlignment.end,
                       children: [
                         _StageSwitchChip(
+                          key: const ValueKey('desktop_tab_lyrics_chip'),
                           label: '歌词',
                           selected: rightTab == AudioStageRightTab.lyrics,
                           onTap: () =>
@@ -234,6 +273,7 @@ class DesktopAudioDualStage extends StatelessWidget {
                         ),
                         const SizedBox(width: 8),
                         _StageSwitchChip(
+                          key: const ValueKey('desktop_tab_queue_chip'),
                           label: '队列 (${snapshot.queue.length})',
                           selected: rightTab == AudioStageRightTab.queue,
                           onTap: () =>
@@ -241,7 +281,7 @@ class DesktopAudioDualStage extends StatelessWidget {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 8),
                     Expanded(
                       child: rightTab == AudioStageRightTab.lyrics
                           ? AudioLyricsSlotPane(
@@ -265,82 +305,7 @@ class DesktopAudioDualStage extends StatelessWidget {
   }
 }
 
-/// 手机横屏矮视口（高度 `< 520dp`）双区紧凑布局。
-class ShortPhoneLandscapeStage extends StatelessWidget {
-  /// 构造矮横屏舞台。
-  const ShortPhoneLandscapeStage({
-    super.key,
-    required this.controller,
-    required this.snapshot,
-    this.lyricsViewportBuilder,
-  });
-
-  final AudioPlaybackController controller;
-  final AudioPlaybackSnapshot snapshot;
-  final AudioLyricsViewportBuilder? lyricsViewportBuilder;
-
-  @override
-  Widget build(BuildContext context) {
-    final current = snapshot.currentItem;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
-      child: Row(
-        children: [
-          Expanded(
-            flex: 4,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                ImmersiveMicroCover(
-                  cover: snapshot.cover,
-                  coverKey: snapshot.coverVariantTag,
-                  size: 76,
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  current?.title ?? '未选择音轨',
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                if (current != null && current.album.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    current.album,
-                    textAlign: TextAlign.center,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.65),
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            flex: 6,
-            child: AudioLyricsSlotPane(
-              controller: controller,
-              snapshot: snapshot,
-              lyricsViewportBuilder: lyricsViewportBuilder,
-              compact: true,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 移动竖屏单栏舞台：支持轻点封面与歌词原地切换。
+/// 纯竖屏单栏舞台（Android 手机独占与平板竖屏）：支持封面态与居中歌词态丝滑切换。
 class PortraitPhoneAudioStage extends StatelessWidget {
   /// 构造竖屏舞台。
   const PortraitPhoneAudioStage({
@@ -351,24 +316,46 @@ class PortraitPhoneAudioStage extends StatelessWidget {
     required this.showingLyrics,
     required this.onToggleShowLyrics,
     this.lyricsViewportBuilder,
+    this.isTabletPortrait = false,
   });
 
+  /// 核心音频播放控制器。
   final AudioPlaybackController controller;
+
+  /// 当前音频会话不可变快照。
   final AudioPlaybackSnapshot snapshot;
+
+  /// 智能构图对齐缓存。
   final SmartCoverAlignmentCache alignmentCache;
+
+  /// 当前是否正显示居中歌词视口。
   final bool showingLyrics;
+
+  /// 封面与歌词视图切换回调。
   final VoidCallback onToggleShowLyrics;
+
+  /// 可选外部歌词视口构建器。
   final AudioLyricsViewportBuilder? lyricsViewportBuilder;
+
+  /// 是否处于平板竖屏高宽口模式（适当放大封面与水平留白）。
+  final bool isTabletPortrait;
 
   @override
   Widget build(BuildContext context) {
     final current = snapshot.currentItem;
     return LayoutBuilder(
       builder: (context, constraints) {
+        final maxCoverCap = isTabletPortrait ? 380.0 : 320.0;
+        final maxByHeight = math.max(120.0, constraints.maxHeight - 138.0);
         final coverSize = math.min(
-          280.0,
-          math.min(constraints.maxWidth * 0.72, constraints.maxHeight * 0.54),
+          maxCoverCap,
+          math.min(
+            constraints.maxWidth * (isTabletPortrait ? 0.58 : 0.78),
+            math.min(constraints.maxHeight * 0.58, maxByHeight),
+          ),
         );
+        final reflectionH = (coverSize * 0.16).clamp(18.0, 48.0);
+
         return AnimatedSwitcher(
           duration: const Duration(milliseconds: 260),
           switchInCurve: Curves.easeOutCubic,
@@ -376,74 +363,16 @@ class PortraitPhoneAudioStage extends StatelessWidget {
           child: showingLyrics
               ? Padding(
                   key: const ValueKey('portrait_lyrics'),
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Column(
-                    children: [
-                      GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: onToggleShowLyrics,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 6,
-                          ),
-                          child: Row(
-                            children: [
-                              ImmersiveMicroCover(
-                                cover: snapshot.cover,
-                                coverKey: snapshot.coverVariantTag,
-                                size: 42,
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      current?.title ?? '',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                    if (current != null &&
-                                        current.artist.isNotEmpty)
-                                      Text(
-                                        current.artist,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                          color: Colors.white.withValues(
-                                            alpha: 0.65,
-                                          ),
-                                          fontSize: 12,
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                              Icon(
-                                Icons.album_outlined,
-                                size: 18,
-                                color: Colors.white.withValues(alpha: 0.72),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      Expanded(
-                        child: AudioLyricsSlotPane(
-                          controller: controller,
-                          snapshot: snapshot,
-                          lyricsViewportBuilder: lyricsViewportBuilder,
-                          centerAligned: true,
-                          onTapEmptyArea: onToggleShowLyrics,
-                        ),
-                      ),
-                    ],
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isTabletPortrait ? 44 : 18,
+                    vertical: 4,
+                  ),
+                  child: AudioLyricsSlotPane(
+                    controller: controller,
+                    snapshot: snapshot,
+                    lyricsViewportBuilder: lyricsViewportBuilder,
+                    centerAligned: true,
+                    onTapEmptyArea: onToggleShowLyrics,
                   ),
                 )
               : GestureDetector(
@@ -451,56 +380,86 @@ class PortraitPhoneAudioStage extends StatelessWidget {
                   behavior: HitTestBehavior.opaque,
                   onTap: onToggleShowLyrics,
                   child: Center(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 24),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          ImmersiveCoverWithReflection(
-                            cover: snapshot.cover,
-                            coverKey: snapshot.coverVariantTag,
-                            alignmentCache: alignmentCache,
-                            size: math.max(150.0, coverSize),
-                            reflectionHeight: 24,
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            current?.title ?? '未选择音轨',
-                            textAlign: TextAlign.center,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 19,
-                              fontWeight: FontWeight.w700,
+                    child: SingleChildScrollView(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: isTabletPortrait ? 48 : 24,
+                          vertical: 8,
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            ImmersiveCoverWithReflection(
+                              cover: snapshot.cover,
+                              coverKey: snapshot.coverVariantTag,
+                              alignmentCache: alignmentCache,
+                              size: math.max(132.0, coverSize),
+                              borderRadius: 22.0,
+                              reflectionHeight: reflectionH,
+                              showBorder: false,
                             ),
-                          ),
-                          if (current != null &&
-                              (current.artist.isNotEmpty ||
-                                  current.album.isNotEmpty)) ...[
-                            const SizedBox(height: 6),
-                            Text(
-                              [
-                                if (current.artist.isNotEmpty) current.artist,
-                                if (current.album.isNotEmpty) current.album,
-                              ].join(' · '),
-                              textAlign: TextAlign.center,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.68),
-                                fontSize: 13,
+                            const SizedBox(height: 18),
+                            // 曲名右侧紧邻显示音频格式与采样率徽标，不展示「作品详情」入口按钮。
+                            ConstrainedBox(
+                              constraints: BoxConstraints(
+                                maxWidth: math.max(240.0, coverSize + 40),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  Flexible(
+                                    child: Text(
+                                      current?.title ?? '未选择音轨',
+                                      textAlign: TextAlign.center,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: Colors.white.withValues(
+                                          alpha: 0.96,
+                                        ),
+                                        fontSize: 19.5,
+                                        fontWeight: FontWeight.w700,
+                                        height: 1.24,
+                                      ),
+                                    ),
+                                  ),
+                                  if (snapshot
+                                      .formattedAudioSpec
+                                      .isNotEmpty) ...[
+                                    const SizedBox(width: 8),
+                                    KonataSpecBadge(
+                                      key: const ValueKey(
+                                        'audio_portrait_format_badge',
+                                      ),
+                                      label: snapshot.formattedAudioSpec,
+                                      darkOverlay: true,
+                                    ),
+                                  ],
+                                ],
                               ),
                             ),
+                            if (current != null &&
+                                (current.artist.isNotEmpty ||
+                                    current.album.isNotEmpty)) ...[
+                              const SizedBox(height: 6),
+                              Text(
+                                [
+                                  if (current.artist.isNotEmpty) current.artist,
+                                  if (current.album.isNotEmpty) current.album,
+                                ].join(' · '),
+                                textAlign: TextAlign.center,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.64),
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
                           ],
-                          if (snapshot.formattedAudioSpec.isNotEmpty) ...[
-                            const SizedBox(height: 8),
-                            KonataSpecBadge(
-                              label: snapshot.formattedAudioSpec,
-                              darkOverlay: true,
-                            ),
-                          ],
-                        ],
+                        ),
                       ),
                     ),
                   ),
@@ -513,6 +472,7 @@ class PortraitPhoneAudioStage extends StatelessWidget {
 
 class _StageSwitchChip extends StatelessWidget {
   const _StageSwitchChip({
+    super.key,
     required this.label,
     required this.selected,
     required this.onTap,

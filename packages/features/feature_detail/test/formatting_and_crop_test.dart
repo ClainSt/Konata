@@ -177,4 +177,166 @@ void main() {
       );
     });
   });
+
+  group('SeriesMemberLabelResolver 系列摘要与多形态筛选', () {
+    final gundamWorks = <Work>[
+      const Work(
+        id: 'g_01',
+        tmdbId: 1001,
+        tmdbMediaType: TmdbMediaType.tv,
+        title: '机动战士高达',
+        originalTitle: '機動戦士ガンダム',
+        year: 1979,
+        seriesOrder: 1,
+        seriesLabel: '第 1 季',
+        scrapeStatus: ScrapeStatus.matched,
+      ),
+      const Work(
+        id: 'g_02',
+        tmdbId: 1002,
+        tmdbMediaType: TmdbMediaType.movie,
+        title: '机动战士高达 逆袭的夏亚',
+        originalTitle: '機動戦士ガンダム 逆襲のシャア',
+        year: 1988,
+        seriesOrder: 2,
+        seriesLabel: '第 1 季',
+        scrapeStatus: ScrapeStatus.matched,
+      ),
+      const Work(
+        id: 'g_03',
+        tmdbId: 1003,
+        tmdbMediaType: TmdbMediaType.tv,
+        title: '机动战士高达 0080 口袋里的战争 OVA',
+        originalTitle: '機動戦士ガンダム0080 ポケットの中の戦争',
+        year: 1989,
+        seriesOrder: 3,
+        seriesLabel: '第 1 季',
+        scrapeStatus: ScrapeStatus.matched,
+      ),
+      for (var i = 4; i <= 26; i++)
+        Work(
+          id: 'g_${i.toString().padLeft(2, '0')}',
+          tmdbId: 1000 + i,
+          tmdbMediaType: TmdbMediaType.tv,
+          title: '机动战士高达 衍生TV第 $i 部超长标题示例',
+          year: 1990 + i,
+          seriesOrder: i,
+          scrapeStatus: ScrapeStatus.matched,
+        ),
+    ];
+
+    test('入口胶囊展示简洁系列摘要，不强加第1季前缀也不重复截断超长标题', () {
+      final group = SeriesGroup(
+        id: 'ser_gundam',
+        title: '高达系列',
+        createdAt: DateTime.utc(2025, 1, 1),
+        updatedAt: DateTime.utc(2025, 1, 1),
+      );
+      final ovaWork = gundamWorks[2];
+      final movieWork = gundamWorks[1];
+
+      expect(
+        SeriesMemberLabelResolver.resolveCapsuleSummary(
+          members: gundamWorks,
+          activeWork: ovaWork,
+          seriesGroup: group,
+          compact: false,
+        ),
+        '高达系列 · 26 部',
+      );
+      expect(
+        SeriesMemberLabelResolver.resolveCapsuleSummary(
+          members: gundamWorks,
+          activeWork: ovaWork,
+          seriesGroup: SeriesGroup(
+            id: 'ser_long',
+            title: '超长系列名称超过十四个字时绝不重复显示或者截断',
+            createdAt: DateTime.utc(2025, 1, 1),
+            updatedAt: DateTime.utc(2025, 1, 1),
+          ),
+          compact: true,
+        ),
+        '系列 26部',
+      );
+
+      expect(
+        SeriesMemberLabelResolver.resolveMemberLabel(
+          ovaWork,
+          members: gundamWorks,
+          seriesGroup: group,
+        ),
+        'OVA',
+      );
+      expect(
+        SeriesMemberLabelResolver.resolveMemberLabel(
+          movieWork,
+          members: gundamWorks,
+          seriesGroup: group,
+        ),
+        '剧场版',
+      );
+      expect(
+        SeriesMemberLabelResolver.resolveMemberLabel(
+          gundamWorks[0],
+          members: gundamWorks,
+          seriesGroup: group,
+        ),
+        isNot(contains('第 1 季')),
+      );
+    });
+
+    test('同质多季 TV 保留规范季号标签，并正确执行全部/TV/剧场版/OVA 筛选与搜索', () {
+      const season1 = Work(
+        id: 'tv_s1',
+        tmdbId: 2001,
+        tmdbMediaType: TmdbMediaType.tv,
+        matchedSeason: 1,
+        seriesOrder: 1,
+        title: '某番剧 第一季',
+        scrapeStatus: ScrapeStatus.matched,
+      );
+      const season2 = Work(
+        id: 'tv_s2',
+        tmdbId: 2001,
+        tmdbMediaType: TmdbMediaType.tv,
+        matchedSeason: 2,
+        seriesOrder: 2,
+        title: '某番剧 第二季',
+        scrapeStatus: ScrapeStatus.matched,
+      );
+      expect(
+        SeriesMemberLabelResolver.isHeterogeneousSeries(const [season1, season2]),
+        isFalse,
+      );
+      expect(
+        SeriesMemberLabelResolver.resolveMemberLabel(
+          season1,
+          members: const [season1, season2],
+        ),
+        startsWith('第 1 季'),
+      );
+
+      final counts = SeriesMemberLabelResolver.countByFilter(gundamWorks);
+      expect(counts[SeriesWorkMediaFilter.all], 26);
+      expect(counts[SeriesWorkMediaFilter.movie], 1);
+      expect(counts[SeriesWorkMediaFilter.ova], 1);
+      expect(counts[SeriesWorkMediaFilter.tv], 24);
+
+      expect(
+        SeriesMemberLabelResolver.filterMembers(
+          members: gundamWorks,
+          mediaFilter: SeriesWorkMediaFilter.movie,
+        ).single.id,
+        'g_02',
+      );
+      expect(
+        SeriesMemberLabelResolver.filterMembers(
+          members: gundamWorks,
+          mediaFilter: SeriesWorkMediaFilter.all,
+          query: '口袋里的战争',
+        ).single.id,
+        'g_03',
+      );
+    });
+  });
 }

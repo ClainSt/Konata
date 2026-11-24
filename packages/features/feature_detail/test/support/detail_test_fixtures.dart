@@ -909,6 +909,11 @@ Widget wrapDetailTestApp({
           ),
           child: WidgetsApp(
             color: KonataTheme.cinemaObsidian,
+            localizationsDelegates: GlobalMaterialLocalizations.delegates,
+            supportedLocales: const <Locale>[
+              Locale('zh', 'CN'),
+              Locale('en', 'US'),
+            ],
             pageRouteBuilder:
                 <T>(RouteSettings settings, WidgetBuilder builder) =>
                     PageRouteBuilder<T>(

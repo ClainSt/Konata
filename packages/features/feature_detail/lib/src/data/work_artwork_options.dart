@@ -55,12 +55,13 @@ class WorkArtworkOption {
       : (isHd ? 'HD' : null);
 }
 
-/// 作品可用的候选海报、背景图与透明徽标集合。
+/// 作品可用的候选海报、背景图、竖版原画与透明徽标集合。
 class WorkArtworkOptions {
   /// 创建候选集合实例。
   const WorkArtworkOptions({
     this.posters = const <WorkArtworkOption>[],
     this.backdrops = const <WorkArtworkOption>[],
+    this.portraitBackdrops = const <WorkArtworkOption>[],
     this.logos = const <WorkArtworkOption>[],
   });
 
@@ -69,6 +70,9 @@ class WorkArtworkOptions {
 
   /// 全部可选横版背景图。
   final List<WorkArtworkOption> backdrops;
+
+  /// 全部可选竖版无字原画（用于手机/平板竖屏沉浸顶栏背景）。
+  final List<WorkArtworkOption> portraitBackdrops;
 
   /// 全部可选透明标题徽标。
   final List<WorkArtworkOption> logos;
@@ -240,6 +244,13 @@ final class WorkArtworkOptionsService {
       fanartBackgrounds:
           fanartBundle?.backgrounds ?? const <FanartBackgroundCandidate>[],
     );
+    final portraitBackdrops = mergePortraitBackdropOptions(
+      currentPortraitBackdropPath: work.portraitBackdropPath,
+      tmdbDetail: tmdbDetail,
+      tmdbSeasonDetail: tmdbSeasonDetail,
+      matchedSeason: work.matchedSeason,
+      fanartPosters: fanartBundle?.posters ?? const <FanartPosterCandidate>[],
+    );
 
     if (includeLogos) {
       final rankedLogos = ClearLogoResolver.mergeAndRankLogos(
@@ -270,6 +281,7 @@ final class WorkArtworkOptionsService {
     return WorkArtworkOptions(
       posters: posters,
       backdrops: backdrops,
+      portraitBackdrops: portraitBackdrops,
       logos: logos,
     );
   }
@@ -564,9 +576,60 @@ final class WorkArtworkOptionsService {
     return backdrops;
   }
 
-  /// 将语言与国家地区代码格式化为选图角标文案。
+  /// 合并竖版无字原画候选集（无字竖版原画优先，其余竖版海报作为补充备选）。
+  static List<WorkArtworkOption> mergePortraitBackdropOptions({
+    String? currentPortraitBackdropPath,
+    TmdbWorkDetail? tmdbDetail,
+    TmdbSeasonDetail? tmdbSeasonDetail,
+    int? matchedSeason,
+    List<FanartPosterCandidate> fanartPosters =
+        const <FanartPosterCandidate>[],
+  }) {
+    final mergedPosters = mergePosterOptions(
+      tmdbDetail: tmdbDetail,
+      tmdbSeasonDetail: tmdbSeasonDetail,
+      matchedSeason: matchedSeason,
+      fanartPosters: fanartPosters,
+    );
+    final result = <WorkArtworkOption>[];
+    final seen = <String>{};
+
+    void pushUnique(WorkArtworkOption option) {
+      if (seen.add(option.filePath)) {
+        result.add(option);
+      }
+    }
+
+    final current = currentPortraitBackdropPath?.trim();
+    if (current != null && current.isNotEmpty) {
+      final matched = mergedPosters.where((e) => e.filePath == current).firstOrNull;
+      pushUnique(
+        matched ??
+            WorkArtworkOption(
+              filePath: current,
+              sourceLabel: '当前竖版原画',
+              langTag: '当前',
+            ),
+      );
+    }
+
+    for (final item in mergedPosters) {
+      if (item.langTag == '无字') {
+        pushUnique(item);
+      }
+    }
+    for (final item in mergedPosters) {
+      if (item.langTag != '无字') {
+        pushUnique(item);
+      }
+    }
+    return result;
+  }
+
+  /// 将语言与国家地区代码格式化为选图角标文案（兼容 Fanart.tv `'00'` 无字标识）。
   static String? formatLanguageTag(String? isoLang, String? isoCountry) {
-    final rank = TmdbService.logoLanguageRank(isoLang, isoCountry);
+    final normalizedLang = isoLang?.trim() == '00' ? null : isoLang;
+    final rank = TmdbService.logoLanguageRank(normalizedLang, isoCountry);
     return switch (rank) {
       0 => '简中',
       1 => '繁中',

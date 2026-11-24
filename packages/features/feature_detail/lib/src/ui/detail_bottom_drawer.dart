@@ -1,4 +1,5 @@
 import 'package:engine_scraping/engine_scraping.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/widgets.dart';
 import 'package:konata_contracts/konata_contracts.dart';
 import 'package:konata_design_system/konata_design_system.dart';
@@ -10,6 +11,8 @@ import 'episode_drawer_card.dart';
 import 'supplementary_asset_cards.dart';
 
 /// 详情页底部内容抽屉：聚合正片（支持分季）、特典（支持按类型细分）、CD 专辑与动态扩展标签页视图。
+///
+/// 三端统一保留单条毛玻璃分类胶囊（右端展开时自然弹性伸出 `⊞`）、彻底移除 `⌄`，并在展开态统一呈现横向大剧照选集卡轨道。
 class DetailBottomDrawer extends StatefulWidget {
   /// 创建详情页底部内容抽屉。
   const DetailBottomDrawer({
@@ -22,6 +25,11 @@ class DetailBottomDrawer extends StatefulWidget {
     required this.onInspectEpisodeInfo,
     required this.onOpenFullList,
     this.initialTabId,
+    this.expanded,
+    this.onExpandedChanged,
+    this.showGearButton = false,
+    this.gearButton,
+    this.onDarkBackdrop = true,
     this.compact = false,
     this.inlineMode = false,
   });
@@ -38,6 +46,12 @@ class DetailBottomDrawer extends StatefulWidget {
   /// 初始高亮标签页标识（外部深链跳转时使用）。
   final String? initialTabId;
 
+  /// 受控展开状态（为空时由抽屉内部托管展开/收起切换）。
+  final bool? expanded;
+
+  /// 展开状态变更回调（点击当前激活分类标签时触发收起）。
+  final ValueChanged<bool>? onExpandedChanged;
+
   /// 点击正片或特典卡片回调。
   final ValueChanged<Episode> onTapEpisode;
 
@@ -47,13 +61,22 @@ class DetailBottomDrawer extends StatefulWidget {
   /// 右键/更多查看单集物理变体技术信息回调。
   final ValueChanged<Episode> onInspectEpisodeInfo;
 
-  /// 点击「查看全部」打开网格完整列表回调（传入当前内置标签页标识）。
+  /// 点击胶囊右端弹性 `⊞` 打开完整列表回调（传入当前内置标签页标识）。
   final ValueChanged<String> onOpenFullList;
+
+  /// 是否在底栏最右侧展示唯一独立 `⚙` 按钮（桌面端 / 平板横屏传 `true`）。
+  final bool showGearButton;
+
+  /// 底栏右侧挂载的 `DetailGearMenu` 实例。
+  final Widget? gearButton;
+
+  /// 当前轨道是否处于深色背景或深色遮罩之上。
+  final bool onDarkBackdrop;
 
   /// 是否紧凑视觉尺寸。
   final bool compact;
 
-  /// 是否为手机竖屏内联流式模式（高度自适应而非横向单轨定高）。
+  /// 预留字段（三端统一保留横向选集卡轨道）。
   final bool inlineMode;
 
   @override
@@ -63,8 +86,11 @@ class DetailBottomDrawer extends StatefulWidget {
 class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
   final ScrollController _trackScrollCtrl = ScrollController();
   late String _activeTabId;
+  bool _localExpanded = true;
   String? _activeSeasonFilterId;
   String? _activeExtraKindFilterId;
+
+  bool get _isExpanded => widget.expanded ?? _localExpanded;
 
   @override
   void initState() {
@@ -92,22 +118,49 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
     super.dispose();
   }
 
+  bool _isScanContribution(DetailTabContribution tab) {
+    final id = tab.id.toLowerCase();
+    final iconKey = tab.iconKey.toLowerCase();
+    final label = tab.label.toLowerCase();
+    return id.contains('scan') ||
+        iconKey.contains('scan') ||
+        label.contains('scan') ||
+        label.contains('扫图');
+  }
+
+  List<DetailTabContribution> _visibleExternalTabs() {
+    final raw = widget.bundle.visibleTabs;
+    if (widget.displayPreferences.showScanTab) return raw;
+    return raw
+        .where((tab) => !_isScanContribution(tab))
+        .toList(growable: false);
+  }
+
+  List<MediaVariant> _visibleCdVariants() {
+    if (!widget.displayPreferences.showCdTab) return const <MediaVariant>[];
+    return widget.bundle.cdVariants;
+  }
+
   bool _isTabCurrentlyAvailable(String tabId) {
     final b = widget.bundle;
+    final visibleCds = _visibleCdVariants();
+    final visibleTabs = _visibleExternalTabs();
     if (tabId == DetailDrawerTabIds.episodes) {
       return b.mainEpisodes.isNotEmpty ||
-          (b.extraEpisodes.isEmpty && b.cdVariants.isEmpty);
+          (b.extraEpisodes.isEmpty && visibleCds.isEmpty && visibleTabs.isEmpty);
     }
     if (tabId == DetailDrawerTabIds.extras) {
       return b.extraEpisodes.isNotEmpty;
     }
     if (tabId == DetailDrawerTabIds.cd) {
-      return b.cdVariants.isNotEmpty;
+      return visibleCds.isNotEmpty;
     }
-    return b.visibleTabs.any((t) => t.id == tabId);
+    return visibleTabs.any((t) => t.id == tabId);
   }
 
   String _resolveInitialTabId(String? requested) {
+    final visibleCds = _visibleCdVariants();
+    final visibleTabs = _visibleExternalTabs();
     if (requested != null &&
         requested.isNotEmpty &&
         _isTabCurrentlyAvailable(requested)) {
@@ -119,11 +172,11 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
     if (widget.bundle.extraEpisodes.isNotEmpty) {
       return DetailDrawerTabIds.extras;
     }
-    if (widget.bundle.cdVariants.isNotEmpty) {
+    if (visibleCds.isNotEmpty) {
       return DetailDrawerTabIds.cd;
     }
-    if (widget.bundle.visibleTabs.isNotEmpty) {
-      return widget.bundle.visibleTabs.first.id;
+    if (visibleTabs.isNotEmpty) {
+      return visibleTabs.first.id;
     }
     return DetailDrawerTabIds.episodes;
   }
@@ -139,10 +192,42 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
   }
 
   DetailTabContribution? _findExternalTab(String id) {
-    for (final tab in widget.bundle.visibleTabs) {
+    for (final tab in _visibleExternalTabs()) {
       if (tab.id == id) return tab;
     }
     return null;
+  }
+
+  void _handleSelectTab(String tabId) {
+    if (_isExpanded && _activeTabId == tabId) {
+      if (widget.onExpandedChanged != null) {
+        widget.onExpandedChanged!(false);
+      } else {
+        setState(() => _localExpanded = false);
+      }
+      return;
+    }
+    setState(() {
+      _activeTabId = tabId;
+      _localExpanded = true;
+    });
+    widget.onExpandedChanged?.call(true);
+  }
+
+  void _handleTrackPointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent || !_trackScrollCtrl.hasClients) return;
+    final pos = _trackScrollCtrl.position;
+    final delta = event.scrollDelta.dy.abs() >= event.scrollDelta.dx.abs()
+        ? event.scrollDelta.dy
+        : event.scrollDelta.dx;
+    if (delta == 0) return;
+    final nextOffset = (pos.pixels + delta).clamp(
+      pos.minScrollExtent,
+      pos.maxScrollExtent,
+    );
+    if (nextOffset != pos.pixels) {
+      _trackScrollCtrl.jumpTo(nextOffset);
+    }
   }
 
   @override
@@ -150,7 +235,8 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
     final b = widget.bundle;
     final mains = b.mainEpisodes;
     final extras = b.extraEpisodes;
-    final cds = b.cdVariants;
+    final cds = _visibleCdVariants();
+    final externalTabs = _visibleExternalTabs();
     final seasonGroups = DetailSupplementaryHelper.groupMainBySeason(mains);
     final multiSeason = seasonGroups.length > 1;
 
@@ -201,14 +287,18 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
           mainEpisodeCount: mains.length,
           extraEpisodeCount: extras.length,
           cdCount: cds.length,
-          externalTabs: b.visibleTabs,
+          externalTabs: externalTabs,
+          expanded: _isExpanded,
+          canOpenFullList: canOpenFullList,
+          onOpenFullList: canOpenFullList
+              ? () => widget.onOpenFullList(_activeTabId)
+              : null,
           subFilterChips: subFilters,
           activeSubFilterId: activeSubId,
+          trailingGear: widget.showGearButton ? widget.gearButton : null,
+          onDarkBackdrop: widget.onDarkBackdrop,
           compact: widget.compact,
-          onSelectTab: (tabId) {
-            if (_activeTabId == tabId) return;
-            setState(() => _activeTabId = tabId);
-          },
+          onSelectTab: _handleSelectTab,
           onSelectSubFilter: (subId) {
             setState(() {
               if (_activeTabId == DetailDrawerTabIds.episodes) {
@@ -218,23 +308,30 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
               }
             });
           },
-          trailing: canOpenFullList
-              ? KonataPillButton.ghost(
-                  key: const Key('detail_drawer_view_all_button'),
-                  label: '查看全部',
-                  icon: Icons.grid_view_rounded,
-                  compact: true,
-                  onPressed: () => widget.onOpenFullList(_activeTabId),
-                )
-              : null,
         ),
-        const SizedBox(height: 12),
-        _buildActiveContent(
-          context,
-          mains: mains,
-          extras: extras,
-          cds: cds,
-          multiSeason: multiSeason,
+        AnimatedSize(
+          duration: KonataTheme.motionNormal,
+          curve: Curves.easeOutCubic,
+          alignment: Alignment.topCenter,
+          child: _isExpanded
+              ? Column(
+                  key: const Key('detail_drawer_expanded_body'),
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SizedBox(height: 12),
+                    _buildActiveContent(
+                      context,
+                      mains: mains,
+                      extras: extras,
+                      cds: cds,
+                      multiSeason: multiSeason,
+                    ),
+                  ],
+                )
+              : const SizedBox.shrink(
+                  key: Key('detail_drawer_collapsed_body'),
+                ),
         ),
       ],
     );
@@ -264,7 +361,7 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
           key: ValueKey<String>('detail_external_tab_slot_${extTab.id}'),
           constraints: BoxConstraints(
             minHeight: widget.inlineMode ? 180 : 210,
-            maxHeight: widget.inlineMode ? 420 : 256,
+            maxHeight: widget.inlineMode ? 320 : 256,
           ),
           child: slotResult,
         );
@@ -320,50 +417,53 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
     required int mainCount,
   }) {
     final b = widget.bundle;
+    final showRawFileName = widget.displayPreferences.showRawVideoFilename;
     final cardWidth = widget.compact ? 196.0 : 228.0;
-    final cardHeight =
-        cardWidth * 9 / 16 +
-        (widget.displayPreferences.showOriginalSubtitlesOnCards ? 54.0 : 34.0);
+    final cardHeight = cardWidth * 9 / 16 + (showRawFileName ? 56.0 : 38.0);
 
-    return SizedBox(
-      height: cardHeight,
-      child: Scrollbar(
-        controller: _trackScrollCtrl,
-        thumbVisibility: true,
-        interactive: true,
-        scrollbarOrientation: ScrollbarOrientation.bottom,
-        child: ListView.separated(
+    return Listener(
+      onPointerSignal: _handleTrackPointerSignal,
+      child: SizedBox(
+        height: cardHeight,
+        child: Scrollbar(
           controller: _trackScrollCtrl,
-          scrollDirection: Axis.horizontal,
-          physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.only(bottom: 10),
-          itemCount: episodes.length,
-          separatorBuilder: (_, _) => const SizedBox(width: 14),
-          itemBuilder: (_, index) {
-            final ep = episodes[index];
-            return EpisodeDrawerCard(
-              key: ValueKey<String>('episode_card_${ep.id}'),
-              episode: ep,
-              variants: b.variantsForEpisode(ep.id),
-              playback: b.playbackByEpisodeId[ep.id],
-              imageLoader: widget.imageLoader,
-              workTitle: b.work.title,
-              workMediaType: b.work.tmdbMediaType,
-              mainEpisodeCount: mainCount,
-              showSeasonPrefix: multiSeason && ep.category == EpisodeCategory.main,
-              showStillThumbnail:
-                  widget.displayPreferences.showEpisodeStillThumbnails,
-              showOriginalFileName:
-                  widget.displayPreferences.showOriginalSubtitlesOnCards,
-              workBackdropFallbackPath: b.effectiveHeroBackdropPath,
-              workPosterFallbackPath:
-                  b.work.posterPath ?? b.work.bangumiPosterPath,
-              workPosterOwnerId: b.effectiveHeroBackdropOwnerId,
-              cardWidth: cardWidth,
-              onTap: () => widget.onTapEpisode(ep),
-              onShowMediaInfo: () => widget.onInspectEpisodeInfo(ep),
-            );
-          },
+          thumbVisibility: !widget.compact,
+          interactive: true,
+          scrollbarOrientation: ScrollbarOrientation.bottom,
+          child: ListView.separated(
+            controller: _trackScrollCtrl,
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            padding: const EdgeInsets.only(bottom: 10),
+            itemCount: episodes.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 14),
+            itemBuilder: (_, index) {
+              final ep = episodes[index];
+              return EpisodeDrawerCard(
+                key: ValueKey<String>('episode_card_${ep.id}'),
+                episode: ep,
+                variants: b.variantsForEpisode(ep.id),
+                playback: b.playbackByEpisodeId[ep.id],
+                imageLoader: widget.imageLoader,
+                workTitle: b.work.title,
+                workMediaType: b.work.tmdbMediaType,
+                mainEpisodeCount: mainCount,
+                showSeasonPrefix:
+                    multiSeason && ep.category == EpisodeCategory.main,
+                showStillThumbnail:
+                    widget.displayPreferences.showEpisodeStillThumbnails,
+                showOriginalFileName: showRawFileName,
+                workBackdropFallbackPath: b.effectiveHeroBackdropPath,
+                workPosterFallbackPath:
+                    b.work.posterPath ?? b.work.bangumiPosterPath,
+                workPosterOwnerId: b.effectiveHeroBackdropOwnerId,
+                onDarkBackdrop: widget.onDarkBackdrop,
+                cardWidth: cardWidth,
+                onTap: () => widget.onTapEpisode(ep),
+                onShowMediaInfo: () => widget.onInspectEpisodeInfo(ep),
+              );
+            },
+          ),
         ),
       ),
     );
@@ -374,43 +474,45 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
       return _buildEmptyPlaceholder(context, '暂无音乐 CD 专辑');
     }
     final b = widget.bundle;
+    final showRawFileName = widget.displayPreferences.showRawVideoFilename;
     final cardWidth = widget.compact ? 132.0 : 148.0;
-    final cardHeight =
-        cardWidth +
-        (widget.displayPreferences.showOriginalSubtitlesOnCards ? 62.0 : 42.0);
+    final cardHeight = cardWidth + (showRawFileName ? 64.0 : 44.0);
     final subdirHints = DetailSupplementaryHelper.buildCdSubdirHints(cds);
 
-    return SizedBox(
-      height: cardHeight,
-      child: Scrollbar(
-        controller: _trackScrollCtrl,
-        thumbVisibility: true,
-        interactive: true,
-        scrollbarOrientation: ScrollbarOrientation.bottom,
-        child: ListView.separated(
+    return Listener(
+      onPointerSignal: _handleTrackPointerSignal,
+      child: SizedBox(
+        height: cardHeight,
+        child: Scrollbar(
           controller: _trackScrollCtrl,
-          scrollDirection: Axis.horizontal,
-          physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.only(bottom: 10),
-          itemCount: cds.length,
-          separatorBuilder: (_, _) => const SizedBox(width: 14),
-          itemBuilder: (_, index) {
-            final v = cds[index];
-            return CdDrawerCard(
-              key: ValueKey<String>('cd_card_${v.id}'),
-              variant: v,
-              source: b.sourcesById[v.sourceId],
-              workId: b.work.id,
-              workPosterPath: b.work.posterPath ?? b.work.bangumiPosterPath,
-              imageLoader: widget.imageLoader,
-              showSeriesSharedBadge: b.seriesMembers.length >= 2,
-              directSubdirLabel: subdirHints[v.id],
-              showRawFileName:
-                  widget.displayPreferences.showOriginalSubtitlesOnCards,
-              cardWidth: cardWidth,
-              onTap: () => widget.onTapCdVariant(v),
-            );
-          },
+          thumbVisibility: !widget.compact,
+          interactive: true,
+          scrollbarOrientation: ScrollbarOrientation.bottom,
+          child: ListView.separated(
+            controller: _trackScrollCtrl,
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            padding: const EdgeInsets.only(bottom: 10),
+            itemCount: cds.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 14),
+            itemBuilder: (_, index) {
+              final v = cds[index];
+              return CdDrawerCard(
+                key: ValueKey<String>('cd_card_${v.id}'),
+                variant: v,
+                source: b.sourcesById[v.sourceId],
+                workId: b.work.id,
+                workPosterPath: b.work.posterPath ?? b.work.bangumiPosterPath,
+                imageLoader: widget.imageLoader,
+                showSeriesSharedBadge: b.seriesMembers.length >= 2,
+                directSubdirLabel: subdirHints[v.id],
+                showRawFileName: showRawFileName,
+                onDarkBackdrop: widget.onDarkBackdrop,
+                cardWidth: cardWidth,
+                onTap: () => widget.onTapCdVariant(v),
+              );
+            },
+          ),
         ),
       ),
     );
@@ -424,7 +526,9 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
         child: Text(
           message,
           style: TextStyle(
-            color: p.textMuted,
+            color: widget.onDarkBackdrop
+                ? KonataTheme.overlayWhiteTextDim
+                : p.textMuted,
             fontSize: KonataTheme.fontSizeBodySm,
           ),
         ),

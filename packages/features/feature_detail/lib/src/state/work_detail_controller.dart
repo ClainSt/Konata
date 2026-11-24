@@ -495,9 +495,10 @@ final class WorkDetailController extends ChangeNotifier {
   Future<LoadedLocalArtwork> loadLocalArtworkForCrop(String filePath) =>
       _actionsService.loadLocalArtworkForCrop(filePath);
 
-  /// 裁切本地自定义图片并持久化锁定为封面或背景图。
+  /// 裁切本地自定义图片并持久化锁定为封面、背景图或竖版原画。
   Future<String> cropAndSaveLocalArtwork({
     required bool isPoster,
+    bool isPortraitBackdrop = false,
     required LoadedLocalArtwork source,
     required ArtworkNormalizedCropRect cropRect,
   }) async {
@@ -506,6 +507,7 @@ final class WorkDetailController extends ChangeNotifier {
     final saved = await _actionsService.cropAndSaveLocalArtwork(
       work: work,
       isPoster: isPoster,
+      isPortraitBackdrop: isPortraitBackdrop,
       source: source,
       cropRect: cropRect,
     );
@@ -525,16 +527,18 @@ final class WorkDetailController extends ChangeNotifier {
     return saved;
   }
 
-  /// 持久化更新作品海报、背景或透明徽标路径。
+  /// 持久化更新作品海报、背景、竖版原画或透明徽标路径。
   Future<void> updateWorkArtwork({
     String? posterPath,
     String? backdropPath,
+    String? portraitBackdropPath,
     String? logoPath,
   }) async {
     await _actionsService.updateWorkArtwork(
       workId: workId.value,
       posterPath: posterPath,
       backdropPath: backdropPath,
+      portraitBackdropPath: portraitBackdropPath,
       logoPath: logoPath,
     );
     await load();
@@ -544,12 +548,14 @@ final class WorkDetailController extends ChangeNotifier {
   Future<Work?> resetArtworkLockToAuto({
     bool resetPoster = false,
     bool resetBackdrop = false,
+    bool resetPortraitBackdrop = false,
     bool resetLogo = false,
   }) async {
     final result = await _actionsService.resetArtworkLockToAuto(
       workId: workId.value,
       resetPoster: resetPoster,
       resetBackdrop: resetBackdrop,
+      resetPortraitBackdrop: resetPortraitBackdrop,
       resetLogo: resetLogo,
     );
     await load();
@@ -774,6 +780,36 @@ final class WorkDetailController extends ChangeNotifier {
       );
 
   /// 更新「展示单集剧照缩略图」偏好设置。
+  /// 更新是否显示标题文字。
+  Future<void> setShowTitleText(bool enabled) async {
+    _displayPreferencesStore.setShowTitleText(enabled);
+  }
+
+  /// 更新是否显示标题徽标（ClearLogo）。
+  Future<void> setShowTitleLogo(bool enabled) async {
+    _displayPreferencesStore.setShowTitleLogo(enabled);
+  }
+
+  /// 更新是否显示作品简介正文。
+  Future<void> setShowOverview(bool enabled) async {
+    _displayPreferencesStore.setShowOverview(enabled);
+  }
+
+  /// 更新是否在选集卡展示原始视频文件名。
+  Future<void> setShowRawVideoFilename(bool enabled) async {
+    _displayPreferencesStore.setShowRawVideoFilename(enabled);
+  }
+
+  /// 更新是否显示 `CD` 分类标签。
+  Future<void> setShowCdTab(bool enabled) async {
+    _displayPreferencesStore.setShowCdTab(enabled);
+  }
+
+  /// 更新是否显示 `Scan` 分类标签。
+  Future<void> setShowScanTab(bool enabled) async {
+    _displayPreferencesStore.setShowScanTab(enabled);
+  }
+
   Future<void> setShowEpisodeStillThumbnails(bool enabled) async {
     _displayPreferencesStore.setShowEpisodeStillThumbnails(enabled);
   }

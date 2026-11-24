@@ -267,5 +267,53 @@ FILE "album.flac" WAVE
       expect(engine.isCircuitBreakerTripped, isTrue);
       expect(controller.snapshot.errorMessage, contains('熔断'));
     });
+
+    test('clusterAuroraPaletteArgb 提取四象限高饱和低明度丝绒流光色点', () {
+      const width = 4;
+      const height = 4;
+      final bytes = Uint8List(width * height * 4);
+      for (var y = 0; y < height; y++) {
+        for (var x = 0; x < width; x++) {
+          final offset = (y * width + x) * 4;
+          if (y < 2 && x < 2) {
+            // 左上：鲜红。
+            bytes[offset] = 240;
+            bytes[offset + 1] = 40;
+            bytes[offset + 2] = 45;
+          } else if (y < 2 && x >= 2) {
+            // 右上：宝蓝。
+            bytes[offset] = 45;
+            bytes[offset + 1] = 110;
+            bytes[offset + 2] = 245;
+          } else if (y >= 2 && x < 2) {
+            // 左下：翡翠绿。
+            bytes[offset] = 40;
+            bytes[offset + 1] = 215;
+            bytes[offset + 2] = 110;
+          } else {
+            // 右下：紫罗兰。
+            bytes[offset] = 195;
+            bytes[offset + 1] = 55;
+            bytes[offset + 2] = 225;
+          }
+          bytes[offset + 3] = 255;
+        }
+      }
+
+      final palette = clusterAuroraPaletteArgb(bytes, width, height);
+      final qSet = <int>{
+        palette.quadrantTopLeftArgb,
+        palette.quadrantTopRightArgb,
+        palette.quadrantBottomLeftArgb,
+        palette.quadrantBottomRightArgb,
+      };
+      expect(qSet.length, 4);
+      // 基底微染色维持低明度电影感暗光域。
+      final tintR = (palette.surfaceTintArgb >> 16) & 0xFF;
+      final tintG = (palette.surfaceTintArgb >> 8) & 0xFF;
+      final tintB = palette.surfaceTintArgb & 0xFF;
+      final tintLuma = (0.299 * tintR + 0.587 * tintG + 0.114 * tintB) / 255.0;
+      expect(tintLuma, lessThan(0.22));
+    });
   });
 }

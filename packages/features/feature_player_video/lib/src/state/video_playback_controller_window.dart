@@ -191,6 +191,8 @@ extension VideoPlaybackControllerWindowAndPersistence on VideoPlaybackController
         height: height,
       );
       await env.hostWindow.setAlwaysOnTop(true);
+    } else if (env.platform != KonataPlatform.windows) {
+      await env.hostWindow.setPreferredLandscape(false);
     }
     _setState(_state.copyWith(isMiniPlayer: true, sideSheetOpen: false));
   }
@@ -204,6 +206,8 @@ extension VideoPlaybackControllerWindowAndPersistence on VideoPlaybackController
       if (enterFullscreen) {
         await env.hostWindow.setFullScreen(true);
       }
+    } else {
+      await env.hostWindow.setPreferredLandscape(true);
     }
     await env.pipRecoveryStore.clear();
     _setState(
@@ -341,6 +345,8 @@ extension VideoPlaybackControllerWindowAndPersistence on VideoPlaybackController
     if (_closing) return;
     _closing = true;
     _cancelAllTimers();
+    _currentSubtitleHudLiftPercent = 0.0;
+    _session?.setSubtitleHudLiftPercent(0.0);
     _setState(_state.copyWith(isClosing: true, isPlaying: false));
     await persistProgressNow();
     if (_state.isMiniPlayer) {

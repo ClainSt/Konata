@@ -19,6 +19,9 @@ enum WorkArtworkKind {
   /// 横版背景原画（`16:9`）。
   backdrop,
 
+  /// 竖版无字原画（`2:3` / 竖屏沉浸顶栏背景）。
+  portraitBackdrop,
+
   /// 透明标题徽标（ClearLogo）。
   logo,
 }
@@ -82,6 +85,7 @@ class _WorkArtworkPickerDialogState extends State<WorkArtworkPickerDialog> {
     _initialAppliedPath = switch (widget.kind) {
       WorkArtworkKind.poster => widget.work.posterPath?.trim(),
       WorkArtworkKind.backdrop => widget.work.backdropPath?.trim(),
+      WorkArtworkKind.portraitBackdrop => widget.work.portraitBackdropPath?.trim(),
       WorkArtworkKind.logo => widget.work.logoPath?.trim(),
     };
     _selectedPath = _initialAppliedPath;
@@ -108,6 +112,7 @@ class _WorkArtworkPickerDialogState extends State<WorkArtworkPickerDialog> {
       final list = switch (widget.kind) {
         WorkArtworkKind.poster => options.posters,
         WorkArtworkKind.backdrop => options.backdrops,
+        WorkArtworkKind.portraitBackdrop => options.portraitBackdrops,
         WorkArtworkKind.logo => options.logos,
       };
       setState(() {
@@ -126,6 +131,7 @@ class _WorkArtworkPickerDialogState extends State<WorkArtworkPickerDialog> {
     final dialogTitle = switch (widget.kind) {
       WorkArtworkKind.poster => '选择本地封面海报图片',
       WorkArtworkKind.backdrop => '选择本地背景原画图片',
+      WorkArtworkKind.portraitBackdrop => '选择本地竖版无字原画图片',
       WorkArtworkKind.logo => '选择本地透明标题徽标 (PNG/WebP)',
     };
     final picked = await widget.controller.pickLocalImageFile(
@@ -167,10 +173,14 @@ class _WorkArtworkPickerDialogState extends State<WorkArtworkPickerDialog> {
               barrierDismissible: false,
               builder: (_) => ArtworkCropDialog(
                 source: loaded,
-                isPoster: widget.kind == WorkArtworkKind.poster,
+                isPoster:
+                    widget.kind == WorkArtworkKind.poster ||
+                    widget.kind == WorkArtworkKind.portraitBackdrop,
                 onSaveCrop: (rect) async {
                   await widget.controller.cropAndSaveLocalArtwork(
                     isPoster: widget.kind == WorkArtworkKind.poster,
+                    isPortraitBackdrop:
+                        widget.kind == WorkArtworkKind.portraitBackdrop,
                     source: loaded,
                     cropRect: rect,
                   );
@@ -264,6 +274,9 @@ class _WorkArtworkPickerDialogState extends State<WorkArtworkPickerDialog> {
         WorkArtworkKind.backdrop => widget.controller.updateWorkArtwork(
           backdropPath: raw,
         ),
+        WorkArtworkKind.portraitBackdrop => widget.controller.updateWorkArtwork(
+          portraitBackdropPath: raw,
+        ),
         WorkArtworkKind.logo => widget.controller.updateWorkArtwork(
           logoPath: raw,
         ),
@@ -287,6 +300,8 @@ class _WorkArtworkPickerDialogState extends State<WorkArtworkPickerDialog> {
       await widget.controller.resetArtworkLockToAuto(
         resetPoster: widget.kind == WorkArtworkKind.poster,
         resetBackdrop: widget.kind == WorkArtworkKind.backdrop,
+        resetPortraitBackdrop:
+            widget.kind == WorkArtworkKind.portraitBackdrop,
         resetLogo: widget.kind == WorkArtworkKind.logo,
       );
       if (mounted) {
@@ -360,11 +375,14 @@ class _WorkArtworkPickerDialogState extends State<WorkArtworkPickerDialog> {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final isPoster = widget.kind == WorkArtworkKind.poster;
+    final isPoster =
+        widget.kind == WorkArtworkKind.poster ||
+        widget.kind == WorkArtworkKind.portraitBackdrop;
     final isLogo = widget.kind == WorkArtworkKind.logo;
     final isLocked = switch (widget.kind) {
       WorkArtworkKind.poster => widget.work.posterLocked,
       WorkArtworkKind.backdrop => widget.work.backdropLocked,
+      WorkArtworkKind.portraitBackdrop => widget.work.portraitBackdropLocked,
       WorkArtworkKind.logo => widget.work.logoLocked,
     };
     final canResetToAuto =
@@ -388,6 +406,7 @@ class _WorkArtworkPickerDialogState extends State<WorkArtworkPickerDialog> {
     final dialogTitle = switch (widget.kind) {
       WorkArtworkKind.poster => '编辑作品封面海报',
       WorkArtworkKind.backdrop => '编辑作品背景原画',
+      WorkArtworkKind.portraitBackdrop => '编辑竖版无字原画',
       WorkArtworkKind.logo => '编辑作品标题徽标',
     };
 
@@ -722,7 +741,9 @@ class _ArtworkGridTileState extends State<_ArtworkGridTile> {
     final option = widget.option;
     final selected = widget.selected;
     final isLogo = widget.kind == WorkArtworkKind.logo;
-    final isPoster = widget.kind == WorkArtworkKind.poster;
+    final isPoster =
+        widget.kind == WorkArtworkKind.poster ||
+        widget.kind == WorkArtworkKind.portraitBackdrop;
     final previewUrl = option.previewPath?.trim().isNotEmpty == true
         ? option.previewPath!.trim()
         : option.filePath;

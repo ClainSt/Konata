@@ -103,7 +103,7 @@ class _DetailFullListDialogState extends State<DetailFullListDialog> {
                   showSeriesSharedBadge: b.seriesMembers.length >= 2,
                   directSubdirLabel: subdirHints[v.id],
                   showRawFileName:
-                      widget.displayPreferences.showOriginalSubtitlesOnCards,
+                      widget.displayPreferences.showRawVideoFilename,
                   onDarkBackdrop: context.palette.isDark,
                   onTap: () {
                     Navigator.of(context).pop();
@@ -142,7 +142,7 @@ class _DetailFullListDialogState extends State<DetailFullListDialog> {
                 showStillThumbnail:
                     widget.displayPreferences.showEpisodeStillThumbnails,
                 showOriginalFileName:
-                    widget.displayPreferences.showOriginalSubtitlesOnCards,
+                    widget.displayPreferences.showRawVideoFilename,
                 workBackdropFallbackPath: b.effectiveHeroBackdropPath,
                 workPosterFallbackPath:
                     b.work.posterPath ?? b.work.bangumiPosterPath,

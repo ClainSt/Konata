@@ -193,6 +193,7 @@ final class DetailWorkActionsService {
       posterFallback: existing.posterFallback,
       bangumiPosterPath: existing.bangumiPosterPath,
       backdropPath: existing.backdropPath,
+      portraitBackdropPath: existing.portraitBackdropPath,
       logoPath: existing.logoPath,
       voteAverage: existing.voteAverage,
       bangumiScore: existing.bangumiScore,
@@ -201,12 +202,14 @@ final class DetailWorkActionsService {
       metadataLocked: nextLocked,
       posterLocked: existing.posterLocked,
       backdropLocked: existing.backdropLocked,
+      portraitBackdropLocked: existing.portraitBackdropLocked,
       logoLocked: existing.logoLocked,
       logoNegativeUntil: existing.logoNegativeUntil,
       logoNegativeMask: existing.logoNegativeMask,
       isHidden: existing.isHidden,
       keepHidden: existing.keepHidden,
       scrapeStatus: existing.scrapeStatus,
+      reviewReason: existing.reviewReason,
       seriesId: existing.seriesId,
       seriesOrder: existing.seriesOrder,
       seriesLabel: existing.seriesLabel,
@@ -297,10 +300,11 @@ final class DetailWorkActionsService {
     return LocalArtworkCropper.loadFromFilePath(filePath);
   }
 
-  /// 裁切本地自定义图片并原子保存至受管图库目录，同时更新作品封面或背景与锁定状态。
+  /// 裁切本地自定义图片并原子保存至受管图库目录，同时更新作品封面、背景或竖版原画与锁定状态。
   Future<String> cropAndSaveLocalArtwork({
     required Work work,
     required bool isPoster,
+    bool isPortraitBackdrop = false,
     required LoadedLocalArtwork source,
     required ArtworkNormalizedCropRect cropRect,
   }) async {
@@ -308,14 +312,18 @@ final class DetailWorkActionsService {
       photosStorage: _photosStorage,
       workId: work.id,
       workTitle: work.title,
-      isPoster: isPoster,
+      isPoster: isPoster || isPortraitBackdrop,
+      subfolder: (isPoster || isPortraitBackdrop)
+          ? PhotoSubfolder.posters
+          : PhotoSubfolder.backdrops,
       source: source,
       cropRect: cropRect,
     );
     await updateWorkArtwork(
       workId: work.id,
-      posterPath: isPoster ? saved.path : null,
-      backdropPath: isPoster ? null : saved.path,
+      posterPath: isPoster && !isPortraitBackdrop ? saved.path : null,
+      backdropPath: (!isPoster && !isPortraitBackdrop) ? saved.path : null,
+      portraitBackdropPath: isPortraitBackdrop ? saved.path : null,
     );
     return saved.path;
   }
@@ -346,29 +354,39 @@ final class DetailWorkActionsService {
     return trimmed;
   }
 
-  /// 替换作品海报、背景图或透明标题徽标路径并持久化锁定。
+  /// 替换作品海报、背景图、竖版原画或透明标题徽标路径并持久化锁定。
   Future<void> updateWorkArtwork({
     required String workId,
     String? posterPath,
     String? backdropPath,
+    String? portraitBackdropPath,
     String? logoPath,
   }) async {
     final existing = await _repository.findWorkById(workId);
     if (existing == null) return;
     final normalizedPoster = normalizeArtworkPathForPersist(posterPath);
     final normalizedBackdrop = normalizeArtworkPathForPersist(backdropPath);
+    final normalizedPortraitBackdrop = normalizeArtworkPathForPersist(
+      portraitBackdropPath,
+    );
     final normalizedLogo = normalizeArtworkPathForPersist(logoPath);
     final lockPoster = normalizedPoster != null ? true : existing.posterLocked;
     final lockBackdrop = normalizedBackdrop != null
         ? true
         : existing.backdropLocked;
+    final lockPortraitBackdrop = normalizedPortraitBackdrop != null
+        ? true
+        : existing.portraitBackdropLocked;
     final lockLogo = normalizedLogo != null ? true : existing.logoLocked;
     final next = existing.copyWith(
       posterPath: normalizedPoster ?? existing.posterPath,
       backdropPath: normalizedBackdrop ?? existing.backdropPath,
+      portraitBackdropPath:
+          normalizedPortraitBackdrop ?? existing.portraitBackdropPath,
       logoPath: normalizedLogo ?? existing.logoPath,
       posterLocked: lockPoster,
       backdropLocked: lockBackdrop,
+      portraitBackdropLocked: lockPortraitBackdrop,
       logoLocked: lockLogo,
       clearLogoNegative: normalizedLogo != null,
       isManualLocked: true,
@@ -391,6 +409,7 @@ final class DetailWorkActionsService {
             existing.tmdbId != null ||
             existing.posterLocked ||
             existing.backdropLocked ||
+            existing.portraitBackdropLocked ||
             existing.logoLocked ||
             hasAnyMappingLock,
       ),
@@ -409,17 +428,21 @@ final class DetailWorkActionsService {
     return _repository.findWorkById(workId);
   }
 
-  /// 解除海报、背景图或透明标题徽标锁定，并在具备条目 ID 时恢复自动抓取。
+  /// 解除海报、背景图、竖版原画或透明标题徽标锁定，并在具备条目 ID 时恢复自动抓取。
   Future<Work?> resetArtworkLockToAuto({
     required String workId,
     bool resetPoster = false,
     bool resetBackdrop = false,
+    bool resetPortraitBackdrop = false,
     bool resetLogo = false,
   }) async {
     final existing = await _repository.findWorkById(workId);
     if (existing == null) return null;
     final nextPosterLocked = resetPoster ? false : existing.posterLocked;
     final nextBackdropLocked = resetBackdrop ? false : existing.backdropLocked;
+    final nextPortraitBackdropLocked = resetPortraitBackdrop
+        ? false
+        : existing.portraitBackdropLocked;
     final nextLogoLocked = resetLogo ? false : existing.logoLocked;
     final variants = await _repository.getVariantsByWork(workId);
     final hasAnyMappingLock = variants.any((v) => v.mappingLocked);
@@ -427,6 +450,8 @@ final class DetailWorkActionsService {
       existing.copyWith(
         posterLocked: nextPosterLocked,
         backdropLocked: nextBackdropLocked,
+        portraitBackdropLocked: nextPortraitBackdropLocked,
+        clearPortraitBackdropPath: resetPortraitBackdrop,
         logoLocked: nextLogoLocked,
         clearLogoPath: resetLogo,
         clearLogoNegative: resetLogo,
@@ -435,13 +460,17 @@ final class DetailWorkActionsService {
             existing.metadataLocked ||
             nextPosterLocked ||
             nextBackdropLocked ||
+            nextPortraitBackdropLocked ||
             nextLogoLocked ||
             hasAnyMappingLock,
       ),
     );
     if (existing.tmdbId != null && existing.tmdbMediaType != null) {
       final Work? result;
-      if (resetLogo && !resetPoster && !resetBackdrop) {
+      if (resetLogo &&
+          !resetPoster &&
+          !resetBackdrop &&
+          !resetPortraitBackdrop) {
         result = await _scrapePipeline.autoBindOrBackfillWorkTmdb(
           workId,
           interactive: true,

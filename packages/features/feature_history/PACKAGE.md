@@ -1,8 +1,18 @@
-# feature_history
+# `feature_history`
 
-Konata v3 日记式播放记录时间轴与断点续播入口业务包。
+Konata 日记式播放记录时间轴业务包，向宿主贡献主导航「播放记录」入口并支持三端自适应展示。
 
-## 职责边界
+## 公开出口
 
-- 仅依赖 `flutter/widgets.dart`、`konata_design_system`、`konata_contracts`、`konata_storage`、`engine_playback`，严禁横向依赖其他 Feature 或直引 `material.dart`/`material_ui`。
-- 通过 `FeatureManifest` 注册顶层 `history` 导航分区（权重 `30`），通过 `AppNavigator` 跳转详情或续播，删除记录仅写软删除墓碑不碰物理媒体文件。
+统一从 `package:feature_history/feature_history.dart` 导入，禁止跨包引用 `src/` 内部路径：
+
+- 依赖与清单：`FeatureHistoryDependencies`、`featureHistoryDependenciesProvider`、`featureHistoryManifest`
+- 状态与分组：`HistoryController`、`historyControllerProvider`、`HistoryTimelineGrouper` 与时间轴视图模型
+- 界面组件：`PlaybackHistoryPage`、`HistoryDaySectionView`、`HistoryWorkTimelineCard`
+
+## 核心职责与边界
+
+- **自然日分组与折叠聚合**：按本地自然日（`今天` / `昨天` / `YYYY.MM.DD`）与作品二级聚合，支持视频与音频筛选及关键字搜索。
+- **跨包路由导航**：点击续播或查看详情全部经 `AppNavigator` 路由分发，不直接依赖播放器包或详情包。
+- **同步墓碑删除**：单条删除、整组删除与清空全部仅调用 `PlaybackRecordDao.softDelete` / `clearAll` 写入软删除墓碑，绝不触碰任何物理媒体文件。
+- **状态零 Riverpod**：`lib/src/data/` 与 `lib/src/state/` 不引入 `flutter_riverpod`，UI 仅使用 `konata_design_system` 与 Flutter 基础库。

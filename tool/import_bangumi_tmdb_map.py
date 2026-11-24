@@ -29,9 +29,20 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-WIKIDATA_DART = ROOT / 'lib' / 'domain' / 'scraping' / 'bangumi_tmdb_map.dart'
-DEFAULT_OUT_BIN = ROOT / 'assets' / 'data' / 'bangumi_tmdb_map.bin'
-DEFAULT_OUT_MANIFEST = ROOT / 'assets' / 'data' / 'bangumi_tmdb_manifest.json'
+WIKIDATA_DART = (
+    ROOT
+    / 'packages'
+    / 'engines'
+    / 'engine_scraping'
+    / 'lib'
+    / 'src'
+    / 'scraping'
+    / 'bangumi_tmdb_map.dart'
+)
+DEFAULT_OUT_BIN = ROOT / 'apps' / 'konata' / 'assets' / 'data' / 'bangumi_tmdb_map.bin'
+DEFAULT_OUT_MANIFEST = (
+    ROOT / 'apps' / 'konata' / 'assets' / 'data' / 'bangumi_tmdb_manifest.json'
+)
 
 BINARY_MAGIC = b'KTBM'
 FORMAT_VERSION_V1 = 1

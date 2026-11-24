@@ -56,4 +56,8 @@ abstract final class ReleaseGroups {{
 
 if __name__ == '__main__':
     root = Path(__file__).resolve().parents[1]
-    generate(Path(sys.argv[1]), root / 'lib/core/release_groups.dart')
+    generate(
+        Path(sys.argv[1]),
+        root
+        / 'packages/engines/engine_scraping/lib/src/parsing/release_groups.dart',
+    )

@@ -1,4 +1,16 @@
-/// Konata v3 跨设备分片同步与本地备份恢复业务包唯一公开出口。
-///
-/// 严禁跨包导入本包内部路径；所有调用方统一导入本文件。
+/// Konata 跨设备同步与本地 `.konata` 选择性备份特性包公开导出入口。
 library;
+
+export 'src/data/konata_backup_service.dart';
+export 'src/data/library_catalog_sync_slice.dart';
+export 'src/data/playback_history_sync_slice.dart';
+export 'src/data/prefs_sync_slice.dart';
+export 'src/data/sync_device_store.dart';
+export 'src/data/sync_models.dart';
+export 'src/data/webdav_sync_config_repository.dart';
+export 'src/data/webdav_sync_transport.dart';
+export 'src/manifest.dart';
+export 'src/providers.dart';
+export 'src/state/sync_backup_controller.dart';
+export 'src/state/webdav_sync_coordinator.dart';
+export 'src/ui/settings_backup_sync_panel.dart';

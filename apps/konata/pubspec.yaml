@@ -18,9 +18,16 @@ dependencies:
   engine_scraping:
   engine_sources:
   feature_detail:
+  feature_history:
   feature_library:
+  feature_lyrics:
+  feature_player_audio:
+  feature_player_video:
   feature_scan_viewer:
+  feature_settings:
   feature_sources:
+  feature_sync:
+  feature_tracker_sync:
   konata_contracts:
   konata_design_system:
   konata_storage:

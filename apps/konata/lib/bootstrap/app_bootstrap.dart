@@ -1,10 +1,7 @@
 import 'dart:async';
 
+import 'package:engine_playback/engine_playback.dart';
 import 'package:engine_sources/engine_sources.dart';
-import 'package:feature_detail/feature_detail.dart';
-import 'package:feature_library/feature_library.dart';
-import 'package:feature_scan_viewer/feature_scan_viewer.dart';
-import 'package:feature_sources/feature_sources.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
@@ -95,7 +92,8 @@ final class HostAppNavigator implements AppNavigator {
   HostAppNavigator({
     required this.navigatorKey,
     required this.onSwitchNavSection,
-    this.onOpenPlaybackPlaceholder,
+    this.onAudioStageVisibilityChanged,
+    this.onShowMessage,
   });
 
   /// 顶层原生路由导航键。
@@ -104,8 +102,11 @@ final class HostAppNavigator implements AppNavigator {
   /// 切换顶层主导航分区回调。
   final void Function(String sectionId) onSwitchNavSection;
 
-  /// 音视频舞台未就绪时的友好提示回调（Phase 4 接入全屏音视频舞台时替换）。
-  final void Function(String message)? onOpenPlaybackPlaceholder;
+  /// 全屏音频舞台显隐变化回调（用于全屏展示时隐藏悬浮迷你唱片）。
+  final ValueChanged<bool>? onAudioStageVisibilityChanged;
+
+  /// 宿主轻提示回调。
+  final void Function(String message)? onShowMessage;
 
   @override
   Future<void> switchNavSection(String sectionId) async {
@@ -122,7 +123,7 @@ final class HostAppNavigator implements AppNavigator {
     if (nav == null) return;
     await nav.push<void>(
       CupertinoPageRoute<void>(
-        builder: (_) => WorkDetailPage(
+        builder: (_) => buildWorkDetailRoutePage(
           workId: workId,
           initialTabId: initialTabId,
         ),
@@ -136,7 +137,17 @@ final class HostAppNavigator implements AppNavigator {
     EpisodeId? episodeId,
     VariantId? variantId,
   }) async {
-    onOpenPlaybackPlaceholder?.call('视频播放舞台将在下一阶段接入');
+    final nav = navigatorKey.currentState;
+    if (nav == null) return;
+    await nav.push<void>(
+      CupertinoPageRoute<void>(
+        builder: (_) => buildVideoPlayerRoutePage(
+          workId: workId,
+          episodeId: episodeId,
+          variantId: variantId,
+        ),
+      ),
+    );
   }
 
   @override
@@ -144,7 +155,24 @@ final class HostAppNavigator implements AppNavigator {
     required WorkId workId,
     VariantId? variantId,
   }) async {
-    onOpenPlaybackPlaceholder?.call('音频播放舞台将在下一阶段接入');
+    final nav = navigatorKey.currentState;
+    if (nav == null) return;
+    onAudioStageVisibilityChanged?.call(true);
+    try {
+      await nav.push<void>(
+        CupertinoPageRoute<void>(
+          builder: (_) => buildAudioPlayerRoutePage(
+            workId: workId,
+            variantId: variantId,
+            onClosePage: () {
+              unawaited(pop());
+            },
+          ),
+        ),
+      );
+    } finally {
+      onAudioStageVisibilityChanged?.call(false);
+    }
   }
 
   @override
@@ -174,13 +202,24 @@ final class KonataBootstrapContext {
     required this.domainEventBus,
     required this.featureRegistry,
     required this.filePicker,
+    required this.backupFilePort,
     required this.urlOpener,
     required this.httpClient,
+    required this.webDavPool,
     required this.gatewayFactory,
     required this.streamBridge,
+    required this.subtitleDirectoryIndex,
     required this.warmupService,
     required this.photosStorage,
     required this.artworkCache,
+    required this.playbackEngine,
+    required this.audiophileCoordinator,
+    required this.hostWindow,
+    this.desktopSurfaceBridge,
+    this.androidSurfacePort,
+    this.androidAudioRoutePort,
+    this.androidMediaSessionPort,
+    this.mediaStorePublisher,
     this.autoStartDetailWarmupAndBackfill = true,
     this.customScanStreamOpener,
   });
@@ -212,17 +251,26 @@ final class KonataBootstrapContext {
   /// 跨端系统文件与目录选择器端口。
   final FilePickerPort filePicker;
 
+  /// 跨端备份与诊断报告文件存取端口。
+  final BackupFilePort backupFilePort;
+
   /// 跨端外部链接打开端口。
   final UrlOpenerPort urlOpener;
 
   /// 统一网络客户端实例。
   final KonataHttpClientPort httpClient;
 
+  /// 共享 WebDAV 连接池。
+  final WebDavConnectionPool webDavPool;
+
   /// 只读媒体源网关工厂。
   final MediaSourceGatewayFactory gatewayFactory;
 
   /// 本地安全回环流网桥。
   final LocalStreamBridge streamBridge;
+
+  /// 同级字幕目录预热索引。
+  final SubtitleDirectoryIndex subtitleDirectoryIndex;
 
   /// 详情页同级字幕与连接池静默预热服务。
   final WorkDetailWarmupService warmupService;
@@ -233,26 +281,88 @@ final class KonataBootstrapContext {
   /// 有界图片磁盘与内存缓存。
   final ArtworkDiskCache artworkCache;
 
+  /// 统一四维代数播放协调内核。
+  final UnifiedPlaybackEngine playbackEngine;
+
+  /// 发烧音频安全链协调器。
+  final AudiophileSafetyCoordinator audiophileCoordinator;
+
+  /// 宿主窗口全屏与置顶控制端口。
+  final PlaybackHostWindowPort hostWindow;
+
+  /// 桌面端 D3D11 视频纹理共享桥接器（仅 Windows 注入）。
+  final KonataVideoTextureBridge? desktopSurfaceBridge;
+
+  /// 移动端底层视频表面控制器（仅 Android 注入）。
+  final AndroidVideoSurfacePort? androidSurfacePort;
+
+  /// 移动端音频路由与 USB DAC 直通协商端口（仅 Android 注入）。
+  final AndroidAudioRoutePort? androidAudioRoutePort;
+
+  /// 移动端系统通知栏媒体会话桥接器（仅 Android 注入）。
+  final AndroidMediaSessionPort? androidMediaSessionPort;
+
+  /// 移动端相册发布端口（仅 Android 注入）。
+  final MediaStorePublisherPort? mediaStorePublisher;
+
   /// 进入详情页后是否自动触发静默预热与正片缺失剧照抽帧补图。
   final bool autoStartDetailWarmupAndBackfill;
 
   /// 可选自定义扫图原图流读取器（供离线端到端集成测试注入）。
-  final ScanSourceStreamOpener? customScanStreamOpener;
+  final Object? customScanStreamOpener;
 
-  /// 释放启动上下文托管的引擎与数据库资源。
+  /// 释放启动上下文托管的引擎、原生桥接与数据库资源。
   Future<void> dispose() async {
+    audiophileCoordinator.dispose();
+    await desktopSurfaceBridge?.dispose();
+    await androidSurfacePort?.dispose();
+    androidAudioRoutePort?.dispose();
+    androidMediaSessionPort?.dispose();
     httpClient.close();
     await streamBridge.close();
     await domainEventBus.dispose();
     await databases.close();
   }
 
-  /// 生成顶层依赖注入覆写列表（将宿主导航、引擎与扩展点按包注入各业务模块）。
+  /// 生成顶层依赖注入覆写列表（将宿主底座、引擎与全部已注册业务模块装配至根容器）。
   List<Override> toProviderOverrides({
     required AppNavigator navigator,
+    ValueChanged<ThemeMode>? onThemeModeChanged,
+    ValueChanged<bool>? onAmbientBackdropChanged,
   }) {
-    final detailTabs = featureRegistry.detailTabsFor(platform);
-    final detailActions = featureRegistry.detailActionsFor(platform);
+    final wiring = FeatureRuntimeWiring(
+      platform: platform,
+      databases: databases,
+      storageRoot: storageRoot,
+      secureStorage: secureStorage,
+      diagnosticLog: diagnosticLog,
+      scopedPrefs: scopedPrefs,
+      domainEventBus: domainEventBus,
+      featureRegistry: featureRegistry,
+      navigator: navigator,
+      filePicker: filePicker,
+      backupFilePort: backupFilePort,
+      urlOpener: urlOpener,
+      httpClient: httpClient,
+      webDavPool: webDavPool,
+      gatewayFactory: gatewayFactory,
+      streamBridge: streamBridge,
+      subtitleDirectoryIndex: subtitleDirectoryIndex,
+      warmupService: warmupService,
+      photosStorage: photosStorage,
+      artworkCache: artworkCache,
+      playbackEngine: playbackEngine,
+      audiophileCoordinator: audiophileCoordinator,
+      hostWindow: hostWindow,
+      desktopSurfaceBridge: desktopSurfaceBridge,
+      androidSurfacePort: androidSurfacePort,
+      androidMediaSessionPort: androidMediaSessionPort,
+      mediaStorePublisher: mediaStorePublisher,
+      autoStartDetailWarmupAndBackfill: autoStartDetailWarmupAndBackfill,
+      customScanStreamOpener: customScanStreamOpener,
+      onThemeModeChanged: onThemeModeChanged,
+      onAmbientBackdropChanged: onAmbientBackdropChanged,
+    );
     return <Override>[
       konataPlatformProvider.overrideWithValue(platform),
       storageRootPortProvider.overrideWithValue(storageRoot),
@@ -263,71 +373,7 @@ final class KonataBootstrapContext {
       domainEventBusProvider.overrideWithValue(domainEventBus),
       featureRegistryProvider.overrideWithValue(featureRegistry),
       appNavigatorProvider.overrideWithValue(navigator),
-      featureSourcesDependenciesProvider.overrideWithValue(
-        FeatureSourcesDependencies(
-          databases: databases,
-          storageRoot: storageRoot,
-          secureStorage: secureStorage,
-          diagnosticLog: diagnosticLog,
-          scopedPrefs: scopedPrefs,
-          domainEventBus: domainEventBus,
-          navigator: navigator,
-          filePicker: filePicker,
-          httpClient: httpClient,
-          gatewayFactory: gatewayFactory,
-          photosStorage: photosStorage,
-          platform: platform,
-        ),
-      ),
-      featureLibraryDependenciesProvider.overrideWithValue(
-        FeatureLibraryDependencies(
-          databases: databases,
-          storageRoot: storageRoot,
-          diagnosticLog: diagnosticLog,
-          scopedPrefs: scopedPrefs,
-          domainEventBus: domainEventBus,
-          navigator: navigator,
-          httpClient: httpClient,
-          photosStorage: photosStorage,
-          artworkCache: artworkCache,
-          platform: platform,
-        ),
-      ),
-      featureDetailDependenciesProvider.overrideWithValue(
-        FeatureDetailDependencies(
-          databases: databases,
-          storageRoot: storageRoot,
-          diagnosticLog: diagnosticLog,
-          scopedPrefs: scopedPrefs,
-          domainEventBus: domainEventBus,
-          navigator: navigator,
-          filePicker: filePicker,
-          urlOpener: urlOpener,
-          httpClient: httpClient,
-          gatewayFactory: gatewayFactory,
-          streamBridge: streamBridge,
-          warmupService: warmupService,
-          photosStorage: photosStorage,
-          artworkCache: artworkCache,
-          platform: platform,
-          detailTabs: detailTabs,
-          detailActions: detailActions,
-          autoStartWarmupAndBackfill: autoStartDetailWarmupAndBackfill,
-        ),
-      ),
-      featureScanViewerDependenciesProvider.overrideWithValue(
-        FeatureScanViewerDependencies(
-          databases: databases,
-          storageRoot: storageRoot,
-          diagnosticLog: diagnosticLog,
-          scopedPrefs: scopedPrefs,
-          gatewayFactory: gatewayFactory,
-          photosStorage: photosStorage,
-          platform: platform,
-          customStreamOpener: customScanStreamOpener,
-          urlOpener: urlOpener,
-        ),
-      ),
+      ...buildFeatureProviderOverrides(wiring),
     ];
   }
 
@@ -338,11 +384,18 @@ final class KonataBootstrapContext {
     required SecureStoragePort secureStorage,
     FeatureRegistry? featureRegistry,
     FilePickerPort? filePicker,
+    BackupFilePort? backupFilePort,
     UrlOpenerPort? urlOpener,
     KonataHttpClientPort? httpClient,
+    PlaybackHostWindowPort? hostWindow,
+    KonataVideoTextureBridge? desktopSurfaceBridge,
+    AndroidVideoSurfacePort? androidSurfacePort,
+    AndroidAudioRoutePort? androidAudioRoutePort,
+    AndroidMediaSessionPort? androidMediaSessionPort,
+    MediaStorePublisherPort? mediaStorePublisher,
     bool useInMemoryDatabases = false,
     bool autoStartDetailWarmupAndBackfill = true,
-    ScanSourceStreamOpener? customScanStreamOpener,
+    Object? customScanStreamOpener,
   }) async {
     final diagnosticLog = DiagnosticLogStore();
     final databases = useInMemoryDatabases
@@ -350,7 +403,6 @@ final class KonataBootstrapContext {
         : await KonataDatabaseBundle.openFromStorageRoot(storageRoot);
     final scopedPrefs = ScopedPrefsStore(databases.userState);
     final eventBus = InMemoryDomainEventBus();
-    final registry = featureRegistry ?? FeatureRegistry.forDatabases(databases);
     final rootPath = await storageRoot.resolveAppRootPath();
 
     final resolvedHttpClient =
@@ -359,6 +411,13 @@ final class KonataBootstrapContext {
           config: const KonataNetworkConfig(),
           diagnosticLog: diagnosticLog,
         );
+    final registry =
+        featureRegistry ??
+        FeatureRegistry.forRuntime(
+          databases: databases,
+          scopedPrefs: scopedPrefs,
+          httpClient: resolvedHttpClient,
+        );
     final credentialStore = SourceCredentialStore(storage: secureStorage);
     final webDavPool = WebDavConnectionPool();
     final gatewayFactory = MediaSourceGatewayFactory(
@@ -366,9 +425,10 @@ final class KonataBootstrapContext {
       webDavPool: webDavPool,
     );
     final streamBridge = LocalStreamBridge(storageRoot: storageRoot);
+    final subtitleDirectoryIndex = SubtitleDirectoryIndex();
     final warmupService = WorkDetailWarmupService(
       gatewayFactory: gatewayFactory,
-      directoryIndex: SubtitleDirectoryIndex(),
+      directoryIndex: subtitleDirectoryIndex,
     );
     final photosStorage = PhotosStorage(
       storageRoot: storageRoot,
@@ -381,6 +441,15 @@ final class KonataBootstrapContext {
       },
     );
     final artworkCache = ArtworkDiskCache(photosStorage: photosStorage);
+    final playbackEngine = UnifiedPlaybackEngine();
+    final audiophileCoordinator = AudiophileSafetyCoordinator(
+      engine: playbackEngine,
+      logStore: diagnosticLog,
+      androidRouteBridge: androidAudioRoutePort,
+      isWindowsOverride: platform == KonataPlatform.windows,
+      isAndroidOverride: platform != KonataPlatform.windows,
+    );
+    const defaultPicker = HostFilePickerAdapter();
 
     diagnosticLog.registerSnapshotContributor(
       'bootstrap',
@@ -398,7 +467,7 @@ final class KonataBootstrapContext {
     diagnosticLog.logEvent(
       subsystem: DiagnosticSubsystem.app,
       code: 'APP_BOOTSTRAP_READY',
-      message: 'Konata v3 底座与核心引擎初始化完成',
+      message: 'Konata v3 底座、引擎与全部业务模块初始化完成',
       source: 'apps/konata/lib/bootstrap/app_bootstrap.dart:initialize',
       context: <String, Object?>{
         'platform': platform.name,
@@ -416,19 +485,46 @@ final class KonataBootstrapContext {
       scopedPrefs: scopedPrefs,
       domainEventBus: eventBus,
       featureRegistry: registry,
-      filePicker: filePicker ?? const HostFilePickerAdapter(),
+      filePicker: filePicker ?? defaultPicker,
+      backupFilePort: backupFilePort ?? defaultPicker,
       urlOpener: urlOpener ?? const HostUrlOpenerAdapter(),
       httpClient: resolvedHttpClient,
+      webDavPool: webDavPool,
       gatewayFactory: gatewayFactory,
       streamBridge: streamBridge,
+      subtitleDirectoryIndex: subtitleDirectoryIndex,
       warmupService: warmupService,
       photosStorage: photosStorage,
       artworkCache: artworkCache,
+      playbackEngine: playbackEngine,
+      audiophileCoordinator: audiophileCoordinator,
+      hostWindow: hostWindow ?? const NoopPlaybackHostWindowPort(),
+      desktopSurfaceBridge: desktopSurfaceBridge,
+      androidSurfacePort: androidSurfacePort,
+      androidAudioRoutePort: androidAudioRoutePort,
+      androidMediaSessionPort: androidMediaSessionPort,
+      mediaStorePublisher: mediaStorePublisher,
       autoStartDetailWarmupAndBackfill: autoStartDetailWarmupAndBackfill,
       customScanStreamOpener: customScanStreamOpener,
     );
   }
 }
+
+final TypedPrefsSlice<ThemeMode> _hostThemeModeSlice =
+    TypedPrefsSlice<ThemeMode>(
+      namespace: 'feature_settings.appearance',
+      schemaVersion: 1,
+      syncPolicy: SyncPolicy.portable,
+      defaultValue: ThemeMode.dark,
+      decode: (json, _) {
+        final raw = (json['themeMode'] ?? '').toString().trim();
+        return ThemeMode.values.firstWhere(
+          (mode) => mode.name == raw,
+          orElse: () => ThemeMode.dark,
+        );
+      },
+      encode: (mode) => <String, Object?>{'themeMode': mode.name},
+    );
 
 /// Konata v3 双端极薄组装根组件（挂载三端同源主题、自适应外壳、声明式扩展点与原生导航）。
 final class KonataBootstrapApp extends StatefulWidget {
@@ -453,17 +549,25 @@ final class _KonataBootstrapAppState extends State<KonataBootstrapApp> {
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   final ValueNotifier<String> _requestedSectionId = ValueNotifier<String>('');
   final ValueNotifier<String> _pendingToast = ValueNotifier<String>('');
+  final ValueNotifier<bool> _audioStageOpen = ValueNotifier<bool>(false);
+  late final ValueNotifier<ThemeMode> _themeModeNotifier;
   late final HostAppNavigator _navigator;
 
   @override
   void initState() {
     super.initState();
+    _themeModeNotifier = ValueNotifier<ThemeMode>(
+      widget.bootstrap.scopedPrefs.read(_hostThemeModeSlice),
+    );
     _navigator = HostAppNavigator(
       navigatorKey: _navigatorKey,
       onSwitchNavSection: (sectionId) {
         _requestedSectionId.value = sectionId;
       },
-      onOpenPlaybackPlaceholder: (message) {
+      onAudioStageVisibilityChanged: (opened) {
+        _audioStageOpen.value = opened;
+      },
+      onShowMessage: (message) {
         _pendingToast.value = message;
       },
     );
@@ -473,18 +577,27 @@ final class _KonataBootstrapAppState extends State<KonataBootstrapApp> {
   void dispose() {
     _requestedSectionId.dispose();
     _pendingToast.dispose();
+    _audioStageOpen.dispose();
+    _themeModeNotifier.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return ProviderScope(
-      overrides: widget.bootstrap.toProviderOverrides(navigator: _navigator),
+      overrides: widget.bootstrap.toProviderOverrides(
+        navigator: _navigator,
+        onThemeModeChanged: (mode) {
+          _themeModeNotifier.value = mode;
+        },
+      ),
       child: _KonataBootstrapRoot(
         platformLabel: widget.platformLabel,
         navigatorKey: _navigatorKey,
         requestedSectionId: _requestedSectionId,
         pendingToast: _pendingToast,
+        audioStageOpen: _audioStageOpen,
+        themeModeNotifier: _themeModeNotifier,
       ),
     );
   }
@@ -496,12 +609,16 @@ final class _KonataBootstrapRoot extends ConsumerStatefulWidget {
     required this.navigatorKey,
     required this.requestedSectionId,
     required this.pendingToast,
+    required this.audioStageOpen,
+    required this.themeModeNotifier,
   });
 
   final String platformLabel;
   final GlobalKey<NavigatorState> navigatorKey;
   final ValueNotifier<String> requestedSectionId;
   final ValueNotifier<String> pendingToast;
+  final ValueNotifier<bool> audioStageOpen;
+  final ValueNotifier<ThemeMode> themeModeNotifier;
 
   @override
   ConsumerState<_KonataBootstrapRoot> createState() =>
@@ -513,7 +630,6 @@ final class _KonataBootstrapRootState
   final ValueNotifier<bool> _windowLiveResizing = ValueNotifier<bool>(false);
   late final ThemeData _darkTheme = KonataTheme.darkTheme();
   late final ThemeData _lightTheme = KonataTheme.lightTheme();
-  ThemeMode _themeMode = ThemeMode.dark;
   int _selectedIndex = 0;
   String _searchQuery = '';
 
@@ -551,11 +667,11 @@ final class _KonataBootstrapRootState
   }
 
   void _toggleTheme() {
-    setState(() {
-      _themeMode = _themeMode == ThemeMode.dark
-          ? ThemeMode.light
-          : ThemeMode.dark;
-    });
+    final nextMode = widget.themeModeNotifier.value == ThemeMode.dark
+        ? ThemeMode.light
+        : ThemeMode.dark;
+    widget.themeModeNotifier.value = nextMode;
+    ref.read(scopedPrefsStoreProvider).write(_hostThemeModeSlice, nextMode);
   }
 
   List<_ShellNavEntry> _resolveNavEntries() {
@@ -592,7 +708,10 @@ final class _KonataBootstrapRootState
     final toastController = ref.watch(toastControllerProvider);
     final modalRegistry = ref.watch(modalLayerRegistryProvider);
     final registry = ref.watch(featureRegistryProvider);
+    final platform = ref.watch(konataPlatformProvider);
     final databases = ref.watch(databaseBundleProvider);
+    activateRegisteredFeatureServices(ref, registry);
+
     final lane = KonataLaneConfig.resolveLane();
     final title = lane.isEmpty
         ? 'Konata v3 (${widget.platformLabel})'
@@ -603,6 +722,7 @@ final class _KonataBootstrapRootState
         ? 0
         : _selectedIndex.clamp(0, navEntries.length - 1);
     final libraryIndex = navEntries.indexWhere((e) => e.id == 'library');
+    final hasAudioFeature = registry.containsFeature('feature_player_audio');
 
     return KonataWindowResizeScope(
       resizingListenable: _windowLiveResizing,
@@ -610,64 +730,101 @@ final class _KonataBootstrapRootState
         registry: modalRegistry,
         child: KonataToastScope(
           controller: toastController,
-          child: MaterialApp(
-            navigatorKey: widget.navigatorKey,
-            debugShowCheckedModeBanner: false,
-            title: KonataLaneConfig.resolveDesktopWindowTitle(),
-            locale: const Locale('zh', 'CN'),
-            supportedLocales: const <Locale>[Locale('zh', 'CN')],
-            localizationsDelegates: GlobalMaterialLocalizations.delegates,
-            theme: _lightTheme,
-            darkTheme: _darkTheme,
-            themeMode: _themeMode,
-            builder: (context, child) => Stack(
-              children: <Widget>[
-                ?child,
-                const KonataToastViewport(),
-              ],
-            ),
-            home: KonataAdaptiveShell(
-              navItems: <KonataNavItem>[
-                for (final entry in navEntries) entry.item,
-              ],
-              selectedIndex: safeIndex,
-              onSelectedIndexChanged: (index) {
-                setState(() => _selectedIndex = index);
-              },
-              onToggleTheme: _toggleTheme,
-              searchQuery: _searchQuery,
-              searchPageIndex: libraryIndex >= 0 ? libraryIndex : 0,
-              onSearchChanged: (value) {
-                setState(() => _searchQuery = value);
-              },
-              pages: <Widget>[
-                for (final entry in navEntries)
-                  if (entry.contribution != null)
-                    Builder(
-                      builder: (slotBuildContext) {
-                        final rendered = entry.contribution!.viewBuilder(
-                          ViewSlotContext(
-                            platformContext: slotBuildContext,
-                            arguments: <String, Object?>{
-                              if (entry.id == 'library')
-                                'searchQuery': _searchQuery,
+          child: ValueListenableBuilder<ThemeMode>(
+            valueListenable: widget.themeModeNotifier,
+            builder: (context, themeMode, _) {
+              return MaterialApp(
+                navigatorKey: widget.navigatorKey,
+                debugShowCheckedModeBanner: false,
+                title: KonataLaneConfig.resolveDesktopWindowTitle(),
+                locale: const Locale('zh', 'CN'),
+                supportedLocales: const <Locale>[Locale('zh', 'CN')],
+                localizationsDelegates: GlobalMaterialLocalizations.delegates,
+                theme: _lightTheme,
+                darkTheme: _darkTheme,
+                themeMode: themeMode,
+                builder: (context, child) => Stack(
+                  children: <Widget>[
+                    ?child,
+                    if (hasAudioFeature)
+                      ValueListenableBuilder<bool>(
+                        valueListenable: widget.audioStageOpen,
+                        builder: (context, audioOpened, _) {
+                          return buildFloatingAudioMiniBar(
+                            hidden: audioOpened,
+                            platform: platform,
+                            onExpandFullStage: () {
+                              final nav = widget.navigatorKey.currentState;
+                              if (nav == null) return;
+                              widget.audioStageOpen.value = true;
+                              unawaited(
+                                nav
+                                    .push<void>(
+                                      CupertinoPageRoute<void>(
+                                        builder: (_) =>
+                                            buildAudioPlayerRoutePage(
+                                              workId: WorkId('active-audio'),
+                                              onClosePage: () {
+                                                if (nav.canPop()) nav.pop();
+                                              },
+                                            ),
+                                      ),
+                                    )
+                                    .whenComplete(() {
+                                      widget.audioStageOpen.value = false;
+                                    }),
+                              );
                             },
-                          ),
-                        );
-                        return rendered is Widget
-                            ? rendered
-                            : const SizedBox.shrink();
-                      },
-                    )
-                  else
-                    _FoundationStatusPage(
-                      title: title,
-                      sectionLabel: entry.item.label,
-                      registeredFeatures: registry.manifests.length,
-                      cacheDbOpen: databases.isCacheOpen,
-                    ),
-              ],
-            ),
+                          );
+                        },
+                      ),
+                    const KonataToastViewport(),
+                  ],
+                ),
+                home: KonataAdaptiveShell(
+                  navItems: <KonataNavItem>[
+                    for (final entry in navEntries) entry.item,
+                  ],
+                  selectedIndex: safeIndex,
+                  onSelectedIndexChanged: (index) {
+                    setState(() => _selectedIndex = index);
+                  },
+                  onToggleTheme: _toggleTheme,
+                  searchQuery: _searchQuery,
+                  searchPageIndex: libraryIndex >= 0 ? libraryIndex : 0,
+                  onSearchChanged: (value) {
+                    setState(() => _searchQuery = value);
+                  },
+                  pages: <Widget>[
+                    for (final entry in navEntries)
+                      if (entry.contribution != null)
+                        Builder(
+                          builder: (slotBuildContext) {
+                            final rendered = entry.contribution!.viewBuilder(
+                              ViewSlotContext(
+                                platformContext: slotBuildContext,
+                                arguments: <String, Object?>{
+                                  if (entry.id == 'library')
+                                    'searchQuery': _searchQuery,
+                                },
+                              ),
+                            );
+                            return rendered is Widget
+                                ? rendered
+                                : const SizedBox.shrink();
+                          },
+                        )
+                      else
+                        _FoundationStatusPage(
+                          title: title,
+                          sectionLabel: entry.item.label,
+                          registeredFeatures: registry.manifests.length,
+                          cacheDbOpen: databases.isCacheOpen,
+                        ),
+                  ],
+                ),
+              );
+            },
           ),
         ),
       ),

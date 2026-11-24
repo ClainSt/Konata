@@ -1,11 +1,13 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:konata_contracts/konata_contracts.dart';
 import 'package:konata_storage/konata_storage.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 /// 基于 `flutter_secure_storage` 的跨端敏感凭据安全存储实现（实现 [SecureStoragePort]）。
 ///
-/// Windows 端经由本地绿色便携 DPAPI 插件落盘，Android 端走系统 KeyStore 加密存储，
+/// Windows 端经由本地绿色便携加密插件落盘，Android 端走系统密钥库加密存储，
 /// 敏感密码与令牌绝不进入 SQLite 或跨设备同步切片。
 final class FlutterSecureStorageAdapter implements SecureStoragePort {
   /// 创建跨端安全存储适配器。
@@ -38,12 +40,58 @@ final class FlutterSecureStorageAdapter implements SecureStoragePort {
   }
 }
 
+/// 基于系统文件选择器插件的跨端目录与文件选取端口实现（实现 [FilePickerPort]）。
+final class HostFilePickerAdapter implements FilePickerPort {
+  /// 创建宿主文件选择器适配器。
+  const HostFilePickerAdapter();
+
+  @override
+  Future<String?> pickDirectory({String? dialogTitle}) async {
+    final uri = await FilePicker.pickDirectory(dialogTitle: dialogTitle);
+    if (uri == null) return null;
+    if (uri.scheme == 'file') {
+      return uri.toFilePath();
+    }
+    return uri.toString();
+  }
+
+  @override
+  Future<String?> pickImageFile({String? dialogTitle}) async {
+    final picked = await FilePicker.pickFile(
+      dialogTitle: dialogTitle,
+      type: FileType.image,
+    );
+    return picked?.path;
+  }
+
+  @override
+  Future<String?> pickSubtitleFile({String? dialogTitle}) async {
+    final picked = await FilePicker.pickFile(
+      dialogTitle: dialogTitle,
+      type: FileType.custom,
+      allowedExtensions: KonataMediaExtensions.subtitleExtensionsNoDot,
+    );
+    return picked?.path;
+  }
+}
+
+/// 基于系统链接拉起插件的跨端外部链接打开端口实现（实现 [UrlOpenerPort]）。
+final class HostUrlOpenerAdapter implements UrlOpenerPort {
+  /// 创建宿主外部链接打开适配器。
+  const HostUrlOpenerAdapter();
+
+  @override
+  Future<bool> openExternalUrl(Uri uri) async {
+    return launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+}
+
 /// 构造 Windows 桌面端绿色便携存储根目录端口（严禁写入 C 盘系统用户目录）。
 StorageRootPort createWindowsStorageRoot({String? laneOverride}) {
   return PortableStorageRootService(laneOverride: laneOverride);
 }
 
-/// 构造 Android 端应用沙箱存储根目录端口（委托 `ApplicationSupportDirectory`）。
+/// 构造 Android 端应用沙箱存储根目录端口（委托应用支持目录）。
 Future<StorageRootPort> createAndroidStorageRoot() async {
   final supportDir = await getApplicationSupportDirectory();
   return PortableStorageRootService(overrideRootPath: supportDir.path);

@@ -14,6 +14,13 @@ dependencies:
   flutter_localizations:
     sdk: flutter
   flutter_riverpod: ^3.5.0
+  engine_playback:
+  engine_scraping:
+  engine_sources:
+  feature_detail:
+  feature_library:
+  feature_scan_viewer:
+  feature_sources:
   konata_contracts:
   konata_design_system:
   konata_storage:

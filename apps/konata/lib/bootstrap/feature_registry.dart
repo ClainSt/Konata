@@ -1,10 +1,29 @@
+import 'package:feature_detail/feature_detail.dart';
+import 'package:feature_library/feature_library.dart';
+import 'package:feature_scan_viewer/feature_scan_viewer.dart';
+import 'package:feature_sources/feature_sources.dart';
 import 'package:konata_contracts/konata_contracts.dart';
+import 'package:konata_storage/konata_storage.dart';
 
-/// Konata v3 全仓按字母序显式注册的业务 Feature 清单。
-///
-/// Phase 0 底座阶段保持空清单骨架；Phase 3 ~ Phase 4 各业务切片落地后
-/// 按包名字母序逐一加入此处（删除某 Feature 目录与对应 1 行注册即可 0 报错编译）。
-const List<FeatureManifest> registeredFeatureManifests = <FeatureManifest>[];
+/// Konata v3 全仓按字母序显式注册的业务模块清单（删除对应包目录与 1 行清单即可零报错编译）。
+final List<FeatureManifest> registeredFeatureManifests = <FeatureManifest>[
+  featureDetailManifest,
+  featureLibraryManifest,
+  featureScanViewerManifest,
+  featureSourcesManifest,
+];
+
+/// 按运行期数据库实例构造带动态可见性判定的全仓业务模块清单（严格保持字母序）。
+List<FeatureManifest> buildRegisteredFeatureManifests({
+  required KonataDatabaseBundle databases,
+}) {
+  return <FeatureManifest>[
+    featureDetailManifest,
+    featureLibraryManifest,
+    createFeatureScanViewerManifest(databases: databases),
+    featureSourcesManifest,
+  ];
+}
 
 /// 声明式扩展点聚合器（统一按当前平台过滤并按权重排序汇总 7 大扩展点）。
 final class FeatureRegistry {
@@ -14,9 +33,13 @@ final class FeatureRegistry {
     _assertSortedAndUnique(this.manifests);
   }
 
-  /// 创建默认主应用清单聚合器。
+  /// 创建默认主应用静态清单聚合器。
   factory FeatureRegistry.defaults() =>
       FeatureRegistry(registeredFeatureManifests);
+
+  /// 创建绑定指定数据库实例的运行期清单聚合器（供动态详情页标签可见性判定）。
+  factory FeatureRegistry.forDatabases(KonataDatabaseBundle databases) =>
+      FeatureRegistry(buildRegisteredFeatureManifests(databases: databases));
 
   /// 已注册的全部业务模块清单（严格字母序）。
   final List<FeatureManifest> manifests;

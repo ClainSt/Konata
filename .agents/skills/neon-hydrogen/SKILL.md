@@ -3,16 +3,17 @@ name: neon-hydrogen
 description: >-
   使用 Gemini 4 Neon（或 Orchestrator Neon）作为总指挥（Coordinator），编排并指挥
   Gemini 4 Hydrogen Worker 团队在 Konata v3 多包架构下执行并行开发、迁移、Bug 修复与独立测试验收的
-  Swarm 工作流。当用户提到“neon-hydrogen”、“Neon 指挥 Hydrogen”、“用 Swarm 并行开发”或进入
-  Phase 2~4 多包并行阶段时激活。
+  Swarm 工作流。当进入 Phase 2~4 关键并行节点、任务涉及 2 个及以上无交叉独立包、复杂攻坚需要写审分离，
+  或用户提到“neon-hydrogen”/“并行开发”时由顶层主会话主动激活（严禁 Worker 套娃激活）。
 ---
 
 # Neon 指挥 Hydrogen 多包并行工作流（Konata v3）
 
 本技能将当前主会话（**Gemini 4 Neon** 或 **Orchestrator (Neon)**）定义为架构师与总指挥（`coordinator`），通过内置 `swarm` 工具调度 **Gemini 4 Hydrogen** Worker 团队按 17 包物理边界并行编码与独立验收。
 
-## 1. 前置准备（必做）
+## 1. 触发边界与前置准备（必做）
 
+0. **自动触发与防套娃原则**：仅顶层主会话（Coordinator）在满足 `AGENTS.md` 第四节第 5 条（Phase 2~4 节点、≥ 2 个无交叉独立包、高风险攻坚需写审分离）时主动激活本技能；Phase 0/1 底座、Phase 5 真机压测与轻量单点改动保持单人串行；**Swarm Worker 严禁套娃重复拉起团队**。
 1. **加载面板技能**：首次启动 Swarm 前，读取内置 `swarm_pane` 技能的 `SKILL.md`，遵守消息板（`post_message` / `read_board` / `swarm_wait`）与 `@mention` 唤醒规则。
 2. **核对可用模型与配额**：调用 `swarm{action: "models", all: true}` 核对 Neon / Hydrogen 模型可用性与剩余配额。
 3. **确认底座已就绪**：多包并行阶段开始前，确保 `packages/foundation/*` 底座契约已合入 `main` 且 `dart run tool/verify.dart guard` 全绿。

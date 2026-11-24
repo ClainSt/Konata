@@ -56,7 +56,14 @@ apps/konata (薄壳组装根)
 1. **车道隔离**：并行开发使用 `scripts/lane_manager.ps1` 在 `D:\Anime-Projects\Konata-lanes\<lane>` 创建短命车道，自动生成私有 `.git/konata-lane.json` 写权限白名单（不入 Git），`verify.dart guard` 自动拦截越界修改。
 2. **Contract-First 底座保护**：`packages/foundation/*` 默认对业务车道只读；确需改契约时先走短分支合入 `main`，业务车道执行 `git rebase main` 后继续。
 3. **自治文档**：废弃单一全局 `SHARED_ASSETS.md`，每个包维护自身简短 `PACKAGE.md`（导出符号、依赖与关键契约）。
-4. **硬件互斥与 Swarm**：触及真机压测统一经 `scripts/lane_manager.ps1 -Action lock-verify` 排队；使用 Swarm 团队协同（Neon 统筹 + Hydrogen 执行）时必须先读取 `.agents/skills/neon-hydrogen/SKILL.md`。
+4. **硬件互斥**：触及真机压测统一经 `scripts/lane_manager.ps1 -Action lock-verify` 排队。
+5. **Neon + Hydrogen 自主并行触发机制（仅顶层主会话生效）**：
+   - **默认自动激活**：当任务满足任一条件且用户未显式要求单人执行时，顶层主会话（Coordinator）**必须主动读取 `.agents/skills/neon-hydrogen/SKILL.md` 并直接通过 `swarm` 拉起 Hydrogen 并行编码 + 独立验收团队**，无需等待用户再次口头点名：
+     - 进入 Phase 2（3 引擎并行）、Phase 3（3 核心 Feature 并行）或 Phase 4（5 媒体/同步 Feature 并行）；
+     - 任意后续开发/迁移/批量修 Bug 涉及 **≥ 2 个无交叉独立包**（`packages/engines/*` 或 `packages/features/*`）；
+     - 复杂算法、并发状态机或高风险重构需要「编码 Worker + 只读验收 Worker」写审分离时。
+   - **保持单人串行**：Phase 0 / Phase 1 底座契约建设、Phase 5 真机 A/B 压测与发布签名、1~2 个文件的轻量修改或纯调研问答，保持主会话串行完成，不强开 Swarm。
+   - **防套娃护栏**：已在 Swarm 中的 Worker 专注自身分配的包边界，**严禁套娃另起并行团队**。
 
 ---
 

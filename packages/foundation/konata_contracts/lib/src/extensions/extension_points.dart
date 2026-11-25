@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import '../ports/read_query_ports.dart';
+import '../sources/source_gateway_ports.dart';
 import '../value_objects/domain_enums.dart';
 import '../value_objects/ids.dart';
 
@@ -497,6 +499,20 @@ abstract interface class SyncSliceContributor<TPlan> {
   );
 }
 
+/// 按无凭据虚拟地址协议注册可拔插的只读云盘驱动。
+final class CloudDriveProviderContribution {
+  const CloudDriveProviderContribution({
+    required this.scheme,
+    required this.displayName,
+    required this.create,
+  });
+
+  /// 仅用于同步的无凭据虚拟地址协议。
+  final String scheme;
+  final String displayName;
+  final Future<CloudDriveGateway> Function(MediaSourceView source) create;
+}
+
 /// 业务 Feature 包向应用壳声明能力的统一清单（在 `apps/konata` 按字母序显式注册）。
 final class FeatureManifest {
   /// 创建业务模块声明清单。
@@ -511,6 +527,7 @@ final class FeatureManifest {
     this.playerSidePanels = const <PlayerSidePanelContribution>[],
     this.dataProviders = const <DataProviderContribution>[],
     this.syncSlices = const <SyncSliceContributor<Object?>>[],
+    this.cloudDriveProviders = const <CloudDriveProviderContribution>[],
   });
 
   /// 模块唯一稳定标识（建议与包名一致，如 `feature_library`）。
@@ -542,6 +559,9 @@ final class FeatureManifest {
 
   /// 注册的同步与备份切片贡献者列表。
   final List<SyncSliceContributor<Object?>> syncSlices;
+
+  /// 可选只读云盘驱动贡献。
+  final List<CloudDriveProviderContribution> cloudDriveProviders;
 
   /// 判断模块是否在当前平台启用。
   bool isSupportedOn(KonataPlatform platform) =>

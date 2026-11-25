@@ -29,6 +29,9 @@ enum MediaSourceKind {
 
   /// SMB / CIFS 局域网只读共享目录。
   smb,
+
+  /// 通过独立只读驱动访问云端目录。
+  cloudDrive,
 }
 
 /// TMDB 条目媒体类型。

@@ -3,6 +3,8 @@ import 'package:sqlite3/sqlite3.dart';
 
 import '../../engine/konata_sqlite_engine.dart';
 import '../../engine/row_codec.dart';
+import '../schema/episodes_schema.dart';
+import '../schema/media_variants_schema.dart';
 import '../schema/works_schema.dart';
 
 /// `works` 强类型持久化记录模型（原生集成 `ArtworkRef` 与同步墓碑元数据）。
@@ -383,7 +385,7 @@ ON CONFLICT(${WorksSchema.colId}) DO UPDATE SET
     return <WorkRecord>[for (final row in rs) _mapRow(row)];
   }
 
-  /// 软删除作品并写入墓碑时间戳（不删除用户物理文件）。
+  /// 在单一事务内移除作品及其仍属该作品的有效剧集、文件索引，保留墓碑与历史关联。
   void softDelete(
     WorkId id, {
     required int deletedAtMs,
@@ -396,12 +398,43 @@ UPDATE ${WorksSchema.table}
 SET ${WorksSchema.colDeletedAtMs} = ?,
     ${WorksSchema.colUpdatedAtMs} = ?,
     ${WorksSchema.colSourceDeviceId} = ?
-WHERE ${WorksSchema.colId} = ?;
+WHERE ${WorksSchema.colId} = ? AND ${WorksSchema.colDeletedAtMs} IS NULL;
 ''',
         <Object?>[deletedAtMs, deletedAtMs, sourceDeviceId, id.value],
         _tables,
       );
+      reconcileDeletedRelationsInTx(tx, id);
     });
+  }
+
+  /// 在同步关系全部写入后收敛已删除作品的有效子记录；已转移至其他作品的资源不受影响。
+  void reconcileDeletedRelationsInTx(SqliteTransaction tx, WorkId id) {
+    final work = findById(id, includeDeleted: true);
+    final deletedAt = work?.deletedAtMs;
+    if (work == null || deletedAt == null) return;
+    // 子记录可能有较新的修改，墓碑时间不能倒退；既有墓碑保持原时间与设备信息。
+    tx.execute(
+      '''
+UPDATE ${EpisodesSchema.table}
+SET ${EpisodesSchema.colDeletedAtMs} = MAX(?, ${EpisodesSchema.colUpdatedAtMs}),
+    ${EpisodesSchema.colUpdatedAtMs} = MAX(?, ${EpisodesSchema.colUpdatedAtMs}),
+    ${EpisodesSchema.colSourceDeviceId} = ?
+WHERE ${EpisodesSchema.colWorkId} = ? AND ${EpisodesSchema.colDeletedAtMs} IS NULL;
+''',
+      <Object?>[deletedAt, deletedAt, work.sourceDeviceId, id.value],
+      const <String>{EpisodesSchema.table},
+    );
+    tx.execute(
+      '''
+UPDATE ${MediaVariantsSchema.table}
+SET ${MediaVariantsSchema.colDeletedAtMs} = MAX(?, ${MediaVariantsSchema.colUpdatedAtMs}),
+    ${MediaVariantsSchema.colUpdatedAtMs} = MAX(?, ${MediaVariantsSchema.colUpdatedAtMs}),
+    ${MediaVariantsSchema.colSourceDeviceId} = ?
+WHERE ${MediaVariantsSchema.colWorkId} = ? AND ${MediaVariantsSchema.colDeletedAtMs} IS NULL;
+''',
+      <Object?>[deletedAt, deletedAt, work.sourceDeviceId, id.value],
+      const <String>{MediaVariantsSchema.table},
+    );
   }
 
   /// 物理删除作品行（将触发 `episodes` 与 `media_variants` 外键级联删除）。

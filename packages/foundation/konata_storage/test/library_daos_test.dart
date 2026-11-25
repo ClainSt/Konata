@@ -225,6 +225,102 @@ void main() {
       );
     });
 
+    test('作品墓碑原子收敛有效子关系，保留既有墓碑和其他作品', () {
+      final source = SourceId('remove-source');
+      final work = WorkId('remove-work');
+      final sibling = WorkId('keep-work');
+      final series = SeriesGroupId('remove-series');
+      final ep = EpisodeId('remove-episode');
+      final keepEp = EpisodeId('keep-episode');
+      final oldEp = EpisodeId('old-episode');
+      final variant = VariantId('remove-variant');
+      final keepVariant = VariantId('keep-variant');
+      db.mediaSources.upsert(
+        MediaSourceRecord(
+          id: source,
+          kind: MediaSourceKind.local,
+          label: '测试',
+          location: 'D:/readonly',
+        ),
+      );
+      db.seriesGroups.upsert(SeriesGroupRecord(id: series, title: '系列'));
+      db.works.upsert(WorkRecord(id: work, title: '移除', seriesId: series));
+      db.works.upsert(WorkRecord(id: sibling, title: '保留', seriesId: series));
+      db.episodes.upsert(
+        EpisodeRecord(id: ep, workId: work, seasonNumber: 1, updatedAtMs: 800),
+      );
+      db.episodes.upsert(
+        EpisodeRecord(
+          id: keepEp,
+          workId: sibling,
+          seasonNumber: 1,
+          updatedAtMs: 800,
+        ),
+      );
+      db.episodes.upsert(
+        EpisodeRecord(
+          id: oldEp,
+          workId: work,
+          seasonNumber: 1,
+          deletedAtMs: 500,
+          updatedAtMs: 500,
+          sourceDeviceId: 'old',
+        ),
+      );
+      db.mediaVariants.upsert(
+        MediaVariantRecord(
+          id: variant,
+          workId: work,
+          episodeId: ep,
+          sourceId: source,
+          relativePath: 'A/01.mkv',
+          fileName: '01.mkv',
+          fileSize: 100,
+          updatedAtMs: 2500,
+        ),
+      );
+      db.mediaVariants.upsert(
+        MediaVariantRecord(
+          id: keepVariant,
+          workId: sibling,
+          episodeId: keepEp,
+          sourceId: source,
+          relativePath: 'B/01.mkv',
+          fileName: '01.mkv',
+          fileSize: 100,
+          updatedAtMs: 900,
+        ),
+      );
+      db.works.softDelete(work, deletedAtMs: 2000, sourceDeviceId: 'win');
+      expect(db.works.findById(work), isNull);
+      expect(db.works.findById(work, includeDeleted: true)?.deletedAtMs, 2000);
+      expect(db.episodes.listByWork(work), isEmpty);
+      expect(db.mediaVariants.listByWork(work), isEmpty);
+      expect(db.mediaVariants.listBySource(source).single.id, keepVariant);
+      expect(db.works.listBySeries(series).single.id, sibling);
+      expect(
+        db.episodes
+            .listByWork(work, includeDeleted: true)
+            .firstWhere((e) => e.id == oldEp)
+            .deletedAtMs,
+        500,
+      );
+      expect(
+        db.mediaVariants.findById(variant, includeDeleted: true)?.deletedAtMs,
+        2500,
+      );
+      expect(
+        db.mediaVariants.findById(variant, includeDeleted: true)?.relativePath,
+        'A/01.mkv',
+      );
+      db.works.softDelete(work, deletedAtMs: 3000, sourceDeviceId: 'other');
+      expect(db.works.findById(work, includeDeleted: true)?.deletedAtMs, 2000);
+      expect(
+        db.mediaVariants.findById(variant, includeDeleted: true)?.deletedAtMs,
+        2500,
+      );
+      expect(db.mediaVariants.findById(keepVariant), isNotNull);
+    });
     test('历史 v3 隐藏标记原位迁移，完整保留作品关系及墓碑', () async {
       final root = Directory.systemTemp.createTempSync(
         'konata_work_migration_',

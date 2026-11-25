@@ -9,7 +9,7 @@ import 'schema/works_schema.dart';
 /// `library.db` 独立版本迁移脚本与索引清单。
 abstract final class LibraryMigrations {
   /// 当前 `library.db` 模式版本号。
-  static const int currentVersion = 3;
+  static const int currentVersion = 4;
 
   /// 按版本号递增排列的迁移步骤列表。
   static final List<SqliteMigration> steps = <SqliteMigration>[
@@ -52,6 +52,19 @@ abstract final class LibraryMigrations {
             'ALTER TABLE ${MediaVariantsSchema.table} '
             'ADD COLUMN ${MediaVariantsSchema.colRemoteFileId} TEXT;',
           );
+        }
+      },
+    ),
+    SqliteMigration(
+      targetVersion: 4,
+      migrate: (db) {
+        // 原位移除废弃可见性标记，保留作品、关联外键、行序及删除墓碑。
+        db.execute('DROP INDEX IF EXISTS idx_works_visible;');
+        final columns = db.select('PRAGMA table_info(${WorksSchema.table});');
+        for (final name in ['is_hidden', 'keep_hidden']) {
+          if (columns.any((row) => row['name'] == name)) {
+            db.execute('ALTER TABLE ${WorksSchema.table} DROP COLUMN $name;');
+          }
         }
       },
     ),

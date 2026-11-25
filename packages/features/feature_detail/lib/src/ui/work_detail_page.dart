@@ -377,12 +377,6 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
         if (mounted) {
           showKonataToast(context, '已清空作品播放记录');
         }
-      case DetailBuiltInGearAction.toggleHidden:
-        final nextHidden = !bundle.work.isHidden;
-        await controller.setWorkHidden(hidden: nextHidden);
-        if (mounted) {
-          showKonataToast(context, nextHidden ? '已从媒体库隐藏该作品' : '已恢复显示该作品');
-        }
       case DetailBuiltInGearAction.deleteFromLibrary:
         await _confirmAndDeleteWork(controller, bundle.work);
     }

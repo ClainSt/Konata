@@ -633,16 +633,6 @@ final class WorkDetailController extends ChangeNotifier {
     await load();
   }
 
-  /// 隐藏或恢复当前作品。
-  Future<void> setWorkHidden({required bool hidden}) async {
-    if (hidden) {
-      await _actionsService.hideWork(workId.value, keepHidden: true);
-    } else {
-      await _actionsService.unhideWork(workId.value);
-    }
-    await load();
-  }
-
   /// 从媒体库移除当前作品记录（不删除源文件）。
   Future<void> deleteWorkFromLibrary({bool addToIgnoreList = false}) async {
     await _actionsService.deleteWorkFromLibrary(
@@ -753,10 +743,10 @@ final class WorkDetailController extends ChangeNotifier {
     return updated;
   }
 
-  /// 查询库内所有未隐藏作品列表（供合并目标选择与系列管理筛选）。
+  /// 查询库内全部未删除作品（供合并目标选择与系列管理筛选）。
   Future<List<Work>> listAllVisibleWorks() async {
     final all = await _repository.getAllWorks();
-    return all.where((w) => !w.isHidden).toList(growable: false);
+    return all;
   }
 
   /// 查询库内所有系列编组。

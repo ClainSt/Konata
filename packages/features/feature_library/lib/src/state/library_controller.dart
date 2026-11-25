@@ -13,7 +13,7 @@ import '../data/library_search_matcher.dart';
 /// 桌面端海报墙卡片自动保活的最大作品数量阈值（超过时禁用以控制内存与纹理句柄）。
 const int desktopKeepAliveWorkLimit = 400;
 
-/// 媒体库海报墙、隐藏列表与待复核队列状态控制器（零 `Riverpod` 纯构造注入）。
+/// 媒体库海报墙与待复核队列状态控制器（零 `Riverpod` 纯构造注入）。
 ///
 /// 职责边界：
 /// - 实时监听数据库作品变更流与 `DomainEventBus` 跨模块事件；
@@ -54,7 +54,6 @@ class LibraryController extends ChangeNotifier {
   final StorageScrapeRepository _repository;
 
   StreamSubscription<List<WorkRecord>>? _visibleSub;
-  StreamSubscription<List<WorkRecord>>? _hiddenSub;
   StreamSubscription<List<WorkRecord>>? _reviewSub;
   StreamSubscription<LibraryWorkChangedEvent>? _workEventSub;
   StreamSubscription<MediaSourceChangedEvent>? _sourceEventSub;
@@ -68,7 +67,6 @@ class LibraryController extends ChangeNotifier {
 
   List<WorkLibraryItem> _allVisibleItems = const <WorkLibraryItem>[];
   List<WorkLibraryItem> _displayedItems = const <WorkLibraryItem>[];
-  List<Work> _hiddenWorks = const <Work>[];
   List<Work> _reviewWorks = const <Work>[];
   List<MediaSource> _sources = const <MediaSource>[];
   Map<String, int> _insertionOrder = const <String, int>{};
@@ -94,9 +92,6 @@ class LibraryController extends ChangeNotifier {
 
   /// 经过多维筛选、排序及搜索排序后的海报墙展示列表。
   List<WorkLibraryItem> get displayedItems => _displayedItems;
-
-  /// 当前已隐藏的作品列表。
-  List<Work> get hiddenWorks => _hiddenWorks;
 
   /// 当前处于待人工复核状态的作品列表。
   List<Work> get reviewWorks => _reviewWorks;
@@ -133,11 +128,8 @@ class LibraryController extends ChangeNotifier {
     _visibleSub ??= databases.library.works.watchVisible().listen(
       (_) => unawaited(reload()),
     );
-    _hiddenSub ??= databases.library.works.watchHidden().listen(
-      (_) => unawaited(_reloadHiddenAndReview()),
-    );
     _reviewSub ??= databases.library.works.watchNeedsReview().listen(
-      (_) => unawaited(_reloadHiddenAndReview()),
+      (_) => unawaited(_reloadReview()),
     );
     _workEventSub ??= eventBus.on<LibraryWorkChangedEvent>().listen(
       (_) => unawaited(reload()),
@@ -148,13 +140,12 @@ class LibraryController extends ChangeNotifier {
     unawaited(reload());
   }
 
-  /// 主动从存储层全量重算可见作品墙、隐藏列表与待复核列表。
+  /// 主动从存储层全量重算可见作品墙与待复核列表。
   Future<void> reload() async {
     if (_disposed) return;
     try {
       final results = await Future.wait<Object>(<Future<Object>>[
         _repository.getAllWorks(),
-        _repository.getHiddenWorks(),
         _repository.getAllVariants(),
         _repository.getAllEpisodes(),
         _repository.getMediaSources(),
@@ -162,10 +153,9 @@ class LibraryController extends ChangeNotifier {
       if (_disposed) return;
 
       final allWorks = results[0] as List<Work>;
-      final hidden = results[1] as List<Work>;
-      final allVariants = results[2] as List<MediaVariant>;
-      final allEpisodes = results[3] as List<Episode>;
-      final sources = results[4] as List<MediaSource>;
+      final allVariants = results[1] as List<MediaVariant>;
+      final allEpisodes = results[2] as List<Episode>;
+      final sources = results[3] as List<MediaSource>;
       final visibleRecords = databases.library.works.listVisible();
       final insertionIds = databases.library.works
           .listVisibleIdsInInsertionOrder();
@@ -194,7 +184,6 @@ class LibraryController extends ChangeNotifier {
 
       final rawWall = <WorkLibraryItem>[];
       for (final work in allWorks) {
-        if (work.isHidden) continue;
         final eligible =
             work.scrapeStatus == ScrapeStatus.matched || work.isManualLocked;
         if (!eligible) continue;
@@ -212,7 +201,7 @@ class LibraryController extends ChangeNotifier {
       }
 
       if (!ChinesePinyinCollator.isLoaded &&
-          (_hasPinyinTitles(allWorks, hidden) ||
+          (_hasPinyinTitles(allWorks) ||
               rawWall.any(
                 (item) =>
                     item.releaseGroups.any(ChinesePinyinCollator.needsTable),
@@ -224,13 +213,10 @@ class LibraryController extends ChangeNotifier {
         for (final rec in visibleRecords) rec.id.value: rec.updatedAtMs,
       };
       _sources = List<MediaSource>.unmodifiable(sources);
-      _hiddenWorks = _sortWorksByTitle(hidden);
       _reviewWorks = _sortWorksByTitle(
         allWorks.where(
           (w) =>
-              !w.isHidden &&
-              !w.isManualLocked &&
-              w.scrapeStatus == ScrapeStatus.needsReview,
+              !w.isManualLocked && w.scrapeStatus == ScrapeStatus.needsReview,
         ),
       );
       _allVisibleItems = annotateCrossSourceBadges(rawWall);
@@ -255,28 +241,19 @@ class LibraryController extends ChangeNotifier {
     }
   }
 
-  Future<void> _reloadHiddenAndReview() async {
+  Future<void> _reloadReview() async {
     if (_disposed) return;
     try {
-      final results = await Future.wait<Object>(<Future<Object>>[
-        _repository.getAllWorks(),
-        _repository.getHiddenWorks(),
-      ]);
+      final allWorks = await _repository.getAllWorks();
       if (_disposed) return;
-      final allWorks = results[0] as List<Work>;
-      final hidden = results[1] as List<Work>;
-      if (!ChinesePinyinCollator.isLoaded &&
-          _hasPinyinTitles(allWorks, hidden)) {
+      if (!ChinesePinyinCollator.isLoaded && _hasPinyinTitles(allWorks)) {
         await ChinesePinyinCollator.prepare();
         if (_disposed) return;
       }
-      _hiddenWorks = _sortWorksByTitle(hidden);
       _reviewWorks = _sortWorksByTitle(
         allWorks.where(
           (w) =>
-              !w.isHidden &&
-              !w.isManualLocked &&
-              w.scrapeStatus == ScrapeStatus.needsReview,
+              !w.isManualLocked && w.scrapeStatus == ScrapeStatus.needsReview,
         ),
       );
       notifyListeners();
@@ -550,17 +527,14 @@ class LibraryController extends ChangeNotifier {
     return List<Work>.unmodifiable(list);
   }
 
-  static bool _hasPinyinTitles(List<Work> works, List<Work> hidden) =>
-      (works.length > 1 &&
-          works.any((work) => ChinesePinyinCollator.needsTable(work.title))) ||
-      (hidden.length > 1 &&
-          hidden.any((work) => ChinesePinyinCollator.needsTable(work.title)));
+  static bool _hasPinyinTitles(List<Work> works) =>
+      works.length > 1 &&
+      works.any((work) => ChinesePinyinCollator.needsTable(work.title));
 
   @override
   void dispose() {
     _disposed = true;
     unawaited(_visibleSub?.cancel());
-    unawaited(_hiddenSub?.cancel());
     unawaited(_reviewSub?.cancel());
     unawaited(_workEventSub?.cancel());
     unawaited(_sourceEventSub?.cancel());

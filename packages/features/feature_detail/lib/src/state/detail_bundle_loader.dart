@@ -52,13 +52,9 @@ abstract final class DetailBundleLoader {
       }
       playbackByEpisodeId.putIfAbsent(record.episodeId, () => record);
     }
-    final sourcesById = <String, MediaSource>{
-      for (final s in sources) s.id: s,
-    };
+    final sourcesById = <String, MediaSource>{for (final s in sources) s.id: s};
     final seriesMembers = hasSeries
-        ? SeriesSeasonFormatter.sortSeriesMembers(
-            rawSeriesWorks.where((w) => !w.isHidden),
-          )
+        ? SeriesSeasonFormatter.sortSeriesMembers(rawSeriesWorks)
         : const <Work>[];
 
     final mergedEpisodes = List<Episode>.of(episodes);
@@ -127,9 +123,7 @@ abstract final class DetailBundleLoader {
       }
       final variantsByMemberId = <String, List<MediaVariant>>{};
       for (final v in batchVariants) {
-        variantsByMemberId
-            .putIfAbsent(v.workId, () => <MediaVariant>[])
-            .add(v);
+        variantsByMemberId.putIfAbsent(v.workId, () => <MediaVariant>[]).add(v);
       }
 
       for (final entry in otherMembers) {
@@ -139,9 +133,7 @@ abstract final class DetailBundleLoader {
         );
         final mVariants =
             variantsByMemberId[member.id] ?? const <MediaVariant>[];
-        final mEpById = <String, Episode>{
-          for (final e in mEpisodes) e.id: e,
-        };
+        final mEpById = <String, Episode>{for (final e in mEpisodes) e.id: e};
         final mLabel = SeriesSeasonFormatter.formatMemberLabel(
           member,
           seriesMembers,
@@ -230,7 +222,9 @@ abstract final class DetailBundleLoader {
 
     final folderPath = variants.isEmpty
         ? null
-        : DetailWorkActionsService.deriveFolderPath(variants.first.relativePath);
+        : DetailWorkActionsService.deriveFolderPath(
+            variants.first.relativePath,
+          );
 
     return WorkDetailBundle(
       work: work,

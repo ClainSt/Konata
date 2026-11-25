@@ -101,7 +101,6 @@ final class HostDiagnosticsRuntimeBridge {
     final needsReview = works
         .where((w) => w.scrapeStatus == ScrapeStatus.needsReview)
         .length;
-    final hidden = works.where((w) => w.isHidden).length;
     return DiagnosticSnapshotSection(
       id: 'library_db',
       title: '本地媒体库与元数据统计',
@@ -110,7 +109,6 @@ final class HostDiagnosticsRuntimeBridge {
         'worksTotal': works.length.toString(),
         'worksMatched': matched.toString(),
         'worksNeedsReview': needsReview.toString(),
-        'worksHidden': hidden.toString(),
       },
     );
   }
@@ -123,9 +121,13 @@ final class HostDiagnosticsRuntimeBridge {
       entries: <String, String>{
         'proxyMode': config.proxyMode.name,
         'hasProxyUrl': config.proxyUrl.trim().isNotEmpty.toString(),
-        'tmdbCredentialConfigured': config.credential.trim().isNotEmpty
+        'tmdbCredentialConfigured': config.credential
+            .trim()
+            .isNotEmpty
             .toString(),
-        'fanartClientKeyConfigured': config.fanartClientKey.trim().isNotEmpty
+        'fanartClientKeyConfigured': config.fanartClientKey
+            .trim()
+            .isNotEmpty
             .toString(),
       },
     );

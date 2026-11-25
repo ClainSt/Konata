@@ -19,7 +19,6 @@ final class WorkSummaryView {
     this.portraitBackdropRef,
     this.logoRef,
     this.seriesGroupId,
-    this.isHidden = false,
   });
 
   /// 作品唯一主键。
@@ -60,9 +59,6 @@ final class WorkSummaryView {
 
   /// 所属系列编组标识。
   final SeriesGroupId? seriesGroupId;
-
-  /// 是否在主媒体库中隐藏。
-  final bool isHidden;
 }
 
 /// 逻辑剧集只读摘要视图。

@@ -492,6 +492,51 @@ void main() {
       await dbB.close();
     });
 
+    test('旧版目录切片隐藏标记不再参与合并或重新导出', () async {
+      dbA.library.works.upsert(
+        const WorkRecord(
+          id: WorkId.trusted('legacy-work'),
+          title: '历史作品',
+          scrapeStatus: ScrapeStatus.matched,
+          updatedAtMs: 100,
+        ),
+      );
+      final exported = await sliceA.exportSlice(localDeviceId: 'dev-a');
+      final oldWork = SyncSanitizer.coerceStringKeyMap(
+        (exported.data['works'] as List).single,
+      );
+      final legacy = SyncSlicePayload(
+        sliceId: exported.sliceId,
+        schemaVersion: exported.schemaVersion,
+        exportedAtMs: exported.exportedAtMs,
+        sourceDeviceId: exported.sourceDeviceId,
+        data: {
+          ...exported.data,
+          'works': [
+            {...oldWork, 'isHidden': true, 'keepHidden': true},
+          ],
+        },
+      );
+      final local = await sliceB.exportSlice(localDeviceId: 'dev-b');
+      final plan = sliceB.planMerge(local: local, remote: legacy);
+      dbB.library.engine.runTransaction((tx) {
+        sliceB.applyMergePlan(
+          DatabaseBundleSyncTransactionContext(
+            localDeviceId: 'dev-b',
+            appliedAtMs: 5000,
+            libraryTx: tx,
+          ),
+          plan,
+        );
+      });
+      expect(dbB.library.works.listVisible().single.id.value, 'legacy-work');
+      final reexported = await sliceB.exportSlice(localDeviceId: 'dev-b');
+      final item = SyncSanitizer.coerceStringKeyMap(
+        (reexported.data['works'] as List).single,
+      );
+      expect(item.containsKey('isHidden'), isFalse);
+      expect(item.containsKey('keepHidden'), isFalse);
+    });
     test('ArtworkRef.localCustom 序列化严格输出 null，同时保留远程海报与人工锁定态', () async {
       final srcId = SourceId('src-webdav-a');
       final seriesId = SeriesGroupId('series-monogatari');
@@ -805,7 +850,11 @@ void main() {
       );
       prefsA.write(appearanceSlice, <String, Object?>{'themeMode': 'dark'});
       dbA.library.works.upsert(
-        WorkRecord(id: WorkId('w-clannad'), title: 'CLANNAD', updatedAtMs: 4000),
+        WorkRecord(
+          id: WorkId('w-clannad'),
+          title: 'CLANNAD',
+          updatedAtMs: 4000,
+        ),
       );
 
       final serviceA = KonataBackupService(
@@ -832,7 +881,10 @@ void main() {
 
       final decodedJson = utf8.decode(gzip.decode(gzipBytes));
       final archive = KonataBackupArchive.parseAndVerify(decodedJson);
-      expect(archive.sliceIds, equals(<String>['prefs_slice', 'lyric_overrides_slice']));
+      expect(
+        archive.sliceIds,
+        equals(<String>['prefs_slice', 'lyric_overrides_slice']),
+      );
       expect(archive.slices.containsKey('library_catalog_slice'), isFalse);
 
       // 篡改归档内容应立即触发 SHA-256 完整性校验失败。
@@ -873,7 +925,10 @@ void main() {
 
       final outcome = await serviceB.restoreFromArchiveBytes(
         gzipBytes,
-        selectedSliceIds: const <String>{'prefs_slice', 'lyric_overrides_slice'},
+        selectedSliceIds: const <String>{
+          'prefs_slice',
+          'lyric_overrides_slice',
+        },
       );
       await Future<void>.delayed(Duration.zero);
 
@@ -944,9 +999,15 @@ void main() {
         encode: _identityEncode,
         decode: _identityDecode,
       );
-      prefsB.write(webDavSlice, <String, Object?>{'baseUrl': 'https://keep.me'});
+      prefsB.write(webDavSlice, <String, Object?>{
+        'baseUrl': 'https://keep.me',
+      });
       dbB.library.works.upsert(
-        WorkRecord(id: WorkId('w-old-local'), title: '旧本地作品', updatedAtMs: 9000),
+        WorkRecord(
+          id: WorkId('w-old-local'),
+          title: '旧本地作品',
+          updatedAtMs: 9000,
+        ),
       );
 
       dbA.library.works.upsert(

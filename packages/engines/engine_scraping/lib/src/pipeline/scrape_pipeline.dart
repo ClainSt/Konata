@@ -853,10 +853,6 @@ class ScrapePipeline {
                 id: workId,
                 folder: folder,
                 posterPath: folder.localPosterPath!,
-                isHidden: existing?.keepHidden == true
-                    ? true
-                    : (existing?.isHidden ?? false),
-                keepHidden: existing?.keepHidden ?? false,
               )
             : Work(
                 id: workId,
@@ -864,10 +860,6 @@ class ScrapePipeline {
                 year: folder.year,
                 folderTmdbHint: folder.explicitTmdbId,
                 isManualLocked: false,
-                isHidden: existing?.keepHidden == true
-                    ? true
-                    : (existing?.isHidden ?? false),
-                keepHidden: existing?.keepHidden ?? false,
                 scrapeStatus: ScrapeStatus.needsReview,
                 reviewReason: NetworkErrorSanitizer.toUserMessage(
                   error,
@@ -1193,10 +1185,6 @@ class ScrapePipeline {
           bangumiCandidate: explicitDecision.bestBangumi,
           seasons: seasons,
           isManualLocked: existing?.isManualLocked ?? false,
-          isHidden: existing?.keepHidden == true
-              ? true
-              : (existing?.isHidden ?? false),
-          keepHidden: existing?.keepHidden ?? false,
           scanContext: scanContext,
           isCancelled: isCancelled,
         );
@@ -1280,10 +1268,6 @@ class ScrapePipeline {
               bangumiCandidate: slice.bangumiCandidate,
               seasons: seasons,
               isManualLocked: false,
-              isHidden: sliceExisting?.keepHidden == true
-                  ? true
-                  : (sliceExisting?.isHidden ?? false),
-              keepHidden: sliceExisting?.keepHidden ?? false,
               scanContext: scanContext,
               isCancelled: isCancelled,
             );
@@ -1324,10 +1308,6 @@ class ScrapePipeline {
         bangumiCandidate: decision.bestBangumi,
         seasons: seasons,
         isManualLocked: false,
-        isHidden: existing?.keepHidden == true
-            ? true
-            : (existing?.isHidden ?? false),
-        keepHidden: existing?.keepHidden ?? false,
         scanContext: scanContext,
         isCancelled: isCancelled,
       );
@@ -1397,8 +1377,6 @@ class ScrapePipeline {
             bangumiCandidate: attachedBgm,
             seasons: seasons,
             isManualLocked: false,
-            isHidden: existing.keepHidden ? true : existing.isHidden,
-            keepHidden: existing.keepHidden,
             scanContext: scanContext,
             isCancelled: isCancelled,
           );
@@ -1492,10 +1470,6 @@ class ScrapePipeline {
         portraitBackdropPath: bgmWall.fanartPortraitBackdrop,
         logoPath: bgmWall.fanartLogo,
         isManualLocked: false,
-        isHidden: existing?.keepHidden == true
-            ? true
-            : (existing?.isHidden ?? false),
-        keepHidden: existing?.keepHidden ?? false,
       );
       final work = ScrapeWorkPersister.mergeWorkWithLocks(
         existing: existing,
@@ -1553,10 +1527,6 @@ class ScrapePipeline {
         backdropPath: coverFallback.backdropPath,
         portraitBackdropPath: coverFallback.portraitBackdropPath,
         logoPath: coverFallback.logoPath,
-        isHidden: existing?.keepHidden == true
-            ? true
-            : (existing?.isHidden ?? false),
-        keepHidden: existing?.keepHidden ?? false,
       );
       final work = ScrapeWorkPersister.mergeWorkWithLocks(
         existing: existing,
@@ -1599,10 +1569,6 @@ class ScrapePipeline {
       year: effectiveFolder.year,
       folderTmdbHint: effectiveFolder.explicitTmdbId,
       isManualLocked: false,
-      isHidden: existing?.keepHidden == true
-          ? true
-          : (existing?.isHidden ?? false),
-      keepHidden: existing?.keepHidden ?? false,
       scrapeStatus: status,
       reviewReason: reviewReason,
     );
@@ -1635,8 +1601,6 @@ class ScrapePipeline {
     ScoredBangumiCandidate? bangumiCandidate,
     required Set<int> seasons,
     required bool isManualLocked,
-    bool isHidden = false,
-    bool keepHidden = false,
     _ScanBatchContext? scanContext,
     bool Function()? isCancelled,
   }) async {
@@ -1720,8 +1684,6 @@ class ScrapePipeline {
       folderTmdbHint: folder.explicitTmdbId,
       isManualLocked: isManualLocked,
       logoNegativeMask: fanartEnrich.logoNegativeMask,
-      isHidden: isHidden,
-      keepHidden: keepHidden,
     );
     final work = ScrapeWorkPersister.mergeWorkWithLocks(
       existing: existing,
@@ -2211,8 +2173,6 @@ class ScrapePipeline {
                   ? nextManualLocked
                   : false,
               logoNegativeMask: sliceEnrich.logoNegativeMask,
-              isHidden: sliceExisting?.isHidden ?? existing.isHidden,
-              keepHidden: sliceExisting?.keepHidden ?? existing.keepHidden,
             );
             final sliceUpdated = ScrapeWorkPersister.mergeWorkWithLocks(
               existing: sliceExisting,
@@ -2335,8 +2295,6 @@ class ScrapePipeline {
         folderTmdbHint: tmdbId,
         isManualLocked: nextManualLocked,
         logoNegativeMask: fanartEnrich.logoNegativeMask,
-        isHidden: existing.isHidden,
-        keepHidden: existing.keepHidden,
       );
       var updated = ScrapeWorkPersister.mergeWorkWithLocks(
         existing: existing,
@@ -2475,8 +2433,6 @@ class ScrapePipeline {
       folderTmdbHint: tmdbId,
       isManualLocked: fallbackManualLocked,
       logoNegativeMask: fanartFallback.logoNegativeMask,
-      isHidden: existing.isHidden,
-      keepHidden: existing.keepHidden,
     );
     final updated = ScrapeWorkPersister.mergeWorkWithLocks(
       existing: existing,
@@ -3449,8 +3405,6 @@ class ScrapePipeline {
         portraitBackdropPath: bgmWall.fanartPortraitBackdrop,
         logoPath: bgmWall.fanartLogo,
         isManualLocked: existing.isManualLocked,
-        isHidden: existing.isHidden,
-        keepHidden: existing.keepHidden,
       );
       final updated = ScrapeWorkPersister.mergeWorkWithLocks(
         existing: existing,

@@ -29,9 +29,6 @@ abstract interface class LibraryRepository {
   /// 按系列 ID 索引查询所属系列全部作品。
   Future<List<Work>> getWorksBySeries(String seriesId);
 
-  /// 按隐藏状态索引查询已隐藏作品列表。
-  Future<List<Work>> getHiddenWorks();
-
   /// 新增或更新逻辑剧集条目。
   Future<void> upsertEpisode(Episode episode);
 
@@ -111,13 +108,6 @@ abstract interface class LibraryRepository {
 
   /// 清空全部播放历史记录。
   Future<void> clearPlaybackHistory();
-
-  /// 设置作品隐藏状态及重扫后是否持续保留隐藏。
-  Future<void> setWorkHidden(
-    String workId, {
-    required bool isHidden,
-    bool? keepHidden,
-  });
 
   /// 仅从媒体库数据库移除指定作品及其衍生记录（不触碰任何物理源文件）。
   Future<void> deleteWork(String workId);

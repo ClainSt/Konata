@@ -133,7 +133,10 @@ void main() {
         (loaded.portraitBackdropRef! as RemoteArtworkRef).uri,
         '/portrait_textless.jpg',
       );
-      expect(loaded.toSummaryView().portraitBackdropRef, loaded.portraitBackdropRef);
+      expect(
+        loaded.toSummaryView().portraitBackdropRef,
+        loaded.portraitBackdropRef,
+      );
       expect(loaded.seriesId?.value, seriesId.value);
 
       // 软删除后可见视图过滤，但全量墓碑查询仍保留。
@@ -222,6 +225,133 @@ void main() {
       );
     });
 
+    test('历史 v3 隐藏标记原位迁移，完整保留作品关系及墓碑', () async {
+      final root = Directory.systemTemp.createTempSync(
+        'konata_work_migration_',
+      );
+      addTearDown(() => root.deleteSync(recursive: true));
+      final path = '${root.path}/library.db';
+      final old = LibraryDatabase.openFile(path);
+      old.seriesGroups.upsert(
+        const SeriesGroupRecord(
+          id: SeriesGroupId.trusted('series-1'),
+          title: '系列',
+        ),
+      );
+      old.mediaSources.upsert(
+        const MediaSourceRecord(
+          id: SourceId.trusted('source-1'),
+          kind: MediaSourceKind.local,
+          label: '测试源',
+          location: 'D:/test',
+        ),
+      );
+      old.works.upsert(
+        const WorkRecord(
+          id: WorkId.trusted('work-1'),
+          title: '历史收藏',
+          seriesId: SeriesGroupId.trusted('series-1'),
+          scrapeStatus: ScrapeStatus.matched,
+          metadataLocked: true,
+          updatedAtMs: 100,
+        ),
+      );
+      old.works.upsert(
+        const WorkRecord(
+          id: WorkId.trusted('work-2'),
+          title: '待复核收藏',
+          scrapeStatus: ScrapeStatus.needsReview,
+        ),
+      );
+      old.works.upsert(
+        const WorkRecord(
+          id: WorkId.trusted('work-3'),
+          title: '已删除收藏',
+          deletedAtMs: 200,
+        ),
+      );
+      old.episodes.upsert(
+        const EpisodeRecord(
+          id: EpisodeId.trusted('episode-1'),
+          workId: WorkId.trusted('work-1'),
+          seasonNumber: 1,
+          episodeNumber: 1,
+        ),
+      );
+      old.mediaVariants.upsert(
+        const MediaVariantRecord(
+          id: VariantId.trusted('variant-1'),
+          workId: WorkId.trusted('work-1'),
+          episodeId: EpisodeId.trusted('episode-1'),
+          sourceId: SourceId.trusted('source-1'),
+          relativePath: 'Test/01.mkv',
+          fileName: '01.mkv',
+          fileSize: 100,
+          mappingLocked: true,
+        ),
+      );
+      old.engine.execute('DROP INDEX idx_works_visible;');
+      old.engine.execute(
+        'ALTER TABLE works ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0;',
+      );
+      old.engine.execute(
+        'ALTER TABLE works ADD COLUMN keep_hidden INTEGER NOT NULL DEFAULT 0;',
+      );
+      old.engine.execute(
+        'CREATE INDEX idx_works_visible ON works (deleted_at_ms, is_hidden);',
+      );
+      old.engine.execute('UPDATE works SET is_hidden = 1, keep_hidden = 1;');
+      old.engine.execute('PRAGMA user_version = 3;');
+      await old.close();
+
+      final migrated = LibraryDatabase.openFile(path);
+      addTearDown(migrated.close);
+      expect(
+        migrated.engine.select('PRAGMA user_version;').single.values.first,
+        4,
+      );
+      expect(
+        migrated.works.listVisibleIdsInInsertionOrder().map((id) => id.value),
+        ['work-1', 'work-2'],
+      );
+      expect(migrated.works.listNeedsReview().single.id.value, 'work-2');
+      expect(
+        migrated.works
+            .listBySeries(const SeriesGroupId.trusted('series-1'))
+            .single
+            .id
+            .value,
+        'work-1',
+      );
+      final work = migrated.works.findById(const WorkId.trusted('work-1'))!;
+      expect(work.metadataLocked, isTrue);
+      expect(work.updatedAtMs, 100);
+      expect(migrated.works.findById(const WorkId.trusted('work-3')), isNull);
+      expect(
+        migrated.works
+            .findById(const WorkId.trusted('work-3'), includeDeleted: true)
+            ?.deletedAtMs,
+        200,
+      );
+      expect(
+        migrated.episodes.listByWork(work.id).single.id.value,
+        'episode-1',
+      );
+      final variant = migrated.mediaVariants.listByWork(work.id).single;
+      expect(variant.episodeId?.value, 'episode-1');
+      expect(variant.mappingLocked, isTrue);
+      expect(variant.relativePath, 'Test/01.mkv');
+      expect(migrated.engine.select('PRAGMA foreign_key_check;'), isEmpty);
+      final columns = migrated.engine
+          .select('PRAGMA table_info(works);')
+          .map((row) => row['name']);
+      expect(columns, isNot(contains('is_hidden')));
+      expect(columns, isNot(contains('keep_hidden')));
+      final indexColumns = migrated.engine
+          .select('PRAGMA index_info(idx_works_visible);')
+          .map((row) => row['name']);
+      expect(indexColumns, ['deleted_at_ms']);
+    });
     test('library.db 支持从 v1 增量迁移至 v2 并补齐 portrait_backdrop_ref_json 列', () async {
       final tempDir = Directory.systemTemp.createTempSync('konata_lib_v1_v2_');
       addTearDown(() {
@@ -266,8 +396,8 @@ CREATE TABLE ${WorksSchema.table} (
   ${WorksSchema.colFolderTmdbHint} INTEGER,
   ${WorksSchema.colIsManualLocked} INTEGER NOT NULL DEFAULT 0,
   ${WorksSchema.colMetadataLocked} INTEGER NOT NULL DEFAULT 0,
-  ${WorksSchema.colIsHidden} INTEGER NOT NULL DEFAULT 0,
-  ${WorksSchema.colKeepHidden} INTEGER NOT NULL DEFAULT 0,
+  is_hidden INTEGER NOT NULL DEFAULT 0,
+  keep_hidden INTEGER NOT NULL DEFAULT 0,
   ${WorksSchema.colScrapeStatus} TEXT NOT NULL DEFAULT 'unmatched',
   ${WorksSchema.colReviewReason} TEXT,
   ${WorksSchema.colSeriesId} TEXT,
@@ -280,7 +410,7 @@ CREATE TABLE ${WorksSchema.table} (
 );
 ''');
       v1Engine.execute(
-        "INSERT INTO ${WorksSchema.table} (${WorksSchema.colId}, ${WorksSchema.colTitle}) VALUES ('legacy-1', '旧版作品');",
+        "INSERT INTO ${WorksSchema.table} (${WorksSchema.colId}, ${WorksSchema.colTitle}, is_hidden, keep_hidden) VALUES ('legacy-1', '旧版作品', 1, 1);",
       );
       v1Engine.execute('PRAGMA user_version = 1;');
       await v1Engine.close();
@@ -292,9 +422,17 @@ CREATE TABLE ${WorksSchema.table} (
       final versionRows = upgradedDb.engine.select('PRAGMA user_version;');
       expect(versionRows.single.values.first, LibraryMigrations.currentVersion);
 
-      final legacy = upgradedDb.works.findById(const WorkId.trusted('legacy-1'));
+      final legacy = upgradedDb.works.findById(
+        const WorkId.trusted('legacy-1'),
+      );
       expect(legacy, isNotNull);
       expect(legacy!.title, '旧版作品');
+      expect(upgradedDb.works.listVisible().single.id.value, 'legacy-1');
+      final columnNames = upgradedDb.engine
+          .select('PRAGMA table_info(works);')
+          .map((row) => row['name']);
+      expect(columnNames, isNot(contains('is_hidden')));
+      expect(columnNames, isNot(contains('keep_hidden')));
       expect(legacy.portraitBackdropRef, isNull);
 
       upgradedDb.works.upsert(

@@ -172,7 +172,6 @@ class SeriesAutoLinker {
     }
 
     final eligibleWorks = allWorks.where((w) {
-      if (w.isHidden) return false;
       return w.scrapeStatus == ScrapeStatus.matched ||
           w.isManualLocked ||
           w.seriesLocked;
@@ -619,66 +618,73 @@ class SeriesAutoLinker {
   }
 
   /// 独立世界观/平行子系列隔离表（主要用于避免高达各 AU 剧场版/衍生作借泛化前缀串入 UC 0079 等主线组）。
-  static final _subFranchisePatterns = List<(String tag, RegExp pattern)>.unmodifiable([
-    (
-      'gundam_ibo',
-      RegExp(
-        r'铁血|鉄血|奥尔芬斯|オルフェンズ|\b(?:tekketsu|iron[\s-]*blooded|orphans|urdr[\s-]*hunt)\b|猎杀兀尔德|ウルズハント',
-        caseSensitive: false,
-      ),
-    ),
-    (
-      'gundam_seed',
-      RegExp(r'(?<![a-z])seed(?![a-z])|シード', caseSensitive: false),
-    ),
-    (
-      'gundam_00',
-      RegExp(r'(?:高达|ガンダム|gundam)[\s._-]*00(?![0-9])', caseSensitive: false),
-    ),
-    (
-      'gundam_age',
-      RegExp(r'(?:高达|ガンダム|gundam)[\s._-]*age(?![a-z])', caseSensitive: false),
-    ),
-    (
-      'gundam_wing',
-      RegExp(
-        r'(?:高达|ガンダム|gundam)[\s._-]*(?:w(?![a-z])|wing\b)|无尽的华尔兹|エンドレスワルツ',
-        caseSensitive: false,
-      ),
-    ),
-    (
-      'gundam_x',
-      RegExp(r'(?:高达|ガンダム|gundam)[\s._-]*x(?![a-z])', caseSensitive: false),
-    ),
-    (
-      'gundam_witch',
-      RegExp(r'水星的魔女|水星の魔女|witch\s+from\s+mercury', caseSensitive: false),
-    ),
-    (
-      'gundam_reco',
-      RegExp(r'复国|レコンギスタ|reconguista', caseSensitive: false),
-    ),
-    (
-      'gundam_turn_a',
-      RegExp(r'∀|turn[\s._-]*a[\s._-]*gundam|倒a高达', caseSensitive: false),
-    ),
-    (
-      'gundam_build',
-      RegExp(r'创战者|创形者|ビルドファイターズ|ビルドダイバーズ|gundam\s+build', caseSensitive: false),
-    ),
-    (
-      'gundam_sd',
-      RegExp(r'(?<![a-z])sd[\s._-]*(?:高达|ガンダム|gundam)', caseSensitive: false),
-    ),
-    (
-      'gundam_gqux',
-      RegExp(r'gquuuuuux|ジークアクス', caseSensitive: false),
-    ),
-    (
-      'gundam_g',
-      RegExp(r'机动武斗传|機動武闘伝|g[\s._-]*gundam', caseSensitive: false),
-    ),
-  ]);
+  static final _subFranchisePatterns =
+      List<(String tag, RegExp pattern)>.unmodifiable([
+        (
+          'gundam_ibo',
+          RegExp(
+            r'铁血|鉄血|奥尔芬斯|オルフェンズ|\b(?:tekketsu|iron[\s-]*blooded|orphans|urdr[\s-]*hunt)\b|猎杀兀尔德|ウルズハント',
+            caseSensitive: false,
+          ),
+        ),
+        (
+          'gundam_seed',
+          RegExp(r'(?<![a-z])seed(?![a-z])|シード', caseSensitive: false),
+        ),
+        (
+          'gundam_00',
+          RegExp(
+            r'(?:高达|ガンダム|gundam)[\s._-]*00(?![0-9])',
+            caseSensitive: false,
+          ),
+        ),
+        (
+          'gundam_age',
+          RegExp(
+            r'(?:高达|ガンダム|gundam)[\s._-]*age(?![a-z])',
+            caseSensitive: false,
+          ),
+        ),
+        (
+          'gundam_wing',
+          RegExp(
+            r'(?:高达|ガンダム|gundam)[\s._-]*(?:w(?![a-z])|wing\b)|无尽的华尔兹|エンドレスワルツ',
+            caseSensitive: false,
+          ),
+        ),
+        (
+          'gundam_x',
+          RegExp(r'(?:高达|ガンダム|gundam)[\s._-]*x(?![a-z])', caseSensitive: false),
+        ),
+        (
+          'gundam_witch',
+          RegExp(r'水星的魔女|水星の魔女|witch\s+from\s+mercury', caseSensitive: false),
+        ),
+        ('gundam_reco', RegExp(r'复国|レコンギスタ|reconguista', caseSensitive: false)),
+        (
+          'gundam_turn_a',
+          RegExp(r'∀|turn[\s._-]*a[\s._-]*gundam|倒a高达', caseSensitive: false),
+        ),
+        (
+          'gundam_build',
+          RegExp(
+            r'创战者|创形者|ビルドファイターズ|ビルドダイバーズ|gundam\s+build',
+            caseSensitive: false,
+          ),
+        ),
+        (
+          'gundam_sd',
+          RegExp(
+            r'(?<![a-z])sd[\s._-]*(?:高达|ガンダム|gundam)',
+            caseSensitive: false,
+          ),
+        ),
+        ('gundam_gqux', RegExp(r'gquuuuuux|ジークアクス', caseSensitive: false)),
+        (
+          'gundam_g',
+          RegExp(r'机动武斗传|機動武闘伝|g[\s._-]*gundam', caseSensitive: false),
+        ),
+      ]);
 
   static final RegExp _remasterLabelPattern = RegExp(
     r'(?:HD\s*)?(?:重制版|重製版|Remaster(?:ed)?)|リマスター',
@@ -958,7 +964,9 @@ class SeriesAutoLinker {
 
     String cleanAnchorTitle(Work w) {
       final raw = w.title.trim();
-      final stripped = raw.replaceFirst(_trailingSeasonSuffixPattern, '').trim();
+      final stripped = raw
+          .replaceFirst(_trailingSeasonSuffixPattern, '')
+          .trim();
       return stripped.isEmpty ? raw : stripped;
     }
 
@@ -986,12 +994,10 @@ class SeriesAutoLinker {
         final bYear = b.year ?? 9999;
         if (aYear != bYear) return aYear.compareTo(bYear);
 
-        final aCount =
-            (a.tmdbMediaType == TmdbMediaType.tv && a.tmdbId != null)
+        final aCount = (a.tmdbMediaType == TmdbMediaType.tv && a.tmdbId != null)
             ? (countByTmdbId[a.tmdbId!] ?? 0)
             : 0;
-        final bCount =
-            (b.tmdbMediaType == TmdbMediaType.tv && b.tmdbId != null)
+        final bCount = (b.tmdbMediaType == TmdbMediaType.tv && b.tmdbId != null)
             ? (countByTmdbId[b.tmdbId!] ?? 0)
             : 0;
         if (aCount != bCount) return bCount.compareTo(aCount);
@@ -1013,15 +1019,19 @@ class SeriesAutoLinker {
     required List<Work> sortedMembers,
   }) {
     final tvMembers = sortedMembers
-        .where((m) => m.tmdbMediaType == TmdbMediaType.tv && m.matchedSeason != 0)
+        .where(
+          (m) => m.tmdbMediaType == TmdbMediaType.tv && m.matchedSeason != 0,
+        )
         .toList(growable: false);
-    final distinctTvTmdbIds = <int>{
-      for (final m in tvMembers) ?m.tmdbId,
-    };
+    final distinctTvTmdbIds = <int>{for (final m in tvMembers) ?m.tmdbId};
     final tvSeasonCountByTmdbId = <int, int>{};
     for (final m in tvMembers) {
       if (m.tmdbId != null && (m.matchedSeason ?? 0) > 0) {
-        tvSeasonCountByTmdbId.update(m.tmdbId!, (v) => v + 1, ifAbsent: () => 1);
+        tvSeasonCountByTmdbId.update(
+          m.tmdbId!,
+          (v) => v + 1,
+          ifAbsent: () => 1,
+        );
       }
     }
 

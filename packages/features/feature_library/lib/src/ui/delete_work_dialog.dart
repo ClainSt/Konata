@@ -22,18 +22,6 @@ Future<DeleteWorkConfirmResult?> showDeleteWorkDialog(
   );
 }
 
-/// 弹出隐藏作品二次确认框，返回是否确认执行隐藏。
-Future<bool> showHideWorkDialog(
-  BuildContext context, {
-  required Work work,
-}) async {
-  final confirmed = await showKonataGlassDialog<bool>(
-    context: context,
-    builder: (_) => _HideWorkDialog(work: work),
-  );
-  return confirmed == true;
-}
-
 class _DeleteWorkDialog extends StatefulWidget {
   const _DeleteWorkDialog({required this.work});
 
@@ -60,9 +48,9 @@ class _DeleteWorkDialogState extends State<_DeleteWorkDialog> {
         ),
         KonataPillButton.danger(
           label: '移出媒体库',
-          onPressed: () => Navigator.of(context).pop(
-            DeleteWorkConfirmResult(ignoreFolderOnRescan: _ignoreFolder),
-          ),
+          onPressed: () => Navigator.of(
+            context,
+          ).pop(DeleteWorkConfirmResult(ignoreFolderOnRescan: _ignoreFolder)),
         ),
       ],
       child: Column(
@@ -115,36 +103,6 @@ class _DeleteWorkDialogState extends State<_DeleteWorkDialog> {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _HideWorkDialog extends StatelessWidget {
-  const _HideWorkDialog({required this.work});
-
-  final Work work;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-    return KonataGlassDialog(
-      width: 440,
-      title: '隐藏作品',
-      onClose: () => Navigator.of(context).pop(false),
-      actions: <Widget>[
-        KonataPillButton.ghost(
-          label: '取消',
-          onPressed: () => Navigator.of(context).pop(false),
-        ),
-        KonataPillButton.primary(
-          label: '确认隐藏',
-          onPressed: () => Navigator.of(context).pop(true),
-        ),
-      ],
-      child: Text(
-        '隐藏「${work.title}」后将从全部作品墙与待复核队列移出，但不会删除任何媒体文件或播放记录。你随时可以在媒体库右上角「隐藏作品」列表中取消隐藏。',
-        style: KonataTheme.bodyLabelStyle(p).copyWith(height: 1.55),
       ),
     );
   }

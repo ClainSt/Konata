@@ -271,8 +271,6 @@ INSERT INTO ${WorksSchema.table} (
   ${WorksSchema.colFolderTmdbHint},
   ${WorksSchema.colIsManualLocked},
   ${WorksSchema.colMetadataLocked},
-  ${WorksSchema.colIsHidden},
-  ${WorksSchema.colKeepHidden},
   ${WorksSchema.colScrapeStatus},
   ${WorksSchema.colReviewReason},
   ${WorksSchema.colSeriesId},
@@ -282,7 +280,7 @@ INSERT INTO ${WorksSchema.table} (
   ${WorksSchema.colUpdatedAtMs},
   ${WorksSchema.colSourceDeviceId},
   ${WorksSchema.colDeletedAtMs}
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
 ON CONFLICT(${WorksSchema.colId}) DO UPDATE SET
   ${WorksSchema.colCanonicalKey} = excluded.${WorksSchema.colCanonicalKey},
   ${WorksSchema.colTmdbId} = excluded.${WorksSchema.colTmdbId},
@@ -305,8 +303,6 @@ ON CONFLICT(${WorksSchema.colId}) DO UPDATE SET
   ${WorksSchema.colFolderTmdbHint} = excluded.${WorksSchema.colFolderTmdbHint},
   ${WorksSchema.colIsManualLocked} = excluded.${WorksSchema.colIsManualLocked},
   ${WorksSchema.colMetadataLocked} = excluded.${WorksSchema.colMetadataLocked},
-  ${WorksSchema.colIsHidden} = excluded.${WorksSchema.colIsHidden},
-  ${WorksSchema.colKeepHidden} = excluded.${WorksSchema.colKeepHidden},
   ${WorksSchema.colScrapeStatus} = excluded.${WorksSchema.colScrapeStatus},
   ${WorksSchema.colReviewReason} = excluded.${WorksSchema.colReviewReason},
   ${WorksSchema.colSeriesId} = excluded.${WorksSchema.colSeriesId},
@@ -342,8 +338,6 @@ ON CONFLICT(${WorksSchema.colId}) DO UPDATE SET
           work.folderTmdbHint,
           work.isManualLocked ? 1 : 0,
           work.metadataLocked ? 1 : 0,
-          work.isHidden ? 1 : 0,
-          work.keepHidden ? 1 : 0,
           work.scrapeStatus.name,
           work.reviewReason,
           work.seriesId,
@@ -415,49 +409,6 @@ ON CONFLICT(${WorksSchema.colId}) DO UPDATE SET
       for (final row in rs)
         _mapWorkRow(row, negByWork[row[WorksSchema.colId] as String]),
     ];
-  }
-
-  @override
-  Future<List<Work>> getHiddenWorks() async {
-    final negByWork = _loadAllLogoNegatives();
-    final rs = _lib.engine.select(
-      'SELECT * FROM ${WorksSchema.table} '
-      'WHERE ${WorksSchema.colIsHidden} = 1 '
-      'AND ${WorksSchema.colDeletedAtMs} IS NULL;',
-    );
-    return <Work>[
-      for (final row in rs)
-        _mapWorkRow(row, negByWork[row[WorksSchema.colId] as String]),
-    ];
-  }
-
-  @override
-  Future<void> setWorkHidden(
-    String workId, {
-    required bool isHidden,
-    bool? keepHidden,
-  }) async {
-    final now = _nowMs();
-    if (keepHidden != null) {
-      _writeLibrarySql(
-        'UPDATE ${WorksSchema.table} '
-        'SET ${WorksSchema.colIsHidden} = ?, '
-        '${WorksSchema.colKeepHidden} = ?, '
-        '${WorksSchema.colUpdatedAtMs} = ? '
-        'WHERE ${WorksSchema.colId} = ?;',
-        <Object?>[isHidden ? 1 : 0, keepHidden ? 1 : 0, now, workId],
-        const <String>{WorksSchema.table},
-      );
-    } else {
-      _writeLibrarySql(
-        'UPDATE ${WorksSchema.table} '
-        'SET ${WorksSchema.colIsHidden} = ?, '
-        '${WorksSchema.colUpdatedAtMs} = ? '
-        'WHERE ${WorksSchema.colId} = ?;',
-        <Object?>[isHidden ? 1 : 0, now, workId],
-        const <String>{WorksSchema.table},
-      );
-    }
   }
 
   @override
@@ -1265,8 +1216,6 @@ ON CONFLICT(${SeriesGroupsSchema.colId}) DO UPDATE SET
           ? DateTime.fromMillisecondsSinceEpoch(logoNeg.negativeUntilMs)
           : null,
       logoNegativeMask: logoNeg?.probedSourceMask ?? 0,
-      isHidden: rec.isHidden,
-      keepHidden: rec.keepHidden,
       scrapeStatus: rec.scrapeStatus,
       reviewReason: rec.reviewReason,
       seriesId: rec.seriesId?.value,
@@ -1324,8 +1273,6 @@ ON CONFLICT(${SeriesGroupsSchema.colId}) DO UPDATE SET
           ? DateTime.fromMillisecondsSinceEpoch(logoNeg.negativeUntilMs)
           : null,
       logoNegativeMask: logoNeg?.probedSourceMask ?? 0,
-      isHidden: (row[WorksSchema.colIsHidden] as int? ?? 0) != 0,
-      keepHidden: (row[WorksSchema.colKeepHidden] as int? ?? 0) != 0,
       scrapeStatus: _parseScrapeStatus(
         row[WorksSchema.colScrapeStatus] as String?,
       ),

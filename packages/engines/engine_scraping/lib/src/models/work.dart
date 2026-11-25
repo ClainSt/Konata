@@ -36,8 +36,6 @@ class Work {
     this.logoLocked = false,
     this.logoNegativeUntil,
     this.logoNegativeMask = 0,
-    this.isHidden = false,
-    this.keepHidden = false,
     this.scrapeStatus = ScrapeStatus.unmatched,
     this.reviewReason,
     this.seriesId,
@@ -127,12 +125,6 @@ class Work {
   /// 上次透明标题徽标无图探测覆盖的数据源位掩码（详见 `ClearLogoNegativeMask`）。
   final int logoNegativeMask;
 
-  /// 是否从主媒体库视图隐藏。
-  final bool isHidden;
-
-  /// 重扫后是否继续保持隐藏状态。
-  final bool keepHidden;
-
   /// 当前刮削状态。
   final ScrapeStatus scrapeStatus;
 
@@ -182,8 +174,6 @@ class Work {
     DateTime? logoNegativeUntil,
     bool clearLogoNegative = false,
     int? logoNegativeMask,
-    bool? isHidden,
-    bool? keepHidden,
     ScrapeStatus? scrapeStatus,
     String? reviewReason,
     String? seriesId,
@@ -235,8 +225,6 @@ class Work {
       logoNegativeMask: clearLogoNegative
           ? 0
           : (logoNegativeMask ?? this.logoNegativeMask),
-      isHidden: isHidden ?? this.isHidden,
-      keepHidden: keepHidden ?? this.keepHidden,
       scrapeStatus: scrapeStatus ?? this.scrapeStatus,
       reviewReason: clearReviewReason
           ? null

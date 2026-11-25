@@ -81,20 +81,6 @@ class WorkManagementController {
   final StorageScrapeRepository _repository;
   late final WorkManualBindHelper _bindHelper;
 
-  /// 切换指定作品的隐藏状态，并可选标记持久化防回弹。
-  Future<void> setWorkHidden(
-    String workId, {
-    required bool hidden,
-    bool? keepHidden,
-  }) async {
-    await _repository.setWorkHidden(
-      workId,
-      isHidden: hidden,
-      keepHidden: keepHidden,
-    );
-    _publishWorkChanged(workId, hidden ? 'hidden' : 'unhidden');
-  }
-
   /// 软删除作品记录及本机 `photos/` 艺术图缓存（严禁删除媒体源物理视频或文件）。
   ///
   /// 若 [ignoreFolderOnRescan] 为 `true`，同步将其所有版本所在目录加入媒体源忽略目录清单，
@@ -422,8 +408,7 @@ class WorkManagementController {
     final folderTail = derivedDir.contains('/')
         ? derivedDir.split('/').last
         : derivedDir;
-    final cleanTitle =
-        (initialTitle != null && initialTitle.trim().isNotEmpty)
+    final cleanTitle = (initialTitle != null && initialTitle.trim().isNotEmpty)
         ? initialTitle.trim()
         : (folderTail.isNotEmpty ? folderTail : sourceWork.title);
     final newWorkId = ScrapeWorkPersister.deterministicId(
@@ -433,7 +418,6 @@ class WorkManagementController {
       id: newWorkId,
       title: cleanTitle,
       year: sourceWork.year,
-      isHidden: sourceWork.isHidden,
       scrapeStatus: ScrapeStatus.needsReview,
     );
     await _repository.upsertWork(splitWork);
@@ -611,11 +595,9 @@ class WorkManagementController {
 
   /// 交互式检索 Bangumi 动画条目候选。
   Future<List<BangumiSubjectCandidate>> searchBangumi(String query) {
-    final bgm = bangumiServiceOverride ?? BangumiService(httpClient: httpClient);
-    return bgm.searchSubjects(
-      query,
-      priority: RequestPriority.interactive,
-    );
+    final bgm =
+        bangumiServiceOverride ?? BangumiService(httpClient: httpClient);
+    return bgm.searchSubjects(query, priority: RequestPriority.interactive);
   }
 
   Future<ScrapePipeline> _createPipeline() async {
@@ -631,7 +613,8 @@ class WorkManagementController {
       index = null;
     }
     final tmdb = tmdbServiceOverride ?? TmdbService(httpClient: httpClient);
-    final bgm = bangumiServiceOverride ?? BangumiService(httpClient: httpClient);
+    final bgm =
+        bangumiServiceOverride ?? BangumiService(httpClient: httpClient);
     final fanart = FanartService(httpClient: httpClient);
     final clearLogo = ClearLogoResolver(
       tmdbService: tmdb,
@@ -645,8 +628,7 @@ class WorkManagementController {
       bangumiService: bgm,
       fanartService: fanart,
       clearLogoResolver: clearLogo,
-      gatewayBuilder: (_) =>
-          throw StateError('手工绑定与复核流程不打开远程文件读取流'),
+      gatewayBuilder: (_) => throw StateError('手工绑定与复核流程不打开远程文件读取流'),
       photosStorage: StorageRootWorkArtworkStorage(storageRoot: storageRoot),
       mappingIndex: index,
       diagnosticLog: diagnosticLog,

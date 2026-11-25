@@ -33,9 +33,9 @@ export 'src/state/library_controller.dart'
 export 'src/state/work_management_controller.dart'
     show WorkManagementController;
 export 'src/ui/delete_work_dialog.dart'
-    show DeleteWorkConfirmResult, showDeleteWorkDialog, showHideWorkDialog;
-export 'src/ui/hidden_works_dialog.dart' show showHiddenWorksDialog;
-export 'src/ui/library_artwork_view.dart' show ManagedImage, quantizeManagedImageWidth;
+    show DeleteWorkConfirmResult, showDeleteWorkDialog;
+export 'src/ui/library_artwork_view.dart'
+    show ManagedImage, quantizeManagedImageWidth;
 export 'src/ui/library_page.dart' show LibraryPage;
 export 'src/ui/poster_card.dart' show PosterCard;
 export 'src/ui/review_dialog.dart' show showReviewDialog;

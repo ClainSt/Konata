@@ -13,3 +13,5 @@
 - **用户态库（`user_state.db`）**：`UserStateDatabase`、`PlaybackRecordDao`、`ScopedPrefsDao`、`LyricUserOverrideDao`、`SyncMetaDao`、`TrackerSyncQueueDao`、`StoragePlaybackReadAdapter`。
 - **惰性缓存库（`cache.db`）**：`CacheDatabase`（支持冷启动惰性打开与一键删库重建）、`ScrapeCandidateDao`、`LyricCacheDao`、`ArtworkNegativeCacheDao`、`CloudDriveEntryDao`（仅非敏感云盘目录快照，按媒体源隔离）。
 - **配置、日志与路径服务**：`ScopedPrefsStore`、`TypedPrefsSlice`、`DiagnosticLogStore`、`PortableStorageRootService`、`InMemorySecureStorage`。
+
+- **作品可见性契约**：library.db v4 原位移除废弃隐藏字段；未删除作品按匹配状态进入媒体库或复核队列，保留原 ID、系列和媒体关联。

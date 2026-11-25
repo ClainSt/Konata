@@ -47,10 +47,7 @@ class OngoingWorkAutoSyncPlanner {
     final cutoff = current.subtract(
       const Duration(days: OngoingWorkAutoSyncConfig.recentPlaybackWindowDays),
     );
-    final workById = <String, Work>{
-      for (final w in works)
-        if (!w.isHidden) w.id: w,
-    };
+    final workById = <String, Work>{for (final w in works) w.id: w};
     if (workById.isEmpty) return const [];
 
     final picked = <String>[];
@@ -78,7 +75,8 @@ class OngoingWorkAutoSyncPlanner {
       if (w.tmdbMediaType == TmdbMediaType.movie) continue;
       final epCount = mainEpisodeCountByWorkId[w.id];
       final isRecentYear = w.year != null && w.year! >= minOngoingYear;
-      final isLikelyIncompleteTv = epCount != null && epCount >= 1 && epCount < 12;
+      final isLikelyIncompleteTv =
+          epCount != null && epCount >= 1 && epCount < 12;
       if (isRecentYear || isLikelyIncompleteTv) {
         secondary.add(w);
       }

@@ -41,9 +41,6 @@ enum DetailBuiltInGearAction {
   /// 清空播放进度。
   clearHistory,
 
-  /// 隐藏或恢复显示作品。
-  toggleHidden,
-
   /// 从媒体库移除记录。
   deleteFromLibrary,
 }
@@ -142,13 +139,6 @@ class DetailGearMenu extends StatelessWidget {
         label: '清空观看进度',
         icon: Icons.history_toggle_off_rounded,
       ),
-      KonataGlassMenuItem<String>(
-        value: 'toggleHidden',
-        label: work.isHidden ? '从隐藏中恢复展示' : '从主媒体库隐藏',
-        icon: work.isHidden
-            ? Icons.visibility_outlined
-            : Icons.visibility_off_outlined,
-      ),
       const KonataGlassMenuItem<String>(
         value: 'deleteFromLibrary',
         label: '从媒体库移除记录',
@@ -187,7 +177,6 @@ class DetailGearMenu extends StatelessWidget {
       'mergeIntoWork' => DetailBuiltInGearAction.mergeIntoWork,
       'markAllWatched' => DetailBuiltInGearAction.markAllWatched,
       'clearHistory' => DetailBuiltInGearAction.clearHistory,
-      'toggleHidden' => DetailBuiltInGearAction.toggleHidden,
       'deleteFromLibrary' => DetailBuiltInGearAction.deleteFromLibrary,
       _ => null,
     };

@@ -49,9 +49,7 @@ void main() {
       await touchFile(
         'Frieren (2023)/[VCB-Studio] Frieren S01E01 [Ma10p_1080p][x265_flac].sc.ass',
       );
-      await touchFile(
-        'Frieren (2023)/[ANK-Raws] Frieren S01E01 [1080p].mkv',
-      );
+      await touchFile('Frieren (2023)/[ANK-Raws] Frieren S01E01 [1080p].mkv');
       await touchFile('Frieren (2023)/Extras/[VCB-Studio] Frieren [NCOP].mkv');
       await touchFile('Frieren (2023)/CD/OST.cue', 'TITLE "Frieren OST"');
       await touchFile('Ambiguous Show/Ambiguous Show - 01.mkv');
@@ -88,8 +86,16 @@ void main() {
           }
           return _jsonResponse({
             'results': [
-              {'id': 5001, 'name': 'Ambiguous Show Alpha', 'first_air_date': '2020-01-01'},
-              {'id': 5002, 'name': 'Ambiguous Show Beta', 'first_air_date': '2021-01-01'},
+              {
+                'id': 5001,
+                'name': 'Ambiguous Show Alpha',
+                'first_air_date': '2020-01-01',
+              },
+              {
+                'id': 5002,
+                'name': 'Ambiguous Show Beta',
+                'first_air_date': '2021-01-01',
+              },
             ],
           });
         }
@@ -149,7 +155,8 @@ void main() {
             httpClient: mockClient,
           ),
         ),
-        gatewayBuilder: (s) async => TestLocalSourceGateway(rootPath: s.location),
+        gatewayBuilder: (s) async =>
+            TestLocalSourceGateway(rootPath: s.location),
         computeWorker: const ScrapeComputeWorker(useIsolate: false),
       );
 
@@ -213,8 +220,9 @@ void main() {
       expect(rebound.tmdbId, 5001);
       expect(await repo.getScrapeCandidates(ambiguous.id), isEmpty);
       expect(
-        Directory(p.join(tempRoot.path, 'Ambiguous Show [tmdbid=5001]'))
-            .existsSync(),
+        Directory(
+          p.join(tempRoot.path, 'Ambiguous Show [tmdbid=5001]'),
+        ).existsSync(),
         isTrue,
       );
 
@@ -241,7 +249,8 @@ void main() {
       final mockClient = MockClient((request) async {
         tmdbHits++;
         final path = request.url.path;
-        final query = (request.url.queryParameters['query'] ?? '').toLowerCase();
+        final query = (request.url.queryParameters['query'] ?? '')
+            .toLowerCase();
         if (path.endsWith('/search/tv')) {
           if (query.contains('frieren')) {
             return _jsonResponse({
@@ -320,7 +329,8 @@ void main() {
             httpClient: mockClient,
           ),
         ),
-        gatewayBuilder: (s) async => TestLocalSourceGateway(rootPath: s.location),
+        gatewayBuilder: (s) async =>
+            TestLocalSourceGateway(rootPath: s.location),
         computeWorker: const ScrapeComputeWorker(useIsolate: false),
       );
 
@@ -424,9 +434,6 @@ class _CountingSeriesRepo implements LibraryRepository {
       _inner.getEpisodesByWorkIds(workIds);
 
   @override
-  Future<List<Work>> getHiddenWorks() => _inner.getHiddenWorks();
-
-  @override
   Future<List<String>> getIgnoredFolders(String sourceId) =>
       _inner.getIgnoredFolders(sourceId);
 
@@ -495,13 +502,6 @@ class _CountingSeriesRepo implements LibraryRepository {
     String workId,
     List<ScrapeCandidateSummary> candidates,
   ) => _inner.saveScrapeCandidates(workId, candidates);
-
-  @override
-  Future<void> setWorkHidden(
-    String workId, {
-    required bool isHidden,
-    bool? keepHidden,
-  }) => _inner.setWorkHidden(workId, isHidden: isHidden, keepHidden: keepHidden);
 
   @override
   Future<void> upsertEpisode(Episode episode) => _inner.upsertEpisode(episode);

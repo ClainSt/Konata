@@ -78,7 +78,7 @@ final workManageDialogPortProvider = Provider<WorkManageDialogPort>((ref) {
   throw StateError('作品管理弹窗端口尚未装配');
 });
 
-/// 媒体库主海报墙、隐藏列表与待复核队列状态控制器 `Provider`。
+/// 媒体库主海报墙与待复核队列状态控制器 `Provider`。
 final libraryControllerProvider = Provider<LibraryController>((ref) {
   final deps = ref.watch(featureLibraryDependenciesProvider);
   final controller = LibraryController(

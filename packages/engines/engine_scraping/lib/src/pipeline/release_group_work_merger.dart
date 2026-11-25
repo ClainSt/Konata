@@ -119,10 +119,7 @@ abstract final class ReleaseGroupWorkMerger {
       }
     }
 
-    return (
-      absorbedIds: absorbedIds,
-      survivingTargetIds: survivingTargetIds,
-    );
+    return (absorbedIds: absorbedIds, survivingTargetIds: survivingTargetIds);
   }
 
   static bool _isEligibleForAutoMerge(Work work) {
@@ -138,7 +135,9 @@ abstract final class ReleaseGroupWorkMerger {
   }
 
   static String? _tmdbIdentityKey(Work work) {
-    if (work.tmdbId == null || work.tmdbId! <= 0 || work.tmdbMediaType == null) {
+    if (work.tmdbId == null ||
+        work.tmdbId! <= 0 ||
+        work.tmdbMediaType == null) {
       return null;
     }
     if (work.tmdbMediaType == TmdbMediaType.tv) {
@@ -184,7 +183,8 @@ abstract final class ReleaseGroupWorkMerger {
     ({Work work, List<MediaVariant> variants}) b,
   ) {
     int metadataRank(Work w) {
-      final hasTmdb = w.tmdbId != null && w.tmdbId! > 0 && w.tmdbMediaType != null;
+      final hasTmdb =
+          w.tmdbId != null && w.tmdbId! > 0 && w.tmdbMediaType != null;
       final hasBgm = w.bangumiId != null && w.bangumiId! > 0;
       if (hasTmdb && hasBgm) return 3;
       if (hasTmdb) return 2;
@@ -194,7 +194,9 @@ abstract final class ReleaseGroupWorkMerger {
 
     int artworkRank(Work w) {
       var score = 0;
-      if (w.backdropPath != null && w.backdropPath!.trim().isNotEmpty) score += 2;
+      if (w.backdropPath != null && w.backdropPath!.trim().isNotEmpty) {
+        score += 2;
+      }
       if (w.posterPath != null && w.posterPath!.trim().isNotEmpty) score += 1;
       if (w.logoPath != null && w.logoPath!.trim().isNotEmpty) score += 1;
       return score;
@@ -437,10 +439,7 @@ abstract final class ReleaseGroupWorkMerger {
 
       episodeIdMap[srcEp.id] = targetEpisodeId;
       variantsToUpsert.add(
-        variant.copyWith(
-          workId: enrichedTarget.id,
-          episodeId: targetEpisodeId,
-        ),
+        variant.copyWith(workId: enrichedTarget.id, episodeId: targetEpisodeId),
       );
     }
 
@@ -521,7 +520,7 @@ Future<Work?> findAutoMergeTargetInRepo(
   final allWorks = await repo.getAllWorks();
   final candidates = <Work>[];
   for (final w in allWorks) {
-    if (w.id == sourceWorkId || w.isHidden) continue;
+    if (w.id == sourceWorkId) continue;
     final confirmed =
         w.scrapeStatus == ScrapeStatus.matched || w.isManualLocked;
     if (!confirmed) continue;

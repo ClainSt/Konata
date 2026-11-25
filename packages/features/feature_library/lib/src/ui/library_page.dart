@@ -11,7 +11,6 @@ import '../data/library_models.dart';
 import '../providers.dart';
 import '../state/library_controller.dart';
 import 'delete_work_dialog.dart';
-import 'hidden_works_dialog.dart';
 import 'library_header_bar.dart';
 import 'poster_card.dart';
 import 'review_dialog.dart';
@@ -174,11 +173,6 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
           icon: Icons.merge_type_rounded,
         ),
         KonataGlassMenuItem<String>(
-          value: 'hide',
-          label: '隐藏此作品',
-          icon: Icons.visibility_off_outlined,
-        ),
-        KonataGlassMenuItem<String>(
           value: 'delete',
           label: '移出媒体库',
           icon: Icons.delete_outline_rounded,
@@ -236,11 +230,6 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
               sourceWorkId: WorkId.trusted(work.id),
             );
         if (changed && mounted) await libraryController.reload();
-      case 'hide':
-        await mgmt.setWorkHidden(work.id, hidden: true);
-        await libraryController.reload();
-        if (!mounted) return;
-        showKonataToast(context, '已隐藏「${work.title}」，可在右上角隐藏列表恢复');
       case 'delete':
         final confirm = await showDeleteWorkDialog(context, work: work);
         if (!mounted || confirm == null) return;
@@ -297,7 +286,6 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                 compact: compact,
                 displayedCount: items.length,
                 totalCount: totalCount,
-                hiddenCount: controller.hiddenWorks.length,
                 reviewCount: controller.reviewWorks.length,
                 hasQuery: controller.searchQuery.trim().isNotEmpty,
                 hasActiveFilters: controller.prefs.hasActiveFilters,
@@ -313,7 +301,6 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                 onToggleFilters: () {
                   setState(() => _filtersExpanded = !_filtersExpanded);
                 },
-                onOpenHidden: () => showHiddenWorksDialog(context),
                 onOpenReview: () => showReviewDialog(context),
               ),
             ),

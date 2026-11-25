@@ -261,8 +261,6 @@ final class SyncLibraryWorkItem {
     this.folderTmdbHint,
     this.isManualLocked = false,
     this.metadataLocked = false,
-    this.isHidden = false,
-    this.keepHidden = false,
     this.scrapeStatus = ScrapeStatus.unmatched,
     this.reviewReason,
     this.seriesId,
@@ -320,8 +318,6 @@ final class SyncLibraryWorkItem {
       folderTmdbHint: rec.folderTmdbHint,
       isManualLocked: rec.isManualLocked,
       metadataLocked: rec.metadataLocked,
-      isHidden: rec.isHidden,
-      keepHidden: rec.keepHidden,
       scrapeStatus: rec.scrapeStatus,
       reviewReason: rec.reviewReason,
       seriesId: rec.seriesId?.value,
@@ -359,8 +355,6 @@ final class SyncLibraryWorkItem {
   final int? folderTmdbHint;
   final bool isManualLocked;
   final bool metadataLocked;
-  final bool isHidden;
-  final bool keepHidden;
   final ScrapeStatus scrapeStatus;
   final String? reviewReason;
   final String? seriesId;
@@ -409,8 +403,6 @@ final class SyncLibraryWorkItem {
       folderTmdbHint: folderTmdbHint,
       isManualLocked: isManualLocked,
       metadataLocked: metadataLocked,
-      isHidden: isHidden,
-      keepHidden: keepHidden,
       scrapeStatus: scrapeStatus,
       reviewReason: reviewReason,
       seriesId: clearSeriesId ? null : (seriesId ?? this.seriesId),
@@ -454,8 +446,6 @@ final class SyncLibraryWorkItem {
       folderTmdbHint: folderTmdbHint,
       isManualLocked: isManualLocked,
       metadataLocked: metadataLocked,
-      isHidden: isHidden,
-      keepHidden: keepHidden,
       scrapeStatus: scrapeStatus,
       reviewReason: reviewReason,
       seriesId: (overrideSeriesId ?? seriesId)?.isNotEmpty == true
@@ -495,8 +485,6 @@ final class SyncLibraryWorkItem {
     if (folderTmdbHint != null) 'folderTmdbHint': folderTmdbHint,
     if (isManualLocked) 'isManualLocked': true,
     if (metadataLocked) 'metadataLocked': true,
-    if (isHidden) 'isHidden': true,
-    if (keepHidden) 'keepHidden': true,
     'scrapeStatus': scrapeStatus.name,
     if (reviewReason != null) 'reviewReason': reviewReason,
     if (seriesId != null) 'seriesId': seriesId,
@@ -567,8 +555,6 @@ final class SyncLibraryWorkItem {
       folderTmdbHint: (json['folderTmdbHint'] as num?)?.toInt(),
       isManualLocked: json['isManualLocked'] == true,
       metadataLocked: json['metadataLocked'] == true,
-      isHidden: json['isHidden'] == true,
-      keepHidden: json['keepHidden'] == true,
       scrapeStatus: scrapeStatus,
       reviewReason: json['reviewReason']?.toString(),
       seriesId: json['seriesId']?.toString(),
@@ -1817,8 +1803,6 @@ final class LibraryCatalogSyncSlice
             folderTmdbHint: w.folderTmdbHint,
             isManualLocked: w.isManualLocked,
             metadataLocked: w.metadataLocked,
-            isHidden: w.isHidden,
-            keepHidden: w.keepHidden,
             scrapeStatus: w.scrapeStatus,
             reviewReason: w.reviewReason,
             seriesId: w.seriesId,
@@ -2116,8 +2100,6 @@ final class LibraryCatalogSyncSlice
       folderTmdbHint: winner.folderTmdbHint ?? loser.folderTmdbHint,
       isManualLocked: local.isManualLocked || remote.isManualLocked,
       metadataLocked: local.metadataLocked || remote.metadataLocked,
-      isHidden: winner.isHidden,
-      keepHidden: winner.keepHidden,
       scrapeStatus:
           winner.scrapeStatus == ScrapeStatus.unmatched &&
               loser.scrapeStatus != ScrapeStatus.unmatched
@@ -2308,8 +2290,6 @@ final class LibraryCatalogSyncSlice
         a.bangumiScore != b.bangumiScore ||
         a.isManualLocked != b.isManualLocked ||
         a.metadataLocked != b.metadataLocked ||
-        a.isHidden != b.isHidden ||
-        a.keepHidden != b.keepHidden ||
         a.scrapeStatus != b.scrapeStatus ||
         a.reviewReason != b.reviewReason ||
         a.seriesId != b.seriesId ||

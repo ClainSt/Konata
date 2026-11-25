@@ -6,7 +6,6 @@ import 'package:konata_design_system/konata_design_system.dart';
 
 import '../data/library_models.dart';
 import '../providers.dart';
-import 'delete_work_dialog.dart';
 import 'review_work_item_card.dart';
 
 /// 弹出待复核中心对话框，集中核对模糊匹配、跨季歧义及网络波动条目。
@@ -46,7 +45,9 @@ class _ReviewDialogState extends ConsumerState<_ReviewDialog> {
   }
 
   Future<void> _syncWorkSummaries(List<Work> pending) async {
-    final fingerprint = pending.map((w) => '${w.id}:${w.reviewReason ?? ""}').join('|');
+    final fingerprint = pending
+        .map((w) => '${w.id}:${w.reviewReason ?? ""}')
+        .join('|');
     if (_loadingMeta || fingerprint == _loadedFingerprint) return;
     _loadedFingerprint = fingerprint;
     _loadingMeta = true;
@@ -172,10 +173,7 @@ class _ReviewDialogState extends ConsumerState<_ReviewDialog> {
             '检测到同源作品，已自动归并至「${result.work?.title ?? work.title}」',
           );
         case RematchWorkOutcome.needsReview:
-          showKonataToast(
-            context,
-            '已刷新候选（${result.candidateCount} 条），请展开核对',
-          );
+          showKonataToast(context, '已刷新候选（${result.candidateCount} 条），请展开核对');
         case RematchWorkOutcome.unmatched:
           showKonataToast(context, '仍未找到高置信条目，请尝试手动搜索');
         case RematchWorkOutcome.networkError:
@@ -189,7 +187,8 @@ class _ReviewDialogState extends ConsumerState<_ReviewDialog> {
   }
 
   Future<void> _handleManualMatch(Work work) async {
-    final matched = await ref.read(workManageDialogPortProvider)
+    final matched = await ref
+        .read(workManageDialogPortProvider)
         .showManualMatchDialog(context, workId: WorkId.trusted(work.id));
     if (matched && mounted) {
       await ref.read(libraryControllerProvider).reload();
@@ -198,37 +197,30 @@ class _ReviewDialogState extends ConsumerState<_ReviewDialog> {
 
   Future<void> _handleMerge(Work work) async {
     await _runForWork(work.id, () async {
-      final changed = await ref.read(workManageDialogPortProvider)
+      final changed = await ref
+          .read(workManageDialogPortProvider)
           .showWorkMergeDialog(context, sourceWorkId: WorkId.trusted(work.id));
-      if (changed && mounted) await ref.read(libraryControllerProvider).reload();
+      if (changed && mounted) {
+        await ref.read(libraryControllerProvider).reload();
+      }
     });
   }
 
   Future<void> _handleSourceFiles(Work work) async {
-    final changed = await ref.read(workManageDialogPortProvider)
+    final changed = await ref
+        .read(workManageDialogPortProvider)
         .showSourceFilesReviewDialog(context, workId: WorkId.trusted(work.id));
     if (changed && mounted) await ref.read(libraryControllerProvider).reload();
   }
 
   Future<void> _handleDismiss(Work work) async {
     await _runForWork(work.id, () async {
-      await ref.read(workManagementControllerProvider).dismissWorkReview(work.id);
+      await ref
+          .read(workManagementControllerProvider)
+          .dismissWorkReview(work.id);
       await ref.read(libraryControllerProvider).reload();
       if (!mounted) return;
       showKonataToast(context, '已保留「${work.title}」并移出待复核');
-    });
-  }
-
-  Future<void> _handleHide(Work work) async {
-    final confirmed = await showHideWorkDialog(context, work: work);
-    if (!mounted || !confirmed) return;
-    await _runForWork(work.id, () async {
-      await ref
-          .read(workManagementControllerProvider)
-          .setWorkHidden(work.id, hidden: true);
-      await ref.read(libraryControllerProvider).reload();
-      if (!mounted) return;
-      showKonataToast(context, '已隐藏「${work.title}」');
     });
   }
 
@@ -266,7 +258,9 @@ class _ReviewDialogState extends ConsumerState<_ReviewDialog> {
           });
         }
         final networkWorks = pending
-            .where((w) => ReviewReasonLabels.isNetworkDegradedReason(w.reviewReason))
+            .where(
+              (w) => ReviewReasonLabels.isNetworkDegradedReason(w.reviewReason),
+            )
             .toList(growable: false);
 
         return KonataGlassDialog(
@@ -364,23 +358,22 @@ class _ReviewDialogState extends ConsumerState<_ReviewDialog> {
                                 _busyWorkIds.contains(work.id);
                             return ReviewWorkItemCard(
                               work: work,
-                              folderLabel:
-                                  _folderLabels[work.id] ?? '正在读取目录…',
+                              folderLabel: _folderLabels[work.id] ?? '正在读取目录…',
                               variantCount: _variantCounts[work.id] ?? 0,
                               candidates:
                                   _candidatesByWork[work.id] ??
                                   const <ScrapeCandidateSummary>[],
-                              isLoadingCandidates:
-                                  _loadingCandidateIds.contains(work.id),
+                              isLoadingCandidates: _loadingCandidateIds
+                                  .contains(work.id),
                               isBusy: busy,
                               onEnsureCandidatesLoaded: () =>
                                   _ensureCandidatesLoaded(work.id),
                               onRematch: () => _handleRematch(work),
                               onManualMatch: () => _handleManualMatch(work),
-                              onInspectSourceFiles: () => _handleSourceFiles(work),
+                              onInspectSourceFiles: () =>
+                                  _handleSourceFiles(work),
                               onMergeIntoExisting: () => _handleMerge(work),
                               onDismissReview: () => _handleDismiss(work),
-                              onHideWork: () => _handleHide(work),
                               onAcceptCandidate: (candidate) =>
                                   _handleAcceptCandidate(work, candidate),
                             );
@@ -424,11 +417,7 @@ class _ReviewNetworkBatchRetryBar extends StatelessWidget {
       ),
       child: Row(
         children: <Widget>[
-          Icon(
-            Icons.wifi_off_rounded,
-            size: 16,
-            color: p.warningBadge.fg,
-          ),
+          Icon(Icons.wifi_off_rounded, size: 16, color: p.warningBadge.fg),
           const SizedBox(width: 10),
           Expanded(
             child: Text(

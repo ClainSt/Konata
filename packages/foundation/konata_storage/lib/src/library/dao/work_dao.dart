@@ -31,8 +31,6 @@ final class WorkRecord {
     this.folderTmdbHint,
     this.isManualLocked = false,
     this.metadataLocked = false,
-    this.isHidden = false,
-    this.keepHidden = false,
     this.scrapeStatus = ScrapeStatus.unmatched,
     this.reviewReason,
     this.seriesId,
@@ -110,12 +108,6 @@ final class WorkRecord {
   /// 基础元数据人工锁。
   final bool metadataLocked;
 
-  /// 是否在主媒体库隐藏。
-  final bool isHidden;
-
-  /// 重扫后是否继续保持隐藏。
-  final bool keepHidden;
-
   /// 刮削匹配状态。
   final ScrapeStatus scrapeStatus;
 
@@ -161,7 +153,6 @@ final class WorkRecord {
     portraitBackdropRef: portraitBackdropRef,
     logoRef: logoRef,
     seriesGroupId: seriesId,
-    isHidden: isHidden,
   );
 }
 
@@ -206,8 +197,6 @@ INSERT INTO ${WorksSchema.table} (
   ${WorksSchema.colFolderTmdbHint},
   ${WorksSchema.colIsManualLocked},
   ${WorksSchema.colMetadataLocked},
-  ${WorksSchema.colIsHidden},
-  ${WorksSchema.colKeepHidden},
   ${WorksSchema.colScrapeStatus},
   ${WorksSchema.colReviewReason},
   ${WorksSchema.colSeriesId},
@@ -219,7 +208,7 @@ INSERT INTO ${WorksSchema.table} (
   ${WorksSchema.colDeletedAtMs}
 ) VALUES (
   ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-  ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+  ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
 )
 ON CONFLICT(${WorksSchema.colId}) DO UPDATE SET
   ${WorksSchema.colCanonicalKey} = excluded.${WorksSchema.colCanonicalKey},
@@ -243,8 +232,6 @@ ON CONFLICT(${WorksSchema.colId}) DO UPDATE SET
   ${WorksSchema.colFolderTmdbHint} = excluded.${WorksSchema.colFolderTmdbHint},
   ${WorksSchema.colIsManualLocked} = excluded.${WorksSchema.colIsManualLocked},
   ${WorksSchema.colMetadataLocked} = excluded.${WorksSchema.colMetadataLocked},
-  ${WorksSchema.colIsHidden} = excluded.${WorksSchema.colIsHidden},
-  ${WorksSchema.colKeepHidden} = excluded.${WorksSchema.colKeepHidden},
   ${WorksSchema.colScrapeStatus} = excluded.${WorksSchema.colScrapeStatus},
   ${WorksSchema.colReviewReason} = excluded.${WorksSchema.colReviewReason},
   ${WorksSchema.colSeriesId} = excluded.${WorksSchema.colSeriesId},
@@ -278,8 +265,6 @@ ON CONFLICT(${WorksSchema.colId}) DO UPDATE SET
         record.folderTmdbHint,
         SqliteRowCodec.encodeBool(record.isManualLocked),
         SqliteRowCodec.encodeBool(record.metadataLocked),
-        SqliteRowCodec.encodeBool(record.isHidden),
-        SqliteRowCodec.encodeBool(record.keepHidden),
         record.scrapeStatus.name,
         record.reviewReason,
         record.seriesId?.value,
@@ -325,7 +310,7 @@ ON CONFLICT(${WorksSchema.colId}) DO UPDATE SET
     return _mapRow(rs.first);
   }
 
-  /// 查询全部有效可见作品（过滤已隐藏与软删除记录）。
+  /// 查询全部有效可见作品（过滤软删除记录）。
   List<WorkRecord> listVisible() {
     return _queryVisible(_engine.select);
   }
@@ -338,7 +323,7 @@ ON CONFLICT(${WorksSchema.colId}) DO UPDATE SET
     );
   }
 
-  /// 查询全部未软删除作品（包含已隐藏作品）。
+  /// 查询全部未软删除作品。
   List<WorkRecord> listAll({bool includeDeleted = false}) {
     return _queryAll(_engine.select, includeDeleted: includeDeleted);
   }
@@ -348,14 +333,14 @@ ON CONFLICT(${WorksSchema.colId}) DO UPDATE SET
     final rows = _engine.select(
       'SELECT ${WorksSchema.colId} FROM ${WorksSchema.table} '
       'WHERE ${WorksSchema.colDeletedAtMs} IS NULL '
-      'AND ${WorksSchema.colIsHidden} = 0 ORDER BY rowid ASC;',
+      'ORDER BY rowid ASC;',
     );
     return [
       for (final row in rows) WorkId.trusted(row[WorksSchema.colId] as String),
     ];
   }
 
-  /// 响应式监听全部未软删除作品（包含已隐藏作品）。
+  /// 响应式监听全部未软删除作品。
   Stream<List<WorkRecord>> watchAll({bool includeDeleted = false}) {
     return _engine.watchQuery<List<WorkRecord>>(
       tables: _tables,
@@ -363,20 +348,7 @@ ON CONFLICT(${WorksSchema.colId}) DO UPDATE SET
     );
   }
 
-  /// 查询全部已隐藏且未软删除作品。
-  List<WorkRecord> listHidden() {
-    return _queryHidden(_engine.select);
-  }
-
-  /// 响应式监听全部已隐藏且未软删除作品。
-  Stream<List<WorkRecord>> watchHidden() {
-    return _engine.watchQuery<List<WorkRecord>>(
-      tables: _tables,
-      query: (db) => _queryHidden(db.select),
-    );
-  }
-
-  /// 查询全部待复核或未匹配作品（不含隐藏与软删除）。
+  /// 查询全部待复核或未匹配作品（不含软删除）。
   List<WorkRecord> listNeedsReview() {
     return _queryNeedsReview(_engine.select);
   }
@@ -449,7 +421,6 @@ WHERE ${WorksSchema.colId} = ?;
     final rs = selectFn(
       'SELECT * FROM ${WorksSchema.table} '
       'WHERE ${WorksSchema.colDeletedAtMs} IS NULL '
-      'AND ${WorksSchema.colIsHidden} = 0 '
       'ORDER BY ${WorksSchema.colTitle} ASC, ${WorksSchema.colId} ASC;',
     );
     return <WorkRecord>[for (final row in rs) _mapRow(row)];
@@ -469,25 +440,12 @@ WHERE ${WorksSchema.colId} = ?;
     return <WorkRecord>[for (final row in rs) _mapRow(row)];
   }
 
-  List<WorkRecord> _queryHidden(
-    ResultSet Function(String, [List<Object?>]) selectFn,
-  ) {
-    final rs = selectFn(
-      'SELECT * FROM ${WorksSchema.table} '
-      'WHERE ${WorksSchema.colDeletedAtMs} IS NULL '
-      'AND ${WorksSchema.colIsHidden} = 1 '
-      'ORDER BY ${WorksSchema.colTitle} ASC, ${WorksSchema.colId} ASC;',
-    );
-    return <WorkRecord>[for (final row in rs) _mapRow(row)];
-  }
-
   List<WorkRecord> _queryNeedsReview(
     ResultSet Function(String, [List<Object?>]) selectFn,
   ) {
     final rs = selectFn(
       'SELECT * FROM ${WorksSchema.table} '
       'WHERE ${WorksSchema.colDeletedAtMs} IS NULL '
-      'AND ${WorksSchema.colIsHidden} = 0 '
       'AND ${WorksSchema.colScrapeStatus} != ? '
       'ORDER BY ${WorksSchema.colUpdatedAtMs} DESC, ${WorksSchema.colTitle} ASC;',
       <Object?>[ScrapeStatus.matched.name],
@@ -533,8 +491,6 @@ WHERE ${WorksSchema.colId} = ?;
       metadataLocked: SqliteRowCodec.decodeBool(
         row[WorksSchema.colMetadataLocked],
       ),
-      isHidden: SqliteRowCodec.decodeBool(row[WorksSchema.colIsHidden]),
-      keepHidden: SqliteRowCodec.decodeBool(row[WorksSchema.colKeepHidden]),
       scrapeStatus: SqliteRowCodec.decodeEnum(
         ScrapeStatus.values,
         row[WorksSchema.colScrapeStatus],

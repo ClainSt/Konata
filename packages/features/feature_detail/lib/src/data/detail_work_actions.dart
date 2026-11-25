@@ -206,8 +206,6 @@ final class DetailWorkActionsService {
       logoLocked: existing.logoLocked,
       logoNegativeUntil: existing.logoNegativeUntil,
       logoNegativeMask: existing.logoNegativeMask,
-      isHidden: existing.isHidden,
-      keepHidden: existing.keepHidden,
       scrapeStatus: existing.scrapeStatus,
       reviewReason: existing.reviewReason,
       seriesId: existing.seriesId,
@@ -533,26 +531,6 @@ final class DetailWorkActionsService {
     return _repository.findWorkById(workId);
   }
 
-  /// 隐藏指定作品。
-  Future<void> hideWork(String workId, {bool keepHidden = true}) async {
-    await _repository.setWorkHidden(
-      workId,
-      isHidden: true,
-      keepHidden: keepHidden,
-    );
-    _publishWorkChanged(workId, 'edited');
-  }
-
-  /// 恢复展示已隐藏作品。
-  Future<void> unhideWork(String workId) async {
-    await _repository.setWorkHidden(
-      workId,
-      isHidden: false,
-      keepHidden: false,
-    );
-    _publishWorkChanged(workId, 'edited');
-  }
-
   /// 仅从媒体库数据库移除作品记录，可选写入忽略目录名单，绝不删除物理源文件。
   Future<void> deleteWorkFromLibrary(
     String workId, {
@@ -770,8 +748,9 @@ final class DetailWorkActionsService {
     final idSet = variantIds.toSet();
     final selected = sourceVariants.where((v) => idSet.contains(v.id)).toList()
       ..sort(
-        (a, b) =>
-            a.relativePath.toLowerCase().compareTo(b.relativePath.toLowerCase()),
+        (a, b) => a.relativePath.toLowerCase().compareTo(
+          b.relativePath.toLowerCase(),
+        ),
       );
     if (selected.isEmpty) {
       throw StateError('请至少选择一个有效源文件后再拆分');
@@ -811,7 +790,10 @@ final class DetailWorkActionsService {
 
     late final Work boundWork;
     if (hybridRequest != null) {
-      boundWork = await bindWorkHybrid(workId: newWorkId, request: hybridRequest);
+      boundWork = await bindWorkHybrid(
+        workId: newWorkId,
+        request: hybridRequest,
+      );
     } else if (tmdbTarget != null) {
       boundWork = await _scrapePipeline.rebindWorkToTmdb(
         newWorkId,
@@ -845,7 +827,8 @@ final class DetailWorkActionsService {
       },
       focusWorkIds: {boundWork.id, sourceWorkId},
     );
-    final resolvedTarget = (await _repository.findWorkById(newWorkId)) ?? boundWork;
+    final resolvedTarget =
+        (await _repository.findWorkById(newWorkId)) ?? boundWork;
     _publishWorkChanged(resolvedTarget.id, 'edited');
     _publishWorkChanged(sourceWorkId, 'edited');
     return resolvedTarget;

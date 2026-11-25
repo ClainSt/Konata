@@ -236,9 +236,7 @@ class _FakeHttpClient implements KonataHttpClientPort {
 }
 
 void main() {
-  testWidgets('媒体库海报墙在四视口矩阵下零溢出且点击海报卡准确触发 openWorkDetail', (
-    tester,
-  ) async {
+  testWidgets('媒体库海报墙在四视口矩阵下零溢出且点击海报卡准确触发 openWorkDetail', (tester) async {
     final tempRoot = Directory.systemTemp.createTempSync('konata_lib_ui_');
     addTearDown(() {
       if (tempRoot.existsSync()) {
@@ -388,9 +386,7 @@ void main() {
     expect(navigator.openedWorkDetails.last.value, 'w_wall_2');
   });
 
-  testWidgets('PosterCard 保持高速滚动惰性降载并在桌面顶栏搜索词注入时实时过滤', (
-    tester,
-  ) async {
+  testWidgets('PosterCard 保持高速滚动惰性降载并在桌面顶栏搜索词注入时实时过滤', (tester) async {
     final tempRoot = Directory.systemTemp.createTempSync('konata_lib_opt_');
     addTearDown(() {
       if (tempRoot.existsSync()) {
@@ -539,9 +535,7 @@ void main() {
     expect(find.text('轻音少女'), findsNothing);
   });
 
-  testWidgets('媒体库顶栏与待复核中心经宿主分派作品管理动作', (
-    tester,
-  ) async {
+  testWidgets('媒体库顶栏与待复核中心经宿主分派作品管理动作', (tester) async {
     final tempRoot = Directory.systemTemp.createTempSync('konata_lib_modals_');
     addTearDown(() => tempRoot.deleteSync(recursive: true));
     final db = KonataDatabaseBundle.openInMemory();
@@ -586,7 +580,6 @@ void main() {
         id: 'w_hidden',
         title: '隐藏测试动画',
         year: 2020,
-        isHidden: true,
         scrapeStatus: ScrapeStatus.matched,
       ),
     );
@@ -630,22 +623,19 @@ void main() {
         assetKind: AssetKind.cdAlbum,
       ),
     );
-    await repo.saveScrapeCandidates(
-      'w_review',
-      const <ScrapeCandidateSummary>[
-        ScrapeCandidateSummary(
-          workId: 'w_review',
-          tmdbId: 101,
-          mediaType: TmdbMediaType.tv,
-          title: '待复核候选番剧',
-          year: 2024,
-          episodeCount: 12,
-          score: 0.92,
-          rank: 1,
-          reasons: <String>['title_exact', 'year_match'],
-        ),
-      ],
-    );
+    await repo.saveScrapeCandidates('w_review', const <ScrapeCandidateSummary>[
+      ScrapeCandidateSummary(
+        workId: 'w_review',
+        tmdbId: 101,
+        mediaType: TmdbMediaType.tv,
+        title: '待复核候选番剧',
+        year: 2024,
+        episodeCount: 12,
+        score: 0.92,
+        rank: 1,
+        reasons: <String>['title_exact', 'year_match'],
+      ),
+    ]);
 
     final deps = FeatureLibraryDependencies(
       databases: db,
@@ -663,7 +653,7 @@ void main() {
     final toastController = KonataToastController();
     addTearDown(toastController.dispose);
 
-    // 验证桌面 1440x900 顶栏左藏右复核顺序与统计胶囊。
+    // 验证桌面 1440x900 顶栏待复核入口与统计胶囊。
     tester.view.physicalSize = const Size(1440, 900);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
@@ -701,31 +691,18 @@ void main() {
 
     expect(find.text('全部作品'), findsOneWidget);
     expect(find.byKey(const Key('library_works_count_pill')), findsOneWidget);
-    expect(find.text('2 部'), findsOneWidget);
-    expect(find.text('待复核 · 1'), findsOneWidget);
-
-    final hiddenDx =
-        tester.getTopLeft(find.byIcon(Icons.visibility_off_outlined)).dx;
-    final reviewDx = tester.getTopLeft(find.text('待复核 · 1')).dx;
-    expect(hiddenDx, lessThan(reviewDx));
-    expect(tester.takeException(), isNull, reason: 'desktop wall');
-
-    // 打开已隐藏作品弹窗并取消隐藏，验证恢复后弹窗与顶栏隐藏入口均自动收起且总数增至 3 部。
-    await tester.tap(find.byIcon(Icons.visibility_off_outlined));
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull, reason: 'hidden dialog');
-    expect(find.text('已隐藏作品'), findsOneWidget);
-    expect(find.byType(KonataDraggableScrollbar), findsAtLeastNWidgets(2));
-    expect(find.text('隐藏测试动画（2020）'), findsOneWidget);
-    expect(find.text('[本地源] HiddenDir'), findsOneWidget);
-
-    await tester.tap(find.text('取消隐藏'));
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull, reason: 'after unhide');
-    expect(find.text('已隐藏作品'), findsNothing);
-    expect(find.byIcon(Icons.visibility_off_outlined), findsNothing);
     expect(find.text('3 部'), findsOneWidget);
-
+    expect(find.text('待复核 · 1'), findsOneWidget);
+    expect(find.byIcon(Icons.visibility_off_outlined), findsNothing);
+    expect(find.byKey(const ValueKey<String>('w_hidden')), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('w_hidden')),
+        matching: find.text('隐藏测试动画'),
+      ),
+      findsWidgets,
+    );
+    expect(tester.takeException(), isNull, reason: 'desktop wall');
     // 打开待复核队列，校验网络重试条、候选展开、源文件展示与多选限制及合并横屏适配。
     await tester.tap(find.text('待复核 · 1'));
     await tester.pumpAndSettle();
@@ -773,7 +750,8 @@ final class _RecordingWorkDialogs implements WorkManageDialogPort {
   final calls = <(String, WorkId)>[];
 
   @override
-  Future<bool> showManualMatchDialog(Object platformContext, {
+  Future<bool> showManualMatchDialog(
+    Object platformContext, {
     required WorkId workId,
     List<VariantId>? splitVariantIds,
   }) async {
@@ -782,7 +760,8 @@ final class _RecordingWorkDialogs implements WorkManageDialogPort {
   }
 
   @override
-  Future<bool> showSourceFilesReviewDialog(Object platformContext, {
+  Future<bool> showSourceFilesReviewDialog(
+    Object platformContext, {
     required WorkId workId,
   }) async {
     calls.add(('源文件', workId));
@@ -790,7 +769,8 @@ final class _RecordingWorkDialogs implements WorkManageDialogPort {
   }
 
   @override
-  Future<bool> showWorkMergeDialog(Object platformContext, {
+  Future<bool> showWorkMergeDialog(
+    Object platformContext, {
     required WorkId sourceWorkId,
     List<VariantId> variantIds = const [],
     String? dialogTitle,

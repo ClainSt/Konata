@@ -179,7 +179,7 @@ SELECT
   mv.${MediaVariantsSchema.colSourceId} AS source_id,
   COUNT(DISTINCT mv.${MediaVariantsSchema.colWorkId}) AS work_count,
   COUNT(DISTINCT CASE
-    WHEN w.${WorksSchema.colScrapeStatus} = ? AND w.${WorksSchema.colIsHidden} = 0
+    WHEN w.${WorksSchema.colScrapeStatus} = ?
     THEN mv.${MediaVariantsSchema.colWorkId}
   END) AS review_count,
   COUNT(DISTINCT CASE WHEN mv.${MediaVariantsSchema.colAssetKind} = ? THEN mv.${MediaVariantsSchema.colRelativePath} END) AS video_count,

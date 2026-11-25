@@ -5,7 +5,7 @@ import 'package:konata_design_system/konata_design_system.dart';
 import '../data/library_models.dart';
 import '../state/library_controller.dart';
 
-/// 媒体库顶栏标题、数量统计徽标与隐藏/待复核操作组（保持左藏右复核顺序）。
+/// 媒体库顶栏标题、数量统计徽标与待复核操作组。
 class LibraryHeaderBar extends StatelessWidget {
   /// 创建媒体库顶栏组件。
   const LibraryHeaderBar({
@@ -13,7 +13,6 @@ class LibraryHeaderBar extends StatelessWidget {
     required this.compact,
     required this.displayedCount,
     required this.totalCount,
-    required this.hiddenCount,
     required this.reviewCount,
     required this.hasQuery,
     required this.hasActiveFilters,
@@ -26,7 +25,6 @@ class LibraryHeaderBar extends StatelessWidget {
     required this.onCloseSearch,
     required this.onSearchChanged,
     required this.onToggleFilters,
-    required this.onOpenHidden,
     required this.onOpenReview,
   });
 
@@ -38,9 +36,6 @@ class LibraryHeaderBar extends StatelessWidget {
 
   /// 媒体库未过滤前的可见作品总数。
   final int totalCount;
-
-  /// 已隐藏作品总数。
-  final int hiddenCount;
 
   /// 待复核队列条目总数。
   final int reviewCount;
@@ -77,9 +72,6 @@ class LibraryHeaderBar extends StatelessWidget {
 
   /// 展开或收起筛选与排序条回调。
   final VoidCallback onToggleFilters;
-
-  /// 打开隐藏作品列表弹窗回调。
-  final VoidCallback onOpenHidden;
 
   /// 打开待复核队列中心弹窗回调。
   final VoidCallback onOpenReview;
@@ -190,12 +182,6 @@ class LibraryHeaderBar extends StatelessWidget {
           highlighted: filtersExpanded || hasActiveFilters,
           compact: compact,
           onTap: onToggleFilters,
-        ),
-      if (hiddenCount > 0)
-        _HiddenWorksHeaderButton(
-          hiddenCount: hiddenCount,
-          compact: compact,
-          onTap: onOpenHidden,
         ),
       if (reviewCount > 0)
         _ReviewHeaderPill(
@@ -505,79 +491,6 @@ class _HeaderIconPillState extends State<_HeaderIconPill> {
               border: Border.all(color: borderColor),
             ),
             child: Icon(widget.icon, size: 16, color: fg),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _HiddenWorksHeaderButton extends StatefulWidget {
-  const _HiddenWorksHeaderButton({
-    required this.hiddenCount,
-    required this.compact,
-    required this.onTap,
-  });
-
-  final int hiddenCount;
-  final bool compact;
-  final VoidCallback onTap;
-
-  @override
-  State<_HiddenWorksHeaderButton> createState() =>
-      _HiddenWorksHeaderButtonState();
-}
-
-class _HiddenWorksHeaderButtonState extends State<_HiddenWorksHeaderButton> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-    final count = widget.hiddenCount;
-    return KonataTooltip(
-      message: count > 0 ? '隐藏作品（$count 部）' : '隐藏作品管理',
-      waitDuration: KonataTheme.tooltipWaitDuration,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() => _hovered = false),
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: widget.onTap,
-          child: AnimatedContainer(
-            duration: KonataTheme.motionMicro,
-            height: widget.compact ? 36 : 34,
-            padding: EdgeInsets.symmetric(
-              horizontal: count > 0 ? 11 : (widget.compact ? 9 : 10),
-            ),
-            decoration: BoxDecoration(
-              color: _hovered ? p.surfaceHover : p.softFill,
-              borderRadius: KonataTheme.borderRadiusPill,
-              border: Border.all(color: _hovered ? p.hoverBorder : p.hairline),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Icon(
-                  Icons.visibility_off_outlined,
-                  size: 15,
-                  color: _hovered ? p.textPrimary : p.textSecondary,
-                ),
-                if (count > 0) ...<Widget>[
-                  const SizedBox(width: 5),
-                  Text(
-                    '$count',
-                    style: KonataTheme.textStyle(
-                      color: _hovered ? p.textPrimary : p.textSecondary,
-                      fontSize: KonataTheme.fontSizeCaption,
-                      weight: KonataTheme.weightActive,
-                      tabularFigures: true,
-                    ),
-                  ),
-                ],
-              ],
-            ),
           ),
         ),
       ),

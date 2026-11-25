@@ -97,20 +97,18 @@ class VideoWorkBundle {
   final PlaybackRecordEntity? latestPlayback;
 
   /// 全部主线正片剧集（过滤特典）。
-  List<EpisodeRecord> get mainEpisodes => List<EpisodeRecord>.unmodifiable(
-    <EpisodeRecord>[
-      for (final ep in episodes)
-        if (ep.category == EpisodeCategory.main) ep,
-    ],
-  );
+  List<EpisodeRecord> get mainEpisodes =>
+      List<EpisodeRecord>.unmodifiable(<EpisodeRecord>[
+        for (final ep in episodes)
+          if (ep.category == EpisodeCategory.main) ep,
+      ]);
 
   /// 全部特典剧集列表。
-  List<EpisodeRecord> get extraEpisodes => List<EpisodeRecord>.unmodifiable(
-    <EpisodeRecord>[
-      for (final ep in episodes)
-        if (ep.category == EpisodeCategory.extra) ep,
-    ],
-  );
+  List<EpisodeRecord> get extraEpisodes =>
+      List<EpisodeRecord>.unmodifiable(<EpisodeRecord>[
+        for (final ep in episodes)
+          if (ep.category == EpisodeCategory.extra) ep,
+      ]);
 
   /// 查询指定剧集关联的全部可用视频物理版本。
   List<MediaVariantRecord> variantsForEpisode(EpisodeId episodeId) {
@@ -131,7 +129,9 @@ abstract final class VideoSeriesHelper {
   ) {
     final sorted = List<EpisodeRecord>.of(raw);
     sorted.sort((a, b) {
-      final catCmp = _categoryRank(a.category).compareTo(_categoryRank(b.category));
+      final catCmp = _categoryRank(
+        a.category,
+      ).compareTo(_categoryRank(b.category));
       if (catCmp != 0) return catCmp;
       final seasonCmp = a.seasonNumber.compareTo(b.seasonNumber);
       if (seasonCmp != 0) return seasonCmp;
@@ -240,9 +240,7 @@ abstract final class VideoBundleLoader {
         : lib.seriesGroups.findById(seriesId);
     final seriesMembers = seriesId == null
         ? const <WorkRecord>[]
-        : VideoSeriesHelper.sortSeriesMembers(
-            lib.works.listBySeries(seriesId).where((w) => !w.isHidden),
-          );
+        : VideoSeriesHelper.sortSeriesMembers(lib.works.listBySeries(seriesId));
 
     final playbackByEpisodeId = <String, PlaybackRecordEntity>{};
     for (final ep in episodes) {

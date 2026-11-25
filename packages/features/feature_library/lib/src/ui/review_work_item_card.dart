@@ -22,7 +22,6 @@ class ReviewWorkItemCard extends StatefulWidget {
     required this.onInspectSourceFiles,
     required this.onMergeIntoExisting,
     required this.onDismissReview,
-    required this.onHideWork,
     required this.onAcceptCandidate,
   });
 
@@ -61,9 +60,6 @@ class ReviewWorkItemCard extends StatefulWidget {
 
   /// 确认保留当前元数据并移出待复核队列。
   final VoidCallback onDismissReview;
-
-  /// 二次确认后隐藏该作品。
-  final VoidCallback onHideWork;
 
   /// 采纳并绑定指定高潜候选。
   final ValueChanged<ScrapeCandidateSummary> onAcceptCandidate;
@@ -177,12 +173,6 @@ class _ReviewWorkItemCardState extends State<ReviewWorkItemCard>
                     icon: Icons.check_circle_outline_rounded,
                     compact: true,
                     onPressed: widget.isBusy ? null : widget.onDismissReview,
-                  ),
-                  KonataPillButton.ghost(
-                    label: '隐藏作品',
-                    icon: Icons.visibility_off_outlined,
-                    compact: true,
-                    onPressed: widget.isBusy ? null : widget.onHideWork,
                   ),
                 ],
               ),
@@ -512,9 +502,8 @@ class _ReviewCandidateRow extends StatelessWidget {
                 ),
                 if (candidate.originalTitle != null &&
                     candidate.originalTitle!.trim().isNotEmpty &&
-                    candidate.originalTitle!.trim() != candidate.title) ...<
-                  Widget
-                >[
+                    candidate.originalTitle!.trim() !=
+                        candidate.title) ...<Widget>[
                   const SizedBox(height: 2),
                   Text(
                     candidate.originalTitle!,

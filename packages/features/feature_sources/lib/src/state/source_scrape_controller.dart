@@ -305,7 +305,7 @@ class SourceScrapeController extends ChangeNotifier {
     final works = await _repository.getAllWorks();
     final items = <SourcePendingReviewWork>[];
     for (final w in works) {
-      if (w.isHidden || w.scrapeStatus != ScrapeStatus.needsReview) {
+      if (w.scrapeStatus != ScrapeStatus.needsReview) {
         continue;
       }
       final workVariants = variantsByWork[w.id];

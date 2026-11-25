@@ -71,12 +71,6 @@ abstract final class WorksSchema {
   /// 基础元数据是否已人工锁定。
   static const String colMetadataLocked = 'metadata_locked';
 
-  /// 是否从主媒体库视图隐藏。
-  static const String colIsHidden = 'is_hidden';
-
-  /// 重扫后是否继续保持隐藏。
-  static const String colKeepHidden = 'keep_hidden';
-
   /// 刮削状态（`matched` / `needsReview` / `unmatched`）。
   static const String colScrapeStatus = 'scrape_status';
 
@@ -105,7 +99,8 @@ abstract final class WorksSchema {
   static const String colDeletedAtMs = 'deleted_at_ms';
 
   /// 建表 DDL 语句。
-  static const String createTableSql = '''
+  static const String createTableSql =
+      '''
 CREATE TABLE IF NOT EXISTS $table (
   $colId TEXT NOT NULL PRIMARY KEY,
   $colCanonicalKey TEXT,
@@ -129,8 +124,6 @@ CREATE TABLE IF NOT EXISTS $table (
   $colFolderTmdbHint INTEGER,
   $colIsManualLocked INTEGER NOT NULL DEFAULT 0,
   $colMetadataLocked INTEGER NOT NULL DEFAULT 0,
-  $colIsHidden INTEGER NOT NULL DEFAULT 0,
-  $colKeepHidden INTEGER NOT NULL DEFAULT 0,
   $colScrapeStatus TEXT NOT NULL DEFAULT 'unmatched',
   $colReviewReason TEXT,
   $colSeriesId TEXT REFERENCES ${SeriesGroupsSchema.table}(${SeriesGroupsSchema.colId}) ON DELETE SET NULL,
@@ -146,7 +139,7 @@ CREATE TABLE IF NOT EXISTS $table (
   /// 覆盖索引语句集合。
   static const List<String> indexStatements = <String>[
     'CREATE INDEX IF NOT EXISTS idx_works_visible '
-        'ON $table ($colDeletedAtMs, $colIsHidden);',
+        'ON $table ($colDeletedAtMs);',
     'CREATE INDEX IF NOT EXISTS idx_works_series '
         'ON $table ($colSeriesId);',
     'CREATE INDEX IF NOT EXISTS idx_works_canonical '

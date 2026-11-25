@@ -130,8 +130,9 @@ abstract final class SeriesSeasonFormatter {
     final pre = trimmed
         .replaceAll(RegExp(r'^[\[【(][^\]】)]+[\]】)]\s*'), '')
         .trim();
-    final cleaned = BdripFolderCleaner.parseFolderName(pre.isEmpty ? trimmed : pre)
-        .cleanTitle;
+    final cleaned = BdripFolderCleaner.parseFolderName(
+      pre.isEmpty ? trimmed : pre,
+    ).cleanTitle;
     return cleaned
         .replaceAll(RegExp(r'^[\s·:：\-_/]+|[\s·:：\-_/]+$'), '')
         .replaceAll(RegExp(r'\s{2,}'), ' ')
@@ -213,7 +214,6 @@ abstract final class SeriesSeasonFormatter {
       final donors = <Work>[
         for (final member in seriesMembers)
           if (member.id != work.id &&
-              !member.isHidden &&
               (member.backdropPath?.trim().isNotEmpty ?? false) &&
               !VideoFrameSamplePlan.isLegacyAutoBackdropPath(
                 member.backdropPath,
@@ -470,10 +470,7 @@ abstract final class SeriesSeasonFormatter {
         ? resolvedName
         : (rolePrefix.isNotEmpty ? rolePrefix : member.title.trim());
     final showRoleInMeta = rolePrefix.isNotEmpty && rolePrefix != primaryTitle;
-    final metaParts = <String>[
-      if (showRoleInMeta) rolePrefix,
-      ?yearText,
-    ];
+    final metaParts = <String>[if (showRoleInMeta) rolePrefix, ?yearText];
     return (
       title: primaryTitle,
       meta: metaParts.isEmpty ? null : metaParts.join(' · '),

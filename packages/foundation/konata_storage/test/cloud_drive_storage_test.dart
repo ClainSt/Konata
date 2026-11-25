@@ -29,7 +29,7 @@ void main() {
     final db = LibraryDatabase.openFile(path);
     addTearDown(db.close);
     final id = VariantId('variant');
-    expect(db.engine.select('PRAGMA user_version;').single.values.first, 3);
+    expect(db.engine.select('PRAGMA user_version;').single.values.first, 4);
     expect(db.mediaVariants.findById(id)?.fileSize, 100);
     expect(db.mediaVariants.findById(id)?.remoteFileId, isNull);
     db.mediaVariants.upsert(

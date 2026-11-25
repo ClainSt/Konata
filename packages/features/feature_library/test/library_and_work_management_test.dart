@@ -211,7 +211,6 @@ void main() {
         id: 'w_hidden',
         title: '隐藏番剧',
         year: 2020,
-        isHidden: true,
         scrapeStatus: ScrapeStatus.matched,
       ),
     );
@@ -230,17 +229,19 @@ void main() {
     );
     await controller.reload();
 
-    expect(controller.allVisibleItems.length, 2);
+    expect(controller.allVisibleItems.length, 3);
     expect(controller.prefs.sortMode, LibrarySortMode.libraryOrder);
     expect(controller.displayedItems.map((e) => e.work.id), [
       'w_frieren_local',
       'w_frieren_dav',
+      'w_hidden',
     ]);
     expect(
-      controller.allVisibleItems.every((e) => e.crossSourceBadgeLabel != null),
+      controller.allVisibleItems
+          .where((e) => e.work.id != 'w_hidden')
+          .every((e) => e.crossSourceBadgeLabel != null),
       isTrue,
     );
-    expect(controller.hiddenWorks.map((w) => w.id), ['w_hidden']);
     expect(controller.reviewWorks.map((w) => w.id), ['w_review']);
 
     controller.setReleaseGroupFilter('VCB-Studio');

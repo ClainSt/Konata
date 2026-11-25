@@ -81,8 +81,6 @@ class ScrapeWorkPersister {
     bool portraitBackdropLocked = false,
     bool logoLocked = false,
     int logoNegativeMask = 0,
-    bool isHidden = false,
-    bool keepHidden = false,
   }) {
     final bgmSubject = bangumiCandidate?.subject;
     final bgmPoster = _nonEmpty(bgmSubject?.posterUrl);
@@ -198,8 +196,6 @@ class ScrapeWorkPersister {
       portraitBackdropLocked: portraitBackdropLocked,
       logoLocked: logoLocked,
       logoNegativeMask: logoNegativeMask,
-      isHidden: isHidden,
-      keepHidden: keepHidden,
       scrapeStatus: ScrapeStatus.matched,
     );
   }
@@ -307,8 +303,6 @@ class ScrapeWorkPersister {
     bool backdropLocked = false,
     bool portraitBackdropLocked = false,
     bool logoLocked = false,
-    bool isHidden = false,
-    bool keepHidden = false,
   }) {
     final resolved = rules.resolveSeasonPresentation(
       folder: folder,
@@ -353,8 +347,6 @@ class ScrapeWorkPersister {
       backdropLocked: backdropLocked,
       portraitBackdropLocked: portraitBackdropLocked,
       logoLocked: logoLocked,
-      isHidden: isHidden,
-      keepHidden: keepHidden,
       scrapeStatus: status,
       reviewReason: reviewReason,
     );
@@ -370,8 +362,6 @@ class ScrapeWorkPersister {
     String? portraitBackdropPath,
     String? logoPath,
     bool isManualLocked = false,
-    bool isHidden = false,
-    bool keepHidden = false,
   }) {
     return Work(
       id: id,
@@ -385,8 +375,6 @@ class ScrapeWorkPersister {
       logoPath: _nonEmpty(logoPath),
       folderTmdbHint: folder.explicitTmdbId,
       isManualLocked: isManualLocked,
-      isHidden: isHidden,
-      keepHidden: keepHidden,
       scrapeStatus: ScrapeStatus.matched,
     );
   }

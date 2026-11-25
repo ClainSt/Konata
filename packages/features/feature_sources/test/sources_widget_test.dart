@@ -11,6 +11,32 @@ import 'package:konata_contracts/konata_contracts.dart';
 import 'package:konata_design_system/konata_design_system.dart';
 import 'package:konata_storage/konata_storage.dart';
 
+class _FakeCloudSignIn implements CloudAccountSignInPort {
+  _FakeCloudSignIn(this.onFinish);
+  final void Function() onFinish;
+  int sendCount = 0;
+  int finishCount = 0;
+  bool cancelled = false;
+  @override
+  Future<void> sendSms(String phone) async {
+    expect(phone, '+15550101234');
+    sendCount++;
+  }
+
+  @override
+  Future<String> finishSms(String code) async {
+    expect(code, '123456');
+    finishCount++;
+    onFinish();
+    return 'guangyapan://account_fixture';
+  }
+
+  @override
+  void cancel() {
+    cancelled = true;
+  }
+}
+
 class _TestStorageRoot implements StorageRootPort {
   _TestStorageRoot(this.rootPath);
 
@@ -415,6 +441,8 @@ void main() {
       ),
     );
 
+    var cloudAuthorized = false;
+    final fakeSignIn = _FakeCloudSignIn(() => cloudAuthorized = true);
     final deps = FeatureSourcesDependencies(
       databases: db,
       storageRoot: storageRoot,
@@ -428,6 +456,13 @@ void main() {
       gatewayFactory: _FakeGatewayFactory(),
       photosStorage: photos,
       platform: KonataPlatform.windows,
+      listCloudAccountLocations: () async => cloudAuthorized
+          ? const ['guangyapan://account_fixture']
+          : const <String>[],
+      createCloudSignIn: (expectedLocation) {
+        expect(expectedLocation, isNull);
+        return fakeSignIn;
+      },
     );
 
     const viewports = <Size>[
@@ -451,10 +486,11 @@ void main() {
             deps: deps,
             toastCtrl: toastCtrl,
             theme: theme,
-            child: featureSourcesManifest.navSections.first.viewBuilder(
-                  const ViewSlotContext(),
-                )
-                as Widget,
+            child:
+                featureSourcesManifest.navSections.first.viewBuilder(
+                      const ViewSlotContext(),
+                    )
+                    as Widget,
           ),
         );
         await tester.pumpAndSettle();
@@ -482,6 +518,36 @@ void main() {
       ),
       findsOneWidget,
     );
+
+    await tester.tap(find.byKey(const ValueKey('source_kind_dropdown')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('光鸭云盘'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('本机尚无已授权光鸭账号'), findsOneWidget);
+    expect(find.textContaining('密码（'), findsNothing);
+    await tester.tap(find.text('授权光鸭账号'));
+    await tester.pumpAndSettle();
+    expect(find.text('光鸭账号授权'), findsOneWidget);
+    final phoneField = find.descendant(
+      of: find.byType(KonataGlassDialog).last,
+      matching: find.byType(EditableText),
+    );
+    await tester.enterText(phoneField.first, '+15550101234');
+    await tester.tap(find.text('发送验证码'));
+    await tester.pumpAndSettle();
+    expect(fakeSignIn.sendCount, 1);
+    await tester.enterText(phoneField.last, '123456');
+    await tester.tap(find.text('确认授权'));
+    await tester.pumpAndSettle();
+    expect(fakeSignIn.finishCount, 1);
+    expect(fakeSignIn.cancelled, isTrue);
+    expect(find.text('光鸭账号 1'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.byKey(const ValueKey('source_kind_dropdown')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('本地目录'));
+    await tester.pumpAndSettle();
 
     await tester.tap(find.text('浏览'));
     await tester.pumpAndSettle();

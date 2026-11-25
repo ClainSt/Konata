@@ -53,6 +53,17 @@ void main() {
     expect(await store.read('account_a'), isNull);
     expect((await store.read('account_b'))!.refreshToken, 'token-b');
   });
+  test('只枚举有效本机授权绑定，不返回凭据', () async {
+    final storage = _Storage();
+    final store = GuangYaCredentialStore(storage);
+    await store.save('account_b', fixture('user-b', 'token-b'));
+    await store.save('account_a', fixture('user-a', 'token-a'));
+    storage.values['cloud.guangyapan.v1.account_c'] = 'broken';
+    storage.values['other.provider.account_d'] = 'unrelated';
+    expect(await store.listAccounts(), ['account_a', 'account_b']);
+    await store.remove('account_a');
+    expect(await store.listAccounts(), ['account_b']);
+  });
   test('并发轮换仅允许一次成功且旧令牌无法覆盖新授权', () async {
     final store = GuangYaCredentialStore(_Storage());
     final original = fixture('user-a', 'token-old');

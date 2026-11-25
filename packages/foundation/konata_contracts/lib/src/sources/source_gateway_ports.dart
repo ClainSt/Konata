@@ -516,3 +516,15 @@ abstract interface class SubtitleDirectoryWarmupPort {
   /// 递增预热代数以取消过时的在途预热任务。
   void cancelPending();
 }
+
+/// 云盘授权事务接口；视图只接收无凭据媒体源地址。
+abstract interface class CloudAccountSignInPort {
+  /// 用户主动请求一次短信验证。
+  Future<void> sendSms(String phone);
+
+  /// 完成授权并保存本机凭据，返回稳定的账号根地址。
+  Future<String> finishSms(String code);
+
+  /// 取消当前授权事务，不触发自动重试。
+  void cancel();
+}

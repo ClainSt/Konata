@@ -168,6 +168,66 @@ void main() {
     expect(events.map((e) => e.reason), ['created', 'updated', 'updated']);
   });
 
+  test('光鸭新源需授权且不保存普通密码，编辑禁止替换绑定', () async {
+    var authorized = false;
+    final gatewayFactory = _FakeGatewayFactory((source, pwd, clear) {
+      expect(source.username, isNull);
+      expect(pwd, isNull);
+      return _FakeGateway(testConnectionError: authorized ? null : '本机未授权');
+    });
+    final controller = SourcesController(
+      databases: db,
+      credentialStore: credentialStore,
+      gatewayFactory: gatewayFactory,
+      eventBus: eventBus,
+      scopedPrefs: prefs,
+    );
+    addTearDown(controller.dispose);
+    final denied = await controller.saveSource(
+      kind: MediaSourceKind.cloudDrive,
+      label: '光鸭',
+      location: 'guangyapan://account_a',
+    );
+    expect(denied.success, isFalse);
+    expect(await StorageScrapeRepository(db).getMediaSources(), isEmpty);
+    authorized = true;
+    final added = await controller.saveSource(
+      kind: MediaSourceKind.cloudDrive,
+      label: '光鸭',
+      location: 'guangyapan://account_a',
+      username: 'should-not-save',
+      password: 'should-not-save',
+      includedFolders: const ['Anime'],
+    );
+    expect(added.success, isTrue);
+    final id = added.source!.id;
+    expect(added.source!.username, isNull);
+    expect(await controller.readSavedPassword(id), isNull);
+    expect(controller.readIncludedFolders(id), ['Anime']);
+    final rebound = await controller.saveSource(
+      existingId: id,
+      kind: MediaSourceKind.cloudDrive,
+      label: '替换绑定',
+      location: 'guangyapan://account_b',
+    );
+    expect(rebound.success, isFalse);
+    final converted = await controller.saveSource(
+      existingId: id,
+      kind: MediaSourceKind.local,
+      label: '替换类型',
+      location: 'D:/Anime',
+    );
+    expect(converted.success, isFalse);
+    final edited = await controller.saveSource(
+      existingId: id,
+      kind: MediaSourceKind.cloudDrive,
+      label: '新名称',
+      location: 'guangyapan://account_a',
+    );
+    expect(edited.success, isTrue);
+    expect(edited.source!.label, '新名称');
+  });
+
   test('目录列举使用本地自然排序且忽略隐藏目录，连通测试自动脱敏密码', () async {
     final gatewayFactory = _FakeGatewayFactory(
       (source, pwd, clear) => _FakeGateway(
@@ -224,7 +284,11 @@ void main() {
       location: 'https://dav.example.com/anime',
       includeFiles: true,
     );
-    expect(allEntries.map((e) => e.name), ['Season 2', 'Season 10', 'readme.txt']);
+    expect(allEntries.map((e) => e.name), [
+      'Season 2',
+      'Season 10',
+      'readme.txt',
+    ]);
   });
 
   test('媒体源统计流准确聚合关联作品数、视频数与待复核条目数', () async {

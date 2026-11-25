@@ -11,3 +11,5 @@
 - `lib/bootstrap/feature_registry.dart`：按字母序显式维护全仓 `FeatureManifest` 清单与 7 大扩展点平台过滤聚合器。
 - `lib/bootstrap/host_storage_adapters.dart`：Windows 绿色便携根目录 / Android `ApplicationSupportDirectory` 桥接，以及 `flutter_secure_storage` 对 `SecureStoragePort` 的实现。
 - `lib/bootstrap/windows_app.dart` / `lib/bootstrap/android_app.dart`：双端差异化宿主装配入口。
+
+- 宿主共享 GuangYaSessionRegistry，通过现有 SecureStoragePort 管理本机云盘授权，使用独立只读网络传输并注册统一媒体源网关；启动不主动连接，退出统一关闭会话。

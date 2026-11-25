@@ -81,6 +81,26 @@ final class GuangYaCredentialStore {
         return raw == null ? null : _decode(raw);
       });
 
+  /// 只返回本机有效授权的绑定标识，不向视图提供任何凭据。
+  Future<List<String>> listAccounts() async {
+    const prefix = 'cloud.guangyapan.v1.';
+    final entries = await _storage.readAllWithPrefix(prefix);
+    final accounts = <String>[];
+    for (final entry in entries.entries) {
+      if (!entry.key.startsWith(prefix)) continue;
+      final account = entry.key.substring(prefix.length);
+      if (!_validAccount.hasMatch(account)) continue;
+      try {
+        _decode(entry.value);
+        accounts.add(account);
+      } on SourceAccessException {
+        // 损坏授权不出现在可选列表中。
+      }
+    }
+    accounts.sort();
+    return List<String>.unmodifiable(accounts);
+  }
+
   /// 绑定同一账号时不得更换服务端主体。
   Future<void> save(String account, GuangYaCredentials credentials) =>
       _serial(account, (key) async {

@@ -305,14 +305,27 @@ final class LegacyGuangYaProtocol implements GuangYaProtocol {
           'Did': _credentials.deviceId,
           'Dt': '4',
         }, body);
-        // 既有接口完整错误码未获实测，只接受明确成功的结构。
-        if (obj['code'] != 0 || obj['data'] is! Map<String, dynamic>) {
-          throw const SourceAccessException(
+        // 旧接口允许省略 code，但必须保留成功响应结构，拒绝显式错误。
+        // 目录及直链调用继续执行各自的严格数据校验。
+        final code = obj['code'];
+        final msg = obj['msg'] ?? obj['message'];
+        final data = obj['data'];
+        final explicitError = obj['error'] != null && obj['error'] != '';
+        final success =
+            code == 0 ||
+            (!obj.containsKey('code') &&
+                msg is String &&
+                msg.trim().toLowerCase() == 'success');
+        if (explicitError || !success || data is! Map<String, dynamic>) {
+          final codeText = code is int && code >= 0 && code <= 999999
+              ? '（服务端代码 $code）'
+              : '（HTTP 200，响应结构不兼容）';
+          throw SourceAccessException(
             SourceAccessProblemKind.unknown,
-            '光鸭业务拒绝或协议尚未确认',
+            '光鸭业务请求未获接受或响应格式不兼容$codeText',
           );
         }
-        return obj['data'] as Map<String, dynamic>;
+        return data;
       } on TerminalSourceAuthException {
         if (attempt != 0) rethrow;
         if (_access == token) await _refresh();
@@ -337,6 +350,7 @@ final class LegacyGuangYaProtocol implements GuangYaProtocol {
         'pageSize': pageSize,
         'orderBy': 3,
         'sortType': 1,
+        'fileTypes': <int>[],
       });
       final rows = data['list'];
       final total = data['total'];

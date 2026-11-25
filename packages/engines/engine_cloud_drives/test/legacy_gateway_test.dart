@@ -121,6 +121,45 @@ void main() {
     await expectLater(api.list(''), throwsA(isA<SourceAccessException>()));
   });
 
+  test('目录携带空文件类型筛选，兼容无 code 的明确成功响应', () async {
+    final api = protocol((method, uri, headers, body) async {
+      if (uri.host == 'account.guangyapan.com') return response(token('one'));
+      expect(body?['fileTypes'], isEmpty);
+      expect(body?['parentId'], '');
+      return response({
+        'msg': 'success',
+        'data': {
+          'list': [row('9876543210987654321', 'Anime', kind: 2)],
+          'total': 1,
+        },
+      });
+    });
+    addTearDown(api.close);
+    expect((await api.list('')).single.id, '9876543210987654321');
+  });
+
+  test('显式业务拒绝不能被成功消息或目录数据覆盖', () async {
+    for (final envelope in [
+      {'code': 123, 'msg': 'success'},
+      {'code': 0, 'error': 'fixture-error'},
+      {'msg': 'denied'},
+      <String, Object?>{},
+    ]) {
+      final api = protocol((method, uri, headers, body) async {
+        if (uri.host == 'account.guangyapan.com') return response(token('one'));
+        return response({
+          ...envelope,
+          'data': {'list': <Object?>[], 'total': 0},
+        });
+      });
+      try {
+        await expectLater(api.list(''), throwsA(isA<SourceAccessException>()));
+      } finally {
+        await api.close();
+      }
+    }
+  });
+
   test('两页目录保留字符串文件标识和已知类型', () async {
     final api = protocol((method, uri, headers, body) async {
       if (uri.host == 'account.guangyapan.com') return response(token('one'));

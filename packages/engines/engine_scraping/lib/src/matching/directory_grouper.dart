@@ -194,7 +194,8 @@ class GroupedWorkFolder {
   final MatchDifficulty matchDifficulty;
 
   /// 从文件夹或文件名提取的显式 Bangumi ID（盲测或失效回退时屏蔽）。
-  int? get explicitBangumiId => ignoreExplicitTmdb ? null : inventory?.bangumiId;
+  int? get explicitBangumiId =>
+      ignoreExplicitTmdb ? null : inventory?.bangumiId;
 
   /// 当目录存在正片集号（或已识别为 TV 剧集）且未显式标记为电影或覆写媒体类型时，
   /// TMDB 候选检索仅锁定 `/search/tv`，避免同名冷门电影（如无背景图条目）污染结果。
@@ -383,6 +384,7 @@ class DirectoryGrouper {
             relativePath: file.relativePath,
             fileName: file.fileName,
             fileSize: file.fileSize,
+            remoteFileId: file.remoteFileId,
             assetKind: file.assetKind,
             releaseGroup: parsed?.releaseGroup,
             subtitleGroup: parsed?.subtitleGroup ?? file.subtitleGroupHint,

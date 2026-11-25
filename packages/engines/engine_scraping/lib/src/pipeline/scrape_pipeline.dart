@@ -263,9 +263,7 @@ class ScrapePipeline {
         },
       );
 
-      Future<DirectoryScanResult> scan(
-        DirectoryScanSnapshot? previous,
-      ) {
+      Future<DirectoryScanResult> scan(DirectoryScanSnapshot? previous) {
         void handleProgress(String dir, int dirCount, int fileCount) {
           emit(
             tracker.updateScanProgress(
@@ -296,9 +294,7 @@ class ScrapePipeline {
           gateway,
           scanRoots: effectiveRoots,
           detectLocalCovers: source.kind == MediaSourceKind.local,
-          profileOverride: DirectoryScanProfile.forSourceKind(
-            source.kind,
-          ),
+          profileOverride: DirectoryScanProfile.forSourceKind(source.kind),
           sourceId: snapshotKey,
           previousSnapshot: previous,
           onCheckpoint: store?.save,
@@ -315,10 +311,7 @@ class ScrapePipeline {
         // 断点记录的待扫目录可能已被移除，重新列举父目录以确认当前拓扑。
         if (previousSnapshot == null ||
             previousSnapshot.isComplete ||
-            SourceAccessErrorClassifier.classify(
-                  error,
-                  source.kind,
-                ).kind !=
+            SourceAccessErrorClassifier.classify(error, source.kind).kind !=
                 SourceAccessProblemKind.path) {
           rethrow;
         }
@@ -1129,10 +1122,7 @@ class ScrapePipeline {
       if (detail != null) {
         final preSeason =
             folder.seasonHint ??
-            rules.fallbackResolveSeason(
-              folder: folder,
-              detail: detail,
-            );
+            rules.fallbackResolveSeason(folder: folder, detail: detail);
         // 显式 TMDB 目录优先通过离线双向索引 O(log N) 反查精准 Bangumi ID 直拉详情，
         // 避免对海量显式 ID 目录逐部发起模糊关键词 POST 搜索；未命中时平滑回退常规搜索。
         final reverseMatches =
@@ -1201,10 +1191,7 @@ class ScrapePipeline {
           matchedSeason:
               explicitDecision.matchedSeason ??
               folder.seasonHint ??
-              rules.fallbackResolveSeason(
-                folder: folder,
-                detail: detail,
-              ),
+              rules.fallbackResolveSeason(folder: folder, detail: detail),
           bangumiCandidate: explicitDecision.bestBangumi,
           seasons: seasons,
           isManualLocked: existing?.isManualLocked ?? false,
@@ -2136,10 +2123,7 @@ class ScrapePipeline {
           matchedSeasonOverride ??
           matchDecision.matchedSeason ??
           targetFolder.seasonHint ??
-          rules.fallbackResolveSeason(
-            folder: targetFolder,
-            detail: detail,
-          ) ??
+          rules.fallbackResolveSeason(folder: targetFolder, detail: detail) ??
           existing.matchedSeason;
 
       // 交互重抓/刷新 Season 0 多部独立 1 话特别篇合集（如加速世界 EX1+EX2）时，原地拆分为独立作品。
@@ -3029,6 +3013,7 @@ class ScrapePipeline {
               relativePath: v.relativePath,
               fileName: v.fileName,
               fileSize: v.fileSize,
+              remoteFileId: v.remoteFileId,
               assetKind: v.assetKind,
               externalSubtitles: v.externalSubtitles,
               subtitleGroupHint: v.subtitleGroup,
@@ -3547,6 +3532,7 @@ class ScrapePipeline {
             relativePath: v.relativePath,
             fileName: v.fileName,
             fileSize: v.fileSize,
+            remoteFileId: v.remoteFileId,
             assetKind: v.assetKind,
             externalSubtitles: v.externalSubtitles,
             subtitleGroupHint: v.subtitleGroup,

@@ -1123,6 +1123,7 @@ class ScrapeWorkPersister {
         relativePath: rawVariant.relativePath,
         fileName: rawVariant.fileName,
         fileSize: rawVariant.fileSize,
+        remoteFileId: rawVariant.remoteFileId,
         assetKind: rawVariant.assetKind,
         releaseGroup: rawVariant.releaseGroup ?? parsed?.releaseGroup,
         subtitleGroup: subtitleGroup,

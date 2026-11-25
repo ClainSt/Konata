@@ -14,6 +14,7 @@ class MediaVariant {
     required this.relativePath,
     required this.fileName,
     required this.fileSize,
+    this.remoteFileId,
     this.assetKind = AssetKind.video,
     this.releaseGroup,
     this.subtitleGroup,
@@ -48,6 +49,9 @@ class MediaVariant {
 
   /// 文件字节大小。
   final int fileSize;
+
+  /// 云盘文件稳定标识；非云盘或未知时为空。
+  final String? remoteFileId;
 
   /// 资产类型（视频 / CD 专辑 / 扫图）。
   final AssetKind assetKind;
@@ -106,6 +110,7 @@ class MediaVariant {
       relativePath: relativePath ?? this.relativePath,
       fileName: fileName ?? this.fileName,
       fileSize: fileSize,
+      remoteFileId: remoteFileId,
       assetKind: assetKind ?? this.assetKind,
       releaseGroup: releaseGroup,
       subtitleGroup: subtitleGroup,

@@ -34,11 +34,12 @@ class _TreeGateway implements MediaSourceGateway {
   Future<void> close() async {}
 }
 
-RemoteEntry _file(String path) => RemoteEntry(
+RemoteEntry _file(String path, {String? remoteFileId}) => RemoteEntry(
   name: path.split('/').last,
   relativePath: path,
   isDirectory: false,
   size: 1,
+  remoteFileId: remoteFileId,
 );
 
 RemoteEntry _dir(String path, {String? etag, DateTime? modifiedAt}) =>
@@ -54,6 +55,52 @@ void main() {
   group('远程目录扫描快照', () {
     const scanner = DirectoryScanner();
     final now = DateTime.utc(2026, 11, 23);
+
+    test('稳定文件标识在扫描、快照序列化和增量复用中保持不变', () async {
+      const id = '9876543210987654321';
+      final tree = <String, List<RemoteEntry>>{
+        '': [_dir('番剧', etag: '"版本一"')],
+        '番剧': [
+          _file('番剧/Show - 01.mkv', remoteFileId: id),
+          _file('番剧/Show - 02.mkv'),
+        ],
+      };
+      final initial = await scanner.scan(
+        _TreeGateway(tree),
+        sourceId: '云盘',
+        clockNow: now,
+      );
+      expect(initial.files.first.remoteFileId, id);
+      expect(initial.files.last.remoteFileId, isNull);
+      final decoded = DirectoryScanSnapshot.fromJson(
+        initial.snapshot!.toJson(),
+      )!;
+      expect(decoded.nodes['番剧']!.fileEntries.first.remoteFileId, id);
+      final gateway = _TreeGateway(tree);
+      final incremental = await scanner.scan(
+        gateway,
+        sourceId: '云盘',
+        previousSnapshot: decoded,
+        clockNow: now.add(const Duration(hours: 1)),
+      );
+      expect(gateway.calls, isNot(contains('番剧')));
+      expect(incremental.files.first.remoteFileId, id);
+      expect(incremental.files.last.remoteFileId, isNull);
+    });
+
+    test('旧快照或非字符串远端标识保持未知，不推测文件身份', () {
+      for (final raw in [
+        <String, Object?>{'n': '01.mkv', 'p': '01.mkv'},
+        <String, Object?>{'n': '01.mkv', 'p': '01.mkv', 'i': 123},
+        <String, Object?>{'n': '01.mkv', 'p': '01.mkv', 'i': ''},
+      ]) {
+        final node = DirectoryScanSnapshotNode.fromJson({
+          'relativePath': '',
+          'fileEntries': [raw],
+        });
+        expect(node.fileEntries.single.remoteFileId, isNull);
+      }
+    });
 
     test('普通父目录不冒泡时仍能找到新增分集并识别删除', () async {
       final source = <String, List<RemoteEntry>>{
@@ -327,7 +374,9 @@ void main() {
 
       final result = await const DirectoryScanner().scan(gateway);
 
-      expect(result.files.map((f) => f.relativePath), <String>['作品/作品 - 01.mkv']);
+      expect(result.files.map((f) => f.relativePath), <String>[
+        '作品/作品 - 01.mkv',
+      ]);
       expect(gateway.calls['作品'], 2);
     });
 

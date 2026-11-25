@@ -19,3 +19,5 @@ Konata 跨设备协同同步与本地 `.konata` 备份还原独立特性包。
 4. **状态控制、事件联动与设置面板**
    - `SyncBackupController` 管理导出勾选、导入干跑预览、WebDAV 连通性测试与一键/自动同步调度，并在落盘后通过 `DomainEventBus` 发布 `SyncCompletedEvent`；
    - `SettingsBackupSyncPanel` 与 `featureSyncManifest` 向设置页注册同步面板。
+
+- 云盘媒体源仅同步合法无凭据虚拟地址与远端文件标识；未知来源、普通合并的标识冲突拒绝处理，授权由各设备单独完成。

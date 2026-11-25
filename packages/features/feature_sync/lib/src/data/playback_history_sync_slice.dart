@@ -192,7 +192,7 @@ final class SyncPlaybackHistoryItem {
     final rawKind = (json['sourceKind'] ?? '').toString();
     final sourceKind = MediaSourceKind.values.firstWhere(
       (k) => k.name == rawKind,
-      orElse: () => MediaSourceKind.local,
+      orElse: () => throw const FormatException('同步包含未知播放来源类型'),
     );
     final rawSecondary = json['secondaryWorkKeys'];
     final secondary = rawSecondary is List
@@ -258,9 +258,7 @@ final class PlaybackHistorySyncSlice
   });
 
   /// 创建仅用于元数据声明与纯函数合并规划的未绑定切片实例。
-  const PlaybackHistorySyncSlice.unbound()
-    : _databases = null,
-      _nowMs = null;
+  const PlaybackHistorySyncSlice.unbound() : _databases = null, _nowMs = null;
 
   /// 切片稳定唯一标识。
   static const String id = 'playback_history_slice';
@@ -291,9 +289,7 @@ final class PlaybackHistorySyncSlice
     final works = db.library.works.listAllWithTombstones();
     final variants = db.library.mediaVariants.listAll(includeDeleted: true);
 
-    final workById = <String, WorkRecord>{
-      for (final w in works) w.id.value: w,
-    };
+    final workById = <String, WorkRecord>{for (final w in works) w.id.value: w};
     final variantById = <String, MediaVariantRecord>{
       for (final v in variants) v.id.value: v,
     };
@@ -330,7 +326,9 @@ final class PlaybackHistorySyncSlice
         audioTrackHint: isAudio ? rec.episodeTitle : null,
       );
 
-      final updatedAtMs = rec.updatedAtMs > 0 ? rec.updatedAtMs : rec.playedAtMs;
+      final updatedAtMs = rec.updatedAtMs > 0
+          ? rec.updatedAtMs
+          : rec.playedAtMs;
       items.add(
         SyncPlaybackHistoryItem(
           id: rec.id,
@@ -412,7 +410,10 @@ final class PlaybackHistorySyncSlice
       if (existing == null) {
         localByCluster[key] = item.copyWith(playbackKey: key);
       } else {
-        localByCluster[key] = _mergeTwoItems(existing, item.copyWith(playbackKey: key));
+        localByCluster[key] = _mergeTwoItems(
+          existing,
+          item.copyWith(playbackKey: key),
+        );
       }
     }
 
@@ -424,7 +425,10 @@ final class PlaybackHistorySyncSlice
       if (existing == null) {
         remoteByCluster[key] = item.copyWith(playbackKey: key);
       } else {
-        remoteByCluster[key] = _mergeTwoItems(existing, item.copyWith(playbackKey: key));
+        remoteByCluster[key] = _mergeTwoItems(
+          existing,
+          item.copyWith(playbackKey: key),
+        );
       }
     }
 
@@ -488,7 +492,9 @@ final class PlaybackHistorySyncSlice
     SyncMergePlan<PlaybackHistoryMergePlan> plan,
   ) {
     final items = plan.planData.recordsToUpsert;
-    if (!plan.hasChanges && items.isEmpty && !plan.planData.clearExistingBeforeApply) {
+    if (!plan.hasChanges &&
+        items.isEmpty &&
+        !plan.planData.clearExistingBeforeApply) {
       return Future<void>.value();
     }
     final db = _databases;
@@ -535,7 +541,8 @@ WHERE ${PlaybackRecordsSchema.colDeletedAtMs} IS NULL;
       }
     }
 
-    final existingLocalRecords = db.userState.playbackRecords.listAllWithTombstones();
+    final existingLocalRecords = db.userState.playbackRecords
+        .listAllWithTombstones();
     final existingByWorkEp = <String, PlaybackRecordEntity>{
       for (final rec in existingLocalRecords)
         '${rec.workId.value}::${rec.episodeId.value}': rec,
@@ -594,7 +601,8 @@ WHERE ${PlaybackRecordsSchema.colDeletedAtMs} IS NULL;
           final cdVariant = _matchLocalAudioVariant(workVars, item);
           targetVariantId = cdVariant?.id.value ?? item.variantId;
           if (cdVariant != null) {
-            targetEpisodeId = item.episodeNumber != null &&
+            targetEpisodeId =
+                item.episodeNumber != null &&
                     cdVariant.fileName.toLowerCase().endsWith('.cue')
                 ? 'audio::${cdVariant.id.value}::track_${item.episodeNumber}'
                 : 'audio::${cdVariant.id.value}';
@@ -660,7 +668,8 @@ WHERE ${PlaybackRecordsSchema.colDeletedAtMs} IS NULL;
   ) {
     // 1. 若任一或双方均为软删除墓碑，严格比较时间裁决。
     if (local.isDeleted && remote.isDeleted) {
-      final pickRemote = remote.effectiveTimestampMs > local.effectiveTimestampMs;
+      final pickRemote =
+          remote.effectiveTimestampMs > local.effectiveTimestampMs;
       return (pickRemote ? remote : local).copyWith(
         id: local.id,
         workId: local.workId,

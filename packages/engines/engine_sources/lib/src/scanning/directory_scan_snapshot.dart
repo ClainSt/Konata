@@ -87,6 +87,8 @@ class DirectoryScanSnapshotNode {
         if (entry.modifiedAt != null)
           'm': entry.modifiedAt!.toUtc().microsecondsSinceEpoch,
         if (entry.etag != null && entry.etag!.isNotEmpty) 'e': entry.etag,
+        if (entry.remoteFileId != null && entry.remoteFileId!.isNotEmpty)
+          'i': entry.remoteFileId,
       };
 
   static RemoteEntry _remoteEntryFromJson(Map<String, Object?> json) {
@@ -100,6 +102,9 @@ class DirectoryScanSnapshotNode {
           ? DateTime.fromMicrosecondsSinceEpoch(micros.toInt(), isUtc: true)
           : null,
       etag: json['e'] as String?,
+      remoteFileId: json['i'] is String && (json['i'] as String).isNotEmpty
+          ? json['i'] as String
+          : null,
     );
   }
 }
@@ -243,7 +248,8 @@ class DirectoryScanSnapshot {
   static bool isStaticSupplementaryChildDir(
     String childName, {
     required bool parentIsStaticSupplementary,
-    bool Function(String) isSupplementary = SourcePathRules.isSupplementarySegment,
+    bool Function(String) isSupplementary =
+        SourcePathRules.isSupplementarySegment,
   }) {
     if (parentIsStaticSupplementary) return true;
     final trimmed = childName.trim();

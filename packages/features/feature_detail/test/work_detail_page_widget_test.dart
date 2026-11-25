@@ -213,10 +213,12 @@ void main() {
         findsNothing,
       );
 
-      // 1. 打开唯一齿轮菜单触发已收口的外部扩展动作，并确认包含「编辑竖版原画」入口
+      // 1. 打开唯一齿轮菜单触发已收口的外部扩展动作，并确认仅保留封面与横版背景入口
       await tester.tap(find.byKey(const Key('detail_gear_menu_button')));
       await tester.pumpAndSettle();
-      expect(find.text('编辑竖版原画'), findsOneWidget);
+      expect(find.text('编辑竖版原画'), findsNothing);
+      expect(find.text('编辑封面海报'), findsOneWidget);
+      expect(find.text('编辑横版背景原画 / 抽帧'), findsOneWidget);
       expect(
         find.byKey(const ValueKey<String>('detail_ext_gear_mock_primary_action')),
         findsOneWidget,

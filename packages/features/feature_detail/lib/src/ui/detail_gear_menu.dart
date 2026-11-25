@@ -121,11 +121,6 @@ class DetailGearMenu extends StatelessWidget {
         icon: Icons.wallpaper_outlined,
       ),
       const KonataGlassMenuItem<String>(
-        value: 'editPortraitBackdrop',
-        label: '编辑竖版原画',
-        icon: Icons.photo_outlined,
-      ),
-      const KonataGlassMenuItem<String>(
         value: 'editLogo',
         label: '编辑透明标题徽标',
         icon: Icons.title_rounded,

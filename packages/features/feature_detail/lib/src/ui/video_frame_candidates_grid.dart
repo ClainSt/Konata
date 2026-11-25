@@ -311,13 +311,15 @@ class ArtworkOverlayMiniBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final textWidget = Text(
       text,
+      textAlign: TextAlign.center,
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
       style: TextStyle(
         color: textGradient == null ? textColor : KonataTheme.pureWhite,
         fontSize: KonataTheme.fontSizeBadge,
         fontWeight: fontWeight,
-        height: 1.15,
+        height: 1.2,
+        leadingDistribution: TextLeadingDistribution.even,
         fontFeatures: tabularFigures
             ? const [FontFeature.tabularFigures()]
             : null,
@@ -333,15 +335,20 @@ class ArtworkOverlayMiniBadge extends StatelessWidget {
             ? null
             : Border.all(color: borderColor!, width: 0.9),
       ),
-      child: textGradient == null
-          ? textWidget
-          : ShaderMask(
-              shaderCallback: (bounds) => textGradient!.createShader(
-                Rect.fromLTWH(0, 0, bounds.width, bounds.height),
+      child: Align(
+        alignment: Alignment.center,
+        widthFactor: 1,
+        heightFactor: 1,
+        child: textGradient == null
+            ? textWidget
+            : ShaderMask(
+                shaderCallback: (bounds) => textGradient!.createShader(
+                  Rect.fromLTWH(0, 0, bounds.width, bounds.height),
+                ),
+                blendMode: BlendMode.srcIn,
+                child: textWidget,
               ),
-              blendMode: BlendMode.srcIn,
-              child: textWidget,
-            ),
+      ),
     );
   }
 }

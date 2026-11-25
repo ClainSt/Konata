@@ -27,12 +27,17 @@ enum WorkArtworkKind {
 }
 
 enum _ClearLogoGalleryOrientation {
-  landscape(16 / 9),
-  portrait(2 / 3);
+  landscape(15 / 8, 200),
+  portrait(4 / 5, 152),
+  compact(4 / 3, 176);
 
-  const _ClearLogoGalleryOrientation(this.tileAspectRatio);
+  const _ClearLogoGalleryOrientation(
+    this.tileAspectRatio,
+    this.maxCrossAxisExtent,
+  );
 
   final double tileAspectRatio;
+  final double maxCrossAxisExtent;
 }
 
 /// 编辑作品封面、背景原画与透明标题徽标的多源挑选与裁切弹窗。
@@ -85,7 +90,8 @@ class _WorkArtworkPickerDialogState extends State<WorkArtworkPickerDialog> {
     _initialAppliedPath = switch (widget.kind) {
       WorkArtworkKind.poster => widget.work.posterPath?.trim(),
       WorkArtworkKind.backdrop => widget.work.backdropPath?.trim(),
-      WorkArtworkKind.portraitBackdrop => widget.work.portraitBackdropPath?.trim(),
+      WorkArtworkKind.portraitBackdrop =>
+        widget.work.portraitBackdropPath?.trim(),
       WorkArtworkKind.logo => widget.work.logoPath?.trim(),
     };
     _selectedPath = _initialAppliedPath;
@@ -300,8 +306,7 @@ class _WorkArtworkPickerDialogState extends State<WorkArtworkPickerDialog> {
       await widget.controller.resetArtworkLockToAuto(
         resetPoster: widget.kind == WorkArtworkKind.poster,
         resetBackdrop: widget.kind == WorkArtworkKind.backdrop,
-        resetPortraitBackdrop:
-            widget.kind == WorkArtworkKind.portraitBackdrop,
+        resetPortraitBackdrop: widget.kind == WorkArtworkKind.portraitBackdrop,
         resetLogo: widget.kind == WorkArtworkKind.logo,
       );
       if (mounted) {
@@ -346,9 +351,9 @@ class _WorkArtworkPickerDialogState extends State<WorkArtworkPickerDialog> {
       }
     }
     if (portrait > landscape) return _ClearLogoGalleryOrientation.portrait;
-    return landscape == 0 && _candidates.isNotEmpty
+    return landscape > 0
         ? _ClearLogoGalleryOrientation.landscape
-        : _ClearLogoGalleryOrientation.landscape;
+        : _ClearLogoGalleryOrientation.compact;
   }
 
   String _buildCandidateHeaderText() {
@@ -436,48 +441,71 @@ class _WorkArtworkPickerDialogState extends State<WorkArtworkPickerDialog> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Expanded(
-                child: KonataSoftTextField(
-                  controller: _customPathCtrl,
-                  label: isLogo
-                      ? '透明徽标 URL、TMDB 路径或本地 PNG/WebP 路径'
-                      : '图片 URL、TMDB 路径或本地路径',
-                  hintText: 'https://... 或本地图片路径',
-                  onChanged: (value) => setState(() {
-                    _selectedVideoFrameIndex = null;
-                    _selectedPath = value.trim();
-                  }),
-                ),
-              ),
-              const SizedBox(width: 8),
-              KonataPillButton.secondary(
-                label: '本地...',
-                icon: Icons.folder_open_rounded,
-                compact: true,
-                onPressed: _saving ? null : _pickLocalImage,
-              ),
-              if (widget.kind == WorkArtworkKind.backdrop) ...[
-                const SizedBox(width: 8),
-                KonataPillButton.secondary(
-                  key: const ValueKey(
-                    'artwork_picker_extract_video_frames_btn',
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final hasFrameAction = widget.kind == WorkArtworkKind.backdrop;
+              final narrow =
+                  constraints.maxWidth < (hasFrameAction ? 480 : 320);
+              final pathField = KonataSoftTextField(
+                controller: _customPathCtrl,
+                label: isLogo
+                    ? '透明徽标 URL、TMDB 路径或本地 PNG/WebP 路径'
+                    : '图片 URL、TMDB 路径或本地路径',
+                hintText: 'https://... 或本地图片路径',
+                onChanged: (value) => setState(() {
+                  _selectedVideoFrameIndex = null;
+                  _selectedPath = value.trim();
+                }),
+              );
+              final buttons = Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  KonataPillButton.secondary(
+                    key: const ValueKey('artwork_picker_local_image_btn'),
+                    label: '本地图片',
+                    icon: Icons.folder_open_rounded,
+                    compact: true,
+                    onPressed: _saving ? null : _pickLocalImage,
                   ),
-                  label: _extractingFrames
-                      ? '抽帧中...'
-                      : (_extractedFrames.isEmpty ? '视频抽帧' : '换一批'),
-                  icon: _extractedFrames.isEmpty
-                      ? Icons.movie_filter_rounded
-                      : Icons.refresh_rounded,
-                  compact: true,
-                  onPressed: (_saving || _extractingFrames)
-                      ? null
-                      : _extractMainVideoFrames,
-                ),
-              ],
-            ],
+                  if (hasFrameAction)
+                    KonataPillButton.secondary(
+                      key: const ValueKey(
+                        'artwork_picker_extract_video_frames_btn',
+                      ),
+                      label: _extractingFrames
+                          ? '抽帧中...'
+                          : (_extractedFrames.isEmpty ? '视频抽帧' : '换一批'),
+                      icon: _extractedFrames.isEmpty
+                          ? Icons.movie_filter_rounded
+                          : Icons.refresh_rounded,
+                      compact: true,
+                      onPressed: (_saving || _extractingFrames)
+                          ? null
+                          : _extractMainVideoFrames,
+                    ),
+                ],
+              );
+              if (narrow) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    pathField,
+                    const SizedBox(height: 8),
+                    Align(alignment: Alignment.centerRight, child: buttons),
+                  ],
+                );
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(child: pathField),
+                  const SizedBox(width: 8),
+                  buttons,
+                ],
+              );
+            },
           ),
           if (relayHealth.isDegraded && relayHealth.message != null) ...[
             const SizedBox(height: 10),
@@ -535,7 +563,9 @@ class _WorkArtworkPickerDialogState extends State<WorkArtworkPickerDialog> {
     required int currentSavedIndex,
   }) {
     if (_loading ||
-        (_extractingFrames && _extractedFrames.isEmpty && _candidates.isEmpty)) {
+        (_extractingFrames &&
+            _extractedFrames.isEmpty &&
+            _candidates.isEmpty)) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -569,7 +599,9 @@ class _WorkArtworkPickerDialogState extends State<WorkArtworkPickerDialog> {
             childAspectRatio: 2 / 3,
           )
         : SliverGridDelegateWithMaxCrossAxisExtent(
-            maxCrossAxisExtent: 260,
+            maxCrossAxisExtent: isLogo
+                ? logoOrientation.maxCrossAxisExtent
+                : 260,
             mainAxisSpacing: 12,
             crossAxisSpacing: 12,
             childAspectRatio: isLogo ? logoOrientation.tileAspectRatio : 16 / 9,
@@ -680,7 +712,9 @@ class _WorkArtworkPickerDialogState extends State<WorkArtworkPickerDialog> {
                 padding: isLogo ? const EdgeInsets.all(16) : EdgeInsets.zero,
                 child: DetailManagedImage(
                   preview,
-                  key: ValueKey('single_preview_${preview}_$_singlePreviewRetryEpoch'),
+                  key: ValueKey(
+                    'single_preview_${preview}_$_singlePreviewRetryEpoch',
+                  ),
                   loader: widget.imageLoader,
                   owner: widget.work.id,
                   artwork: isLogo
@@ -812,20 +846,25 @@ class _ArtworkGridTileState extends State<_ArtworkGridTile> {
                 ),
                 Positioned(
                   left: 6,
+                  right: (selected || widget.isCurrentSaved) ? 44 : 6,
                   top: 6,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _buildSourceBadge(option),
-                      if (option.langTag != null &&
-                          option.langTag!.trim().isNotEmpty) ...[
-                        const SizedBox(width: 4),
-                        ArtworkOverlayMiniBadge(
-                          text: option.langTag!,
-                          backgroundColor: KonataTheme.scrimBlackDeep,
-                        ),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _buildSourceBadge(option),
+                        if (option.langTag != null &&
+                            option.langTag!.trim().isNotEmpty) ...[
+                          const SizedBox(width: 4),
+                          ArtworkOverlayMiniBadge(
+                            text: option.langTag!,
+                            backgroundColor: KonataTheme.scrimBlackDeep,
+                          ),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
                 ),
                 if (selected)

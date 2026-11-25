@@ -347,6 +347,7 @@ class KonataGlassDialog extends StatelessWidget {
     this.inlineHeaderTrailing = false,
     this.headerBottomSpacing,
     this.actions,
+    this.actionsLeading,
     this.onClose,
     this.enableLandscapeCompactInput = true,
   });
@@ -377,6 +378,9 @@ class KonataGlassDialog extends StatelessWidget {
 
   /// 可选底部操作按钮区（右对齐排列）。
   final List<Widget>? actions;
+
+  /// 底部左侧独立操作。
+  final Widget? actionsLeading;
 
   /// 点击右上角关闭按钮回调（默认为 `Navigator.of(context).maybePop()`）。
   final VoidCallback? onClose;
@@ -584,14 +588,22 @@ class KonataGlassDialog extends StatelessWidget {
                                       ? 8
                                       : (compact ? 12 : 18),
                                 ),
-                                Align(
-                                  alignment: Alignment.centerRight,
-                                  child: Wrap(
-                                    alignment: WrapAlignment.end,
-                                    spacing: 10,
-                                    runSpacing: 8,
-                                    children: actions!,
-                                  ),
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    if (actionsLeading != null) ...[
+                                      actionsLeading!,
+                                      const SizedBox(width: 8),
+                                    ],
+                                    Expanded(
+                                      child: Wrap(
+                                        alignment: WrapAlignment.end,
+                                        spacing: 10,
+                                        runSpacing: 8,
+                                        children: actions!,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),

@@ -171,12 +171,13 @@ void main() {
     );
     addTearDown(controller.dispose);
 
-    final badLabel = await controller.saveSource(
+    final autoLabel = await controller.saveSource(
       kind: MediaSourceKind.local,
       label: '   ',
       location: 'D:/Anime',
     );
-    expect(badLabel.success, isFalse);
+    expect(autoLabel.success, isTrue);
+    expect(autoLabel.source!.label, '本地目录');
 
     final badWebDav = await controller.saveSource(
       kind: MediaSourceKind.webdav,
@@ -307,7 +308,7 @@ void main() {
     const legacyId =
         'gya_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
     await repo.upsertMediaSource(
-      MediaSource(
+      const MediaSource(
         id: 'legacy_cloud',
         kind: MediaSourceKind.cloudDrive,
         label: legacyId,
@@ -331,7 +332,7 @@ void main() {
         location: 'guangyapan://account_$i',
       );
       expect(result.success, isTrue);
-      expect(result.source!.label, '云盘$i');
+      expect(result.source!.label, '光鸭云盘$i');
     }
     final custom = await controller.saveSource(
       kind: MediaSourceKind.cloudDrive,
@@ -350,7 +351,54 @@ void main() {
       label: '',
       location: 'guangyapan://account_next',
     );
-    expect(next.source!.label, '云盘4');
+    expect(next.source!.label, '光鸭云盘4');
+  });
+
+  test('所有协议留空名称按类型编号', () async {
+    final controller = SourcesController(
+      databases: db,
+      credentialStore: credentialStore,
+      gatewayFactory: _FakeGatewayFactory(
+        (source, pwd, clear) => _FakeGateway(),
+      ),
+      eventBus: eventBus,
+      scopedPrefs: prefs,
+    );
+    addTearDown(controller.dispose);
+    for (final (kind, label, first, second) in [
+      (MediaSourceKind.local, '本地目录', 'D:/Alpha', 'D:/Beta'),
+      (
+        MediaSourceKind.webdav,
+        'WebDAV',
+        'http://example.test/a',
+        'http://example.test/b',
+      ),
+      (
+        MediaSourceKind.smb,
+        'SMB',
+        'smb://example.test/a',
+        'smb://example.test/b',
+      ),
+      (
+        MediaSourceKind.cloudDrive,
+        '光鸭云盘',
+        'guangyapan://account_alpha',
+        'guangyapan://account_beta',
+      ),
+    ]) {
+      final a = await controller.saveSource(
+        kind: kind,
+        label: '',
+        location: first,
+      );
+      final b = await controller.saveSource(
+        kind: kind,
+        label: ' ',
+        location: second,
+      );
+      expect(a.source?.label, label);
+      expect(b.source?.label, '${label}2');
+    }
   });
 
   test('目录列举使用本地自然排序且忽略隐藏目录，连通测试自动脱敏密码', () async {

@@ -2,58 +2,13 @@ import 'package:konata_contracts/konata_contracts.dart';
 
 export 'package:konata_contracts/konata_contracts.dart' show MediaSourceKind;
 
-/// 根据媒体源协议与路径/地址自动推导友好的默认显示名称。
-String deriveDefaultSourceLabel(MediaSourceKind kind, String rawLocation) {
-  if (kind == MediaSourceKind.cloudDrive) return '云盘';
-  final location = rawLocation.trim();
-  if (location.isEmpty) {
-    return switch (kind) {
-      MediaSourceKind.local => '本地媒体库',
-      MediaSourceKind.webdav => 'WebDAV 媒体库',
-      MediaSourceKind.smb => 'SMB 媒体库',
-      MediaSourceKind.cloudDrive => '云盘',
-    };
-  }
-
-  if (kind == MediaSourceKind.local) {
-    final normalized = location.replaceAll('\\', '/');
-    final segments = normalized
-        .split('/')
-        .map((s) => s.trim())
-        .where((s) => s.isNotEmpty)
-        .toList();
-    if (segments.isEmpty) return '本地媒体库';
-    final last = segments.last;
-    if (segments.length == 1 && last.endsWith(':')) {
-      return '${last.substring(0, last.length - 1).toUpperCase()} 盘';
-    }
-    return last;
-  }
-
-  // 兼容 `//192.168.1.10/Anime` 或 `\\192.168.1.10\Anime` 简写 SMB 地址
-  var candidate = location.replaceAll('\\', '/');
-  if (candidate.startsWith('//')) {
-    candidate = 'smb:$candidate';
-  }
-  final uri = Uri.tryParse(candidate);
-  if (uri != null && uri.host.isNotEmpty) {
-    final segments = uri.pathSegments
-        .map((s) => s.trim())
-        .where((s) => s.isNotEmpty)
-        .toList();
-    if (segments.isNotEmpty) {
-      return '${segments.last} (${uri.host})';
-    }
-    return uri.host;
-  }
-
-  final fallback = candidate
-      .split('/')
-      .map((s) => s.trim())
-      .where((s) => s.isNotEmpty)
-      .lastOrNull;
-  return fallback ?? '远程媒体库';
-}
+/// 各协议的默认名称，不从地址提取内部标识。
+String defaultSourceLabel(MediaSourceKind kind) => switch (kind) {
+  MediaSourceKind.local => '本地目录',
+  MediaSourceKind.webdav => 'WebDAV',
+  MediaSourceKind.smb => 'SMB',
+  MediaSourceKind.cloudDrive => '光鸭云盘',
+};
 
 /// 媒体源强类型领域实体。
 ///

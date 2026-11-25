@@ -72,7 +72,7 @@ void main() {
       clientId: 'fixture-authorized-app',
     );
     expect(paths, isEmpty);
-    await signIn.sendSms('+15550101234');
+    await signIn.sendSms('+15550101234', nationalNumber: '5550101234');
     await expectLater(
       signIn.sendSms('+15550101234'),
       throwsA(isA<SourceAccessException>()),
@@ -89,6 +89,10 @@ void main() {
       '/v1/auth/signin',
     ]);
     expect((await store.read(binding))!.refreshToken, 'fixture-refresh');
+    expect(await store.readMaskedPhone(binding), '555****1234');
+    final saved = (await store.read(binding))!;
+    await store.rotate(binding, expected: saved, refreshToken: 'rotated');
+    expect(await store.readMaskedPhone(binding), '555****1234');
     await registry.signOut(binding);
     final again = GuangYaAccountSignIn(
       sessions: registry,

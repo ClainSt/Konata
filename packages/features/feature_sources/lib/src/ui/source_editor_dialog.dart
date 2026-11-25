@@ -42,7 +42,7 @@ class _SourceEditorDialogState extends ConsumerState<_SourceEditorDialog> {
   bool _saving = false;
   SourceTestResult? _testResult;
   String? _formError;
-  Future<List<String>>? _cloudAccounts;
+  Future<List<({String location, String? maskedPhone})>>? _cloudAccounts;
 
   Future<void> _authorizeCloud() async {
     if (_saving || _testing) return;
@@ -116,13 +116,6 @@ class _SourceEditorDialogState extends ConsumerState<_SourceEditorDialog> {
     super.dispose();
   }
 
-  void _syncDefaultLabelIfEmpty(String location) {
-    if (_kind == MediaSourceKind.cloudDrive) return;
-    if (_labelCtrl.text.trim().isNotEmpty) return;
-    if (location.trim().isEmpty) return;
-    _labelCtrl.text = deriveDefaultSourceLabel(_kind, location);
-  }
-
   Future<void> _pickLocalDirectory() async {
     try {
       final picker = ref.read(featureSourcesDependenciesProvider).filePicker;
@@ -131,12 +124,7 @@ class _SourceEditorDialogState extends ConsumerState<_SourceEditorDialog> {
       final trimmed = picked.trim();
       setState(() {
         _locationCtrl.text = trimmed;
-        if (_labelCtrl.text.trim().isEmpty) {
-          _labelCtrl.text = deriveDefaultSourceLabel(
-            MediaSourceKind.local,
-            trimmed,
-          );
-        }
+
         _formError = null;
         _testResult = null;
       });
@@ -180,11 +168,7 @@ class _SourceEditorDialogState extends ConsumerState<_SourceEditorDialog> {
       return;
     }
 
-    final effectiveLabel = _kind == MediaSourceKind.cloudDrive
-        ? _labelCtrl.text.trim()
-        : _labelCtrl.text.trim().isEmpty
-        ? deriveDefaultSourceLabel(_kind, validated.normalizedLocation)
-        : _labelCtrl.text.trim();
+    final effectiveLabel = _labelCtrl.text.trim();
 
     setState(() {
       _saving = true;
@@ -258,6 +242,16 @@ class _SourceEditorDialogState extends ConsumerState<_SourceEditorDialog> {
       onClose: (_saving || _testing)
           ? () {}
           : () => Navigator.of(context).pop(),
+      actionsLeading:
+          isCloud &&
+              ref.watch(featureSourcesDependenciesProvider).createCloudSignIn !=
+                  null
+          ? KonataPillButton.secondary(
+              label: '登录账号',
+              compact: true,
+              onPressed: (_saving || _testing) ? null : _authorizeCloud,
+            )
+          : null,
       actions: [
         KonataPillButton.secondary(
           label: _testing && !_authorizing ? '测试中...' : '测试连通',
@@ -304,7 +298,7 @@ class _SourceEditorDialogState extends ConsumerState<_SourceEditorDialog> {
                     ),
                     KonataDropdownOption(
                       value: MediaSourceKind.cloudDrive,
-                      label: '光鸭云盘',
+                      label: '光鸭云盘（实验品）',
                     ),
                   ],
                   onChanged: changeKind,
@@ -342,9 +336,7 @@ class _SourceEditorDialogState extends ConsumerState<_SourceEditorDialog> {
                   children: [
                     KonataSoftTextField(
                       controller: _labelCtrl,
-                      label: _kind == MediaSourceKind.cloudDrive
-                          ? '显示名称（可选，留空自动命名为云盘）'
-                          : '显示名称（可选，留空自动提取）',
+                      label: '显示名称（可选，留空自动命名）',
                       hintText: '例如：NAS 番剧库 / BDRip 归档盘',
                       prefixIcon: Icons.label_outline_rounded,
                     ),
@@ -353,14 +345,20 @@ class _SourceEditorDialogState extends ConsumerState<_SourceEditorDialog> {
                       if (lockedCloud)
                         Text('已绑定云盘媒体源：${widget.existingSource!.label}')
                       else
-                        FutureBuilder<List<String>>(
+                        FutureBuilder<
+                          List<({String location, String? maskedPhone})>
+                        >(
                           future: _cloudAccounts,
                           builder: (context, snapshot) {
                             if (snapshot.connectionState ==
                                 ConnectionState.waiting) {
                               return const Text('正在读取本机授权状态…');
                             }
-                            final locations = snapshot.data ?? const <String>[];
+                            final locations =
+                                snapshot.data ??
+                                const <
+                                  ({String location, String? maskedPhone})
+                                >[];
                             if (locations.isEmpty) {
                               return Text(
                                 snapshot.hasError
@@ -369,15 +367,20 @@ class _SourceEditorDialogState extends ConsumerState<_SourceEditorDialog> {
                               );
                             }
                             return KonataDropdown<String>(
-                              value: locations.contains(_locationCtrl.text)
+                              value:
+                                  locations.any(
+                                    (account) =>
+                                        account.location == _locationCtrl.text,
+                                  )
                                   ? _locationCtrl.text
                                   : null,
                               hintText: '选择已授权账号',
                               options: [
                                 for (var i = 0; i < locations.length; i++)
                                   KonataDropdownOption(
-                                    value: locations[i],
-                                    label: '光鸭账号 ${i + 1}',
+                                    value: locations[i].location,
+                                    label:
+                                        '光鸭账号 ${i + 1}${locations[i].maskedPhone == null ? '' : ' (${locations[i].maskedPhone})'}',
                                   ),
                               ],
                               enabled: !_saving && !_testing,
@@ -394,35 +397,28 @@ class _SourceEditorDialogState extends ConsumerState<_SourceEditorDialog> {
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
                           Expanded(
-                            child: Focus(
-                              onFocusChange: (hasFocus) {
-                                if (!hasFocus) {
-                                  _syncDefaultLabelIfEmpty(_locationCtrl.text);
-                                }
+                            child: KonataSoftTextField(
+                              controller: _locationCtrl,
+                              label: switch (_kind) {
+                                MediaSourceKind.local => '本地目录路径',
+                                MediaSourceKind.webdav => 'WebDAV 地址',
+                                MediaSourceKind.smb => 'SMB 共享地址',
+                                MediaSourceKind.cloudDrive => '云盘',
                               },
-                              child: KonataSoftTextField(
-                                controller: _locationCtrl,
-                                label: switch (_kind) {
-                                  MediaSourceKind.local => '本地目录路径',
-                                  MediaSourceKind.webdav => 'WebDAV 地址',
-                                  MediaSourceKind.smb => 'SMB 共享地址',
-                                  MediaSourceKind.cloudDrive => '云盘',
-                                },
-                                hintText: switch (_kind) {
-                                  MediaSourceKind.local =>
-                                    KonataAdaptiveTokens.isAndroid
-                                        ? '/storage/emulated/0/Anime'
-                                        : r'D:\Anime',
-                                  MediaSourceKind.webdav =>
-                                    KonataNetworkConfig.defaultWebDavHint,
-                                  MediaSourceKind.smb =>
-                                    'smb://192.168.1.2/Anime',
-                                  MediaSourceKind.cloudDrive => '由云盘登录生成',
-                                },
-                                prefixIcon: isRemote
-                                    ? Icons.link_rounded
-                                    : Icons.folder_open_rounded,
-                              ),
+                              hintText: switch (_kind) {
+                                MediaSourceKind.local =>
+                                  KonataAdaptiveTokens.isAndroid
+                                      ? '/storage/emulated/0/Anime'
+                                      : r'D:\Anime',
+                                MediaSourceKind.webdav =>
+                                  KonataNetworkConfig.defaultWebDavHint,
+                                MediaSourceKind.smb =>
+                                  'smb://192.168.1.2/Anime',
+                                MediaSourceKind.cloudDrive => '由云盘登录生成',
+                              },
+                              prefixIcon: isRemote
+                                  ? Icons.link_rounded
+                                  : Icons.folder_open_rounded,
                             ),
                           ),
                           if (!isRemote) ...[
@@ -438,21 +434,6 @@ class _SourceEditorDialogState extends ConsumerState<_SourceEditorDialog> {
                           ],
                         ],
                       ),
-                    if (isCloud) ...[
-                      const SizedBox(height: 12),
-                      if (ref
-                              .watch(featureSourcesDependenciesProvider)
-                              .createCloudSignIn !=
-                          null)
-                        KonataPillButton.secondary(
-                          label: lockedCloud ? '重新授权账号' : '授权光鸭账号',
-                          onPressed: (_saving || _testing)
-                              ? null
-                              : _authorizeCloud,
-                        )
-                      else
-                        const Text('尚未配置获准使用的客户端 ID，首次授权暂不可用'),
-                    ],
                     if (isRemote && !isCloud) ...[
                       const SizedBox(height: 12),
                       KonataSoftTextField(

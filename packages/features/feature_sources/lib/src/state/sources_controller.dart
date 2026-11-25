@@ -15,10 +15,11 @@ bool isLegacyCloudSourceLabel(MediaSource source) =>
     Uri.tryParse(source.location)?.host == source.label;
 
 /// 按已占用名称分配最小可用编号。
-String nextCloudSourceLabel(Set<String> used) {
-  if (!used.contains('云盘')) return '云盘';
+String nextSourceLabel(MediaSourceKind kind, Set<String> used) {
+  final base = defaultSourceLabel(kind);
+  if (!used.contains(base)) return base;
   for (var i = 2; ; i++) {
-    final label = '云盘$i';
+    final label = '$base$i';
     if (!used.contains(label)) return label;
   }
 }
@@ -33,7 +34,7 @@ List<MediaSource> friendlySourceLabels(List<MediaSource> sources) {
   final legacy = sources.where(isLegacyCloudSourceLabel).toList()
     ..sort((a, b) => a.id.compareTo(b.id));
   for (final source in legacy) {
-    final label = nextCloudSourceLabel(used);
+    final label = nextSourceLabel(source.kind, used);
     used.add(label);
     aliases[source.id] = label;
   }
@@ -263,9 +264,6 @@ GROUP BY mv.${MediaVariantsSchema.colSourceId};
     bool clearPassword = false,
   }) async {
     var trimmedLabel = label.trim();
-    if (trimmedLabel.isEmpty && kind != MediaSourceKind.cloudDrive) {
-      return const SourceActionResult(success: false, errorMessage: '请填写媒体源名称');
-    }
 
     final validated = SourceLocationValidator.validate(kind, location);
     if (!validated.isValid) {
@@ -280,9 +278,9 @@ GROUP BY mv.${MediaVariantsSchema.colSourceId};
       validated.normalizedLocation,
     );
     final existingSources = await _repository.getMediaSources();
-    if (kind == MediaSourceKind.cloudDrive && trimmedLabel.isEmpty) {
+    if (trimmedLabel.isEmpty) {
       final friendly = friendlySourceLabels(existingSources);
-      trimmedLabel = nextCloudSourceLabel({
+      trimmedLabel = nextSourceLabel(kind, {
         for (final item in friendly)
           if (item.id != existingId) item.label,
       });

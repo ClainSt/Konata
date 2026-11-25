@@ -18,8 +18,9 @@ class _FakeCloudSignIn implements CloudAccountSignInPort {
   int finishCount = 0;
   bool cancelled = false;
   @override
-  Future<void> sendSms(String phone) async {
-    expect(phone, '+15550101234');
+  Future<void> sendSms(String phone, {String? nationalNumber}) async {
+    expect(phone, '+8613800101234');
+    expect(nationalNumber, '13800101234');
     sendCount++;
   }
 
@@ -456,8 +457,13 @@ void main() {
       photosStorage: photos,
       platform: KonataPlatform.windows,
       listCloudAccountLocations: () async => cloudAuthorized
-          ? const ['guangyapan://account_fixture']
-          : const <String>[],
+          ? const [
+              (
+                location: 'guangyapan://account_fixture',
+                maskedPhone: '138****1234',
+              ),
+            ]
+          : const [],
       createCloudSignIn: (expectedLocation) {
         expect(expectedLocation, isNull);
         return fakeSignIn;
@@ -523,18 +529,27 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('source_kind_dropdown')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('光鸭云盘'));
+    await tester.tap(find.text('光鸭云盘（实验品）'));
     await tester.pumpAndSettle();
     expect(find.textContaining('本机尚无已授权光鸭账号'), findsOneWidget);
     expect(find.textContaining('密码（'), findsNothing);
-    await tester.tap(find.text('授权光鸭账号'));
+    expect(find.text('选择范围'), findsNothing);
+    expect(
+      tester.getCenter(find.text('登录账号')).dx,
+      lessThan(tester.getCenter(find.text('测试连通').last).dx),
+    );
+    await tester.tap(find.text('登录账号'));
     await tester.pumpAndSettle();
     expect(find.text('光鸭账号授权'), findsOneWidget);
     final phoneField = find.descendant(
       of: find.byType(KonataGlassDialog).last,
       matching: find.byType(EditableText),
     );
-    await tester.enterText(phoneField.first, '+15550101234');
+    expect(
+      tester.widget<EditableText>(phoneField.first).controller.text,
+      '+86',
+    );
+    await tester.enterText(phoneField.at(1), '13800101234');
     await tester.tap(find.text('发送验证码'));
     await tester.pumpAndSettle();
     expect(fakeSignIn.sendCount, 1);
@@ -543,7 +558,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(fakeSignIn.finishCount, 1);
     expect(fakeSignIn.cancelled, isTrue);
-    expect(find.text('光鸭账号 1'), findsOneWidget);
+    expect(find.text('光鸭账号 1 (138****1234)'), findsOneWidget);
     expect(tester.takeException(), isNull);
 
     await tester.tap(find.byKey(const ValueKey('source_kind_dropdown')));

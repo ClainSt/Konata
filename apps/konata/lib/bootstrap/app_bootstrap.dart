@@ -489,7 +489,12 @@ final class KonataBootstrapContext {
       listCloudAccountLocations: () async => [
         for (final account
             in await cloudDriveSessions.credentials.listAccounts())
-          Uri(scheme: 'guangyapan', host: account).toString(),
+          (
+            location: Uri(scheme: 'guangyapan', host: account).toString(),
+            maskedPhone: await cloudDriveSessions.credentials.readMaskedPhone(
+              account,
+            ),
+          ),
       ],
       createCloudSignIn: cloudClientId.trim().isEmpty
           ? null

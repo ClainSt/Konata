@@ -28,6 +28,7 @@ class _CloudAccountSignInDialog extends StatefulWidget {
 }
 
 class _CloudAccountSignInDialogState extends State<_CloudAccountSignInDialog> {
+  final _dialCode = TextEditingController(text: '+86');
   final _phone = TextEditingController();
   final _code = TextEditingController();
   bool _busy = false;
@@ -37,6 +38,7 @@ class _CloudAccountSignInDialogState extends State<_CloudAccountSignInDialog> {
 
   @override
   void dispose() {
+    _dialCode.dispose();
     _phone.dispose();
     _code.dispose();
     super.dispose();
@@ -83,7 +85,15 @@ class _CloudAccountSignInDialogState extends State<_CloudAccountSignInDialog> {
   Future<void> _submit() async {
     if (_busy || _failed) return;
     final sent = _sent;
-    final input = (sent ? _code.text : _phone.text).trim();
+    final number = _phone.text.trim();
+    final dialCode = _dialCode.text.trim();
+    final input = sent ? _code.text.trim() : '$dialCode$number';
+    if (!sent &&
+        (!RegExp(r'^\+[1-9]\d{0,2}$').hasMatch(dialCode) ||
+            !RegExp(r'^\d+$').hasMatch(number))) {
+      setState(() => _error = '请输入有效区号与手机号');
+      return;
+    }
     if (!(sent ? RegExp(r'^\d{4,8}$') : RegExp(r'^\+[1-9]\d{6,14}$')).hasMatch(
       input,
     )) {
@@ -99,7 +109,7 @@ class _CloudAccountSignInDialogState extends State<_CloudAccountSignInDialog> {
         final location = await widget.session.finishSms(input);
         if (mounted) Navigator.of(context).pop(location);
       } else {
-        await widget.session.sendSms(input);
+        await widget.session.sendSms(input, nationalNumber: number);
         if (mounted) setState(() => _sent = true);
       }
     } catch (error) {
@@ -141,11 +151,26 @@ class _CloudAccountSignInDialogState extends State<_CloudAccountSignInDialog> {
               const SizedBox(height: 12),
               IgnorePointer(
                 ignoring: _sent || _busy || _failed,
-                child: KonataSoftTextField(
-                  controller: _phone,
-                  label: '手机号（含国际区号）',
-                  hintText: '+86…',
-                  keyboardType: TextInputType.phone,
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 84,
+                      child: KonataSoftTextField(
+                        controller: _dialCode,
+                        label: '区号',
+                        keyboardType: TextInputType.phone,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: KonataSoftTextField(
+                        controller: _phone,
+                        label: '手机号',
+                        hintText: '请输入手机号',
+                        keyboardType: TextInputType.phone,
+                      ),
+                    ),
+                  ],
                 ),
               ),
               if (_sent) ...[

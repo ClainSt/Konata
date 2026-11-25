@@ -47,6 +47,7 @@ final class GuangYaCredentialStore {
         refreshToken: data['refreshToken'] as String,
         subject: data['subject'] as String,
         deviceSign: data['deviceSign'] as String?,
+        maskedPhone: _safeMask(data['maskedPhone']),
       );
       _validate(value);
       return value;
@@ -57,6 +58,15 @@ final class GuangYaCredentialStore {
       );
     }
   }
+
+  static String? _safeMask(Object? value) =>
+      value is String && RegExp(r'^\d{2,3}\*{4}\d{4}$').hasMatch(value)
+      ? value
+      : null;
+
+  /// 仅提供脱敏号码，不返回凭据。
+  Future<String?> readMaskedPhone(String account) async =>
+      (await read(account))?.maskedPhone;
 
   static void _validate(GuangYaCredentials value) {
     if (value.clientId.isEmpty ||
@@ -73,6 +83,7 @@ final class GuangYaCredentialStore {
     'refreshToken': value.refreshToken,
     'subject': value.subject,
     if (value.deviceSign != null) 'deviceSign': value.deviceSign,
+    if (_safeMask(value.maskedPhone) != null) 'maskedPhone': value.maskedPhone,
   });
 
   Future<GuangYaCredentials?> read(String account) =>
@@ -144,6 +155,7 @@ final class GuangYaCredentialStore {
           refreshToken: refreshToken,
           subject: current.subject,
           deviceSign: current.deviceSign,
+          maskedPhone: current.maskedPhone,
         ),
       ),
     );

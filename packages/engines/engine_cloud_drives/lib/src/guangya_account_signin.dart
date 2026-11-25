@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:konata_contracts/konata_contracts.dart';
 
+import 'guangya_protocol.dart';
 import 'guangya_session_registry.dart';
 import 'guangya_signin.dart';
 
@@ -26,6 +27,7 @@ final class GuangYaAccountSignIn implements CloudAccountSignInPort {
   bool _closed = false;
   bool _busy = false;
   bool _sent = false;
+  String? _maskedPhone;
 
   static String _newDeviceId() {
     final random = Random.secure();
@@ -53,7 +55,7 @@ final class GuangYaAccountSignIn implements CloudAccountSignInPort {
   }
 
   @override
-  Future<void> sendSms(String phone) async {
+  Future<void> sendSms(String phone, {String? nationalNumber}) async {
     _check();
     if (_busy || _sent) {
       throw const SourceAccessException(
@@ -66,6 +68,13 @@ final class GuangYaAccountSignIn implements CloudAccountSignInPort {
       await _signIn.sendSms(phone);
       _check();
       _sent = true;
+      // 只保留脱敏尾号，完整号码不落盘。
+      final digits =
+          nationalNumber ?? (phone.startsWith('+86') ? phone.substring(3) : '');
+      _maskedPhone =
+          RegExp(r'^\d{8,14}$').hasMatch(digits) && phone.endsWith(digits)
+          ? '${digits.substring(0, 3)}****${digits.substring(digits.length - 4)}'
+          : null;
     } finally {
       _busy = false;
     }
@@ -96,7 +105,17 @@ final class GuangYaAccountSignIn implements CloudAccountSignInPort {
           );
         }
       }
-      await _sessions.authorize(binding, value);
+      await _sessions.authorize(
+        binding,
+        GuangYaCredentials(
+          clientId: value.clientId,
+          deviceId: value.deviceId,
+          refreshToken: value.refreshToken,
+          subject: value.subject,
+          deviceSign: value.deviceSign,
+          maskedPhone: _maskedPhone,
+        ),
+      );
       _closed = true;
       return Uri(scheme: 'guangyapan', host: binding).toString();
     } finally {

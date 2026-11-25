@@ -23,12 +23,14 @@ final class GuangYaCredentials {
     required this.refreshToken,
     required this.subject,
     this.deviceSign,
+    this.maskedPhone,
   });
   final String clientId;
   final String deviceId;
   final String refreshToken;
   final String subject;
   final String? deviceSign;
+  final String? maskedPhone;
 }
 
 /// 单次请求传递凭据，不在公共 HTTP 客户端设置全局头。

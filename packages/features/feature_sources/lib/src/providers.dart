@@ -64,7 +64,8 @@ final class FeatureSourcesDependencies {
   final KonataPlatform platform;
 
   /// 本机已授权云盘根地址列表，不包含令牌或账号密码。
-  final Future<List<String>> Function()? listCloudAccountLocations;
+  final Future<List<({String location, String? maskedPhone})>> Function()?
+  listCloudAccountLocations;
 
   /// 可选已配置客户端的用户主动授权事务。
   final CloudAccountSignInPort Function(String? expectedLocation)?

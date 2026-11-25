@@ -83,7 +83,8 @@ final class FeatureRuntimeWiring {
   final KonataPlatform platform;
 
   /// 本机已授权云盘的无凭据根地址入口。
-  final Future<List<String>> Function()? listCloudAccountLocations;
+  final Future<List<({String location, String? maskedPhone})>> Function()?
+  listCloudAccountLocations;
 
   /// 可选已配置客户端的用户主动授权事务。
   final CloudAccountSignInPort Function(String? expectedLocation)?

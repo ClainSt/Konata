@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import '../tokens/konata_adaptive_tokens.dart';
 import '../tokens/konata_palette.dart';
 import '../tokens/konata_theme.dart';
+import 'konata_tooltip.dart';
 
 /// 单条悬浮轻提示载荷模型。
 @immutable
@@ -539,14 +540,11 @@ class _KonataGlassToastCapsule extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 4),
-                if (Overlay.maybeOf(context) != null)
-                  Tooltip(
-                    message: '关闭提示',
-                    excludeFromSemantics: true,
-                    child: closeButton,
-                  )
-                else
-                  closeButton,
+                KonataTooltip(
+                  message: '关闭提示',
+                  excludeFromSemantics: true,
+                  child: closeButton,
+                ),
               ],
             ),
           ),

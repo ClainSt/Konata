@@ -289,7 +289,9 @@ extension _ScanLightboxDialogViews on _ScanLightboxDialogState {
         KonataGlassMenuItem<String>(
           value: 'fit:${mode.name}',
           label: mode.label,
-          icon: _fitMode == mode ? Icons.check_rounded : Icons.crop_free_rounded,
+          icon: _fitMode == mode
+              ? Icons.check_rounded
+              : Icons.crop_free_rounded,
         ),
       if (hasVolumes)
         const KonataGlassMenuItem<String>(
@@ -431,9 +433,7 @@ extension _ScanLightboxDialogViews on _ScanLightboxDialogState {
                     gaplessPlayback: true,
                     errorBuilder: (_, _, _) => const Text(
                       '图像解码失败或格式不受支持',
-                      style: TextStyle(
-                        color: KonataTheme.overlayWhiteTextDim,
-                      ),
+                      style: TextStyle(color: KonataTheme.overlayWhiteTextDim),
                     ),
                   ),
                 ),
@@ -556,7 +556,7 @@ class _GlassPillTriggerState extends State<_GlassPillTrigger> {
 
   @override
   Widget build(BuildContext context) {
-    return Tooltip(
+    return KonataTooltip(
       message: widget.tooltip,
       waitDuration: KonataTheme.tooltipSlowWaitDuration,
       child: MouseRegion(

@@ -167,7 +167,8 @@ class DetailSecondaryFilterBar extends StatelessWidget {
                                   ? '${options[i].label} ${options[i].count}'
                                   : options[i].label,
                               icon: options[i].icon,
-                              selected: expanded && activeTabId == options[i].id,
+                              selected:
+                                  expanded && activeTabId == options[i].id,
                               onDarkBackdrop: useDarkGlass,
                               compact: compact,
                               onTap: () => onSelectTab(options[i].id),
@@ -283,7 +284,9 @@ class _TabSegmentButtonState extends State<_TabSegmentButton> {
                     : p.softFill)
               : const Color(0x00000000));
     final fg = selected
-        ? (widget.onDarkBackdrop ? KonataTheme.cinemaObsidian : p.primaryButtonFg)
+        ? (widget.onDarkBackdrop
+              ? KonataTheme.cinemaObsidian
+              : p.primaryButtonFg)
         : (widget.onDarkBackdrop
               ? KonataTheme.overlayWhiteTextMid
               : p.textSecondary);
@@ -357,7 +360,7 @@ class _CapsuleFullListButtonState extends State<_CapsuleFullListButton> {
         ? KonataTheme.overlayWhiteMuted
         : p.softFill;
 
-    return Tooltip(
+    return KonataTooltip(
       message: '查看全部',
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
@@ -415,7 +418,9 @@ class _SubFilterChip extends StatelessWidget {
         ? (onDarkBackdrop ? KonataTheme.pureWhite : p.textPrimary)
         : (onDarkBackdrop ? KonataTheme.overlayWhiteTextDim : p.textSecondary);
     final border = selected
-        ? (onDarkBackdrop ? KonataTheme.overlayWhiteBorderStrong : p.hoverBorder)
+        ? (onDarkBackdrop
+              ? KonataTheme.overlayWhiteBorderStrong
+              : p.hoverBorder)
         : (onDarkBackdrop ? KonataTheme.overlayWhiteBorder : p.hairline);
 
     return MouseRegion(

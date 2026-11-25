@@ -14,6 +14,63 @@ Widget _wrapApp(Widget child, {bool dark = true}) {
 }
 
 void main() {
+  testWidgets('Navigator 外部的迷你播放器图标、文本和普通提示不触发 Overlay 异常', (tester) async {
+    var taps = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: KonataTheme.darkTheme(),
+        builder: (context, child) => Stack(
+          children: [
+            child!,
+            Positioned(
+              left: 8,
+              top: 8,
+              child: Row(
+                children: [
+                  KonataCapsuleIconButton(
+                    icon: Icons.play_arrow,
+                    tooltip: '播放',
+                    color: Colors.white,
+                    onTap: () => taps++,
+                  ),
+                  const SizedBox(
+                    width: 32,
+                    child: EllipsisTextWithTooltip(
+                      text: '超长标题用于小窗提示回归',
+                      style: TextStyle(fontSize: 14),
+                    ),
+                  ),
+                  KonataTooltip(
+                    message: '关闭小窗',
+                    child: GestureDetector(
+                      onTap: () => taps++,
+                      child: const Text('关闭'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        home: const Scaffold(body: SizedBox.expand()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.byIcon(Icons.play_arrow));
+    await tester.tap(find.text('关闭'));
+    expect(taps, 2);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('路由内部仍保留原生 Tooltip', (tester) async {
+    await tester.pumpWidget(
+      _wrapApp(const KonataTooltip(message: '正常提示', child: Text('按钮'))),
+    );
+    expect(find.byTooltip('正常提示'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('全局 Toast 位于 Navigator 外部时保存提示和关闭交互正常', (tester) async {
     final toastCtrl = KonataToastController();
     addTearDown(toastCtrl.dispose);

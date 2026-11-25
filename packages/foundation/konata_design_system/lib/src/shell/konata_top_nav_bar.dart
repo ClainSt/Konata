@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../tokens/konata_palette.dart';
 import '../tokens/konata_theme.dart';
+import '../widgets/konata_tooltip.dart';
 import 'capsule_navigation.dart';
 
 /// 100% 透明去框化桌面顶部导航栏（高 52px，零桌面原生插件依赖）。
@@ -98,9 +99,7 @@ class _KonataTopNavBarState extends State<KonataTopNavBar> {
       if (_controller.text != widget.searchQuery) {
         _controller.value = TextEditingValue(
           text: widget.searchQuery,
-          selection: TextSelection.collapsed(
-            offset: widget.searchQuery.length,
-          ),
+          selection: TextSelection.collapsed(offset: widget.searchQuery.length),
         );
       }
     }
@@ -354,10 +353,7 @@ class _TopNavTabStripState extends State<_TopNavTabStrip>
         next.add(null);
       } else {
         final center = tabBox
-            .localToGlobal(
-              Offset(tabBox.size.width / 2, 0),
-              ancestor: stackBox,
-            )
+            .localToGlobal(Offset(tabBox.size.width / 2, 0), ancestor: stackBox)
             .dx;
         next.add(center);
       }
@@ -811,7 +807,7 @@ class _TopNavIconButtonState extends State<_TopNavIconButton> {
 
   @override
   Widget build(BuildContext context) {
-    return Tooltip(
+    return KonataTooltip(
       message: widget.tooltip,
       child: MouseRegion(
         cursor: SystemMouseCursors.click,

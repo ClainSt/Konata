@@ -442,7 +442,7 @@ class _IgnoredFolderChipState extends State<_IgnoredFolderChip> {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    return Tooltip(
+    return KonataTooltip(
       message: '点击恢复扫描目录「${widget.folder}」',
       child: MouseRegion(
         cursor: SystemMouseCursors.click,

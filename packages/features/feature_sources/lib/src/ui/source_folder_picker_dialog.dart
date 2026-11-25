@@ -546,7 +546,7 @@ class _SourceFolderPickerDialogState
           onPressed: _loading || _currentPath.isEmpty ? null : _navigateUp,
         ),
         const SizedBox(width: 6),
-        Tooltip(
+        KonataTooltip(
           message: _currentPath.isEmpty ? '全选或取消全选根路径下的全部目录' : '勾选或取消勾选当前目录',
           child: Checkbox(
             tristate: _currentPath.isEmpty,

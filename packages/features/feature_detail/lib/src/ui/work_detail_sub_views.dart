@@ -52,7 +52,7 @@ class WorkDetailTopBar extends StatelessWidget {
         Semantics(
           button: true,
           label: '返回',
-          child: Tooltip(
+          child: KonataTooltip(
             message: '返回上一页 (Esc)',
             child: GestureDetector(
               key: const ValueKey<String>('detail_back_button'),
@@ -69,11 +69,7 @@ class WorkDetailTopBar extends StatelessWidget {
                       color: bg,
                       border: Border.all(color: border, width: 1),
                     ),
-                    child: Icon(
-                      Icons.arrow_back_rounded,
-                      size: 20,
-                      color: fg,
-                    ),
+                    child: Icon(Icons.arrow_back_rounded, size: 20, color: fg),
                   ),
                 ),
               ),
@@ -147,9 +143,10 @@ class MissingWorkFallbackView extends StatelessWidget {
               Text(
                 subtitle,
                 textAlign: TextAlign.center,
-                style: KonataTheme.captionStyle(
-                  p,
-                ).copyWith(color: p.textSecondary, fontSize: KonataTheme.fontSizeBodySm),
+                style: KonataTheme.captionStyle(p).copyWith(
+                  color: p.textSecondary,
+                  fontSize: KonataTheme.fontSizeBodySm,
+                ),
               ),
               const SizedBox(height: 22),
               KonataPillButton.primary(

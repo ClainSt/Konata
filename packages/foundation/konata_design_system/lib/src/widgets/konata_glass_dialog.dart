@@ -8,6 +8,7 @@ import '../tokens/konata_adaptive_tokens.dart';
 import '../tokens/konata_palette.dart';
 import '../tokens/konata_theme.dart';
 import 'konata_draggable_dialog.dart';
+import 'konata_tooltip.dart';
 
 /// 全站统一悬浮毛玻璃弹窗呼出入口（默认加深外部遮罩以突出前景弹窗并抑制底层穿透）。
 Future<T?> showKonataGlassDialog<T>({
@@ -163,13 +164,12 @@ class _KonataFollowFingerSheetSurfaceState
   @override
   void initState() {
     super.initState();
-    _reboundController = AnimationController(
-      vsync: this,
-      duration: KonataTheme.motionStandard,
-    )..addListener(() {
-        final t = Curves.easeOutCubic.transform(_reboundController.value);
-        _dragOffset.value = _reboundStartOffset * (1.0 - t);
-      });
+    _reboundController =
+        AnimationController(vsync: this, duration: KonataTheme.motionStandard)
+          ..addListener(() {
+            final t = Curves.easeOutCubic.transform(_reboundController.value);
+            _dragOffset.value = _reboundStartOffset * (1.0 - t);
+          });
   }
 
   @override
@@ -304,10 +304,8 @@ class _KonataFollowFingerSheetSurfaceState
       child: ValueListenableBuilder<double>(
         valueListenable: _dragOffset,
         child: surface,
-        builder: (context, dy, child) => Transform.translate(
-          offset: Offset(0, dy),
-          child: child,
-        ),
+        builder: (context, dy, child) =>
+            Transform.translate(offset: Offset(0, dy), child: child),
       ),
     );
   }
@@ -429,7 +427,10 @@ class KonataGlassDialog extends StatelessWidget {
           )
         : math.max(
             180.0,
-            screen.height - safe.vertical - viewInsets.vertical - outerMargin * 2,
+            screen.height -
+                safe.vertical -
+                viewInsets.vertical -
+                outerMargin * 2,
           );
     final effectiveWidth = math.min(width, availableW);
     final effectiveHeight = height != null
@@ -498,97 +499,105 @@ class KonataGlassDialog extends StatelessWidget {
                   type: MaterialType.transparency,
                   child: RepaintBoundary(
                     child: Column(
-                  mainAxisSize: effectiveHeight != null
-                      ? MainAxisSize.max
-                      : MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Offstage(
-                      offstage:
-                          landscapeCompactInput &&
-                          !(inlineHeaderTrailing && headerTrailing != null),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
+                      mainAxisSize: effectiveHeight != null
+                          ? MainAxisSize.max
+                          : MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Offstage(
+                          offstage:
+                              landscapeCompactInput &&
+                              !(inlineHeaderTrailing && headerTrailing != null),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Expanded(
-                                child: KonataDialogDragHandle(
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 4,
-                                    ),
-                                    child: Text(
-                                      title,
-                                      maxLines: inlineHeaderTrailing ? 1 : 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        color: p.textPrimary,
-                                        fontSize: compact ? 16.5 : 18,
-                                        fontWeight: FontWeight.w700,
-                                        letterSpacing: -0.2,
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: KonataDialogDragHandle(
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 4,
+                                        ),
+                                        child: Text(
+                                          title,
+                                          maxLines: inlineHeaderTrailing
+                                              ? 1
+                                              : 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color: p.textPrimary,
+                                            fontSize: compact ? 16.5 : 18,
+                                            fontWeight: FontWeight.w700,
+                                            letterSpacing: -0.2,
+                                          ),
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
+                                  if (headerTrailing != null &&
+                                      (!narrowWidth ||
+                                          inlineHeaderTrailing)) ...[
+                                    const SizedBox(width: 8),
+                                    headerTrailing!,
+                                  ],
+                                  const SizedBox(width: 8),
+                                  KonataGlassCloseButton(
+                                    onPressed:
+                                        onClose ??
+                                        () => Navigator.of(context).maybePop(),
+                                  ),
+                                ],
                               ),
                               if (headerTrailing != null &&
-                                  (!narrowWidth || inlineHeaderTrailing)) ...[
-                                const SizedBox(width: 8),
+                                  narrowWidth &&
+                                  !inlineHeaderTrailing) ...[
+                                const SizedBox(height: 8),
                                 headerTrailing!,
                               ],
-                              const SizedBox(width: 8),
-                              KonataGlassCloseButton(
-                                onPressed:
-                                    onClose ??
-                                    () => Navigator.of(context).maybePop(),
+                              SizedBox(
+                                height: landscapeCompactInput
+                                    ? 2
+                                    : (headerBottomSpacing ??
+                                          (shortViewport
+                                              ? 6
+                                              : (compact ? 12 : 16))),
                               ),
                             ],
                           ),
-                          if (headerTrailing != null &&
-                              narrowWidth &&
-                              !inlineHeaderTrailing) ...[
-                            const SizedBox(height: 8),
-                            headerTrailing!,
-                          ],
-                          SizedBox(
-                            height: landscapeCompactInput
-                                ? 2
-                                : (headerBottomSpacing ??
-                                      (shortViewport
-                                          ? 6
-                                          : (compact ? 12 : 16))),
-                          ),
-                        ],
-                      ),
-                    ),
-                    if (effectiveHeight != null || effectiveMaxHeight != null)
-                      Flexible(child: body)
-                    else
-                      body,
-                    if (actions != null && actions!.isNotEmpty)
-                      Offstage(
-                        offstage: landscapeCompactInput,
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            SizedBox(height: shortViewport ? 8 : (compact ? 12 : 18)),
-                            Align(
-                              alignment: Alignment.centerRight,
-                              child: Wrap(
-                                alignment: WrapAlignment.end,
-                                spacing: 10,
-                                runSpacing: 8,
-                                children: actions!,
-                              ),
-                            ),
-                          ],
                         ),
-                      ),
-                  ],
-                ),
+                        if (effectiveHeight != null ||
+                            effectiveMaxHeight != null)
+                          Flexible(child: body)
+                        else
+                          body,
+                        if (actions != null && actions!.isNotEmpty)
+                          Offstage(
+                            offstage: landscapeCompactInput,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                SizedBox(
+                                  height: shortViewport
+                                      ? 8
+                                      : (compact ? 12 : 18),
+                                ),
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: Wrap(
+                                    alignment: WrapAlignment.end,
+                                    spacing: 10,
+                                    runSpacing: 8,
+                                    children: actions!,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -630,7 +639,7 @@ class _KonataGlassCloseButtonState extends State<KonataGlassCloseButton> {
         ? KonataAdaptiveTokens.touchTarget
         : 30.0;
 
-    return Tooltip(
+    return KonataTooltip(
       message: widget.tooltip,
       child: MouseRegion(
         cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,

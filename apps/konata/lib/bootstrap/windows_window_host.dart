@@ -25,10 +25,7 @@ final class WindowMaterialController {
   static const Color lightAcrylicTint = Color(0xC4F4F5F8);
 
   /// 判断当前实际生效的是否为暗色模式。
-  static bool resolveIsDark(
-    ThemeMode mode,
-    Brightness platformBrightness,
-  ) {
+  static bool resolveIsDark(ThemeMode mode, Brightness platformBrightness) {
     return switch (mode) {
       ThemeMode.dark => true,
       ThemeMode.light => false,
@@ -64,15 +61,9 @@ final class WindowMaterialController {
             dark: isDark,
           );
         case KonataWindowMaterial.mica:
-          await Window.setEffect(
-            effect: WindowEffect.mica,
-            dark: isDark,
-          );
+          await Window.setEffect(effect: WindowEffect.mica, dark: isDark);
         case KonataWindowMaterial.tabbed:
-          await Window.setEffect(
-            effect: WindowEffect.tabbed,
-            dark: isDark,
-          );
+          await Window.setEffect(effect: WindowEffect.tabbed, dark: isDark);
       }
       // 每次应用或切换 DWM 材质后重新隐藏 Win32 原生标题栏控制按钮，防止与 Flutter 控制键重叠。
       await Window.hideWindowControls();
@@ -304,11 +295,7 @@ class WindowControlsState extends State<WindowControls>
         setState(() => _isMaximized = maximized);
       }
     } catch (error) {
-      developer.log(
-        '读取最大化状态忽略',
-        name: 'konata.window_controls',
-        error: error,
-      );
+      developer.log('读取最大化状态忽略', name: 'konata.window_controls', error: error);
     }
   }
 
@@ -490,7 +477,7 @@ class _WindowControlButtonState extends State<_WindowControlButton> {
         ? (widget.isClose ? KonataTheme.windowCloseHoverRed : widget.hoverBg)
         : Colors.transparent;
 
-    return Tooltip(
+    return KonataTooltip(
       message: widget.tooltip,
       child: MouseRegion(
         cursor: SystemMouseCursors.click,

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:engine_cloud_drives/engine_cloud_drives.dart';
 import 'package:konata_contracts/konata_contracts.dart';
@@ -40,6 +41,15 @@ void main() {
       spacing: Duration.zero,
       request: (method, uri, headers, body) async {
         expect(headers['X-Client-Id'], 'fixture-authorized-app');
+        if (Platform.isWindows) {
+          expect(
+            headers['User-Agent'],
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+            '(KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36',
+          );
+        } else {
+          expect(headers.containsKey('User-Agent'), isFalse);
+        }
         expect(headers['X-Device-Id'], matches(RegExp(r'^[a-f0-9]{32}$')));
         if (uri.path == '/v1/auth/verification') {
           expect(headers['X-Captcha-Token'], 'fixture-captcha');

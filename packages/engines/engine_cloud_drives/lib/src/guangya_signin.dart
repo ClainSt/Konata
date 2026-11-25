@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:konata_contracts/konata_contracts.dart';
 
@@ -16,6 +17,11 @@ final class LegacyGuangYaSignIn {
       throw ArgumentError('云盘应用或设备配置无效');
     }
   }
+
+  // Windows Web 登录兼容标识；不代表实际使用浏览器执行授权。
+  static const _windowsWebUserAgent =
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+      '(KHTML, like Gecko) Chrome/158.0.0.0 Safari/537.36';
 
   final String clientId;
   final String deviceId;
@@ -42,6 +48,7 @@ final class LegacyGuangYaSignIn {
         {
           'Accept': 'application/json, text/plain, */*',
           'Content-Type': 'application/json',
+          if (Platform.isWindows) 'User-Agent': _windowsWebUserAgent,
           'X-Client-Id': clientId,
           'X-Device-Id': deviceId,
           'X-Captcha-Token': ?captchaToken,

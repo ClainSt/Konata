@@ -263,9 +263,20 @@ void main() {
         // 4. 切换至 CD 标签并点击专辑，验证路由至音频播放器
         await tester.tap(find.byKey(const ValueKey<String>('detail_tab_cd')));
         await tester.pump(const Duration(milliseconds: 50));
-        await tester.tap(
-          find.byKey(const ValueKey<String>('cd_card_var_ui_cd1')),
+        final cdCard = find.byKey(const ValueKey<String>('cd_card_var_ui_cd1'));
+        expect(
+          find.descendant(of: cdCard, matching: find.text('OST_Disc1')),
+          findsOneWidget,
         );
+        expect(
+          find.descendant(of: cdCard, matching: find.text('420 MB')),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: cdCard, matching: find.text('OST_Disc1.flac')),
+          findsNothing,
+        );
+        await tester.tap(cdCard);
         await tester.pump();
         expect(harness.navigator.audioPlayerCalls.length, 1);
         expect(
@@ -409,6 +420,15 @@ void main() {
       expect(
         find.byKey(const ValueKey('full_list_cd_var_ui_cd1')),
         findsOneWidget,
+      );
+      final fullCdCard = find.byKey(const ValueKey('full_list_cd_var_ui_cd1'));
+      expect(
+        find.descendant(of: fullCdCard, matching: find.text('420 MB')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: fullCdCard, matching: find.text('OST_Disc1.flac')),
+        findsNothing,
       );
       await tester.enterText(
         find.descendant(of: dialog, matching: find.byType(EditableText)),

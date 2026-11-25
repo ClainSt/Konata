@@ -192,8 +192,6 @@ class _ScanGalleryTabHostState extends ConsumerState<ScanGalleryTabHost> {
                 workTitle: state.workTitle,
                 showSeriesSharedBadge: state.showSeriesSharedBadge,
                 onDarkBackdrop: true,
-                directSubdirLabel:
-                    state.scanSummary.byVariantId[v.id]?.directSubdirShort,
                 cardWidth: width,
                 fillAvailableWidth: false,
                 frameAspectRatio: 4 / 3,

@@ -193,6 +193,7 @@ class _KonataSegmentedCapsuleState<T> extends State<KonataSegmentedCapsule<T>> {
         : Row(mainAxisSize: MainAxisSize.min, children: items);
 
     final innerTrack = Container(
+      clipBehavior: Clip.antiAlias,
       padding: EdgeInsets.all(trackPadding),
       decoration: BoxDecoration(
         color: trackBg,
@@ -210,6 +211,7 @@ class _KonataSegmentedCapsuleState<T> extends State<KonataSegmentedCapsule<T>> {
                     ? selectedIndex * slotWidth
                     : 0.0;
                 return Stack(
+                  clipBehavior: Clip.none,
                   children: [
                     if (selectedIndex >= 0)
                       AnimatedPositioned(
@@ -232,6 +234,7 @@ class _KonataSegmentedCapsuleState<T> extends State<KonataSegmentedCapsule<T>> {
             )
           : Stack(
               key: _trackKey,
+              clipBehavior: Clip.none,
               children: [
                 if (_thumbRect != null && selectedIndex >= 0)
                   AnimatedPositioned(
@@ -415,7 +418,7 @@ class _SegmentChip<T> extends StatelessWidget {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: onTap,
-        child: Container(
+        child: DecoratedBox(
           decoration: fallbackBoxColor != null
               ? BoxDecoration(
                   color: fallbackBoxColor,
@@ -425,74 +428,76 @@ class _SegmentChip<T> extends StatelessWidget {
                     width: 1,
                   ),
                 )
-              : null,
-          padding: EdgeInsets.symmetric(horizontal: padH, vertical: padV),
-          child: TweenAnimationBuilder<double>(
-            duration: KonataTheme.standardTransition,
-            curve: Curves.easeOutCubic,
-            tween: Tween<double>(end: selected ? 1.0 : 0.0),
-            builder: (context, t, _) {
-              final textColor =
-                  Color.lerp(restTextColor, activeTextColor, t) ??
-                  activeTextColor;
-              final weight = lerpDouble(
-                KonataTheme.weightRegularLabel,
-                KonataTheme.weightActive,
-                t,
-              )!;
+              : const BoxDecoration(),
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: padH, vertical: padV),
+            child: TweenAnimationBuilder<double>(
+              duration: KonataTheme.standardTransition,
+              curve: Curves.easeOutCubic,
+              tween: Tween<double>(end: selected ? 1.0 : 0.0),
+              builder: (context, t, _) {
+                final textColor =
+                    Color.lerp(restTextColor, activeTextColor, t) ??
+                    activeTextColor;
+                final weight = lerpDouble(
+                  KonataTheme.weightRegularLabel,
+                  KonataTheme.weightActive,
+                  t,
+                )!;
 
-              return Row(
-                mainAxisSize: MainAxisSize.min,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  if (option.icon != null) ...[
-                    Icon(
-                      option.icon,
-                      size: compact ? 13 : 14,
-                      color: textColor,
-                    ),
-                    const SizedBox(width: 5),
-                  ],
-                  Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      // 隐形粗体 RichText 占位锁死宽度，字重连续插值零抖动且不产生 find.text 双匹配冲突
-                      IgnorePointer(
-                        child: ExcludeSemantics(
-                          child: Opacity(
-                            opacity: 0,
-                            child: RichText(
-                              maxLines: 1,
-                              softWrap: false,
-                              overflow: TextOverflow.visible,
-                              textScaler: MediaQuery.textScalerOf(context),
-                              locale: Localizations.maybeLocaleOf(context),
-                              text: TextSpan(
-                                text: option.label,
-                                style: KonataTheme.textStyle(
-                                  fontSize: fontSize,
-                                  weight: KonataTheme.weightActive,
+                return Row(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (option.icon != null) ...[
+                      Icon(
+                        option.icon,
+                        size: compact ? 13 : 14,
+                        color: textColor,
+                      ),
+                      const SizedBox(width: 5),
+                    ],
+                    Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        // 隐形粗体 RichText 占位锁死宽度，字重连续插值零抖动且不产生 find.text 双匹配冲突
+                        IgnorePointer(
+                          child: ExcludeSemantics(
+                            child: Opacity(
+                              opacity: 0,
+                              child: RichText(
+                                maxLines: 1,
+                                softWrap: false,
+                                overflow: TextOverflow.visible,
+                                textScaler: MediaQuery.textScalerOf(context),
+                                locale: Localizations.maybeLocaleOf(context),
+                                text: TextSpan(
+                                  text: option.label,
+                                  style: KonataTheme.textStyle(
+                                    fontSize: fontSize,
+                                    weight: KonataTheme.weightActive,
+                                  ),
                                 ),
                               ),
                             ),
                           ),
                         ),
-                      ),
-                      Text(
-                        option.label,
-                        maxLines: 1,
-                        softWrap: false,
-                        style: KonataTheme.textStyle(
-                          color: textColor,
-                          fontSize: fontSize,
-                          weight: weight,
+                        Text(
+                          option.label,
+                          maxLines: 1,
+                          softWrap: false,
+                          style: KonataTheme.textStyle(
+                            color: textColor,
+                            fontSize: fontSize,
+                            weight: weight,
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                ],
-              );
-            },
+                      ],
+                    ),
+                  ],
+                );
+              },
+            ),
           ),
         ),
       ),

@@ -24,7 +24,6 @@ class ScanThumbnailCard extends StatefulWidget {
     required this.onTap,
     this.workId,
     this.workTitle,
-    this.directSubdirLabel,
     this.displayTitleOverride,
     this.onDarkBackdrop = false,
     this.cardWidth = 176.0,
@@ -55,9 +54,6 @@ class ScanThumbnailCard extends StatefulWidget {
 
   /// 所属作品标题（用于构建人类可读的 `photos/<作品>/scans/` 目录）。
   final String? workTitle;
-
-  /// 位于「全部」筛选且存在多目录分层时展示的直接子目录短名。
-  final String? directSubdirLabel;
 
   /// 可选外部覆写标题。
   final String? displayTitleOverride;
@@ -167,12 +163,7 @@ class _ScanThumbnailCardState extends State<ScanThumbnailCard> {
     final p = context.palette;
     final v = widget.variant;
     final thumbBytes = _thumbBytes;
-    final dirHint = widget.directSubdirLabel?.trim() ?? '';
-    final sizeText = ScanDisplayFormatter.formatBytes(v.fileSize);
-    final subLine = [
-      if (sizeText.isNotEmpty) sizeText,
-      if (dirHint.isNotEmpty) dirHint,
-    ].join(' · ');
+    final subLine = ScanDisplayFormatter.formatBytes(v.fileSize);
     final displayTitle =
         (widget.displayTitleOverride != null &&
             widget.displayTitleOverride!.trim().isNotEmpty)

@@ -35,9 +35,7 @@ class CdDrawerCard extends StatefulWidget {
     this.workPosterPath,
     this.imageLoader,
     this.coverLoader,
-    this.directSubdirLabel,
     this.displayTitleOverride,
-    this.showRawFileName = true,
     this.onDarkBackdrop = true,
     this.cardWidth = 148.0,
   });
@@ -66,14 +64,8 @@ class CdDrawerCard extends StatefulWidget {
   /// 点击起播全屏流光音频舞台回调。
   final VoidCallback onTap;
 
-  /// 多子目录共存时展示的直接子目录短名。
-  final String? directSubdirLabel;
-
   /// 可选标题覆写文案。
   final String? displayTitleOverride;
-
-  /// 是否在下方展示原始文件名。
-  final bool showRawFileName;
 
   /// 是否处于暗色背景舞台。
   final bool onDarkBackdrop;
@@ -197,12 +189,7 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
     final palette = context.palette;
     final v = widget.variant;
     final ext = MediaDisplayFormatter.fileExtensionUpper(v.fileName);
-    final dirHint = widget.directSubdirLabel?.trim() ?? '';
-    final sizeText = MediaDisplayFormatter.formatBytes(v.fileSize);
-    final subLine = <String>[
-      if (sizeText.isNotEmpty) sizeText,
-      if (dirHint.isNotEmpty) dirHint,
-    ].join(' · ');
+    final subLine = MediaDisplayFormatter.formatBytes(v.fileSize);
     final displayTitle =
         (widget.displayTitleOverride != null &&
             widget.displayTitleOverride!.trim().isNotEmpty)
@@ -318,28 +305,11 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                if (widget.showRawFileName) ...[
-                  const SizedBox(height: 1.5),
-                  EllipsisTextWithTooltip(
-                    text: MediaDisplayFormatter.formatWrappableFileName(
-                      v.fileName,
-                    ),
-                    maxLines: 2,
-                    style: KonataTheme.detailTextStyle(
-                      palette: palette,
-                      color: (widget.onDarkBackdrop || palette.isDark)
-                          ? KonataTheme.overlayWhiteTextSub
-                          : palette.textSecondary,
-                      fontSize: KonataTheme.fontSizeCaptionXs,
-                      fontWeight: FontWeight.w400,
-                    ),
-                  ),
-                ],
                 if (subLine.isNotEmpty) ...[
                   const SizedBox(height: 1.5),
                   EllipsisTextWithTooltip(
                     text: subLine,
-                    maxLines: 2,
+                    maxLines: 1,
                     style: KonataTheme.detailTextStyle(
                       palette: palette,
                       color: (widget.onDarkBackdrop || palette.isDark)

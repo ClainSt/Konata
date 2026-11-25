@@ -521,12 +521,8 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
       return _buildEmptyPlaceholder(context, '暂无音乐 CD 专辑');
     }
     final b = widget.bundle;
-    final showRawFileName = widget.displayPreferences.showRawVideoFilename;
     final cardWidth = widget.compact ? 132.0 : 148.0;
-    final cardHeight = cardWidth + (showRawFileName ? 94.0 : 62.0);
-    final subdirHints = DetailSupplementaryHelper.buildCdSubdirHints(
-      b.cdVariants,
-    );
+    final cardHeight = cardWidth + 62.0;
 
     return Listener(
       onPointerSignal: _handleTrackPointerSignal,
@@ -549,8 +545,6 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
               workPosterPath: b.work.posterPath ?? b.work.bangumiPosterPath,
               imageLoader: widget.imageLoader,
               showSeriesSharedBadge: b.seriesMembers.length >= 2,
-              directSubdirLabel: subdirHints[v.id],
-              showRawFileName: showRawFileName,
               onDarkBackdrop: widget.onDarkBackdrop,
               cardWidth: cardWidth,
               onTap: () => widget.onTapCdVariant(v),

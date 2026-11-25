@@ -274,9 +274,6 @@ class _DetailFullListDialogState extends State<DetailFullListDialog> {
     final b = widget.bundle;
     final mains = b.mainEpisodes;
     if (_activeTab == DetailDrawerTabIds.cd) {
-      final subdirHints = DetailSupplementaryHelper.buildCdSubdirHints(
-        b.cdVariants,
-      );
       return _buildRows<MediaVariant>(
         items: cds,
         maxExtent: 176,
@@ -289,8 +286,6 @@ class _DetailFullListDialogState extends State<DetailFullListDialog> {
           workPosterPath: b.work.posterPath ?? b.work.bangumiPosterPath,
           imageLoader: widget.imageLoader,
           showSeriesSharedBadge: b.seriesMembers.length >= 2,
-          directSubdirLabel: _filter == 'all' ? subdirHints[v.id] : null,
-          showRawFileName: widget.displayPreferences.showRawVideoFilename,
           onDarkBackdrop: context.palette.isDark,
           cardWidth: double.infinity,
           onTap: () => widget.onTapCdVariant(v),

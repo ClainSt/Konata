@@ -173,28 +173,6 @@ abstract final class DetailSupplementaryHelper {
           );
   }
 
-  /// 提取多个 CD 变体共有的最长父目录前缀后的直接子目录短名（用于仅在多文件夹共存时消歧）。
-  static Map<String, String> buildCdSubdirHints(List<MediaVariant> cds) {
-    if (cds.isEmpty) return const <String, String>{};
-    final dirs = <String, String>{};
-    for (final v in cds) {
-      final norm = v.relativePath.replaceAll('\\', '/');
-      final idx = norm.lastIndexOf('/');
-      dirs[v.id] = idx > 0 ? norm.substring(0, idx) : '';
-    }
-    final uniqueDirs = dirs.values.where((d) => d.isNotEmpty).toSet();
-    if (uniqueDirs.length <= 1) return const <String, String>{};
-
-    final result = <String, String>{};
-    for (final v in cds) {
-      final dir = dirs[v.id] ?? '';
-      if (dir.isEmpty) continue;
-      final lastSlash = dir.lastIndexOf('/');
-      result[v.id] = lastSlash >= 0 ? dir.substring(lastSlash + 1) : dir;
-    }
-    return result;
-  }
-
   /// 将 `engine_scraping` 领域 `Episode` 投影为跨包只读 `EpisodeSummaryView`。
   static EpisodeSummaryView toEpisodeSummaryView(Episode ep) {
     return EpisodeSummaryView(

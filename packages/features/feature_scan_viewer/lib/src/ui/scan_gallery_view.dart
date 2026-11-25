@@ -300,9 +300,6 @@ class _ScanGalleryViewState extends State<ScanGalleryView> {
     final compact =
         MediaQuery.sizeOf(context).width <
         KonataAdaptiveTokens.tabletBreakpoint;
-    final showDirectSubdir =
-        widget.selectedVolumeKey == null &&
-        widget.scanSummary.hasMultipleSubdirs;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -368,15 +365,9 @@ class _ScanGalleryViewState extends State<ScanGalleryView> {
                   constraints.maxWidth - _rightPad,
                 );
                 if (_effectiveMode == ScanGalleryMode.uniformFrame) {
-                  return _buildUniformFrameGrid(
-                    usableWidth: usableWidth,
-                    showDirectSubdir: showDirectSubdir,
-                  );
+                  return _buildUniformFrameGrid(usableWidth: usableWidth);
                 }
-                return _buildJustifiedStream(
-                  usableWidth: usableWidth,
-                  showDirectSubdir: showDirectSubdir,
-                );
+                return _buildJustifiedStream(usableWidth: usableWidth);
               },
             ),
           ),
@@ -385,10 +376,7 @@ class _ScanGalleryViewState extends State<ScanGalleryView> {
     );
   }
 
-  Widget _buildUniformFrameGrid({
-    required double usableWidth,
-    required bool showDirectSubdir,
-  }) {
+  Widget _buildUniformFrameGrid({required double usableWidth}) {
     final maxExtent = _effectiveDensity.uniformMaxExtent;
     final columns = math.max(
       2,
@@ -420,7 +408,6 @@ class _ScanGalleryViewState extends State<ScanGalleryView> {
                       ? _buildScanTile(
                           index: start + col,
                           frameAspectRatio: _defaultFrameRatio,
-                          showDirectSubdir: showDirectSubdir,
                         )
                       : const SizedBox.shrink(),
                 ),
@@ -432,10 +419,7 @@ class _ScanGalleryViewState extends State<ScanGalleryView> {
     );
   }
 
-  Widget _buildJustifiedStream({
-    required double usableWidth,
-    required bool showDirectSubdir,
-  }) {
+  Widget _buildJustifiedStream({required double usableWidth}) {
     final rows = _buildJustifiedRows(
       usableWidth: usableWidth,
       targetRowHeight: _effectiveDensity.justifiedTargetHeight,
@@ -468,7 +452,6 @@ class _ScanGalleryViewState extends State<ScanGalleryView> {
                       child: _buildScanTile(
                         index: row.indices[k],
                         frameAspectRatio: row.ratios[k],
-                        showDirectSubdir: showDirectSubdir,
                       ),
                     )
                   else
@@ -477,7 +460,6 @@ class _ScanGalleryViewState extends State<ScanGalleryView> {
                       child: _buildScanTile(
                         index: row.indices[k],
                         frameAspectRatio: row.ratios[k],
-                        showDirectSubdir: showDirectSubdir,
                       ),
                     ),
                 ],
@@ -492,10 +474,8 @@ class _ScanGalleryViewState extends State<ScanGalleryView> {
   Widget _buildScanTile({
     required int index,
     required double frameAspectRatio,
-    required bool showDirectSubdir,
   }) {
     final v = widget.items[index];
-    final group = widget.scanSummary.byVariantId[v.id];
     return ScanThumbnailCard(
       key: ValueKey('scan_gallery_tile_${v.id}'),
       variant: v,
@@ -504,17 +484,14 @@ class _ScanGalleryViewState extends State<ScanGalleryView> {
       workId: widget.workId.value,
       workTitle: widget.workTitle,
       showSeriesSharedBadge: widget.showSeriesSharedBadge,
-      directSubdirLabel: showDirectSubdir ? group?.directSubdirShort : null,
       onDarkBackdrop: false,
       fillAvailableWidth: true,
       frameAspectRatio: frameAspectRatio,
       galleryOverlayCaption: true,
       pageIndex: index + 1,
       onLongPressInfo: () => _showItemInfo(v),
-      onTap: () => widget.onScanTap?.call(
-        v,
-        volumeKey: widget.selectedVolumeKey,
-      ),
+      onTap: () =>
+          widget.onScanTap?.call(v, volumeKey: widget.selectedVolumeKey),
     );
   }
 }

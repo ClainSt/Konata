@@ -14,19 +14,84 @@ Widget _wrapApp(Widget child, {bool dark = true}) {
 }
 
 void main() {
+  testWidgets('分段胶囊初始选中与动画滑块尺寸一致，首尾选项无偏移', (tester) async {
+    for (final dark in [true, false]) {
+      var selected = 0;
+      final key = ValueKey('material_capsule_$dark');
+      await tester.pumpWidget(
+        _wrapApp(
+          Center(
+            child: StatefulBuilder(
+              builder: (context, setState) {
+                return KonataSegmentedCapsule<int>(
+                  key: key,
+                  selected: selected,
+                  options: const [
+                    KonataSegmentOption(value: 0, label: '亚克力'),
+                    KonataSegmentOption(value: 1, label: '云母'),
+                    KonataSegmentOption(value: 2, label: '云母变体'),
+                  ],
+                  onChanged: (v) => setState(() => selected = v),
+                );
+              },
+            ),
+          ),
+          dark: dark,
+        ),
+      );
+      final capsule = find.byKey(key);
+      final initialSize = tester.getSize(capsule);
+      final initialCenter = tester.getCenter(find.text('亚克力'));
+      await tester.pumpAndSettle();
+      expect(tester.getSize(capsule), initialSize);
+      expect(tester.getCenter(find.text('亚克力')), initialCenter);
+      final thumb = find.descendant(
+        of: capsule,
+        matching: find.byType(AnimatedPositioned),
+      );
+      for (final label in ['亚克力', '云母', '云母变体', '亚克力']) {
+        await tester.tap(find.text(label));
+        await tester.pumpAndSettle();
+        expect(tester.getSize(capsule), initialSize);
+        final thumbRect = tester.getRect(thumb);
+        final textRect = tester.getRect(find.text(label));
+        expect(thumbRect.center.dx, closeTo(textRect.center.dx, 0.01));
+        expect(thumbRect.center.dy, closeTo(textRect.center.dy, 0.01));
+        expect(tester.getRect(capsule).contains(thumbRect.topLeft), isTrue);
+        expect(tester.takeException(), isNull);
+      }
+    }
+  });
+
   testWidgets('公共按钮超长动态文本在 Wrap 与固定宽度内不溢出', (tester) async {
     final long = List.filled(30, '中日英混合路径／Avid').join('/');
     for (final width in [180.0, 340.0, 680.0]) {
-      await tester.pumpWidget(_wrapApp(Center(
-        child: SizedBox(width: width, child: Wrap(children: [
-          KonataPillButton.ghost(label: long, onPressed: () {}),
-          KonataPillButton.secondary(label: long, icon: Icons.folder_open, onPressed: () {}),
-        ])),
-      )));
+      await tester.pumpWidget(
+        _wrapApp(
+          Center(
+            child: SizedBox(
+              width: width,
+              child: Wrap(
+                children: [
+                  KonataPillButton.ghost(label: long, onPressed: () {}),
+                  KonataPillButton.secondary(
+                    label: long,
+                    icon: Icons.folder_open,
+                    onPressed: () {},
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       for (final element in find.byType(KonataPillButton).evaluate()) {
-        expect((element.findRenderObject()! as RenderBox).size.width, lessThanOrEqualTo(width));
+        expect(
+          (element.findRenderObject()! as RenderBox).size.width,
+          lessThanOrEqualTo(width),
+        );
       }
     }
   });

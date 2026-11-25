@@ -14,6 +14,88 @@ Widget _wrapApp(Widget child, {bool dark = true}) {
 }
 
 void main() {
+  testWidgets('互斥胶囊在各种宽度和主题下保持完整滑块轮廓与上下等距', (tester) async {
+    for (final dark in [true, false]) {
+      for (final expand in [false, true]) {
+        for (final compact in [false, true]) {
+          for (final width in [170.0, 320.0, 500.0]) {
+            var selected = 0;
+            final key = ValueKey('capsule_${dark}_${expand}_${compact}_$width');
+            await tester.pumpWidget(
+              _wrapApp(
+                Center(
+                  child: SizedBox(
+                    width: width,
+                    child: StatefulBuilder(
+                      builder: (context, update) => KonataSegmentedCapsule<int>(
+                        key: key,
+                        expand: expand,
+                        compact: compact,
+                        selected: selected,
+                        options: const [
+                          KonataSegmentOption(value: 0, label: '亚克力'),
+                          KonataSegmentOption(value: 1, label: '云母'),
+                          KonataSegmentOption(value: 2, label: '云母变体'),
+                        ],
+                        onChanged: (v) => update(() => selected = v),
+                      ),
+                    ),
+                  ),
+                ),
+                dark: dark,
+              ),
+            );
+            await tester.pumpAndSettle();
+            final capsule = find.byKey(key);
+            final slide = find.descendant(
+              of: capsule,
+              matching: find.byType(AnimatedPositioned),
+            );
+            final track = find.descendant(
+              of: capsule,
+              matching: find.byWidgetPredicate(
+                (w) =>
+                    w is Container &&
+                    w.decoration is ShapeDecoration &&
+                    (w.decoration! as ShapeDecoration).shape is StadiumBorder,
+              ),
+            );
+            expect(track, findsOneWidget);
+            final trackRect = tester.getRect(track);
+            for (final label in ['亚克力', '云母', '云母变体', '亚克力']) {
+              await tester.tap(find.text(label));
+              await tester.pumpAndSettle();
+              final rect = tester.getRect(slide);
+              expect(rect.top - trackRect.top, greaterThan(0));
+              expect(
+                trackRect.bottom - rect.bottom,
+                closeTo(rect.top - trackRect.top, 0.1),
+              );
+              expect(rect.left, greaterThan(trackRect.left));
+              expect(rect.right, lessThan(trackRect.right));
+              expect(tester.getRect(track), trackRect);
+              final thumb = find.descendant(
+                of: slide,
+                matching: find.byWidgetPredicate(
+                  (w) =>
+                      w is DecoratedBox &&
+                      w.decoration is ShapeDecoration &&
+                      (w.decoration as ShapeDecoration).shape is StadiumBorder,
+                ),
+              );
+              expect(thumb, findsOneWidget);
+              expect(
+                tester.getCenter(find.text(label)).dx,
+                closeTo(rect.center.dx, 0.5),
+              );
+              expect(tester.takeException(), isNull);
+            }
+          }
+        }
+      }
+    }
+  });
+
   testWidgets('分段胶囊初始选中与动画滑块尺寸一致，首尾选项无偏移', (tester) async {
     for (final dark in [true, false]) {
       var selected = 0;

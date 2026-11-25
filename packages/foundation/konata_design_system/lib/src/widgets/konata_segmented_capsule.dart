@@ -68,7 +68,7 @@ class _KonataSegmentedCapsuleState<T> extends State<KonataSegmentedCapsule<T>> {
   final List<GlobalKey> _itemKeys = <GlobalKey>[];
 
   Rect? _thumbRect;
-  Size? _lastTrackSize;
+  bool _measurePending = false;
   bool _hasAnimatedOnce = false;
   int? _hoveredIndex;
 
@@ -83,6 +83,10 @@ class _KonataSegmentedCapsuleState<T> extends State<KonataSegmentedCapsule<T>> {
   void didUpdateWidget(covariant KonataSegmentedCapsule<T> oldWidget) {
     super.didUpdateWidget(oldWidget);
     _syncItemKeys();
+    if (oldWidget.expand != widget.expand) {
+      _thumbRect = null;
+      _hasAnimatedOnce = false;
+    }
     if (!widget.expand) {
       _scheduleMeasure();
     }
@@ -98,9 +102,11 @@ class _KonataSegmentedCapsuleState<T> extends State<KonataSegmentedCapsule<T>> {
   }
 
   void _scheduleMeasure() {
-    if (widget.expand) return;
+    if (widget.expand || _measurePending) return;
+    _measurePending = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
+      _measurePending = false;
+      if (!mounted || widget.expand) return;
       final selectedIndex = widget.options.indexWhere(
         (o) => o.value == widget.selected,
       );
@@ -120,15 +126,13 @@ class _KonataSegmentedCapsuleState<T> extends State<KonataSegmentedCapsule<T>> {
           !itemBox.hasSize) {
         return;
       }
-      final trackSize = trackBox.size;
       final topLeft = itemBox.localToGlobal(Offset.zero, ancestor: trackBox);
       final nextRect = Rect.fromLTWH(
         topLeft.dx,
-        topLeft.dy,
+        0,
         itemBox.size.width,
-        itemBox.size.height,
+        trackBox.size.height,
       );
-      _lastTrackSize = trackSize;
       if (_thumbRect == null) {
         setState(() {
           _thumbRect = nextRect;
@@ -162,6 +166,7 @@ class _KonataSegmentedCapsuleState<T> extends State<KonataSegmentedCapsule<T>> {
 
   @override
   Widget build(BuildContext context) {
+    _scheduleMeasure();
     final p = context.palette;
 
     final trackBg = KonataPlaybackTokens.softFill(p);
@@ -193,12 +198,12 @@ class _KonataSegmentedCapsuleState<T> extends State<KonataSegmentedCapsule<T>> {
         : Row(mainAxisSize: MainAxisSize.min, children: items);
 
     final innerTrack = Container(
-      clipBehavior: Clip.antiAlias,
+      // Use an actual stadium outline, not an oversized rounded rectangle.
+      // The inset protects the full thumb outline; do not clip its paint layer.
       padding: EdgeInsets.all(trackPadding),
-      decoration: BoxDecoration(
+      decoration: ShapeDecoration(
         color: trackBg,
-        borderRadius: KonataTheme.borderRadiusPill,
-        border: Border.all(color: trackBorder, width: 1),
+        shape: StadiumBorder(side: BorderSide(color: trackBorder)),
       ),
       child: widget.expand
           ? LayoutBuilder(
@@ -261,12 +266,7 @@ class _KonataSegmentedCapsuleState<T> extends State<KonataSegmentedCapsule<T>> {
         ? innerTrack
         : LayoutBuilder(
             builder: (context, constraints) {
-              if (_lastTrackSize != null) {
-                final maxW = constraints.maxWidth;
-                if (maxW.isFinite && _lastTrackSize!.width > maxW) {
-                  _scheduleMeasure();
-                }
-              }
+              _scheduleMeasure();
               if (!constraints.hasBoundedWidth) {
                 return innerTrack;
               }
@@ -359,15 +359,14 @@ class _SlidingThumbBox extends StatelessWidget {
   Widget build(BuildContext context) {
     return IgnorePointer(
       child: DecoratedBox(
-        decoration: BoxDecoration(
+        decoration: ShapeDecoration(
           color: bgColor,
-          borderRadius: KonataTheme.borderRadiusPill,
-          border: Border.all(color: borderColor, width: 1),
-          boxShadow: [
+          shape: StadiumBorder(side: BorderSide(color: borderColor)),
+          shadows: [
             BoxShadow(
               color: KonataTheme.segmentedThumbShadow(isDark),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
+              blurRadius: 3,
+              offset: Offset.zero,
             ),
           ],
         ),
@@ -420,12 +419,12 @@ class _SegmentChip<T> extends StatelessWidget {
         onTap: onTap,
         child: DecoratedBox(
           decoration: fallbackBoxColor != null
-              ? BoxDecoration(
+              ? ShapeDecoration(
                   color: fallbackBoxColor,
-                  borderRadius: KonataTheme.borderRadiusPill,
-                  border: Border.all(
-                    color: fallbackBorderColor ?? Colors.transparent,
-                    width: 1,
+                  shape: StadiumBorder(
+                    side: BorderSide(
+                      color: fallbackBorderColor ?? Colors.transparent,
+                    ),
                   ),
                 )
               : const BoxDecoration(),
@@ -445,56 +444,59 @@ class _SegmentChip<T> extends StatelessWidget {
                   t,
                 )!;
 
-                return Row(
-                  mainAxisSize: MainAxisSize.min,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    if (option.icon != null) ...[
-                      Icon(
-                        option.icon,
-                        size: compact ? 13 : 14,
-                        color: textColor,
-                      ),
-                      const SizedBox(width: 5),
-                    ],
-                    Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        // 隐形粗体 RichText 占位锁死宽度，字重连续插值零抖动且不产生 find.text 双匹配冲突
-                        IgnorePointer(
-                          child: ExcludeSemantics(
-                            child: Opacity(
-                              opacity: 0,
-                              child: RichText(
-                                maxLines: 1,
-                                softWrap: false,
-                                overflow: TextOverflow.visible,
-                                textScaler: MediaQuery.textScalerOf(context),
-                                locale: Localizations.maybeLocaleOf(context),
-                                text: TextSpan(
-                                  text: option.label,
-                                  style: KonataTheme.textStyle(
-                                    fontSize: fontSize,
-                                    weight: KonataTheme.weightActive,
+                return FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (option.icon != null) ...[
+                        Icon(
+                          option.icon,
+                          size: compact ? 13 : 14,
+                          color: textColor,
+                        ),
+                        const SizedBox(width: 5),
+                      ],
+                      Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          // 隐形粗体 RichText 占位锁死宽度，字重连续插值零抖动且不产生 find.text 双匹配冲突
+                          IgnorePointer(
+                            child: ExcludeSemantics(
+                              child: Opacity(
+                                opacity: 0,
+                                child: RichText(
+                                  maxLines: 1,
+                                  softWrap: false,
+                                  overflow: TextOverflow.visible,
+                                  textScaler: MediaQuery.textScalerOf(context),
+                                  locale: Localizations.maybeLocaleOf(context),
+                                  text: TextSpan(
+                                    text: option.label,
+                                    style: KonataTheme.textStyle(
+                                      fontSize: fontSize,
+                                      weight: KonataTheme.weightActive,
+                                    ),
                                   ),
                                 ),
                               ),
                             ),
                           ),
-                        ),
-                        Text(
-                          option.label,
-                          maxLines: 1,
-                          softWrap: false,
-                          style: KonataTheme.textStyle(
-                            color: textColor,
-                            fontSize: fontSize,
-                            weight: weight,
+                          Text(
+                            option.label,
+                            maxLines: 1,
+                            softWrap: false,
+                            style: KonataTheme.textStyle(
+                              color: textColor,
+                              fontSize: fontSize,
+                              weight: weight,
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
-                  ],
+                        ],
+                      ),
+                    ],
+                  ),
                 );
               },
             ),

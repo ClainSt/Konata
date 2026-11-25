@@ -330,6 +330,19 @@ void main() {
       expect(find.text('少女终末旅行 · 完整列表'), findsOneWidget);
       expect(find.byKey(const ValueKey('full_list_episode_ep_ui_1')), findsOneWidget);
       final dialog = find.byType(KonataGlassDialog);
+
+      final initialDialog = tester.widget<KonataGlassDialog>(dialog);
+      expect(initialDialog.width, closeTo(1280 * 0.84, 0.01));
+      expect(initialDialog.height, closeTo(800 * 0.82, 0.01));
+      final resizeHandle = find.byKey(
+        const ValueKey('detail_full_list_resize_handle'),
+      );
+      expect(resizeHandle, findsOneWidget);
+      await tester.drag(resizeHandle, const Offset(-60, -40));
+      await tester.pumpAndSettle();
+      final resizedDialog = tester.widget<KonataGlassDialog>(dialog);
+      expect(resizedDialog.width, lessThan(initialDialog.width));
+      expect(resizedDialog.height, lessThan(initialDialog.height!));
       await tester.tap(find.descendant(of: dialog,
           matching: find.byKey(const ValueKey('detail_tab_extras'))));
       await tester.pumpAndSettle();
@@ -344,6 +357,16 @@ void main() {
       Navigator.of(tester.element(dialog)).pop();
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('detail_drawer_view_all_button')), findsOneWidget);
+
+      final capsule = find.byKey(const Key('detail_category_capsule'));
+      final initialTop = tester.getTopLeft(capsule).dy;
+      final initialHeight = tester.getSize(capsule).height;
+      for (final tab in ['extras', 'cd', 'scan_viewer', 'episodes']) {
+        await tester.tap(find.byKey(ValueKey('detail_tab_$tab')));
+        await tester.pumpAndSettle();
+        expect(tester.getTopLeft(capsule).dy, closeTo(initialTop, 0.01));
+        expect(tester.getSize(capsule).height, closeTo(initialHeight, 0.01));
+      }
 
       // 再次点击当前高亮「正片」分类 -> 收起抽屉并收回 `⊞`
       await tester.tap(find.byKey(const ValueKey<String>('detail_tab_episodes')));

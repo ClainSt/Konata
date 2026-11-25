@@ -156,6 +156,7 @@ class DetailWideOverlayStageLayout extends StatelessWidget {
                   alignment: Alignment.bottomLeft,
                   child: SingleChildScrollView(
                     controller: heroScrollController,
+                    hitTestBehavior: HitTestBehavior.deferToChild,
                     padding: const EdgeInsets.fromLTRB(36, 8, 36, 14),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,

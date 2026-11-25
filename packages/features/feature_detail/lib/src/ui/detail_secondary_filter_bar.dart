@@ -203,32 +203,65 @@ class DetailSecondaryFilterBar extends StatelessWidget {
             ],
           ],
         ),
-        if (expanded &&
-            subFilterChips.length > 1 &&
-            onSelectSubFilter != null) ...[
-          const SizedBox(height: 8),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (var i = 0; i < subFilterChips.length; i++) ...[
-                  if (i > 0) const SizedBox(width: 6),
-                  _SubFilterChip(
-                    label:
-                        '${subFilterChips[i].label} (${subFilterChips[i].count})',
-                    selected: activeSubFilterId == subFilterChips[i].id,
-                    onDarkBackdrop: useDarkGlass,
-                    palette: p,
-                    onTap: () => onSelectSubFilter!(subFilterChips[i].id),
-                  ),
-                ],
-              ],
-            ),
+        if (expanded && subFilterChips.length > 1 && onSelectSubFilter != null)
+          DetailSubFilterBar(
+            chips: subFilterChips,
+            activeId: activeSubFilterId,
+            onSelected: onSelectSubFilter!,
+            onDarkBackdrop: onDarkBackdrop,
           ),
-        ],
       ],
+    );
+  }
+}
+
+/// 独立的二级分类筛选条，可置于固定高度的轨道内容区内。
+class DetailSubFilterBar extends StatelessWidget {
+  /// 创建横向二级筛选条。
+  const DetailSubFilterBar({
+    super.key,
+    required this.chips,
+    required this.activeId,
+    required this.onSelected,
+    required this.onDarkBackdrop,
+  });
+
+  /// 筛选项。
+  final List<({String id, String label, int count})> chips;
+
+  /// 当前筛选标识。
+  final String? activeId;
+
+  /// 筛选回调。
+  final ValueChanged<String> onSelected;
+
+  /// 深色原画背景。
+  final bool onDarkBackdrop;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var i = 0; i < chips.length; i++) ...[
+              if (i > 0) const SizedBox(width: 6),
+              _SubFilterChip(
+                label: '${chips[i].label} (${chips[i].count})',
+                selected: activeId == chips[i].id,
+                onDarkBackdrop: onDarkBackdrop || p.isDark,
+                palette: p,
+                onTap: () => onSelected(chips[i].id),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }

@@ -55,6 +55,7 @@ class _DetailFullListDialogState extends State<DetailFullListDialog> {
   late String _activeTab = widget.initialTabId;
   String _filter = 'all';
   String _query = '';
+  Size? _resizedSize;
 
   void _resetScroll() {
     if (_scrollCtrl.hasClients) _scrollCtrl.jumpTo(0);
@@ -152,6 +153,25 @@ class _DetailFullListDialogState extends State<DetailFullListDialog> {
         )
         .toList();
     final screen = MediaQuery.sizeOf(context);
+    final safe = MediaQuery.paddingOf(context);
+    final maxWidth = math.max(240.0, screen.width - safe.horizontal - 24);
+    final maxHeight = math.max(200.0, screen.height - safe.vertical - 24);
+    final compact = screen.width < 600 || screen.height < 500;
+    final minWidth = math.min(620.0, maxWidth);
+    final minHeight = math.min(480.0, maxHeight);
+    final defaultWidth = compact
+        ? maxWidth
+        : (screen.width * 0.84).clamp(minWidth, math.min(1180.0, maxWidth));
+    final defaultHeight = compact
+        ? maxHeight
+        : (screen.height * 0.82).clamp(minHeight, math.min(820.0, maxHeight));
+    final dialogWidth = compact
+        ? defaultWidth
+        : (_resizedSize?.width ?? defaultWidth).clamp(minWidth, maxWidth);
+    final dialogHeight = compact
+        ? defaultHeight
+        : (_resizedSize?.height ?? defaultHeight).clamp(minHeight, maxHeight);
+    final canResize = !compact && !KonataAdaptiveTokens.isAndroid;
     final externalView = external?.viewBuilder(
       ViewSlotContext(
         platformContext: context,
@@ -166,8 +186,8 @@ class _DetailFullListDialogState extends State<DetailFullListDialog> {
     );
 
     return KonataGlassDialog(
-      width: screen.width,
-      height: screen.height,
+      width: dialogWidth.toDouble(),
+      height: dialogHeight.toDouble(),
       title: '${b.work.title} · 完整列表',
       headerTrailing: SizedBox(
         width: screen.width < 600 ? 150 : 260,
@@ -211,6 +231,42 @@ class _DetailFullListDialogState extends State<DetailFullListDialog> {
                 ? externalView
                 : _buildGrid(context, visibleEpisodes, visibleCds, multiSeason),
           ),
+          if (canResize)
+            Align(
+              alignment: Alignment.centerRight,
+              child: MouseRegion(
+                cursor: SystemMouseCursors.resizeDownRight,
+                child: GestureDetector(
+                  key: const ValueKey('detail_full_list_resize_handle'),
+                  behavior: HitTestBehavior.opaque,
+                  onDoubleTap: () => setState(() => _resizedSize = null),
+                  onPanUpdate: (details) => setState(() {
+                    _resizedSize = Size(
+                      (dialogWidth + details.delta.dx * 2).clamp(
+                        minWidth,
+                        maxWidth,
+                      ),
+                      (dialogHeight + details.delta.dy * 2).clamp(
+                        minHeight,
+                        maxHeight,
+                      ),
+                    );
+                  }),
+                  child: KonataTooltip(
+                    message: '拖动调整大小 · 双击恢复默认',
+                    child: SizedBox(
+                      width: 28,
+                      height: 20,
+                      child: Icon(
+                        Icons.drag_handle_rounded,
+                        size: 18,
+                        color: context.palette.textMuted,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );

@@ -297,41 +297,56 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
           onOpenFullList: canOpenFullList
               ? () => widget.onOpenFullList(_activeTabId)
               : null,
-          subFilterChips: subFilters,
-          activeSubFilterId: activeSubId,
           trailingGear: widget.showGearButton ? widget.gearButton : null,
           onDarkBackdrop: widget.onDarkBackdrop,
           compact: widget.compact,
           onSelectTab: _handleSelectTab,
-          onSelectSubFilter: (subId) {
-            setState(() {
-              if (_activeTabId == DetailDrawerTabIds.episodes) {
-                _activeSeasonFilterId = subId;
-              } else if (_activeTabId == DetailDrawerTabIds.extras) {
-                _activeExtraKindFilterId = subId;
-              }
-            });
-          },
         ),
         AnimatedSize(
           duration: KonataTheme.motionNormal,
           curve: Curves.easeOutCubic,
           alignment: Alignment.topCenter,
           child: _isExpanded
-              ? Column(
+              ? SizedBox(
                   key: const Key('detail_drawer_expanded_body'),
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const SizedBox(height: 12),
-                    _buildActiveContent(
-                      context,
-                      mains: mains,
-                      extras: extras,
-                      cds: cds,
-                      multiSeason: multiSeason,
-                    ),
-                  ],
+                  height: widget.compact ? 240 : 256,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (subFilters.length > 1)
+                        DetailSubFilterBar(
+                          chips: subFilters,
+                          activeId: activeSubId,
+                          onDarkBackdrop: widget.onDarkBackdrop,
+                          onSelected: (subId) {
+                            if (_trackScrollCtrl.hasClients) {
+                              _trackScrollCtrl.jumpTo(0);
+                            }
+                            setState(() {
+                              if (_activeTabId == DetailDrawerTabIds.episodes) {
+                                _activeSeasonFilterId = subId;
+                              } else if (_activeTabId ==
+                                  DetailDrawerTabIds.extras) {
+                                _activeExtraKindFilterId = subId;
+                              }
+                            });
+                          },
+                        ),
+                      const SizedBox(height: 12),
+                      Expanded(
+                        child: Align(
+                          alignment: Alignment.topCenter,
+                          child: _buildActiveContent(
+                            context,
+                            mains: mains,
+                            extras: extras,
+                            cds: cds,
+                            multiSeason: multiSeason,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 )
               : const SizedBox.shrink(key: Key('detail_drawer_collapsed_body')),
         ),
@@ -362,10 +377,7 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
       if (slotResult is Widget) {
         return ConstrainedBox(
           key: ValueKey<String>('detail_external_tab_slot_${extTab.id}'),
-          constraints: BoxConstraints(
-            minHeight: widget.inlineMode ? 180 : 210,
-            maxHeight: widget.inlineMode ? 320 : 256,
-          ),
+          constraints: const BoxConstraints.expand(),
           child: slotResult,
         );
       }

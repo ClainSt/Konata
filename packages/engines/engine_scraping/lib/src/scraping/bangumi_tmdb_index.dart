@@ -1,7 +1,11 @@
+import 'dart:developer' as developer;
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
+import 'package:konata_contracts/konata_contracts.dart'
+    show AssetDataLoaderPort, TmdbNetworkConfig;
+
 import '../models/work.dart';
-import 'bangumi_tmdb_map.dart';
 
 /// 单条 Bangumi 到 TMDB 的离线映射目标（含可选精确季号、TheTVDB 剧集 ID 与来源标志）。
 class BangumiTmdbTarget {
@@ -133,7 +137,7 @@ class BangumiTmdbIndex {
   }) : _bytes = bytes,
        _view = ByteData.sublistView(bytes);
 
-  /// 创建空索引（查询时可按需回退至内置静态 Wikidata 映射表）。
+  /// 创建不含记录的索引。
   factory BangumiTmdbIndex.empty() => BangumiTmdbIndex._(
     bytes: Uint8List(0),
     version: formatVersionV1,
@@ -520,22 +524,35 @@ class BangumiTmdbIndex {
     return all;
   }
 
-  /// 优先从当前二进制索引查询；若当前索引为空（如纯离线单测），自动回退静态内置 Wikidata 映射表。
-  List<BangumiTmdbTarget> lookupWithStaticFallback(int bangumiId) {
-    if (isNotEmpty) {
-      return lookup(bangumiId);
+  static BangumiTmdbSnapshot? _bundledSnapshot;
+
+  /// 供本进程刮削入口共享的已校验内置快照。
+  static BangumiTmdbSnapshot? get bundledSnapshot => _bundledSnapshot;
+
+  /// 由应用宿主读取唯一内置二进制表，在显式索引缺省时提供离线查找。
+  static Future<void> loadBundled(AssetDataLoaderPort loader) async {
+    final bytes = await loader.loadBytes(TmdbNetworkConfig.bundledMappingAssetPath);
+    if (bytes == null || bytes.isEmpty ||
+        bytes.length > TmdbNetworkConfig.maxMappingBinaryBytes) {
+      return;
     }
-    return [
-      for (final m in BangumiTmdbMap.lookup(bangumiId))
-        BangumiTmdbTarget(
-          type: m.type,
-          id: m.id,
-          flags: BangumiTmdbTarget.flagWikidata,
-        ),
-    ];
+    final BangumiTmdbIndex index;
+    try {
+      index = BangumiTmdbIndex.fromBytes(bytes);
+    } on FormatException catch (error) {
+      developer.log('内置映射快照校验失败', error: error);
+      return;
+    }
+    if (index.isEmpty) return;
+    _bundledSnapshot = BangumiTmdbSnapshot(
+      index: index,
+      source: BangumiTmdbMapSource.bundledAsset,
+      snapshotDate: index.formattedSnapshotDate,
+      sha256Hex: sha256.convert(bytes).toString(),
+    );
   }
 
-  /// 统一查询入口：当注入了非空 [index] 时走其二进制表，否则回退静态内置 Wikidata 映射表。
+  /// 查询显式索引或宿主已装载的内置快照。
   static List<BangumiTmdbTarget> resolveTargets(
     int bangumiId, {
     BangumiTmdbIndex? index,
@@ -543,14 +560,8 @@ class BangumiTmdbIndex {
     if (index != null && index.isNotEmpty) {
       return index.lookup(bangumiId);
     }
-    return [
-      for (final m in BangumiTmdbMap.lookup(bangumiId))
-        BangumiTmdbTarget(
-          type: m.type,
-          id: m.id,
-          flags: BangumiTmdbTarget.flagWikidata,
-        ),
-    ];
+    return _bundledSnapshot?.index.lookup(bangumiId) ??
+        const <BangumiTmdbTarget>[];
   }
 }
 
@@ -562,8 +573,8 @@ enum BangumiTmdbMapSource {
   /// 来自随安装包内置的离线二进制表。
   bundledAsset,
 
-  /// 回退至静态编译的 Wikidata 公有领域映射表。
-  staticFallback,
+  /// 本机及内置快照均不可用。
+  unavailable,
 }
 
 /// 当前已加载的 Bangumi ↔ TMDB 离线映射表只读快照。
@@ -579,7 +590,7 @@ class BangumiTmdbSnapshot {
     this.lastMirrorBase,
   });
 
-  /// 只读二分索引实例（空索引时表示回退静态 Wikidata 表）。
+  /// 只读二分索引实例。
   final BangumiTmdbIndex index;
 
   /// 当前索引数据来源。
@@ -588,7 +599,7 @@ class BangumiTmdbSnapshot {
   /// 可读快照日期（`YYYY-MM-DD`，未知时为空串）。
   final String snapshotDate;
 
-  /// 当前生效二进制索引的小写 SHA-256 摘要（静态回退时为空串）。
+  /// 当前生效二进制索引的小写 SHA-256 摘要（无可用快照时为空串）。
   final String sha256Hex;
 
   /// 上次清单校验记录的 HTTP ETag。
@@ -601,12 +612,10 @@ class BangumiTmdbSnapshot {
   final String? lastMirrorBase;
 
   /// 覆盖的独立 Bangumi 动画条目数量。
-  int get uniqueBangumiCount =>
-      index.isNotEmpty ? index.uniqueBangumiCount : BangumiTmdbMap.count;
+  int get uniqueBangumiCount => index.uniqueBangumiCount;
 
   /// 索引内包含的目标映射总记录数。
-  int get recordCount =>
-      index.isNotEmpty ? index.recordCount : BangumiTmdbMap.count;
+  int get recordCount => index.recordCount;
 
   /// 面向界面的中文来源标签。
   String get sourceLabel {
@@ -615,8 +624,8 @@ class BangumiTmdbSnapshot {
         return '热更新';
       case BangumiTmdbMapSource.bundledAsset:
         return '内置快照';
-      case BangumiTmdbMapSource.staticFallback:
-        return '内置基础表';
+      case BangumiTmdbMapSource.unavailable:
+        return '无可用映射快照';
     }
   }
 

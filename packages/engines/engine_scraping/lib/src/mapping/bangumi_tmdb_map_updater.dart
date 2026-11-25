@@ -212,7 +212,7 @@ class BangumiTmdbMapUpdater {
     }
     return BangumiTmdbSnapshot(
       index: BangumiTmdbIndex.empty(),
-      source: BangumiTmdbMapSource.staticFallback,
+      source: BangumiTmdbMapSource.unavailable,
       snapshotDate: '',
       sha256Hex: '',
       etag: prefsState.etag,
@@ -544,7 +544,7 @@ class BangumiTmdbMapUpdater {
   Future<BangumiTmdbSnapshot?> _tryLoadBundledSnapshot() async {
     try {
       final loader = _bundledAssetLoader;
-      if (loader == null) return null;
+      if (loader == null) return BangumiTmdbIndex.bundledSnapshot;
       final bytes = await loader(TmdbNetworkConfig.bundledMappingAssetPath);
       if (bytes == null) return null;
       if (bytes.isEmpty ||
@@ -562,11 +562,11 @@ class BangumiTmdbMapUpdater {
       );
     } catch (error) {
       developer.log(
-        '读取内置映射表资产失败，将回退静态表',
+        '读取内置映射表资产失败',
         name: 'konata.bangumi_tmdb_map_updater',
         error: error,
       );
-      return null;
+      return BangumiTmdbIndex.bundledSnapshot;
     }
   }
 

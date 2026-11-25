@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:engine_playback/engine_playback.dart';
+import 'package:engine_scraping/engine_scraping.dart' show BangumiTmdbIndex;
 import 'package:engine_sources/engine_sources.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -547,6 +548,7 @@ final class KonataBootstrapContext {
     Object? customScanStreamOpener,
   }) async {
     final diagnosticLog = DiagnosticLogStore();
+    await BangumiTmdbIndex.loadBundled(const HostAssetDataLoader());
     final databases = useInMemoryDatabases
         ? KonataDatabaseBundle.openInMemory()
         : await KonataDatabaseBundle.openFromStorageRoot(storageRoot);

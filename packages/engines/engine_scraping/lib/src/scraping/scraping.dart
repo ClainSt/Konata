@@ -7,7 +7,6 @@ import 'work_matcher.dart' as legacy_wm;
 export 'artwork_ranker.dart';
 export 'bangumi_models.dart';
 export 'bangumi_tmdb_index.dart';
-export 'bangumi_tmdb_map.dart';
 export 'cloud_media_asset_presentation.dart';
 export 'cloud_media_file_classifier.dart';
 export 'collection_asset_router.dart';

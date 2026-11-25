@@ -1,6 +1,18 @@
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:engine_scraping/engine_scraping.dart' hide TitleNormalizer;
 import 'package:engine_scraping/src/scraping/title_normalizer.dart';
+import 'package:konata_contracts/konata_contracts.dart' show AssetDataLoaderPort, TmdbNetworkConfig;
 import 'package:test/test.dart';
+
+final class _BundledMappingAsset implements AssetDataLoaderPort {
+  @override
+  Future<Uint8List> loadBytes(String assetPath) {
+    expect(assetPath, TmdbNetworkConfig.bundledMappingAssetPath);
+    return File('../../../apps/konata/$assetPath').readAsBytes();
+  }
+}
 
 /// 在线准确率评测（真实媒体库 + TMDB/Bangumi 实时数据）暴露的联合决策缺陷回归。
 void main() {
@@ -154,13 +166,14 @@ void main() {
     expect(decision.best?.detail.tmdbId, 1052374);
   });
 
-  test('Wikidata 映射表可查询并按 Bangumi 放送平台排序可用候选键', () {
+  test('内置映射表可查询并按 Bangumi 放送平台排序可用候选键', () async {
+    await BangumiTmdbIndex.loadBundled(_BundledMappingAsset());
     // 《攻壳机动队》(1995) 剧场版：Bangumi 237 ↔ TMDB 电影 9323。
     expect(
-      BangumiTmdbMap.lookup(237),
+      BangumiTmdbIndex.resolveTargets(237).map((target) => (type: target.type, id: target.id)),
       contains((type: TmdbMediaType.movie, id: 9323)),
     );
-    expect(BangumiTmdbMap.lookup(-1), isEmpty);
+    expect(BangumiTmdbIndex.resolveTargets(-1), isEmpty);
     const movieSubject = BangumiSubjectCandidate(
       id: 237,
       name: 'GHOST IN THE SHELL / 攻殻機動隊',

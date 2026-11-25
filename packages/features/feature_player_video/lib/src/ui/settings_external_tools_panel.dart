@@ -21,7 +21,7 @@ enum FoobarGuideDialogAction {
   skipAndLaunchSingleWay,
 }
 
-/// 桌面端专属设置「外部工具」一级面板：管理外部音视频播放器路径与实时同步组件状态。
+/// 桌面端专属设置「外部调用」一级面板：管理外部音视频播放器路径与实时同步组件状态。
 class SettingsExternalToolsPanel extends ConsumerStatefulWidget {
   /// 创建外部调用工具设置面板。
   const SettingsExternalToolsPanel({
@@ -65,12 +65,11 @@ class _SettingsExternalToolsPanelState
   ExternalPlayerKind _preferredVideoKind = ExternalPlayerKind.mpv;
   FoobarComponentStatusSnapshot? _probeSnapshot;
   bool _probing = false;
-  bool _initialized = false;
   Timer? _autoSaveTimer;
 
   DesktopExternalPlayerStore? _resolvePlayerStore() {
     if (widget.externalPlayerStore != null) return widget.externalPlayerStore;
-    final deps = ref.watch(featurePlayerVideoDependenciesProvider);
+    final deps = ref.read(featurePlayerVideoDependenciesProvider);
     return deps.externalPlayerStore ??
         SqliteDesktopExternalPlayerStore(deps.databases.userState.engine);
   }
@@ -81,7 +80,7 @@ class _SettingsExternalToolsPanelState
 
   VideoPlaybackPreferencesStore _resolvePrefsStore() =>
       widget.preferencesStore ??
-      ref.watch(videoPlaybackPreferencesStoreProvider);
+      ref.read(videoPlaybackPreferencesStoreProvider);
 
   UrlOpenerPort _resolveUrlOpener() =>
       widget.urlOpener ??
@@ -132,7 +131,6 @@ class _SettingsExternalToolsPanelState
     }
 
     setState(() {
-      _initialized = true;
       _mpvController.text = mpvCfg?.executablePath ?? '';
       _potController.text = potCfg?.executablePath ?? '';
       _audioController.text = audioCfg?.executablePath ?? '';
@@ -140,6 +138,9 @@ class _SettingsExternalToolsPanelState
           ? ExternalPlayerKind.potplayer
           : ExternalPlayerKind.mpv;
     });
+    if (_showFoobarSection && _audioController.text.trim().isNotEmpty) {
+      await _probeBeefweb(persist: false);
+    }
   }
 
   List<ExternalPlayerConfig> _buildConfigs() {
@@ -171,10 +172,16 @@ class _SettingsExternalToolsPanelState
     ];
   }
 
-  void _scheduleSave() {
+  void _scheduleSave({bool probeAudio = false}) {
     _autoSaveTimer?.cancel();
-    _autoSaveTimer = Timer(const Duration(milliseconds: 400), () {
-      unawaited(_persistNow());
+    _autoSaveTimer = Timer(const Duration(milliseconds: 400), () async {
+      await _persistNow();
+      if (mounted &&
+          probeAudio &&
+          _showFoobarSection &&
+          _audioController.text.trim().isNotEmpty) {
+        await _probeBeefweb(persist: false);
+      }
     });
   }
 
@@ -199,15 +206,31 @@ class _SettingsExternalToolsPanelState
     }
     final selected = await picker(dialogTitle: title);
     if (!mounted || selected == null || selected.trim().isEmpty) return;
-    setState(() => controller.text = selected.trim());
+    setState(() {
+      controller.text = selected.trim();
+      if (identical(controller, _audioController)) _probeSnapshot = null;
+    });
     await _persistNow();
+    if (mounted &&
+        identical(controller, _audioController) &&
+        _showFoobarSection) {
+      await _probeBeefweb(persist: false);
+    }
   }
 
-  Future<void> _probeBeefweb() async {
-    if (_probing) return;
+  Future<void> _probeBeefweb({bool persist = true}) async {
+    if (_probing || !mounted) return;
+    final path = _audioController.text.trim();
+    final portText = _beefwebPortController.text.trim();
+    final port = int.tryParse(portText);
+    if (port == null || port < 1 || port > 65535) {
+      showKonataToast(context, '请输入有效的端口号（1–65535）', isError: true);
+      return;
+    }
     setState(() => _probing = true);
     try {
-      await _persistNow();
+      if (persist) await _persistNow();
+      if (!mounted) return;
       final relay = _resolveRelayGateway();
       if (relay == null) {
         if (mounted) {
@@ -215,13 +238,14 @@ class _SettingsExternalToolsPanelState
         }
         return;
       }
-      final port =
-          int.tryParse(_beefwebPortController.text.trim()) ??
-          FoobarBeefwebConfig.defaultPort;
       final snap = await relay.probeAudioPlayerStatus(beefwebPort: port);
-      if (mounted) {
+      if (mounted &&
+          path == _audioController.text.trim() &&
+          portText == _beefwebPortController.text.trim()) {
         setState(() => _probeSnapshot = snap);
       }
+    } catch (_) {
+      if (mounted) showKonataToast(context, '检测连接失败，请检查播放器和端口', isError: true);
     } finally {
       if (mounted) {
         setState(() => _probing = false);
@@ -229,129 +253,83 @@ class _SettingsExternalToolsPanelState
     }
   }
 
-  Future<void> _showBeefwebGuideDialog(BuildContext context) async {
-    final urlOpener = _resolveUrlOpener();
-    final prefsStore = _resolvePrefsStore();
-    final action = await showKonataGlassDialog<FoobarGuideDialogAction>(
-      context: context,
-      builder: (dialogCtx) {
-        final p = dialogCtx.palette;
-        return KonataGlassDialog(
-          key: const ValueKey('foobar_beefweb_guide_dialog'),
-          width: 460,
-          title: '启用 foobar2000 分轨与进度同步',
-          onClose: () =>
-              Navigator.of(dialogCtx).pop(FoobarGuideDialogAction.cancel),
-          actions: [
-            KonataPillButton.ghost(
-              compact: true,
-              label: '仅单文件播放（不再提示）',
-              onPressed: () => Navigator.of(
-                dialogCtx,
-              ).pop(FoobarGuideDialogAction.skipAndLaunchSingleWay),
-            ),
-            KonataPillButton.primary(
-              compact: true,
-              icon: Icons.open_in_browser_rounded,
-              label: '前往官方组件页下载',
-              onPressed: () async {
-                final uri = Uri.parse(FoobarBeefwebConfig.officialDownloadUrl);
-                final opened = await urlOpener.openExternalUrl(uri);
-                if (dialogCtx.mounted) {
-                  if (!opened) {
-                    showKonataToast(
-                      dialogCtx,
-                      '请手动访问：${FoobarBeefwebConfig.officialDownloadUrl}',
-                      isError: true,
-                    );
-                  }
-                  Navigator.of(
-                    dialogCtx,
-                  ).pop(FoobarGuideDialogAction.openedDownloadPage);
-                }
-              },
-            ),
-          ],
-          child: Text(
-            '检测到外接音频播放器尚未装配远程控制插件，安装后即可在外部播放期间实时同步当前曲目与分轨播放进度。',
-            style: TextStyle(color: p.textSecondary, fontSize: 13, height: 1.5),
-          ),
-        );
-      },
+  Future<void> _openBeefwebDownload() async {
+    final opened = await _resolveUrlOpener().openExternalUrl(
+      Uri.parse(FoobarBeefwebConfig.officialDownloadUrl),
     );
-    if (action == FoobarGuideDialogAction.skipAndLaunchSingleWay) {
-      prefsStore.setSkipFoobarBeefwebGuidePrompt(true);
+    if (!opened && mounted) {
+      showKonataToast(context, '无法打开官方组件页，请重试', isError: true);
     }
   }
 
-  String _formatProbeStatus(FoobarComponentStatusSnapshot snapshot) {
-    return switch (snapshot.state) {
-      FoobarComponentState.connected => '同步组件已就绪并在本地端口 ${snapshot.port} 连通',
-      FoobarComponentState.installedPendingStart =>
-        '已检测到远程同步组件（端口 ${snapshot.port}），随播放器启动后即可自动连接',
-      FoobarComponentState.missingComponent =>
-        '已定位音频播放器，但尚未检测到 foo_beefweb 远程控制组件',
-      FoobarComponentState.notFoobar => '当前配置的程序为独立播放器，无需同步组件',
-      FoobarComponentState.unconfigured => '尚未配置外部音频播放器可执行文件路径',
-    };
+  bool get _showFoobarSection {
+    final path = _audioController.text.trim().toLowerCase();
+    return path.isEmpty || path.contains('foobar');
   }
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-
+    final showFoobarSection = _showFoobarSection;
+    final snapshot = _probeSnapshot;
+    final status = _resolveFoobarStatusVisual(p, snapshot);
     return Column(
       key: const ValueKey('settings_external_tools_panel'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         KonataSurfaceCard(
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(
-                '桌面外部视频播放器接力路径',
-                style: KonataTheme.cardTitleStyle(p),
-              ),
-              const SizedBox(height: 12),
-              AdaptiveSettingTile(
-                title: '默认接力视频播放器',
-                subtitle: '触发外部播片时优先拉起的桌面程序',
-                estimatedTrailingWidth: 240,
+              AdaptiveResponsiveRow(
+                estimatedTrailingWidth: 176,
+                minLeadingWidth: 180,
+                horizontalGap: 16,
+                stackedTrailingAlignment: Alignment.centerLeft,
+                leading: const _CardHeaderBlock(
+                  title: '外部视频播放器与热接力',
+                  subtitle: '可在右键菜单、多版本选播或内置播放器顶栏中一键热切换拉起并延续当前秒级进度',
+                ),
                 trailing: KonataSegmentedCapsule<ExternalPlayerKind>(
-                  compact: true,
-                  selected: _preferredVideoKind,
                   options: const [
                     KonataSegmentOption(
                       value: ExternalPlayerKind.mpv,
-                      label: 'MPV 播放器',
+                      label: 'MPV',
                     ),
                     KonataSegmentOption(
                       value: ExternalPlayerKind.potplayer,
                       label: 'PotPlayer',
                     ),
                   ],
+                  selected: _preferredVideoKind,
                   onChanged: (next) {
                     setState(() => _preferredVideoKind = next);
                     unawaited(_persistNow());
                   },
                 ),
               ),
-              const SizedBox(height: 8),
-              _PathInputRow(
-                label: 'MPV 可执行文件路径',
+              const SizedBox(height: 16),
+              _ExternalPathFieldRow(
                 controller: _mpvController,
-                hintText: '例如：C:\\Tools\\mpv\\mpv.exe',
+                label: 'MPV 可执行文件路径',
+                hintText: r'C:\Program Files\mpv\mpv.exe',
+                icon: Icons.play_circle_outline_rounded,
+                controlHeight: _rowControlHeight,
                 onChanged: (_) => _scheduleSave(),
-                onBrowse: () => unawaited(
-                  _browseExeFor(_mpvController, '选择 MPV 可执行文件'),
-                ),
+                onSubmitted: (_) => unawaited(_persistNow()),
+                onBrowse: () =>
+                    unawaited(_browseExeFor(_mpvController, '选择 MPV 可执行文件')),
               ),
-              const SizedBox(height: 10),
-              _PathInputRow(
-                label: 'PotPlayer 可执行文件路径',
+              const SizedBox(height: 16),
+              _ExternalPathFieldRow(
                 controller: _potController,
-                hintText: '例如：C:\\Program Files\\DAUM\\PotPlayer\\PotPlayerMini64.exe',
+                label: 'PotPlayer 可执行文件路径',
+                hintText:
+                    r'C:\Program Files\DAUM\PotPlayer\PotPlayerMini64.exe',
+                icon: Icons.ondemand_video_rounded,
+                controlHeight: _rowControlHeight,
                 onChanged: (_) => _scheduleSave(),
+                onSubmitted: (_) => unawaited(_persistNow()),
                 onBrowse: () => unawaited(
                   _browseExeFor(_potController, '选择 PotPlayer 可执行文件'),
                 ),
@@ -359,78 +337,133 @@ class _SettingsExternalToolsPanelState
             ],
           ),
         ),
-        const SizedBox(height: KonataAdaptiveTokens.settingsGap),
+        const SizedBox(height: 16),
         KonataSurfaceCard(
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(
-                '外部无损音频工具与分轨进度同步',
-                style: KonataTheme.cardTitleStyle(p),
+              AdaptiveResponsiveRow(
+                estimatedTrailingWidth: 190,
+                minLeadingWidth: 180,
+                horizontalGap: 16,
+                stackedTrailingAlignment: Alignment.centerLeft,
+                leading: const _CardHeaderBlock(
+                  title: '外部音频播放器',
+                  subtitle:
+                      '可指定 foobar2000 等外部程序播放 CD 音轨；配合 foo_beefweb 组件即可支持 WebDAV 分轨展开、继承进度与跨轨回写',
+                ),
+                trailing: showFoobarSection
+                    ? _FoobarStatusPill(
+                        badge: status.badge,
+                        label: status.badgeLabel,
+                        isLoading: _probing,
+                      )
+                    : const SizedBox.shrink(),
               ),
-              const SizedBox(height: 12),
-              _PathInputRow(
-                label: '外部音频播放器可执行文件路径',
+              const SizedBox(height: 16),
+              _ExternalPathFieldRow(
                 controller: _audioController,
-                hintText: '例如：C:\\Program Files\\foobar2000\\foobar2000.exe',
-                onChanged: (_) => _scheduleSave(),
+                label: '外部音频播放器路径（CD / 无损可选）',
+                hintText: r'C:\Program Files\foobar2000\foobar2000.exe',
+                icon: Icons.library_music_outlined,
+                controlHeight: _rowControlHeight,
+                onChanged: (_) {
+                  setState(() => _probeSnapshot = null);
+                  _scheduleSave(probeAudio: true);
+                },
+                onSubmitted: (_) => unawaited(_persistNow()),
                 onBrowse: () => unawaited(
                   _browseExeFor(_audioController, '选择外部音频播放器可执行文件'),
                 ),
               ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  SizedBox(
-                    width: 112,
-                    child: KonataSoftTextField(
-                      controller: _beefwebPortController,
-                      label: '同步端口',
-                      hintText: '${FoobarBeefwebConfig.defaultPort}',
-                      dense: true,
-                      height: _rowControlHeight,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Padding(
-                    padding: const EdgeInsets.only(top: 18),
-                    child: Wrap(
-                      spacing: 8,
-                      children: [
-                        KonataPillButton.secondary(
-                          compact: true,
-                          height: _rowControlHeight,
-                          label: _probing ? '检测中…' : '检测同步组件状态',
-                          onPressed: _probing ? null : _probeBeefweb,
-                        ),
-                        KonataPillButton.ghost(
-                          compact: true,
-                          height: _rowControlHeight,
-                          label: '安装指引',
-                          onPressed: () =>
-                              unawaited(_showBeefwebGuideDialog(context)),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              if (_probeSnapshot != null) ...[
-                const SizedBox(height: 8),
-                Text(
-                  _formatProbeStatus(_probeSnapshot!),
-                  style: TextStyle(
-                    color: _probeSnapshot!.isBeefwebReady
-                        ? p.accent
-                        : p.textSecondary,
-                    fontSize: 12.5,
-                  ),
+              if (showFoobarSection) ...[
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  child: Divider(height: 1, thickness: 1, color: p.hairline),
                 ),
-              ] else if (_initialized) ...[
-                const SizedBox(height: 6),
-                Text(
-                  '修改路径后将自动保存至当前本机环境配置。',
-                  style: TextStyle(color: p.textMuted, fontSize: 12),
+                AdaptiveResponsiveRow(
+                  estimatedTrailingWidth: 404,
+                  minLeadingWidth: 210,
+                  horizontalGap: 16,
+                  verticalGap: 12,
+                  stackedTrailingAlignment: Alignment.centerLeft,
+                  leading: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Beefweb 本地同步端口',
+                        style: TextStyle(
+                          color: p.textPrimary,
+                          fontSize: KonataTheme.fontSizeBodySm,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        status.detailText,
+                        style: TextStyle(
+                          color: p.textMuted,
+                          fontSize: KonataTheme.fontSizeCaption,
+                          height: 1.4,
+                        ),
+                      ),
+                      if (_resolvePrefsStore()
+                              .read()
+                              .skipFoobarBeefwebGuidePrompt &&
+                          status.state == FoobarComponentState.missingComponent)
+                        KonataPillButton.ghost(
+                          label: '恢复播放前提醒',
+                          onPressed: () {
+                            _resolvePrefsStore()
+                                .setSkipFoobarBeefwebGuidePrompt(false);
+                            setState(() {});
+                          },
+                        ),
+                    ],
+                  ),
+                  trailing: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      SizedBox(
+                        width: 112,
+                        child: KonataSoftTextField(
+                          key: const ValueKey(
+                            'settings_foobar_beefweb_port_field',
+                          ),
+                          controller: _beefwebPortController,
+                          hintText: '8880',
+                          prefixIcon: Icons.lan_outlined,
+                          height: 38,
+                          keyboardType: TextInputType.number,
+                          onChanged: (_) =>
+                              setState(() => _probeSnapshot = null),
+                        ),
+                      ),
+                      KonataPillButton.secondary(
+                        key: const ValueKey(
+                          'settings_foobar_beefweb_retest_button',
+                        ),
+                        label: _probing ? '检测中…' : '检测连接',
+                        icon: Icons.sync_rounded,
+                        compact: true,
+                        height: 38,
+                        onPressed: _probing ? null : _probeBeefweb,
+                      ),
+                      KonataPillButton.secondary(
+                        key: const ValueKey(
+                          'settings_foobar_beefweb_download_button',
+                        ),
+                        label: '前往官方组件页下载',
+                        icon: Icons.open_in_browser_rounded,
+                        compact: true,
+                        height: 38,
+                        onPressed: () => unawaited(_openBeefwebDownload()),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ],
@@ -441,42 +474,189 @@ class _SettingsExternalToolsPanelState
   }
 }
 
-class _PathInputRow extends StatelessWidget {
-  const _PathInputRow({
+class _CardHeaderBlock extends StatelessWidget {
+  const _CardHeaderBlock({required this.title, required this.subtitle});
+
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          title,
+          style: TextStyle(
+            color: p.textPrimary,
+            fontSize: KonataTheme.fontSizeTitleSm,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          subtitle,
+          style: TextStyle(
+            color: p.textSecondary,
+            fontSize: KonataTheme.fontSizeBodyXs,
+            height: 1.4,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+({
+  FoobarComponentState state,
+  KonataBadgeColors badge,
+  String badgeLabel,
+  String detailText,
+})
+_resolveFoobarStatusVisual(
+  KonataPalette p,
+  FoobarComponentStatusSnapshot? snap,
+) {
+  final state = snap?.state ?? FoobarComponentState.unconfigured;
+  final port = snap?.port ?? FoobarBeefwebConfig.defaultPort;
+  return switch (state) {
+    FoobarComponentState.connected => (
+      state: state,
+      badge: p.successBadge,
+      badgeLabel: '已连接 foo_beefweb ($port)',
+      detailText: '已启用 WebDAV 零落盘分轨、专属「Konata」播放列表隔离与秒级双向进度同步',
+    ),
+    FoobarComponentState.installedPendingStart => (
+      state: state,
+      badge: p.accentBadge,
+      badgeLabel: '已安装 foo_beefweb 组件',
+      detailText: '已检测到本地组件文件，启动 foobar2000 时将自动连接 $port 端口同步进度',
+    ),
+    FoobarComponentState.missingComponent => (
+      state: state,
+      badge: p.warningBadge,
+      badgeLabel: '未检测到 foo_beefweb 组件',
+      detailText: '前往官方组件页下载 .fb2k-component 后双击安装并重启 foobar2000，即可解锁分轨与双向进度同步',
+    ),
+    FoobarComponentState.notFoobar => (
+      state: state,
+      badge: p.accentBadge,
+      badgeLabel: '非 foobar2000 程序',
+      detailText: '当前配置为其他外部程序，将按标准命令行或内置协议通道拉起',
+    ),
+    FoobarComponentState.unconfigured => (
+      state: state,
+      badge: p.accentBadge,
+      badgeLabel: '待配置 foobar2000 路径',
+      detailText: '指定 foobar2000.exe 后将自动检测 foo_beefweb 组件与本地同步端口',
+    ),
+  };
+}
+
+class _FoobarStatusPill extends StatelessWidget {
+  const _FoobarStatusPill({
+    required this.badge,
     required this.label,
+    required this.isLoading,
+  });
+
+  final KonataBadgeColors badge;
+  final String label;
+  final bool isLoading;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: badge.bg,
+        borderRadius: KonataTheme.borderRadiusPill,
+        border: Border.all(color: badge.border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(color: badge.fg, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            isLoading ? '正在检测...' : label,
+            maxLines: 1,
+            softWrap: false,
+            style: TextStyle(
+              color: badge.fg,
+              fontSize: KonataTheme.fontSizeBadge,
+              fontWeight: FontWeight.w600,
+              height: 1.2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ExternalPathFieldRow extends StatelessWidget {
+  const _ExternalPathFieldRow({
     required this.controller,
+    required this.label,
     required this.hintText,
+    required this.icon,
+    required this.controlHeight,
     required this.onChanged,
+    required this.onSubmitted,
     required this.onBrowse,
   });
 
-  final String label;
   final TextEditingController controller;
+  final String label;
   final String hintText;
+  final IconData icon;
+  final double controlHeight;
   final ValueChanged<String> onChanged;
+  final ValueChanged<String> onSubmitted;
   final VoidCallback onBrowse;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
+    final p = context.palette;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Expanded(
-          child: KonataSoftTextField(
-            controller: controller,
-            label: label,
-            hintText: hintText,
-            dense: true,
-            height: 40.0,
-            onChanged: onChanged,
+        Text(
+          label,
+          style: TextStyle(
+            color: p.textSecondary,
+            fontSize: KonataTheme.fontSizeBodyXs,
+            fontWeight: FontWeight.w500,
           ),
         ),
-        const SizedBox(width: 8),
-        KonataPillButton.secondary(
-          compact: true,
-          height: 40.0,
-          label: '选择程序',
-          onPressed: onBrowse,
+        const SizedBox(height: 6),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Expanded(
+              child: KonataSoftTextField(
+                controller: controller,
+                hintText: hintText,
+                prefixIcon: icon,
+                height: controlHeight,
+                onChanged: onChanged,
+                onSubmitted: onSubmitted,
+              ),
+            ),
+            const SizedBox(width: 10),
+            KonataPillButton.secondary(
+              label: '浏览',
+              height: controlHeight,
+              onPressed: onBrowse,
+            ),
+          ],
         ),
       ],
     );

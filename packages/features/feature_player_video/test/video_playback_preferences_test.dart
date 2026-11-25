@@ -114,18 +114,17 @@ void main() {
       final harness = await VideoTestHarness.create();
       addTearDown(harness.dispose);
 
-      final res = await harness.shaderService.importShaderFiles(
-        <ShaderImportSource>[
-          ShaderImportSource(
-            name: 'test_upscale.glsl',
-            bytes: Uint8List.fromList('//!HOOK LUMA'.codeUnits),
-          ),
-          ShaderImportSource(
-            name: 'malicious.txt',
-            bytes: Uint8List.fromList('ignored'.codeUnits),
-          ),
-        ],
-      );
+      final res = await harness.shaderService
+          .importShaderFiles(<ShaderImportSource>[
+            ShaderImportSource(
+              name: 'test_upscale.glsl',
+              bytes: Uint8List.fromList('//!HOOK LUMA'.codeUnits),
+            ),
+            ShaderImportSource(
+              name: 'malicious.txt',
+              bytes: Uint8List.fromList('ignored'.codeUnits),
+            ),
+          ]);
       expect(res.imported, hasLength(1));
       expect(res.skippedUnsupported, 1);
       expect(harness.shaderService.state.files, hasLength(1));
@@ -186,13 +185,20 @@ void main() {
 
       final extSection = featurePlayerVideoManifest.settingsSections[1];
       expect(extSection.id, 'external_tools');
+      expect(extSection.title, '外部调用');
       expect(extSection.isSupportedOn(KonataPlatform.windows), isTrue);
       expect(extSection.isSupportedOn(KonataPlatform.androidPhone), isFalse);
 
       expect(featurePlayerVideoManifest.playerSidePanels, hasLength(1));
       final panel = featurePlayerVideoManifest.playerSidePanels.single;
-      expect(panel.isSupportedOn(KonataPlatform.windows, PlayerMediaMode.video), isTrue);
-      expect(panel.isSupportedOn(KonataPlatform.windows, PlayerMediaMode.audio), isFalse);
+      expect(
+        panel.isSupportedOn(KonataPlatform.windows, PlayerMediaMode.video),
+        isTrue,
+      );
+      expect(
+        panel.isSupportedOn(KonataPlatform.windows, PlayerMediaMode.audio),
+        isFalse,
+      );
     });
   });
 }

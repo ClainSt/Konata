@@ -227,12 +227,19 @@ void main() {
       await tester.pump();
       expect(harness.preferencesStore.read().autoSkipChapters, isTrue);
 
-      final probeFinder = find.text('检测同步组件状态');
+      expect(find.text('外部视频播放器与热接力'), findsOneWidget);
+      expect(find.text('外部音频播放器'), findsOneWidget);
+      expect(find.text('待配置 foobar2000 路径'), findsOneWidget);
+      expect(find.text('浏览'), findsNWidgets(3));
+      final probeFinder = find.text('检测连接');
       await tester.ensureVisible(probeFinder);
       await tester.pump();
       await tester.tap(probeFinder);
       await tester.pumpAndSettle();
-      expect(find.text('同步组件已就绪并在本地端口 8880 连通'), findsOneWidget);
+      expect(find.text('已连接 foo_beefweb (8880)'), findsOneWidget);
+      tester.view.physicalSize = const Size(640, 700);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
     });
   });
 

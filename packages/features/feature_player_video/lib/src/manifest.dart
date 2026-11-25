@@ -27,7 +27,7 @@ final FeatureManifest featurePlayerVideoManifest = FeatureManifest(
     ),
     SettingsSectionContribution(
       id: 'external_tools',
-      title: '外部工具',
+      title: '外部调用',
       subtitle: '配置桌面端外部播放器路径与远程进度同步服务',
       iconKey: 'tune',
       order: 40,

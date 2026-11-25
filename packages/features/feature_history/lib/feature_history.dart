@@ -24,6 +24,7 @@ export 'src/ui/playback_history_page.dart' show PlaybackHistoryPage;
 export 'src/ui/playback_history_sub_cards.dart'
     show
         HistoryArtworkLoader,
+        HistoryEntryArtworkLoader,
         HistoryExpandedEpisodeRow,
         HistoryPathArtworkLoader,
         HistoryProgressMetaRow,

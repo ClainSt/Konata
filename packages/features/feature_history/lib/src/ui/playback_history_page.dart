@@ -44,41 +44,6 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
     super.dispose();
   }
 
-  Future<void> _confirmClearAll(
-    BuildContext context,
-    HistoryController controller,
-  ) async {
-    final p = context.palette;
-    final confirmed = await showKonataGlassDialog<bool>(
-      context: context,
-      builder: (dlgCtx) => KonataGlassDialog(
-        width: 440,
-        title: '清空播放记录',
-        onClose: () => Navigator.of(dlgCtx).pop(false),
-        actions: <Widget>[
-          KonataPillButton.ghost(
-            label: '取消',
-            onPressed: () => Navigator.of(dlgCtx).pop(false),
-          ),
-          KonataPillButton.danger(
-            label: '确认清空',
-            onPressed: () => Navigator.of(dlgCtx).pop(true),
-          ),
-        ],
-        child: Text(
-          '确定清空全部观看与收听记录吗？该操作仅记录同步删除标记，不会删除任何磁盘上的视频或音频文件。',
-          style: KonataTheme.bodyLabelStyle(p).copyWith(height: 1.55),
-        ),
-      ),
-    );
-    if (confirmed == true) {
-      controller.clearAllHistory();
-      if (context.mounted) {
-        showKonataToast(context, '已清空全部播放记录');
-      }
-    }
-  }
-
   Future<void> _confirmDeleteSelected(
     BuildContext context,
     HistoryController controller,
@@ -126,7 +91,8 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
     final compact =
         KonataAdaptiveTokens.isAndroid ||
         deps.platform == KonataPlatform.androidPhone ||
-        MediaQuery.sizeOf(context).width < KonataAdaptiveTokens.tabletBreakpoint;
+        MediaQuery.sizeOf(context).width <
+            KonataAdaptiveTokens.tabletBreakpoint;
     final horizontalPad = compact
         ? KonataAdaptiveTokens.horizontalInset
         : KonataTheme.pageHorizontalPadding;
@@ -141,7 +107,7 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
       builder: (context, _) {
         final p = context.palette;
         final dayGroups = controller.dayGroups;
-        final hasAny = controller.hasAnyRecords;
+        final hasAny = dayGroups.isNotEmpty;
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -160,41 +126,54 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
                   selected: controller.filter,
                   onChanged: controller.setFilter,
                   options: <KonataSegmentOption<HistoryMediaFilter>>[
-                    for (final f in HistoryMediaFilter.values)
+                    for (final f in [
+                      HistoryMediaFilter.video,
+                      HistoryMediaFilter.audio,
+                    ])
                       KonataSegmentOption<HistoryMediaFilter>(
                         value: f,
                         label: f.label,
                       ),
                   ],
                 ),
-                searchQuery: controller.searchQuery,
-                onSearchChanged: controller.setSearchQuery,
-                searchHint: '搜索动画名称、单集或专辑',
                 primaryActions: <AdaptiveHeaderAction>[
-                  if (hasAny && !controller.isSelectionMode) ...<
-                    AdaptiveHeaderAction
-                  >[
+                  if (hasAny &&
+                      !controller.isSelectionMode) ...<AdaptiveHeaderAction>[
                     AdaptiveHeaderAction(
                       icon: Icons.done_all_rounded,
-                      label: '标记为已看/已听',
+                      label: controller.filter == HistoryMediaFilter.audio
+                          ? '标记为已听'
+                          : '标记为已看',
+                      wideWidget: KonataPillButton.secondary(
+                        label: controller.filter == HistoryMediaFilter.audio
+                            ? '标记为已听'
+                            : '标记为已看',
+                        icon: Icons.done_all_rounded,
+                        compact: true,
+                        onPressed: () => controller.enterSelectionMode(
+                          action: HistorySelectionAction.markCompleted,
+                        ),
+                      ),
                       tooltip: '批量标记已完播',
                       onPressed: () => controller.enterSelectionMode(
                         action: HistorySelectionAction.markCompleted,
                       ),
                     ),
                     AdaptiveHeaderAction(
-                      icon: Icons.checklist_rounded,
-                      label: '批量清理',
+                      icon: Icons.delete_sweep_outlined,
+                      label: '清理记录',
+                      wideWidget: KonataPillButton.secondary(
+                        label: '清理记录',
+                        icon: Icons.delete_sweep_outlined,
+                        compact: true,
+                        onPressed: () => controller.enterSelectionMode(
+                          action: HistorySelectionAction.deleteRecords,
+                        ),
+                      ),
                       tooltip: '进入多选批量删除',
                       onPressed: () => controller.enterSelectionMode(
                         action: HistorySelectionAction.deleteRecords,
                       ),
-                    ),
-                    AdaptiveHeaderAction(
-                      icon: Icons.delete_sweep_outlined,
-                      label: '清空全部',
-                      tooltip: '清空播放记录',
-                      onPressed: () => _confirmClearAll(context, controller),
                     ),
                   ],
                 ],
@@ -210,7 +189,12 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
             ),
             if (controller.isSelectionMode)
               Padding(
-                padding: EdgeInsets.fromLTRB(horizontalPad, 0, horizontalPad, 12),
+                padding: EdgeInsets.fromLTRB(
+                  horizontalPad,
+                  0,
+                  horizontalPad,
+                  12,
+                ),
                 child: _HistorySelectionToolbar(
                   controller: controller,
                   onDeleteSelected: () =>
@@ -227,52 +211,54 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
             Expanded(
               child: dayGroups.isEmpty
                   ? _EmptyHistoryView(
-                      hasAnyRecords: hasAny,
+                      hasAnyRecords: controller.hasAnyRecords,
                       palette: p,
                       horizontalPad: horizontalPad,
                       bottomPad: listBottomPad,
                       onResetFilters: () {
-                        controller.setFilter(HistoryMediaFilter.all);
+                        controller.setFilter(
+                          controller.filter == HistoryMediaFilter.audio
+                              ? HistoryMediaFilter.video
+                              : HistoryMediaFilter.audio,
+                        );
                         controller.setSearchQuery('');
                       },
                     )
                   : KonataDraggableScrollbar(
                       controller: _scrollController,
-                      builder: (context, scrollController) =>
-                          ListView.builder(
-                            controller: scrollController,
-                            padding: EdgeInsets.fromLTRB(
-                              horizontalPad,
-                              4,
-                              horizontalPad,
-                              listBottomPad,
-                            ),
-                            itemCount: dayGroups.length,
-                            itemBuilder: (context, index) {
-                              final dayGroup = dayGroups[index];
-                              return HistoryDaySectionView(
-                                key: ValueKey<String>(dayGroup.dateKey),
-                                dayGroup: dayGroup,
-                                isGroupExpanded: controller.isGroupExpanded,
-                                onToggleExpanded:
-                                    controller.toggleGroupExpanded,
-                                isSelectionMode: controller.isSelectionMode,
-                                selectedIds: controller.selectedRecordIds,
-                                onToggleSelect: controller.toggleRecordSelected,
-                                onResumeItem: controller.resumePlayback,
-                                onOpenWorkDetail: controller.openWorkDetail,
-                                onDeleteItem: (item) =>
-                                    controller.softDeleteRecord(item.record.id),
-                                onDeleteGroup: controller.softDeleteGroup,
-                                onMarkItemCompleted: (item) => controller
-                                    .markRecordCompleted(item.record.id),
-                                onMarkGroupCompleted:
-                                    controller.markGroupCompleted,
-                                imageLoader: imageLoader,
-                                pathArtworkLoader: pathLoader,
-                              );
-                            },
-                          ),
+                      builder: (context, scrollController) => ListView.builder(
+                        controller: scrollController,
+                        padding: EdgeInsets.fromLTRB(
+                          horizontalPad,
+                          4,
+                          horizontalPad,
+                          listBottomPad,
+                        ),
+                        itemCount: dayGroups.length,
+                        itemBuilder: (context, index) {
+                          final dayGroup = dayGroups[index];
+                          return HistoryDaySectionView(
+                            key: ValueKey<String>(dayGroup.dateKey),
+                            dayGroup: dayGroup,
+                            isGroupExpanded: controller.isGroupExpanded,
+                            onToggleExpanded: controller.toggleGroupExpanded,
+                            isSelectionMode: controller.isSelectionMode,
+                            selectedIds: controller.selectedRecordIds,
+                            onToggleSelect: controller.toggleRecordSelected,
+                            onResumeItem: controller.resumePlayback,
+                            onOpenWorkDetail: controller.openWorkDetail,
+                            onDeleteItem: (item) =>
+                                controller.softDeleteRecord(item.record.id),
+                            onDeleteGroup: controller.softDeleteGroup,
+                            onMarkItemCompleted: (item) =>
+                                controller.markRecordCompleted(item.record.id),
+                            onMarkGroupCompleted: controller.markGroupCompleted,
+                            imageLoader: imageLoader,
+                            pathArtworkLoader: pathLoader,
+                            entryArtworkLoader: deps.entryArtworkLoader,
+                          );
+                        },
+                      ),
                     ),
             ),
           ],
@@ -390,7 +376,12 @@ class _EmptyHistoryView extends StatelessWidget {
     final p = palette;
     return Center(
       child: SingleChildScrollView(
-        padding: EdgeInsets.fromLTRB(horizontalPad, 24, horizontalPad, bottomPad),
+        padding: EdgeInsets.fromLTRB(
+          horizontalPad,
+          24,
+          horizontalPad,
+          bottomPad,
+        ),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 420),
           child: Column(
@@ -415,7 +406,7 @@ class _EmptyHistoryView extends StatelessWidget {
               const SizedBox(height: 8),
               Text(
                 hasAnyRecords
-                    ? '请调整顶栏介质过滤或搜索关键词'
+                    ? '当前分类暂无记录，可切换视频或音频'
                     : '开始观看番剧或播放原声 CD 后，系统会自动按天记录你的足迹',
                 textAlign: TextAlign.center,
                 style: KonataTheme.captionStyle(
@@ -426,7 +417,7 @@ class _EmptyHistoryView extends StatelessWidget {
               if (hasAnyRecords) ...<Widget>[
                 const SizedBox(height: 16),
                 KonataPillButton.secondary(
-                  label: '重置筛选条件',
+                  label: '切换媒体类型',
                   icon: Icons.refresh_rounded,
                   onPressed: onResetFilters,
                 ),

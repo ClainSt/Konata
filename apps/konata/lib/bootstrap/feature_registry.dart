@@ -403,14 +403,62 @@ List<Override> buildFeatureProviderOverrides(FeatureRuntimeWiring wiring) {
         autoStartWarmupAndBackfill: wiring.autoStartDetailWarmupAndBackfill,
       ),
     ),
-    featureHistoryDependenciesProvider.overrideWithValue(
-      FeatureHistoryDependencies(
+    featureHistoryDependenciesProvider.overrideWith((ref) {
+      final loader = ref.watch(libraryArtworkLoaderProvider);
+      return FeatureHistoryDependencies(
         databases: wiring.databases,
         navigator: wiring.navigator,
         diagnosticLog: wiring.diagnosticLog,
         platform: platform,
-      ),
-    ),
+        imageLoader: (id) async {
+          final work = wiring.databases.library.works.findById(id);
+          if (work == null) return null;
+          final primary = switch (work.posterRef) {
+            LocalCustomArtworkRef(:final localPath) => localPath,
+            RemoteArtworkRef(:final uri) => uri,
+            _ => null,
+          };
+          for (final path in [
+            primary,
+            work.posterFallback,
+            work.bangumiPosterPath,
+          ]) {
+            if (path == null || path.trim().isEmpty) continue;
+            final bytes = await loader(
+              path,
+              ownerWorkId: id.value,
+              subfolder: PhotoSubfolder.posters,
+            );
+            if (bytes != null && bytes.isNotEmpty) return bytes;
+          }
+          return null;
+        },
+        entryArtworkLoader: (entry) async {
+          final owner = entry.record.workId.value;
+          final variant = entry.variant;
+          if (entry.isAudio && variant != null) {
+            final path = variant.relativePath.replaceAll(r'\', '/');
+            final slash = path.lastIndexOf('/');
+            final dir = slash < 0 ? '.' : path.substring(0, slash);
+            final key =
+                'cd_cover::${variant.sourceId.value}::$dir::${variant.id.value}';
+            return wiring.photosStorage.readArtwork(
+              workId: owner,
+              subfolder: PhotoSubfolder.thumbnails,
+              cacheKey: key,
+            );
+          }
+          final still = entry.stillPath;
+          if (still == null || still.trim().isEmpty) return null;
+          return loader(
+            still,
+            targetWidth: 320,
+            ownerWorkId: owner,
+            subfolder: PhotoSubfolder.thumbnails,
+          );
+        },
+      );
+    }),
     workManageDialogPortProvider.overrideWithValue(
       const HostWorkManageDialogs(),
     ),

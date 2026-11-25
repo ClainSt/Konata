@@ -115,19 +115,14 @@ void main() {
     final db = KonataDatabaseBundle.openInMemory();
     addTearDown(db.close);
     final navigator = _FakeNavigator();
-    final now = DateTime.now();
+    final today = DateTime.now();
+    final now = DateTime(today.year, today.month, today.day, 12);
 
     db.library.works.upsert(
-      const WorkRecord(
-        id: WorkId.trusted('w_1'),
-        title: '灵能百分百',
-      ),
+      const WorkRecord(id: WorkId.trusted('w_1'), title: '灵能百分百'),
     );
     db.library.works.upsert(
-      const WorkRecord(
-        id: WorkId.trusted('w_2'),
-        title: '轻音少女',
-      ),
+      const WorkRecord(id: WorkId.trusted('w_2'), title: '轻音少女'),
     );
     db.userState.playbackRecords.upsert(
       PlaybackRecordEntity(
@@ -148,7 +143,10 @@ void main() {
         workId: const WorkId.trusted('w_1'),
         episodeId: const EpisodeId.trusted('ep_2'),
         variantId: const VariantId.trusted('v_2'),
-        playedAtMs: now.subtract(const Duration(minutes: 25)).toUtc().millisecondsSinceEpoch,
+        playedAtMs: now
+            .subtract(const Duration(minutes: 25))
+            .toUtc()
+            .millisecondsSinceEpoch,
         episodeNumber: 2,
         episodeTitle: '关于青春的烦恼',
         positionSeconds: 90,
@@ -161,7 +159,10 @@ void main() {
         workId: const WorkId.trusted('w_2'),
         episodeId: const EpisodeId.trusted('ep_k1'),
         variantId: const VariantId.trusted('v_k1'),
-        playedAtMs: now.subtract(const Duration(days: 1)).toUtc().millisecondsSinceEpoch,
+        playedAtMs: now
+            .subtract(const Duration(days: 1))
+            .toUtc()
+            .millisecondsSinceEpoch,
         episodeNumber: 5,
         episodeTitle: '顾问老师！',
         positionSeconds: 1440,
@@ -206,9 +207,11 @@ void main() {
             home: KonataToastScope(
               controller: toastController,
               child: Scaffold(
-                body: featureHistoryManifest.navSections.single
-                        .viewBuilder(const ViewSlotContext())
-                    as Widget,
+                body:
+                    featureHistoryManifest.navSections.single.viewBuilder(
+                          const ViewSlotContext(),
+                        )
+                        as Widget,
               ),
             ),
           ),
@@ -217,8 +220,20 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('播放记录'), findsOneWidget);
-      expect(find.text('今天'), findsOneWidget);
-      expect(find.text('昨天'), findsOneWidget);
+      expect(
+        find.text(now.toIso8601String().substring(0, 10).replaceAll('-', '.')),
+        findsOneWidget,
+      );
+      expect(
+        find.text(
+          now
+              .subtract(const Duration(days: 1))
+              .toIso8601String()
+              .substring(0, 10)
+              .replaceAll('-', '.'),
+        ),
+        findsOneWidget,
+      );
       expect(find.text('灵能百分百'), findsOneWidget);
       expect(find.text('轻音少女'), findsOneWidget);
     }
@@ -228,14 +243,18 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('关于青春的烦恼'), findsOneWidget);
 
-    await tester.tap(find.text('续播').first);
+    await tester.tap(find.byType(HistoryExpandedEpisodeRow).first);
     await tester.pump();
     expect(navigator.videoResumedWorks.first.value, equals('w_1'));
 
     await tester.tap(find.byIcon(Icons.delete_sweep_outlined));
     await tester.pumpAndSettle();
-    expect(find.text('清空播放记录'), findsOneWidget);
-    await tester.tap(find.text('确认清空'));
+    await tester.tap(find.text('全选当前'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('确认删除 (3)'));
+    await tester.pumpAndSettle();
+    expect(find.text('清理所选播放记录'), findsOneWidget);
+    await tester.tap(find.text('确认清理 (3)'));
     await tester.pumpAndSettle();
 
     expect(find.text('暂无播放记录'), findsOneWidget);
@@ -248,7 +267,8 @@ void main() {
     final db = KonataDatabaseBundle.openInMemory();
     addTearDown(db.close);
     final navigator = _FakeNavigator();
-    final now = DateTime.now();
+    final today = DateTime.now();
+    final now = DateTime(today.year, today.month, today.day, 12);
 
     db.library.works.upsert(
       const WorkRecord(
@@ -344,6 +364,55 @@ void main() {
       ),
     );
 
+    db.library.works.upsert(
+      const WorkRecord(
+        id: WorkId.trusted('w_v2'),
+        title: '第二部动画',
+        updatedAtMs: 100,
+      ),
+    );
+    db.library.episodes.upsert(
+      const EpisodeRecord(
+        id: EpisodeId.trusted('ep_v2'),
+        workId: WorkId.trusted('w_v2'),
+        seasonNumber: 1,
+        episodeNumber: 1,
+        category: EpisodeCategory.main,
+        title: '第二部第一话',
+        updatedAtMs: 100,
+      ),
+    );
+    db.library.mediaVariants.upsert(
+      const MediaVariantRecord(
+        id: VariantId.trusted('var_v2'),
+        workId: WorkId.trusted('w_v2'),
+        episodeId: EpisodeId.trusted('ep_v2'),
+        sourceId: SourceId.trusted('src_1'),
+        relativePath: 'Other/01.mkv',
+        fileName: '01.mkv',
+        fileSize: 1024,
+        assetKind: AssetKind.video,
+        updatedAtMs: 100,
+      ),
+    );
+    db.userState.playbackRecords.upsert(
+      PlaybackRecordEntity(
+        id: 'rec_v2',
+        workId: const WorkId.trusted('w_v2'),
+        episodeId: const EpisodeId.trusted('ep_v2'),
+        variantId: const VariantId.trusted('var_v2'),
+        seasonNumber: 1,
+        episodeNumber: 1,
+        episodeTitle: '第二部第一话',
+        playedAtMs: now
+            .subtract(const Duration(minutes: 5))
+            .toUtc()
+            .millisecondsSinceEpoch,
+        positionSeconds: 120,
+        durationSeconds: 1440,
+      ),
+    );
+
     final deps = FeatureHistoryDependencies(
       databases: db,
       navigator: navigator,
@@ -365,9 +434,11 @@ void main() {
           home: KonataToastScope(
             controller: toastController,
             child: Scaffold(
-              body: featureHistoryManifest.navSections.single.viewBuilder(
-                const ViewSlotContext(),
-              ) as Widget,
+              body:
+                  featureHistoryManifest.navSections.single.viewBuilder(
+                        const ViewSlotContext(),
+                      )
+                      as Widget,
             ),
           ),
         ),
@@ -378,41 +449,67 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.byType(HistoryDaySectionView), findsOneWidget);
     expect(find.byType(HistoryWorkTimelineCard), findsNWidgets(2));
-
-    // 在 1440px 宽屏下同日两张作品卡呈双栏水平并排。
-    final vTopLeft = tester.getTopLeft(find.byWidgetPredicate(
+    expect(find.text('全部'), findsNothing);
+    expect(find.text('孤独摇滚精选'), findsNothing);
+    final videoCard = find.byWidgetPredicate(
       (w) => w is HistoryWorkTimelineCard && w.group.workTitle == '葬送的芙莉莲',
-    ));
-    final aTopLeft = tester.getTopLeft(find.byWidgetPredicate(
-      (w) => w is HistoryWorkTimelineCard && w.group.workTitle == '孤独摇滚精选',
-    ));
-    expect(vTopLeft.dy, equals(aTopLeft.dy));
-    expect(aTopLeft.dx, greaterThan(vTopLeft.dx));
+    );
+    final otherCard = find.byWidgetPredicate(
+      (w) => w is HistoryWorkTimelineCard && w.group.workTitle == '第二部动画',
+    );
+    expect(tester.getTopLeft(videoCard).dy, tester.getTopLeft(otherCard).dy);
+    expect(
+      tester.getTopLeft(videoCard).dx,
+      isNot(tester.getTopLeft(otherCard).dx),
+    );
+    await tester.tap(find.text('葬送的芙莉莲'));
+    await tester.pumpAndSettle();
+    final singleRow = find.byType(HistoryExpandedEpisodeRow);
+    expect(singleRow, findsOneWidget);
+    expect(
+      tester.getSize(singleRow).width,
+      greaterThan(tester.getSize(videoCard).width - 30),
+    );
+    expect(tester.takeException(), isNull);
 
-    // 切换介质胶囊只看音频，验证过滤后仅余光盘记录。
     await tester.tap(find.text('音频'));
     await tester.pumpAndSettle();
     expect(find.text('孤独摇滚精选'), findsOneWidget);
     expect(find.text('葬送的芙莉莲'), findsNothing);
-
-    await tester.tap(find.text('全部'));
+    expect(find.text('标记为已听'), findsOneWidget);
+    await tester.tap(find.text('孤独摇滚精选'));
     await tester.pumpAndSettle();
-    expect(find.text('葬送的芙莉莲'), findsOneWidget);
-
-    // 进入标记完播多选模式并全选提交，验证已完播标签写回 UI 与数据库。
+    expect(find.byType(HistoryExpandedEpisodeRow), findsOneWidget);
+    expect(tester.takeException(), isNull);
     await tester.tap(find.byIcon(Icons.done_all_rounded));
     await tester.pumpAndSettle();
     await tester.tap(find.text('全选当前'));
     await tester.pumpAndSettle();
     await tester.tap(find.textContaining('标为已完播'));
     await tester.pumpAndSettle();
-
-    expect(find.text('已看完'), findsOneWidget);
     expect(find.text('已听完'), findsOneWidget);
     expect(
       db.userState.playbackRecords
           .listAllWithTombstones()
-          .every((r) => r.isCompleted),
+          .where((r) => r.isCompleted)
+          .length,
+      1,
+    );
+
+    await tester.tap(find.text('视频'));
+    await tester.pumpAndSettle();
+    expect(find.text('标记为已看'), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.done_all_rounded));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('全选当前'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('标为已完播'));
+    await tester.pumpAndSettle();
+    expect(find.text('已看完'), findsWidgets);
+    expect(
+      db.userState.playbackRecords.listAllWithTombstones().every(
+        (r) => r.isCompleted,
+      ),
       isTrue,
     );
   });

@@ -27,6 +27,7 @@ class HistoryDaySectionView extends StatelessWidget {
     this.onMarkItemCompleted,
     this.onMarkGroupCompleted,
     this.pathArtworkLoader,
+    this.entryArtworkLoader,
   });
 
   /// 按自然日聚合的时间轴数据。
@@ -71,6 +72,9 @@ class HistoryDaySectionView extends StatelessWidget {
   /// 可选按路径加载剧照字节的回调。
   final HistoryPathArtworkLoader? pathArtworkLoader;
 
+  /// 记录级图片加载器。
+  final HistoryEntryArtworkLoader? entryArtworkLoader;
+
   static const double _timelineRailWidth = 22.0;
   static const double _twoColumnWorkBreakpoint = 860.0;
   static const double _workColumnGap = 12.0;
@@ -80,12 +84,8 @@ class HistoryDaySectionView extends StatelessWidget {
     final p = context.palette;
     final compact =
         KonataAdaptiveTokens.isAndroid ||
-        MediaQuery.sizeOf(context).width < KonataAdaptiveTokens.tabletBreakpoint;
-    final totalEntries = dayGroup.works.fold<int>(
-      0,
-      (sum, g) => sum + g.entryCount,
-    );
-
+        MediaQuery.sizeOf(context).width <
+            KonataAdaptiveTokens.tabletBreakpoint;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
@@ -114,41 +114,12 @@ class HistoryDaySectionView extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             Text(
-              dayGroup.dayTitle,
-              style: KonataTheme.cardTitleStyle(
-                p,
-                fontSize: compact
-                    ? KonataTheme.fontSizeTitle
-                    : KonataTheme.fontSizeTitleLg,
-              ),
-            ),
-            if (dayGroup.dateSubLabel != null &&
-                dayGroup.dateSubLabel!.isNotEmpty) ...<Widget>[
-              const SizedBox(width: 8),
-              Text(
-                dayGroup.dateSubLabel!,
-                style: KonataTheme.captionStyle(
-                  p,
-                  fontSize: KonataTheme.fontSizeCaptionSm,
-                ),
-              ),
-            ],
-            const Spacer(),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
-              decoration: BoxDecoration(
-                color: p.softFill,
-                borderRadius: KonataTheme.borderRadiusPill,
-                border: Border.all(color: p.hairline),
-              ),
-              child: Text(
-                '$totalEntries 条',
-                style: KonataTheme.textStyle(
-                  color: p.textSecondary,
-                  fontSize: KonataTheme.fontSizeCaptionXs,
-                  weight: KonataTheme.weightActive,
-                  tabularFigures: true,
-                ),
+              dayGroup.dateKey.replaceAll('-', '.'),
+              style: KonataTheme.textStyle(
+                color: p.textSecondary,
+                fontSize: 14,
+                weight: KonataTheme.weightActive,
+                tabularFigures: true,
               ),
             ),
           ],
@@ -161,9 +132,7 @@ class HistoryDaySectionView extends StatelessWidget {
               top: 0,
               bottom: 0,
               width: _timelineRailWidth,
-              child: Center(
-                child: Container(width: 1.5, color: p.hairline),
-              ),
+              child: Center(child: Container(width: 1.5, color: p.hairline)),
             ),
             Padding(
               padding: const EdgeInsets.only(
@@ -239,6 +208,7 @@ class HistoryDaySectionView extends StatelessWidget {
           : () => onMarkGroupCompleted!(group),
       imageLoader: imageLoader,
       pathArtworkLoader: pathArtworkLoader,
+      entryArtworkLoader: entryArtworkLoader,
       compact: compact,
     );
   }
@@ -263,6 +233,7 @@ class HistoryWorkTimelineCard extends StatefulWidget {
     this.onMarkItemCompleted,
     this.onMarkGroupCompleted,
     this.pathArtworkLoader,
+    this.entryArtworkLoader,
     this.compact = false,
   });
 
@@ -307,6 +278,9 @@ class HistoryWorkTimelineCard extends StatefulWidget {
 
   /// 可选剧照按路径加载回调。
   final HistoryPathArtworkLoader? pathArtworkLoader;
+
+  /// 记录级图片加载器。
+  final HistoryEntryArtworkLoader? entryArtworkLoader;
 
   /// 是否使用手机端紧凑尺寸。
   final bool compact;
@@ -392,7 +366,8 @@ class _HistoryWorkTimelineCardState extends State<HistoryWorkTimelineCard> {
     final isGrouped = group.entryCount > 1;
     final compact =
         widget.compact ||
-        MediaQuery.sizeOf(context).width < KonataAdaptiveTokens.tabletBreakpoint;
+        MediaQuery.sizeOf(context).width <
+            KonataAdaptiveTokens.tabletBreakpoint;
 
     final allSelected =
         group.items.isNotEmpty &&
@@ -404,11 +379,11 @@ class _HistoryWorkTimelineCardState extends State<HistoryWorkTimelineCard> {
     final coverH = compact ? 76.0 : 88.0;
 
     return KonataSurfaceCard(
-      enableHover: true,
+      enableHover: !widget.expanded,
       padding: EdgeInsets.zero,
       borderColor: (widget.isSelectionMode && anySelected)
           ? KonataTheme.activeControlBorder(p)
-          : null,
+          : (widget.expanded ? p.accent.withValues(alpha: 0.34) : null),
       child: ClipRRect(
         borderRadius: KonataTheme.borderRadiusCard,
         child: Column(
@@ -424,13 +399,10 @@ class _HistoryWorkTimelineCardState extends State<HistoryWorkTimelineCard> {
                     _toggleGroupSelection(allSelected);
                     return;
                   }
-                  if (isGrouped) {
-                    widget.onToggleExpanded();
-                  } else {
-                    widget.onResumeItem(latest);
-                  }
+                  widget.onToggleExpanded();
                 },
                 onSecondaryTap: () => _openCardMenu(context, latest, isGrouped),
+                onLongPress: () => _openCardMenu(context, latest, isGrouped),
                 child: Padding(
                   padding: EdgeInsets.symmetric(
                     horizontal: compact ? 10 : 12,
@@ -447,17 +419,24 @@ class _HistoryWorkTimelineCardState extends State<HistoryWorkTimelineCard> {
                             value: allSelected,
                             tristate: true,
                             activeColor: p.accent,
-                            onChanged: (_) => _toggleGroupSelection(allSelected),
+                            onChanged: (_) =>
+                                _toggleGroupSelection(allSelected),
                           ),
                         ),
                         const SizedBox(width: 8),
                       ],
-                      HistoryThumbnail(
-                        workId: group.workId,
-                        isAudio: group.isAudioGroup,
-                        imageLoader: widget.imageLoader,
-                        width: coverW,
-                        height: coverH,
+                      GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: widget.isSelectionMode
+                            ? () => _toggleGroupSelection(allSelected)
+                            : widget.onOpenWorkDetail,
+                        child: HistoryThumbnail(
+                          workId: group.workId,
+                          isAudio: false,
+                          imageLoader: widget.imageLoader,
+                          width: coverW,
+                          height: coverH,
+                        ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -465,64 +444,17 @@ class _HistoryWorkTimelineCardState extends State<HistoryWorkTimelineCard> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisSize: MainAxisSize.min,
                           children: <Widget>[
-                            Row(
-                              children: <Widget>[
-                                Flexible(
-                                  child: Text(
-                                    group.workTitle,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: KonataTheme.textStyle(
-                                      color: p.textPrimary,
-                                      fontSize: compact ? 14.8 : 16.0,
-                                      weight: KonataTheme.weightActive,
-                                      height: 1.25,
-                                    ),
-                                  ),
-                                ),
-                                if (isGrouped) ...<Widget>[
-                                  const SizedBox(width: 7),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 7,
-                                      vertical: 1.5,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: p.accentBadge.bg,
-                                      borderRadius:
-                                          KonataTheme.borderRadiusPill,
-                                      border: Border.all(
-                                        color: p.accentBadge.border,
-                                      ),
-                                    ),
-                                    child: Text(
-                                      '${group.entryCount} 条',
-                                      style: KonataTheme.textStyle(
-                                        color: p.accentBadge.fg,
-                                        fontSize: KonataTheme.fontSizeMicro,
-                                        weight: KonataTheme.weightActive,
-                                        tabularFigures: true,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                            if (group.workOriginalTitle != null &&
-                                group.workOriginalTitle!.trim().isNotEmpty &&
-                                group.workOriginalTitle!.trim() !=
-                                    group.workTitle.trim()) ...<Widget>[
-                              const SizedBox(height: 2),
-                              Text(
-                                group.workOriginalTitle!.trim(),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: KonataTheme.captionStyle(
-                                  p,
-                                  fontSize: KonataTheme.fontSizeCaptionXs,
-                                ),
+                            Text(
+                              group.workTitle,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: KonataTheme.textStyle(
+                                color: p.textPrimary,
+                                fontSize: compact ? 14.8 : 16.0,
+                                weight: 700,
+                                height: 1.24,
                               ),
-                            ],
+                            ),
                             const SizedBox(height: 5),
                             Text(
                               group.collapsedSummary,
@@ -534,51 +466,8 @@ class _HistoryWorkTimelineCardState extends State<HistoryWorkTimelineCard> {
                                 tabularFigures: true,
                               ),
                             ),
-                            if (!isGrouped) ...<Widget>[
-                              const SizedBox(height: 6),
-                              HistoryProgressMetaRow(
-                                item: latest,
-                                showProgressBar: true,
-                              ),
-                            ],
                           ],
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: <Widget>[
-                          KonataPillButton.secondary(
-                            label: '续播',
-                            icon: Icons.play_arrow_rounded,
-                            compact: true,
-                            onPressed: () => widget.onResumeItem(latest),
-                          ),
-                          if (isGrouped) ...<Widget>[
-                            const SizedBox(width: 4),
-                            AnimatedRotation(
-                              turns: widget.expanded ? 0.5 : 0.0,
-                              duration: KonataTheme.motionFast,
-                              child: Icon(
-                                Icons.expand_more_rounded,
-                                size: 18,
-                                color: p.textSecondary,
-                              ),
-                            ),
-                          ],
-                          const SizedBox(width: 2),
-                          Builder(
-                            builder: (menuCtx) => KonataCapsuleIconButton(
-                              icon: Icons.more_horiz_rounded,
-                              tooltip: '更多操作',
-                              color: p.textSecondary,
-                              size: 16,
-                              fixedSize: 28,
-                              onTap: () =>
-                                  _openCardMenu(menuCtx, latest, isGrouped),
-                            ),
-                          ),
-                        ],
                       ),
                     ],
                   ),
@@ -589,7 +478,7 @@ class _HistoryWorkTimelineCardState extends State<HistoryWorkTimelineCard> {
               duration: KonataTheme.tabSwitchDuration,
               curve: Curves.easeOutCubic,
               alignment: Alignment.topCenter,
-              child: (isGrouped && widget.expanded)
+              child: (widget.expanded || widget.isSelectionMode)
                   ? _ExpandedHistoryWorkEntries(
                       items: group.items,
                       isAudioGroup: group.isAudioGroup,
@@ -603,6 +492,7 @@ class _HistoryWorkTimelineCardState extends State<HistoryWorkTimelineCard> {
                       onMarkItemCompleted: widget.onMarkItemCompleted,
                       imageLoader: widget.imageLoader,
                       pathArtworkLoader: widget.pathArtworkLoader,
+                      entryArtworkLoader: widget.entryArtworkLoader,
                     )
                   : const SizedBox.shrink(),
             ),
@@ -628,6 +518,7 @@ class _ExpandedHistoryWorkEntries extends StatelessWidget {
     required this.imageLoader,
     this.onMarkItemCompleted,
     this.pathArtworkLoader,
+    this.entryArtworkLoader,
   });
 
   final List<HistoryEntryView> items;
@@ -642,6 +533,9 @@ class _ExpandedHistoryWorkEntries extends StatelessWidget {
   final ValueChanged<HistoryEntryView>? onMarkItemCompleted;
   final HistoryArtworkLoader? imageLoader;
   final HistoryPathArtworkLoader? pathArtworkLoader;
+
+  /// 记录级图片加载器。
+  final HistoryEntryArtworkLoader? entryArtworkLoader;
 
   @override
   Widget build(BuildContext context) {
@@ -664,18 +558,18 @@ class _ExpandedHistoryWorkEntries extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final desiredW = isAudioGroup
-              ? (compact ? 228.0 : 254.0)
-              : (compact ? 248.0 : 284.0);
-          final subCardWidth = math.min(
-            desiredW,
-            math.max(196.0, constraints.maxWidth - 4),
-          );
+          final available = constraints.maxWidth;
+          final subCardWidth = items.length <= 1
+              ? available
+              : available >= 500 && items.length == 2
+              ? (available - 10) / 2
+              : available >= 500
+              ? ((available - 20) / 2.22).clamp(248.0, 310.0)
+              : math.min(available, (available * 0.82).clamp(180.0, 296.0));
 
           return Listener(
             onPointerSignal: (signal) {
-              if (signal is PointerScrollEvent &&
-                  scrollController.hasClients) {
+              if (signal is PointerScrollEvent && scrollController.hasClients) {
                 final delta = signal.scrollDelta.dy != 0
                     ? signal.scrollDelta.dy
                     : signal.scrollDelta.dx;
@@ -697,7 +591,7 @@ class _ExpandedHistoryWorkEntries extends StatelessWidget {
                   controller: scrollController,
                   scrollDirection: Axis.horizontal,
                   itemCount: items.length,
-                  separatorBuilder: (_, _) => const SizedBox(width: 8),
+                  separatorBuilder: (_, _) => const SizedBox(width: 10),
                   itemBuilder: (context, index) {
                     final entry = items[index];
                     return HistoryExpandedEpisodeRow(
@@ -714,6 +608,7 @@ class _ExpandedHistoryWorkEntries extends StatelessWidget {
                           : () => onMarkItemCompleted!(entry),
                       imageLoader: imageLoader,
                       pathArtworkLoader: pathArtworkLoader,
+                      entryArtworkLoader: entryArtworkLoader,
                     );
                   },
                 ),

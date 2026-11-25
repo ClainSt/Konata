@@ -28,7 +28,9 @@ final class HistoryController extends ChangeNotifier {
     this._sourceDeviceId = '',
     DateTime Function()? clock,
     int recentLimit = 500,
-  }) : _clock = clock ?? DateTime.now {
+    HistoryMediaFilter initialFilter = HistoryMediaFilter.all,
+  }) : _clock = clock ?? DateTime.now,
+       _filter = initialFilter {
     _recentSub = _databases.userState.playbackRecords
         .watchRecent(limit: recentLimit)
         .listen(_onRecentRecords);
@@ -57,7 +59,7 @@ final class HistoryController extends ChangeNotifier {
       const <VariantId, MediaVariantRecord>{};
   Map<WorkId, int> _mainEpisodeCounts = const <WorkId, int>{};
 
-  HistoryMediaFilter _filter = HistoryMediaFilter.all;
+  HistoryMediaFilter _filter;
   String _searchQuery = '';
   List<HistoryDayGroup> _dayGroups = const <HistoryDayGroup>[];
   final Set<String> _expandedGroupKeys = <String>{};
@@ -125,6 +127,8 @@ final class HistoryController extends ChangeNotifier {
       return;
     }
     _filter = next;
+    _isSelectionMode = false;
+    _selectedRecordIds.clear();
     _rebuildGroups(refreshMetadata: false);
   }
 
@@ -392,11 +396,12 @@ final class HistoryController extends ChangeNotifier {
   }
 
   List<PlaybackRecordEntity> _loadInitialRecent(int limit) {
-    final active = _databases.userState.playbackRecords
-        .listAllWithTombstones()
-        .where((rec) => !rec.isDeleted)
-        .toList()
-      ..sort((a, b) => b.playedAtMs.compareTo(a.playedAtMs));
+    final active =
+        _databases.userState.playbackRecords
+            .listAllWithTombstones()
+            .where((rec) => !rec.isDeleted)
+            .toList()
+          ..sort((a, b) => b.playedAtMs.compareTo(a.playedAtMs));
     return active.take(limit).toList(growable: false);
   }
 

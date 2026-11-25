@@ -9,6 +9,10 @@ import '../data/history_timeline_models.dart';
 /// 按作品主键加载封面字节的异步回调类型。
 typedef HistoryArtworkLoader = Future<Uint8List?> Function(WorkId workId);
 
+/// 按实际播放项读取剧照或已有专辑封面。
+typedef HistoryEntryArtworkLoader =
+    Future<Uint8List?> Function(HistoryEntryView entry);
+
 /// 按媒体文件/剧照相对路径加载图像字节的异步回调类型。
 typedef HistoryPathArtworkLoader =
     Future<Uint8List?> Function(String path, {int targetWidth});
@@ -24,6 +28,8 @@ class HistoryThumbnail extends StatefulWidget {
     required this.width,
     required this.height,
     this.artworkPath,
+    this.entry,
+    this.entryArtworkLoader,
     this.pathArtworkLoader,
     this.hovered = false,
   });
@@ -39,6 +45,12 @@ class HistoryThumbnail extends StatefulWidget {
 
   /// 可选具体路径（如分集 16:9 剧照路径）。
   final String? artworkPath;
+
+  /// 当前缩略图关联的具体记录。
+  final HistoryEntryView? entry;
+
+  /// 记录级图片加载器。
+  final HistoryEntryArtworkLoader? entryArtworkLoader;
 
   /// 可选按路径加载剧照字节的回调。
   final HistoryPathArtworkLoader? pathArtworkLoader;
@@ -71,6 +83,8 @@ class _HistoryThumbnailState extends State<HistoryThumbnail> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.workId != widget.workId ||
         oldWidget.artworkPath != widget.artworkPath ||
+        oldWidget.entry?.record.id != widget.entry?.record.id ||
+        oldWidget.entryArtworkLoader != widget.entryArtworkLoader ||
         oldWidget.imageLoader != widget.imageLoader ||
         oldWidget.pathArtworkLoader != widget.pathArtworkLoader) {
       _loadCover();
@@ -82,9 +96,19 @@ class _HistoryThumbnailState extends State<HistoryThumbnail> {
     Uint8List? loaded;
     final path = widget.artworkPath?.trim() ?? '';
     final pathLoader = widget.pathArtworkLoader;
-    if (path.isNotEmpty && pathLoader != null) {
+    if (widget.entry != null && widget.entryArtworkLoader != null) {
       try {
-        loaded = await pathLoader(path, targetWidth: (widget.width * 2).round());
+        loaded = await widget.entryArtworkLoader!(widget.entry!);
+      } catch (_) {
+        loaded = null;
+      }
+    }
+    if (loaded == null && path.isNotEmpty && pathLoader != null) {
+      try {
+        loaded = await pathLoader(
+          path,
+          targetWidth: (widget.width * 2).round(),
+        );
       } catch (_) {
         loaded = null;
       }
@@ -179,11 +203,7 @@ class _PlaceholderPoster extends StatelessWidget {
         ),
       ),
       child: Center(
-        child: Icon(
-          Icons.movie_outlined,
-          size: 20,
-          color: palette.textMuted,
-        ),
+        child: Icon(Icons.movie_outlined, size: 20, color: palette.textMuted),
       ),
     );
   }
@@ -238,11 +258,11 @@ class HistoryProgressMetaRow extends StatelessWidget {
           children: <Widget>[
             Expanded(
               child: Text(
-                item.progressLabel,
+                item.progressLabel.replaceFirst(RegExp(r'^(看到|听到) '), ''),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: KonataTheme.textStyle(
-                  color: item.isCompleted ? p.success : p.textSecondary,
+                  color: item.isCompleted ? p.success : p.textPrimary,
                   fontSize: KonataTheme.fontSizeCaptionXs,
                   weight: item.isCompleted
                       ? KonataTheme.weightActive
@@ -252,8 +272,6 @@ class HistoryProgressMetaRow extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 6),
-            Icon(Icons.schedule_rounded, size: 11, color: p.textMuted),
-            const SizedBox(width: 3),
             Text(
               item.playedTimeLabel,
               style: KonataTheme.textStyle(
@@ -283,6 +301,7 @@ class HistoryExpandedEpisodeRow extends StatefulWidget {
     this.onMarkCompleted,
     this.imageLoader,
     this.pathArtworkLoader,
+    this.entryArtworkLoader,
     this.compact = false,
     this.cardWidth,
   });
@@ -313,6 +332,9 @@ class HistoryExpandedEpisodeRow extends StatefulWidget {
 
   /// 剧照路径加载器。
   final HistoryPathArtworkLoader? pathArtworkLoader;
+
+  /// 记录级图像加载器。
+  final HistoryEntryArtworkLoader? entryArtworkLoader;
 
   /// 是否使用紧凑移动端尺寸。
   final bool compact;
@@ -420,6 +442,8 @@ class _HistoryExpandedEpisodeRowState extends State<HistoryExpandedEpisodeRow> {
                 HistoryThumbnail(
                   workId: item.record.workId,
                   artworkPath: audio ? null : item.stillPath,
+                  entry: item,
+                  entryArtworkLoader: widget.entryArtworkLoader,
                   isAudio: audio,
                   imageLoader: widget.imageLoader,
                   pathArtworkLoader: widget.pathArtworkLoader,
@@ -449,17 +473,6 @@ class _HistoryExpandedEpisodeRowState extends State<HistoryExpandedEpisodeRow> {
                               ),
                             ),
                           ),
-                          if (!widget.isSelectionMode)
-                            Builder(
-                              builder: (menuCtx) => KonataCapsuleIconButton(
-                                icon: Icons.more_horiz_rounded,
-                                tooltip: '操作菜单',
-                                color: p.textMuted,
-                                size: 14,
-                                fixedSize: 22,
-                                onTap: () => _showRowMenu(menuCtx),
-                              ),
-                            ),
                         ],
                       ),
                       if (subdir != null) ...<Widget>[

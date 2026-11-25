@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:konata_contracts/konata_contracts.dart';
 import 'package:konata_storage/konata_storage.dart';
 
+import 'data/history_timeline_models.dart';
 import 'state/history_controller.dart';
 import 'ui/playback_history_sub_cards.dart';
 
@@ -16,6 +17,7 @@ final class FeatureHistoryDependencies {
     this.sourceDeviceId = '',
     this.imageLoader,
     this.pathArtworkLoader,
+    this.entryArtworkLoader,
   });
 
   /// 本地三库持久化集合。
@@ -38,6 +40,9 @@ final class FeatureHistoryDependencies {
 
   /// 可选按相对路径加载分集剧照或原画字节的回调（未注入时回退作品封面）。
   final HistoryPathArtworkLoader? pathArtworkLoader;
+
+  /// 记录级图片加载器。
+  final HistoryEntryArtworkLoader? entryArtworkLoader;
 }
 
 /// 播放记录模块宿主依赖注入入口；必须在根 `ProviderScope` 覆盖。
@@ -57,6 +62,7 @@ final historyControllerProvider = Provider<HistoryController>((ref) {
     navigator: deps.navigator,
     diagnosticLog: deps.diagnosticLog,
     sourceDeviceId: deps.sourceDeviceId,
+    initialFilter: HistoryMediaFilter.video,
   );
   ref.onDispose(controller.dispose);
   return controller;

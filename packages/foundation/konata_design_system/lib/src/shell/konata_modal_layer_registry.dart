@@ -80,20 +80,27 @@ class KonataModalLayerRegistry extends ChangeNotifier {
 }
 
 /// 向子树提供 [KonataModalLayerRegistry] 的纯 Flutter 作用域（0 Riverpod 依赖）。
-class KonataModalLayerScope extends InheritedNotifier<KonataModalLayerRegistry> {
+class KonataModalLayerScope extends InheritedWidget {
   /// 创建模态层级注册表作用域。
   const KonataModalLayerScope({
     super.key,
-    required KonataModalLayerRegistry registry,
+    required this.registry,
     required super.child,
-  }) : super(notifier: registry);
+  });
+
+  /// 模态层级资源供路由访问，层级监听由悬浮窗直接管理。
+  final KonataModalLayerRegistry registry;
 
   /// 读取最近的 [KonataModalLayerRegistry]（无订阅副作用，未挂载时返回 `null`）。
   static KonataModalLayerRegistry? maybeOf(BuildContext context) {
     return context
         .getInheritedWidgetOfExactType<KonataModalLayerScope>()
-        ?.notifier;
+        ?.registry;
   }
+
+  @override
+  bool updateShouldNotify(KonataModalLayerScope oldWidget) =>
+      !identical(registry, oldWidget.registry);
 }
 
 /// 在弹窗、底部抽屉与弹出菜单根节点自动向 [KonataModalLayerRegistry] 登记所属 `ModalRoute` 的轻量作用域。

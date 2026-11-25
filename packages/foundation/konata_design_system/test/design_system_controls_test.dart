@@ -14,6 +14,22 @@ Widget _wrapApp(Widget child, {bool dark = true}) {
 }
 
 void main() {
+  testWidgets('公共按钮超长动态文本在 Wrap 与固定宽度内不溢出', (tester) async {
+    final long = List.filled(30, '中日英混合路径／Avid').join('/');
+    for (final width in [180.0, 340.0, 680.0]) {
+      await tester.pumpWidget(_wrapApp(Center(
+        child: SizedBox(width: width, child: Wrap(children: [
+          KonataPillButton.ghost(label: long, onPressed: () {}),
+          KonataPillButton.secondary(label: long, icon: Icons.folder_open, onPressed: () {}),
+        ])),
+      )));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      for (final element in find.byType(KonataPillButton).evaluate()) {
+        expect((element.findRenderObject()! as RenderBox).size.width, lessThanOrEqualTo(width));
+      }
+    }
+  });
   testWidgets('Navigator 外部的迷你播放器图标、文本和普通提示不触发 Overlay 异常', (tester) async {
     var taps = 0;
     await tester.pumpWidget(

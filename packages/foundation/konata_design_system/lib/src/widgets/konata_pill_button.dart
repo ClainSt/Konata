@@ -172,25 +172,27 @@ class _KonataPillButtonState extends State<KonataPillButton> {
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             if (widget.icon != null) ...[
-              Icon(
-                widget.icon,
-                size: widget.compact ? 15 : 17,
-                color: fgColor,
-              ),
+              Icon(widget.icon, size: widget.compact ? 15 : 17, color: fgColor),
               const SizedBox(width: 6),
             ],
-            Text(
-              widget.label,
-              maxLines: 1,
-              softWrap: false,
-              style: TextStyle(
-                color: fgColor,
-                fontSize: widget.compact ? 12.5 : 13.5,
-                fontWeight:
-                    (widget.variant == KonataPillVariant.primary ||
-                        widget.variant == KonataPillVariant.danger)
-                    ? FontWeight.w600
-                    : FontWeight.w500,
+            Flexible(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 320),
+                child: Text(
+                  widget.label,
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: fgColor,
+                    fontSize: widget.compact ? 12.5 : 13.5,
+                    fontWeight:
+                        (widget.variant == KonataPillVariant.primary ||
+                            widget.variant == KonataPillVariant.danger)
+                        ? FontWeight.w600
+                        : FontWeight.w500,
+                  ),
+                ),
               ),
             ),
             if (widget.trailing != null) ...[
@@ -259,7 +261,13 @@ class KonataQuickFillRow extends StatelessWidget {
         runSpacing: 6,
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          Text('快捷填入：', style: TextStyle(color: p.textMuted, fontSize: KonataTheme.fontSizeCaptionSm)),
+          Text(
+            '快捷填入：',
+            style: TextStyle(
+              color: p.textMuted,
+              fontSize: KonataTheme.fontSizeCaptionSm,
+            ),
+          ),
           for (final term in terms)
             KonataPillButton.secondary(
               label: term,

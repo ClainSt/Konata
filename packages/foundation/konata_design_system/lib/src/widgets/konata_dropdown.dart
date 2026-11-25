@@ -8,6 +8,7 @@ import '../tokens/konata_adaptive_tokens.dart';
 import '../tokens/konata_palette.dart';
 import '../tokens/konata_playback_tokens.dart';
 import '../tokens/konata_theme.dart';
+import 'ellipsis_text_with_tooltip.dart';
 import 'konata_draggable_scrollbar.dart';
 import 'konata_popover_option_tile.dart';
 
@@ -143,19 +144,24 @@ mixin _KonataDropdownHostMixin<W extends StatefulWidget> on State<W> {
     final screenSize = MediaQuery.sizeOf(context);
     final overlay = Overlay.of(context, rootOverlay: true);
 
-    final effectiveWidth = clampExplicitWidth && menuWidth != null
-        ? math.min(menuWidth, screenSize.width - 24)
-        : math.max(
-            menuWidth ?? triggerSize.width,
-            math.min(minMenuWidth, screenSize.width - 24),
-          );
+    final maxViewportWidth = math.max(1.0, screenSize.width - 24);
+    final effectiveWidth = math.min(
+      maxViewportWidth,
+      clampExplicitWidth && menuWidth != null
+          ? menuWidth
+          : math.max(
+              menuWidth ?? triggerSize.width,
+              math.min(minMenuWidth, maxViewportWidth),
+            ),
+    );
     final spaceBelow =
         screenSize.height - (triggerOffset.dy + triggerSize.height) - 16;
     final spaceAbove = triggerOffset.dy - 16;
     final openUpward = spaceBelow < upwardThreshold && spaceAbove > spaceBelow;
-    final availableHeight = math.max(
-      minAvailableHeight,
-      math.min(maxMenuHeight, openUpward ? spaceAbove : spaceBelow),
+    final sideSpace = math.max(1.0, (openUpward ? spaceAbove : spaceBelow) - 6);
+    final availableHeight = math.min(
+      sideSpace,
+      math.max(minAvailableHeight, math.min(maxMenuHeight, sideSpace)),
     );
     final double horizontalShift;
     if (centerAligned) {
@@ -167,11 +173,12 @@ mixin _KonataDropdownHostMixin<W extends StatefulWidget> on State<W> {
       );
       horizontalShift = clampedLeft - centeredLeft;
     } else {
-      final overflowRight =
-          triggerOffset.dx + effectiveWidth > screenSize.width - 12;
-      horizontalShift = overflowRight
-          ? (screenSize.width - 12 - effectiveWidth - triggerOffset.dx)
-          : 0.0;
+      horizontalShift =
+          triggerOffset.dx.clamp(
+            12.0,
+            math.max(12.0, screenSize.width - 12 - effectiveWidth),
+          ) -
+          triggerOffset.dx;
     }
 
     _entry = OverlayEntry(
@@ -326,7 +333,11 @@ class _KonataDropdownState<T> extends State<KonataDropdown<T>>
             ),
           ),
           const SizedBox(width: 4),
-          _buildChevron(p, enabled: widget.enabled, size: widget.dense ? 17 : 18),
+          _buildChevron(
+            p,
+            enabled: widget.enabled,
+            size: widget.dense ? 17 : 18,
+          ),
         ],
       ),
     );
@@ -649,4 +660,3 @@ class _KonataMultiSelectDropdownState<T>
     );
   }
 }
-

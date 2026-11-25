@@ -181,33 +181,40 @@ class _SupplementaryScopePanelState extends State<SupplementaryScopePanel> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: KonataSoftTextField(
-                controller: _searchCtrl,
-                dense: true,
-                prefixIcon: Icons.search_rounded,
-                hintText: '筛选特典、CD 或扫图目录路径...',
-                onChanged: (v) => setState(() => _query = v),
-              ),
-            ),
-            const SizedBox(width: 8),
-            KonataSegmentedCapsule<_SuppFilterKind>(
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final search = KonataSoftTextField(
+              controller: _searchCtrl,
+              dense: true,
+              prefixIcon: Icons.search_rounded,
+              hintText: '筛选特典、CD 或扫图目录路径...',
+              onChanged: (v) => setState(() => _query = v),
+            );
+            final filter = KonataSegmentedCapsule<_SuppFilterKind>(
               compact: true,
               selected: _filterKind,
               onChanged: (next) => setState(() => _filterKind = next),
               options: const [
                 KonataSegmentOption(value: _SuppFilterKind.all, label: '全部'),
-                KonataSegmentOption(
-                  value: _SuppFilterKind.extra,
-                  label: '特典',
-                ),
+                KonataSegmentOption(value: _SuppFilterKind.extra, label: '特典'),
                 KonataSegmentOption(value: _SuppFilterKind.cd, label: 'CD'),
                 KonataSegmentOption(value: _SuppFilterKind.scan, label: '扫图'),
               ],
-            ),
-          ],
+            );
+            if (constraints.maxWidth < 440) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [search, const SizedBox(height: 6), filter],
+              );
+            }
+            return Row(
+              children: [
+                Expanded(child: search),
+                const SizedBox(width: 8),
+                filter,
+              ],
+            );
+          },
         ),
         const SizedBox(height: 10),
         Expanded(
@@ -269,17 +276,21 @@ class _SupplementaryScopePanelState extends State<SupplementaryScopePanel> {
                               ),
                             ),
                             const SizedBox(width: 10),
-                            SizedBox(
-                              width: 210,
-                              child: KonataDropdown<String>(
-                                value: _draftValue(draft),
-                                dense: true,
-                                enabled: !widget.saving,
-                                options: options,
-                                onChanged: (next) {
-                                  setState(() => _applyValue(draft, next));
-                                  widget.onChanged();
-                                },
+                            Flexible(
+                              child: ConstrainedBox(
+                                constraints: const BoxConstraints(
+                                  maxWidth: 210,
+                                ),
+                                child: KonataDropdown<String>(
+                                  value: _draftValue(draft),
+                                  dense: true,
+                                  enabled: !widget.saving,
+                                  options: options,
+                                  onChanged: (next) {
+                                    setState(() => _applyValue(draft, next));
+                                    widget.onChanged();
+                                  },
+                                ),
                               ),
                             ),
                           ],

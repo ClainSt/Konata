@@ -229,15 +229,22 @@ class _EpisodeSlotPickerButtonState extends State<EpisodeSlotPickerButton> {
     if (box == null || !box.hasSize) return;
     final pos = box.localToGlobal(Offset.zero);
     final screen = MediaQuery.sizeOf(context);
-    final openUpward =
-        pos.dy + box.size.height + 300 > screen.height - 16 && pos.dy > 260;
-
+    final width = math.min(300.0, screen.width - 24);
+    final above = math.max(0.0, pos.dy - 16);
+    final below = math.max(0.0, screen.height - pos.dy - box.size.height - 16);
+    final openUpward = below < 320 && above > below;
+    final maxHeight = math.min(320.0, openUpward ? above : below);
+    final shift =
+        pos.dx.clamp(12.0, math.max(12.0, screen.width - 12 - width)) - pos.dx;
     final options = _buildOptions();
     final overlay = Overlay.of(context, rootOverlay: true);
     _entry = OverlayEntry(
       builder: (_) => _SlotPopoverOverlay(
         link: _link,
         openUpward: openUpward,
+        width: width,
+        maxHeight: maxHeight,
+        horizontalShift: shift,
         options: options,
         currentRow: widget.row,
         onDismiss: _dismiss,
@@ -318,6 +325,9 @@ class _SlotPopoverOverlay extends StatefulWidget {
   const _SlotPopoverOverlay({
     required this.link,
     required this.openUpward,
+    required this.width,
+    required this.maxHeight,
+    required this.horizontalShift,
     required this.options,
     required this.currentRow,
     required this.onDismiss,
@@ -326,6 +336,7 @@ class _SlotPopoverOverlay extends StatefulWidget {
 
   final LayerLink link;
   final bool openUpward;
+  final double width, maxHeight, horizontalShift;
   final List<_SlotOption> options;
   final EditableFileMappingRow currentRow;
   final VoidCallback onDismiss;
@@ -378,19 +389,14 @@ class _SlotPopoverOverlayState extends State<_SlotPopoverOverlay> {
           followerAnchor: widget.openUpward
               ? Alignment.bottomLeft
               : Alignment.topLeft,
-          offset: Offset(0, widget.openUpward ? -4 : 4),
+          offset: Offset(widget.horizontalShift, widget.openUpward ? -4 : 4),
           child: ClipRRect(
             borderRadius: KonataTheme.borderRadiusCard,
             child: BackdropFilter(
               filter: KonataTheme.blurFilterOverlay,
               child: Container(
-                width: 300,
-                constraints: BoxConstraints(
-                  maxHeight: math.min(
-                    320,
-                    MediaQuery.sizeOf(context).height * 0.52,
-                  ),
-                ),
+                width: widget.width,
+                constraints: BoxConstraints(maxHeight: widget.maxHeight),
                 decoration: BoxDecoration(
                   color: KonataTheme.glassDialogSurface(p),
                   borderRadius: KonataTheme.borderRadiusCard,

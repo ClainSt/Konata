@@ -76,10 +76,9 @@ class _FileMappingPanelState extends State<FileMappingPanel> {
   @override
   void initState() {
     super.initState();
-    _seqSeasonCtrl.text = (widget.defaultMainSeason <= 0
-            ? 1
-            : widget.defaultMainSeason)
-        .toString();
+    _seqSeasonCtrl.text =
+        (widget.defaultMainSeason <= 0 ? 1 : widget.defaultMainSeason)
+            .toString();
   }
 
   @override
@@ -125,10 +124,7 @@ class _FileMappingPanelState extends State<FileMappingPanel> {
         .toList(growable: false);
   }
 
-  void _handleCheckboxTap(
-    List<EditableFileMappingRow> visibleRows,
-    int index,
-  ) {
+  void _handleCheckboxTap(List<EditableFileMappingRow> visibleRows, int index) {
     final row = visibleRows[index];
     final nextSelected = !widget.selectedVariantIds.contains(row.variant.id);
     if (_isShiftPressed &&
@@ -223,24 +219,23 @@ class _FileMappingPanelState extends State<FileMappingPanel> {
     };
     final allVisibleSelected =
         visibleRows.isNotEmpty &&
-        visibleRows.every((r) => widget.selectedVariantIds.contains(r.variant.id));
+        visibleRows.every(
+          (r) => widget.selectedVariantIds.contains(r.variant.id),
+        );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: KonataSoftTextField(
-                controller: _searchCtrl,
-                dense: true,
-                prefixIcon: Icons.search_rounded,
-                hintText: '筛选文件名或子目录路径...',
-                onChanged: (v) => setState(() => _query = v),
-              ),
-            ),
-            const SizedBox(width: 8),
-            KonataSegmentedCapsule<_MappingCategoryFilter>(
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final search = KonataSoftTextField(
+              controller: _searchCtrl,
+              dense: true,
+              prefixIcon: Icons.search_rounded,
+              hintText: '筛选文件名或子目录路径...',
+              onChanged: (v) => setState(() => _query = v),
+            );
+            final filter = KonataSegmentedCapsule<_MappingCategoryFilter>(
               compact: true,
               selected: _filter,
               onChanged: (next) => setState(() => _filter = next),
@@ -258,8 +253,21 @@ class _FileMappingPanelState extends State<FileMappingPanel> {
                   label: '特典',
                 ),
               ],
-            ),
-          ],
+            );
+            if (constraints.maxWidth < 420) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [search, const SizedBox(height: 6), filter],
+              );
+            }
+            return Row(
+              children: [
+                Expanded(child: search),
+                const SizedBox(width: 8),
+                filter,
+              ],
+            );
+          },
         ),
         const SizedBox(height: 10),
         Wrap(
@@ -295,12 +303,25 @@ class _FileMappingPanelState extends State<FileMappingPanel> {
                 onPressed: widget.saving ? null : widget.onResetAutoMappings,
               ),
             if (folderSet.length > 1)
-              for (final dir in folderSet.take(4))
-                KonataPillButton.ghost(
-                  label: '选目录：$dir',
-                  compact: true,
-                  onPressed: widget.saving ? null : () => _selectSubfolder(dir),
+              SizedBox(
+                width: 220,
+                child: KonataDropdown<String>(
+                  key: const ValueKey('mapping_folder_select'),
+                  hintText: '按目录批选',
+                  dense: true,
+                  enabled: !widget.saving,
+                  menuWidth: 480,
+                  options: [
+                    for (final dir in folderSet)
+                      KonataDropdownOption(
+                        value: dir,
+                        label: dir.split('/').last,
+                        subtitle: dir,
+                      ),
+                  ],
+                  onChanged: _selectSubfolder,
                 ),
+              ),
           ],
         ),
         if (selectedCount > 0) ...[
@@ -337,12 +358,16 @@ class _FileMappingPanelState extends State<FileMappingPanel> {
                 KonataPillButton.ghost(
                   label: '集数 -1',
                   compact: true,
-                  onPressed: widget.saving ? null : () => _offsetSelectedEpisodes(-1),
+                  onPressed: widget.saving
+                      ? null
+                      : () => _offsetSelectedEpisodes(-1),
                 ),
                 KonataPillButton.ghost(
                   label: '集数 +1',
                   compact: true,
-                  onPressed: widget.saving ? null : () => _offsetSelectedEpisodes(1),
+                  onPressed: widget.saving
+                      ? null
+                      : () => _offsetSelectedEpisodes(1),
                 ),
                 SizedBox(
                   width: 58,
@@ -371,7 +396,9 @@ class _FileMappingPanelState extends State<FileMappingPanel> {
                   KonataPillButton.secondary(
                     label: '拆为独立作品',
                     compact: true,
-                    onPressed: widget.saving ? null : widget.onSplitSelectedToNewWork,
+                    onPressed: widget.saving
+                        ? null
+                        : widget.onSplitSelectedToNewWork,
                   ),
                 if (widget.onMoveSelectedToExistingWork != null)
                   KonataPillButton.secondary(

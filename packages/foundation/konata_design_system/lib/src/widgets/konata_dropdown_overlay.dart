@@ -295,19 +295,22 @@ class _FrostedDropdownOverlayState<T> extends State<_FrostedDropdownOverlay<T>>
                                             vertical: 8,
                                           ),
                                       border: OutlineInputBorder(
-                                        borderRadius: KonataTheme.borderRadiusControl,
+                                        borderRadius:
+                                            KonataTheme.borderRadiusControl,
                                         borderSide: BorderSide(
                                           color: p.hairline,
                                         ),
                                       ),
                                       enabledBorder: OutlineInputBorder(
-                                        borderRadius: KonataTheme.borderRadiusControl,
+                                        borderRadius:
+                                            KonataTheme.borderRadiusControl,
                                         borderSide: BorderSide(
                                           color: p.hairline,
                                         ),
                                       ),
                                       focusedBorder: OutlineInputBorder(
-                                        borderRadius: KonataTheme.borderRadiusControl,
+                                        borderRadius:
+                                            KonataTheme.borderRadiusControl,
                                         borderSide: BorderSide(
                                           color: p.accent.withValues(
                                             alpha: 0.65,
@@ -417,9 +420,7 @@ class _DropdownOptionTile extends StatelessWidget {
                     style: TextStyle(
                       color: selected ? p.accent : p.textPrimary,
                       fontSize: KonataTheme.fontSizeBodyXs,
-                      fontWeight: selected
-                          ? FontWeight.w600
-                          : FontWeight.w500,
+                      fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
                     ),
                   ),
                 ),
@@ -457,10 +458,8 @@ class _DropdownOptionTile extends StatelessWidget {
                       if (subtitle != null && subtitle!.trim().isNotEmpty)
                         Padding(
                           padding: const EdgeInsets.only(top: 1.5),
-                          child: Text(
-                            subtitle!,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                          child: EllipsisTextWithTooltip(
+                            text: subtitle!,
                             style: TextStyle(
                               color: p.textMuted,
                               fontSize: KonataTheme.fontSizeCaptionXs,

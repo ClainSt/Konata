@@ -39,7 +39,7 @@ groupListing(
     detectLocalCovers: detectLocalCovers,
   );
   final scanMs = clock.elapsedMilliseconds;
-  final groups = ScrapeDomainAdapter.groupAndSplitFiles(
+  final groups = groupAndSplitFiles(
     sourceId: 'eval',
     files: scan.files,
     nfoByFolder: scan.nfoByFolder,
@@ -130,7 +130,7 @@ Map<String, Object?> dumpGroup(GroupedWorkFolder g) {
     'name': g.folderName,
     'title': g.cleanTitle,
     'year': g.year,
-    'searchYear': ScrapeDomainAdapter.extractSearchYear(g),
+    'searchYear': extractSearchYear(g),
     'season': g.seasonHint,
     'tmdb': g.explicitTmdbId,
     'tmdbType': g.explicitMediaType?.name,
@@ -139,7 +139,7 @@ Map<String, Object?> dumpGroup(GroupedWorkFolder g) {
     'titleHints': g.titleHints,
     'fileHints': g.fileHints,
     'extraQueries': g.extraSearchQueries,
-    'queries': ScrapeDomainAdapter.buildSearchQueries(g),
+    'queries': buildSearchQueries(g),
     'mainEps': g.mainEpisodeNumbers,
     'files': [
       for (final v in g.variants)

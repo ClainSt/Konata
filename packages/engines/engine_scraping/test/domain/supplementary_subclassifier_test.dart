@@ -138,14 +138,14 @@ void main() {
         '紅蓮華 / Making_Video',
       );
 
-      // 验证 ScrapeDomainAdapter.resolveExtraSlotAssignment 对不同单曲同名 00000.m2ts 产出不同槽位防误合并
-      final slotA = ScrapeDomainAdapter.resolveExtraSlotAssignment(
+      // 验证 resolveExtraSlotAssignment 对不同单曲同名 00000.m2ts 产出不同槽位防误合并
+      final slotA = resolveExtraSlotAssignment(
         fileName: '00000.m2ts',
         relativePath: singlePathA,
         parsed: BdripParser.parseFileName('00000.m2ts', relativePath: singlePathA),
         workVideoEntries: rawEntries,
       );
-      final slotB = ScrapeDomainAdapter.resolveExtraSlotAssignment(
+      final slotB = resolveExtraSlotAssignment(
         fileName: '00000.m2ts',
         relativePath: multiDiscVideo1,
         parsed: BdripParser.parseFileName(

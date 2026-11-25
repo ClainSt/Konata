@@ -4,8 +4,7 @@ import '../models/tmdb_models.dart';
 import '../models/work.dart';
 import '../scraping/bangumi_models.dart';
 import '../scraping/bangumi_tmdb_index.dart';
-import '../scraping/scrape_domain_adapter.dart';
-import '../scraping/work_matcher.dart' as legacy;
+import '../scraping/scrape_rules.dart' as rules;
 import 'hard_work_rescue_engine.dart';
 import 'scrape_candidate_fetcher.dart';
 import 'scrape_compute_worker.dart';
@@ -27,7 +26,7 @@ class ScrapeMatchResolution {
   final MatchDecision decision;
 
   /// Bangumi 初轮检索的匹配等级。
-  final legacy.MatchTier bangumiTier;
+  final MatchTier bangumiTier;
 
   /// Bangumi 初轮检索的最佳候选（网络异常降级入库时使用）。
   final ScoredBangumiCandidate? bestBangumi;
@@ -89,14 +88,14 @@ class ScrapeMatchResolver {
     // 仅拉取映射指向的 1~3 条 TMDB 轻量详情并执行完整复核；若确认高置信 autoBind 则直接短路跳过全部 TMDB 关键词检索，
     // 否则无缝回退常规全量检索并复用已拉取详情，保证准确率零妥协。
     final bgmBest = bgmEval.best;
-    final expectsMovie = ScrapeDomainAdapter.expectsStandaloneMovie(
+    final expectsMovie = rules.expectsStandaloneMovie(
       folder,
       bgmBest?.subject,
     );
     final preloadedMapped = <TmdbWorkDetail>[];
     final orderedMappedTargets = (!tmdbBlocked() &&
             bgmBest != null &&
-            bgmEval.tier == legacy.MatchTier.high)
+            bgmEval.tier == MatchTier.high)
         ? _orderedUniqueMappedTargets(bgmBest.subject)
         : const <({TmdbMediaType type, int id})>[];
 
@@ -160,8 +159,8 @@ class ScrapeMatchResolver {
               .fold<double>(0.0, (m, v) => v > m ? v : m);
     final trustedBgmForTmdb =
         bgmBest != null &&
-        (bgmEval.tier == legacy.MatchTier.high ||
-            (bgmEval.tier == legacy.MatchTier.medium && bgmTitleScore >= 32.0));
+        (bgmEval.tier == MatchTier.high ||
+            (bgmEval.tier == MatchTier.medium && bgmTitleScore >= 32.0));
 
     var candidates = tmdbBlocked()
         ? List<TmdbWorkDetail>.of(preloadedMapped)
@@ -264,7 +263,7 @@ class ScrapeMatchResolver {
     }
 
     // 若 Bangumi 初搜落空但 TMDB 给出强候选，使用 TMDB 中/原名反向救回 Bangumi 条目。
-    if (bgmEval.tier == legacy.MatchTier.none &&
+    if (bgmEval.tier == MatchTier.none &&
         decision.best != null &&
         _fetcher.bangumiService != null) {
       final tWinner = decision.best!.detail;

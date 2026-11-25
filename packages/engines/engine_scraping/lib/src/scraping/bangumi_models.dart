@@ -1,4 +1,4 @@
-import 'work_matcher.dart' as legacy;
+import '../matching/work_matcher.dart';
 
 /// Bangumi 动画条目候选元数据（严格不包含角色/声优等冗余资料）。
 class BangumiSubjectCandidate {
@@ -81,7 +81,7 @@ class BangumiSubjectCandidate {
   }
 
   /// 转换为 `WorkMatcher` 所需的统一候选结构。
-  legacy.MatchCandidate toMatchCandidate() {
+  MatchCandidate toMatchCandidate() {
     final mergedAliases = <String>[];
     final seen = <String>{};
     void addAlias(String raw) {
@@ -112,7 +112,7 @@ class BangumiSubjectCandidate {
             RegExp(r'^(?:ova|oad)$', caseSensitive: false)
                 .hasMatch(platform!.trim()));
 
-    return legacy.MatchCandidate(
+    return MatchCandidate(
       provider: 'bangumi',
       id: id,
       type: 'anime',
@@ -124,7 +124,7 @@ class BangumiSubjectCandidate {
       aliases: mergedAliases,
       seasons: totalEpisodes != null && totalEpisodes! > 0
           ? [
-              legacy.SeasonInfo(
+              SeasonInfo(
                 1,
                 totalEpisodes!,
                 year,

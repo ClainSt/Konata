@@ -49,7 +49,7 @@ void main() {
     });
   }
 
-  test('ScrapeDomainAdapter.mapSpecialEpisodes 保持 CM 防护与普通 OVA 精确映射一致', () {
+  test('mapSpecialEpisodes 保持 CM 防护与普通 OVA 精确映射一致', () {
     const work = Work(id: 'w1', title: 'Test Show', tmdbId: 100);
     const extraOva = MediaVariant(
       id: 'v-ova',
@@ -74,7 +74,7 @@ void main() {
       episodeNumber: 1,
       title: 'OVA story',
     );
-    final mapped = ScrapeDomainAdapter.mapSpecialEpisodes(
+    final mapped = mapSpecialEpisodes(
       work: work,
       extraVariants: const [extraOva, extraCm],
       seasonZeroEpisodes: const [s0Ep],

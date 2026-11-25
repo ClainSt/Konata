@@ -22,7 +22,7 @@ import '../parsing/release_groups.dart';
 import '../scraping/bangumi_models.dart';
 import '../scraping/bangumi_tmdb_index.dart';
 import '../scraping/match_difficulty_classifier.dart';
-import '../scraping/scrape_domain_adapter.dart';
+import '../scraping/scrape_rules.dart' as rules;
 import '../scraping/work_wall_eligibility.dart';
 import 'clear_logo_resolver.dart';
 import 'library_repository.dart';
@@ -1129,7 +1129,7 @@ class ScrapePipeline {
       if (detail != null) {
         final preSeason =
             folder.seasonHint ??
-            ScrapeDomainAdapter.fallbackResolveSeason(
+            rules.fallbackResolveSeason(
               folder: folder,
               detail: detail,
             );
@@ -1201,7 +1201,7 @@ class ScrapePipeline {
           matchedSeason:
               explicitDecision.matchedSeason ??
               folder.seasonHint ??
-              ScrapeDomainAdapter.fallbackResolveSeason(
+              rules.fallbackResolveSeason(
                 folder: folder,
                 detail: detail,
               ),
@@ -1405,7 +1405,7 @@ class ScrapePipeline {
             matchedSeason:
                 target.season ??
                 effectiveFolder.seasonHint ??
-                ScrapeDomainAdapter.fallbackResolveSeason(
+                rules.fallbackResolveSeason(
                   folder: effectiveFolder,
                   detail: mappedDetail,
                 ),
@@ -1692,7 +1692,7 @@ class ScrapePipeline {
           )
         : null;
     final seasonsToFetch = <int>{
-      ...ScrapeDomainAdapter.referencedSeasonsToFetch(
+      ...rules.referencedSeasonsToFetch(
         folder,
         matchedSeason: matchedSeason,
         detail: effectiveDetail,
@@ -2017,7 +2017,7 @@ class ScrapePipeline {
   }
 
   Set<int> _extractReferencedSeasons(GroupedWorkFolder folder) =>
-      ScrapeDomainAdapter.referencedSeasonsToFetch(folder);
+      rules.referencedSeasonsToFetch(folder);
 
   /// 人工纠错或元数据刷新：重绑定或刷新指定 TMDB 条目（同步刷新已绑定的 Bangumi 与 Fanart.tv 等已用源，未显式重置时严格保护已锁定字段与文件映射）。
   Future<Work> rebindWorkToTmdb(
@@ -2136,7 +2136,7 @@ class ScrapePipeline {
           matchedSeasonOverride ??
           matchDecision.matchedSeason ??
           targetFolder.seasonHint ??
-          ScrapeDomainAdapter.fallbackResolveSeason(
+          rules.fallbackResolveSeason(
             folder: targetFolder,
             detail: detail,
           ) ??
@@ -2298,7 +2298,7 @@ class ScrapePipeline {
           : null;
       final existingEpisodes = await _repository.getEpisodesByWork(workId);
       final seasonsToFetch = <int>{
-        ...ScrapeDomainAdapter.referencedSeasonsToFetch(
+        ...rules.referencedSeasonsToFetch(
           targetFolder,
           matchedSeason: matchedSeason,
           detail: detail,

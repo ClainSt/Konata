@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:engine_scraping/engine_scraping.dart';
-import 'package:engine_scraping/src/scraping/work_matcher.dart' as legacy;
+import 'package:engine_scraping/src/matching/work_matcher.dart' as legacy;
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:test/test.dart';

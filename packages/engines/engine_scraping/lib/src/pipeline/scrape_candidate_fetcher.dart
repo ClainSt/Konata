@@ -3,13 +3,13 @@ import 'dart:developer' as developer;
 import 'package:konata_contracts/konata_contracts.dart';
 
 import '../matching/directory_grouper.dart';
+import '../matching/work_matcher.dart';
 import '../models/tmdb_models.dart';
 import '../network/bangumi_service.dart';
 import '../network/tmdb_service.dart';
 import '../scraping/bangumi_models.dart';
-import '../scraping/scrape_domain_adapter.dart';
+import '../scraping/scrape_rules.dart' as rules;
 import '../scraping/search_query_sanitizer.dart';
-import '../scraping/work_matcher.dart' as legacy;
 
 /// 刮削过程中的 Bangumi + TMDB 双引擎候选检索、单季元数据与分集拉取辅助器。
 class ScrapeCandidateFetcher {
@@ -155,7 +155,7 @@ class ScrapeCandidateFetcher {
       final tv = details[0];
       final movie = details[1];
       if (tv == null || movie == null) return tv ?? movie;
-      return ScrapeDomainAdapter.chooseExplicitTypeCandidate(
+      return rules.chooseExplicitTypeCandidate(
         folder,
         tv: tv,
         movie: movie,
@@ -197,7 +197,7 @@ class ScrapeCandidateFetcher {
       }
     }
 
-    final queries = ScrapeDomainAdapter.buildSearchQueries(
+    final queries = rules.buildSearchQueries(
       folder,
       extraQueries: extraQueries,
     );
@@ -242,13 +242,13 @@ class ScrapeCandidateFetcher {
     }
     final wave1Eval = rawById.isEmpty
         ? null
-        : ScrapeDomainAdapter.evaluateBangumiMatch(
+        : rules.evaluateBangumiMatch(
             folder,
             rawById.values.toList(growable: false),
           );
     final needWave2 =
         queries.length > 3 &&
-        (wave1Eval == null || wave1Eval.tier == legacy.MatchTier.none);
+        (wave1Eval == null || wave1Eval.tier == MatchTier.none);
     final beforeWave2Count = rawById.length;
     if (needWave2) {
       await runWave(queries.skip(3).take(4).toList(growable: false));
@@ -258,11 +258,11 @@ class ScrapeCandidateFetcher {
 
     final prelim = (wave1Eval != null && rawById.length == beforeWave2Count)
         ? wave1Eval
-        : ScrapeDomainAdapter.evaluateBangumiMatch(
+        : rules.evaluateBangumiMatch(
             folder,
             rawById.values.toList(growable: false),
           );
-    final limit = prelim.tier == legacy.MatchTier.high ? 2 : 4;
+    final limit = prelim.tier == MatchTier.high ? 2 : 4;
     final topIds = <int>{
       ...prelim.topCandidates.take(limit).map((e) => e.subject.id),
       if (prelim.best != null) ...prelim.best!.siblingIds,
@@ -344,12 +344,12 @@ class ScrapeCandidateFetcher {
     List<String> extraQueries = const [],
     void Function(Object error)? onNetworkError,
   }) async {
-    final queries = ScrapeDomainAdapter.buildSearchQueries(
+    final queries = rules.buildSearchQueries(
       folder,
       bangumiCandidate: bangumiCandidate,
       extraQueries: extraQueries,
     );
-    final searchYear = ScrapeDomainAdapter.extractSearchYear(folder);
+    final searchYear = rules.extractSearchYear(folder);
     final candidatesMap = <String, TmdbSearchResult>{};
     final typeFilter = _tvOnlyFilter(folder, bangumiCandidate?.subject);
     var networkAborted = false;
@@ -432,7 +432,7 @@ class ScrapeCandidateFetcher {
       if (candidatesMap.isEmpty) return true;
       var bestPreview = 0.0;
       for (final hit in candidatesMap.values) {
-        final s = ScrapeDomainAdapter.scoreSearchHitPreview(folder, hit);
+        final s = rules.scoreSearchHitPreview(folder, hit);
         if (s > bestPreview) bestPreview = s;
       }
       return bestPreview < 42;
@@ -531,7 +531,7 @@ class ScrapeCandidateFetcher {
     final allHits = candidatesMap.values.toList(growable: false);
     final scored = [
       for (final h in allHits)
-        (hit: h, score: ScrapeDomainAdapter.scoreSearchHitPreview(folder, h)),
+        (hit: h, score: rules.scoreSearchHitPreview(folder, h)),
     ]..sort((a, b) => b.score.compareTo(a.score));
 
     final detailTargets = <TmdbSearchResult>[];
@@ -607,10 +607,10 @@ class ScrapeCandidateFetcher {
     }
     final ranked = [...hits.values]
       ..sort(
-        (a, b) => ScrapeDomainAdapter.scoreSearchHitPreview(
+        (a, b) => rules.scoreSearchHitPreview(
           folder,
           b,
-        ).compareTo(ScrapeDomainAdapter.scoreSearchHitPreview(folder, a)),
+        ).compareTo(rules.scoreSearchHitPreview(folder, a)),
       );
     final recovered = await _fetchAllInOrder(
       ranked.take(3),
@@ -869,7 +869,7 @@ class ScrapeCandidateFetcher {
         }
       }
       if (addedBgm.isNotEmpty) {
-        final prelim = ScrapeDomainAdapter.evaluateBangumiMatch(
+        final prelim = rules.evaluateBangumiMatch(
           rescuedFolder,
           [...existingBangumi, ...addedBgm.values],
         );
@@ -949,10 +949,10 @@ class ScrapeCandidateFetcher {
 
     final rankedHits = hitMap.values.toList(growable: false)
       ..sort(
-        (a, b) => ScrapeDomainAdapter.scoreSearchHitPreview(
+        (a, b) => rules.scoreSearchHitPreview(
           rescuedFolder,
           b,
-        ).compareTo(ScrapeDomainAdapter.scoreSearchHitPreview(rescuedFolder, a)),
+        ).compareTo(rules.scoreSearchHitPreview(rescuedFolder, a)),
       );
     final fetched = await _fetchAllInOrder(
       rankedHits.take(4),

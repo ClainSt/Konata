@@ -1,7 +1,7 @@
 import '../matching/supplementary_subclassifier.dart';
+import '../matching/work_matcher.dart';
 import 'cloud_media_file_classifier.dart';
 import 'personal_filename_parser.dart';
-import 'work_matcher.dart';
 
 /// 文件名解析词条仅用于元数据匹配及生成简洁特典展示标签。
 class CloudMediaAssetPresentation {

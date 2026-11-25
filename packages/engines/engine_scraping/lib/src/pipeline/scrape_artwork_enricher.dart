@@ -3,13 +3,13 @@ import 'dart:developer' as developer;
 import 'package:konata_contracts/konata_contracts.dart';
 
 import '../matching/directory_grouper.dart';
+import '../matching/work_matcher.dart';
 import '../models/fanart_models.dart';
 import '../models/tmdb_models.dart';
 import '../network/fanart_service.dart';
 import '../scraping/artwork_ranker.dart';
 import '../scraping/bangumi_models.dart';
 import '../scraping/bangumi_tmdb_index.dart';
-import '../scraping/work_matcher.dart' as legacy;
 import '../scraping/work_wall_eligibility.dart';
 import 'clear_logo_resolver.dart';
 
@@ -483,7 +483,7 @@ class ScrapeArtworkEnricher {
   Future<BangumiOnlyWallOutcome> evaluateBangumiOnly({
     required GroupedWorkFolder folder,
     required ScoredBangumiCandidate bangumiCandidate,
-    required legacy.MatchTier bangumiTier,
+    required MatchTier bangumiTier,
     RequestPriority priority = RequestPriority.background,
   }) async {
     final offlineTvdbId = lookupOfflineTvdbId(

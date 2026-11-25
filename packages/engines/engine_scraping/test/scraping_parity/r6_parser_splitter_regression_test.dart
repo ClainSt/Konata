@@ -1,5 +1,5 @@
 import 'package:engine_scraping/engine_scraping.dart' hide TitleNormalizer;
-import 'package:engine_scraping/src/scraping/title_normalizer.dart';
+import 'package:engine_scraping/src/parsing/title_normalizer.dart';
 import 'package:test/test.dart';
 
 Map<String, Object?> _asset(
@@ -16,14 +16,14 @@ Map<String, Object?> _asset(
 void main() {
   group('P1.2 TitleNormalizer & DirectoryAnalyzer.normalize', () {
     test('folds width, multiplication signs, Roman numerals, katakana, and traditional Chinese', () {
-      expect(TitleNormalizer.fold('SPY×FAMILY'), TitleNormalizer.fold('Spy x Family'));
-      expect(TitleNormalizer.fold('SPY✕FAMILY'), TitleNormalizer.fold('SPY✖FAMILY'));
+      expect(TitleNormalizer.foldForMatching('SPY×FAMILY'), TitleNormalizer.foldForMatching('Spy x Family'));
+      expect(TitleNormalizer.foldForMatching('SPY✕FAMILY'), TitleNormalizer.foldForMatching('SPY✖FAMILY'));
       expect(
         DirectoryAnalyzer.normalize('ＳＰＹ×ＦＡＭＩＬＹ'),
         DirectoryAnalyzer.normalize('Spy x Family'),
       );
 
-      expect(TitleNormalizer.fold('魔法少女奈葉Ⅴ'), TitleNormalizer.fold('魔法少女奈叶V'));
+      expect(TitleNormalizer.foldForMatching('魔法少女奈葉Ⅴ'), TitleNormalizer.foldForMatching('魔法少女奈叶V'));
       expect(
         DirectoryAnalyzer.normalize('サクラ大戦Ⅳ'),
         DirectoryAnalyzer.normalize('さくら大戦IV'),

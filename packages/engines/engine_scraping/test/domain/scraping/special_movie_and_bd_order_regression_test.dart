@@ -49,7 +49,7 @@ void main() {
         ),
       ];
 
-      final grouped = ScrapeDomainAdapter.groupAndSplitFiles(
+      final grouped = groupAndSplitFiles(
         sourceId: 'src_1',
         files: files,
       );
@@ -108,7 +108,7 @@ void main() {
         ],
       );
       expect(
-        ScrapeDomainAdapter.referencedSeasonsToFetch(
+        referencedSeasonsToFetch(
           alt1Folder,
           matchedSeason: 0,
           detail: parentDetail,
@@ -291,7 +291,7 @@ void main() {
         ),
       ];
 
-      final grouped = ScrapeDomainAdapter.groupAndSplitFiles(
+      final grouped = groupAndSplitFiles(
         sourceId: 'src_1',
         files: files,
       );
@@ -312,11 +312,11 @@ void main() {
       );
       // 仅凭单文件形态推演的弱 isMovieHint 不应覆盖 Bangumi 的 TV 平台标记。
       expect(
-        ScrapeDomainAdapter.expectsStandaloneMovie(pearlyFolder, bgmPearly),
+        expectsStandaloneMovie(pearlyFolder, bgmPearly),
         isFalse,
       );
       expect(
-        ScrapeDomainAdapter.expectsStandaloneMovie(
+        expectsStandaloneMovie(
           pearlyFolder,
           const BangumiSubjectCandidate(
             id: 999999,
@@ -366,7 +366,7 @@ void main() {
         ],
       );
 
-      final decision = ScrapeDomainAdapter.evaluateMatch(
+      final decision = evaluateMatch(
         pearlyFolder,
         const [orphanMovieStub, parentTv],
         bangumiCandidates: const [bgmPearly],
@@ -448,7 +448,7 @@ void main() {
         ),
       ];
 
-      final grouped = ScrapeDomainAdapter.groupAndSplitFiles(
+      final grouped = groupAndSplitFiles(
         sourceId: 'src_1',
         files: files,
       );
@@ -474,7 +474,7 @@ void main() {
       );
 
       // 同一部电影的双压制版保留在同一部电影下作为 2 版本，与第二部电影互不混淆。
-      final groupedWithMultiVer = ScrapeDomainAdapter.groupAndSplitFiles(
+      final groupedWithMultiVer = groupAndSplitFiles(
         sourceId: 'src_1',
         files: [
           ...files,
@@ -497,7 +497,7 @@ void main() {
 
       // 同样覆盖罗马数字加点号的三部曲电影目录（如 Fate/stay night Heaven's Feel I./II./III.）。
       const hfFolder = '剧场版/Fate stay night Heavens Feel (2017) {tmdb-283984}';
-      final hfGrouped = ScrapeDomainAdapter.groupAndSplitFiles(
+      final hfGrouped = groupAndSplitFiles(
         sourceId: 'src_1',
         files: [
           videoFile(

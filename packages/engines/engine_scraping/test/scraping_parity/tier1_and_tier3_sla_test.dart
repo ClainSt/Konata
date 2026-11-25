@@ -1,5 +1,5 @@
 import 'package:engine_scraping/engine_scraping.dart' hide TitleNormalizer;
-import 'package:engine_scraping/src/scraping/title_normalizer.dart';
+import 'package:engine_scraping/src/parsing/title_normalizer.dart';
 import 'package:test/test.dart';
 
 /// 面向 Konata 四档准确率 SLA 的专项回归与基准测试：
@@ -131,7 +131,7 @@ void main() {
             '[VCB-Studio] Natsume Yuujinchou Roku [${'$i'.padLeft(2, '0')}].mkv',
         ],
       );
-      final natsumeDecision = ScrapeDomainAdapter.evaluateMatch(
+      final natsumeDecision = evaluateMatch(
         natsumeS6,
         const [
           TmdbWorkDetail(
@@ -182,7 +182,7 @@ void main() {
           '[VCB-Studio] Nanatsu no Taizai OAD [03].mkv',
         ],
       );
-      final oadDecision = ScrapeDomainAdapter.evaluateMatch(
+      final oadDecision = evaluateMatch(
         oadFolder,
         const [
           TmdbWorkDetail(
@@ -406,7 +406,7 @@ void main() {
             ],
           );
           // 确认首波查询（前 3 词）必然包含规范视频文件名主干。
-          final queries = ScrapeDomainAdapter.buildSearchQueries(f);
+          final queries = buildSearchQueries(f);
           final top3Norm = queries
               .take(3)
               .map(DirectoryAnalyzer.normalize)
@@ -421,7 +421,7 @@ void main() {
                 expectedFileNorm.contains(q),
           );
 
-          final decision = ScrapeDomainAdapter.evaluateMatch(
+          final decision = evaluateMatch(
             f,
             [noiseTmdb, spec.tmdb],
             bangumiCandidates: [spec.bangumi],
@@ -495,7 +495,7 @@ void main() {
         ], snapshotDateYyyymmdd: 20261121),
       );
 
-      final decision = ScrapeDomainAdapter.evaluateMatch(
+      final decision = evaluateMatch(
         f,
         const [parentTv],
         bangumiCandidates: const [bgm],
@@ -570,7 +570,7 @@ void main() {
         folderPath: "动画-单作品/W'Z (2019) {tmdb-83099}",
         fileNames: const ["[Moozzi2] W'z - 01 (BD 1920x1080 x.264 Flac).mkv"],
       );
-      final wzQueries = ScrapeDomainAdapter.buildSearchQueries(wz);
+      final wzQueries = buildSearchQueries(wz);
       expect(wzQueries, isNotEmpty);
       expect(wzQueries.first.toUpperCase(), contains("W'Z"));
 
@@ -578,7 +578,7 @@ void main() {
         folderPath: '动画-系列作未收集/偶像活动Friends S1+S2',
         fileNames: const ['[Subs] Aikatsu Friends! - 01 [1080p].mkv'],
       );
-      final s1s2Queries = ScrapeDomainAdapter.buildSearchQueries(s1s2);
+      final s1s2Queries = buildSearchQueries(s1s2);
       expect(s1s2Queries, contains('偶像活动Friends'));
 
       final dts = _buildGroupedFolder(
@@ -587,7 +587,7 @@ void main() {
           '[Nekomoe kissaten][Haikara-san ga Toru the movie zenpen][BDRip][Ma10p_1080p][x265_DTS-HDMA_flac_aac].mkv',
         ],
       );
-      final dtsQueries = ScrapeDomainAdapter.buildSearchQueries(dts);
+      final dtsQueries = buildSearchQueries(dts);
       expect(dtsQueries.any((q) => q.toUpperCase().contains('DTS')), isFalse);
       expect(
         PersonalFilenameParser.isTechnicalBracketBlock('x265_DTS-HDMA_flac×2'),
@@ -746,7 +746,7 @@ void main() {
         totalEpisodes: 1,
         platform: '剧场版',
       );
-      final hoshiDec = ScrapeDomainAdapter.evaluateMatch(
+      final hoshiDec = evaluateMatch(
         hoshi,
         const [hoshiTmdb],
         bangumiCandidates: const [hoshiBgm],
@@ -776,7 +776,7 @@ void main() {
         totalEpisodes: 1,
         platform: '其他',
       );
-      final shelterDec = ScrapeDomainAdapter.evaluateMatch(
+      final shelterDec = evaluateMatch(
         shelter,
         const [liveActionShelter],
         bangumiCandidates: const [shelterBgm],
@@ -797,7 +797,7 @@ void main() {
           ],
         );
         expect(
-          ScrapeDomainAdapter.buildSearchQueries(dl),
+          buildSearchQueries(dl),
           contains('Demon Lord 2099'),
         );
 
@@ -810,7 +810,7 @@ void main() {
           ],
         );
         expect(
-          ScrapeDomainAdapter.buildSearchQueries(babylon),
+          buildSearchQueries(babylon),
           contains('Babylon'),
         );
 
@@ -833,7 +833,7 @@ void main() {
             '[BDRip] Yowamushi Pedal 弱虫ペダル SPECIAL RIDE OAD [1080p].mkv',
           ],
         );
-        final pedalQueries = ScrapeDomainAdapter.buildSearchQueries(pedal);
+        final pedalQueries = buildSearchQueries(pedal);
         expect(pedalQueries, contains('Yowamushi Pedal'));
         expect(pedalQueries, contains('弱虫ペダル'));
 
@@ -904,7 +904,7 @@ void main() {
         voteCount: 12,
         genreIds: [16, 12],
       );
-      final arslanDec = ScrapeDomainAdapter.evaluateMatch(arslan, const [
+      final arslanDec = evaluateMatch(arslan, const [
         m1,
         m2,
       ]);
@@ -943,7 +943,7 @@ void main() {
           ),
         ],
       );
-      final bisqueDec = ScrapeDomainAdapter.evaluateMatch(bisque, const [
+      final bisqueDec = evaluateMatch(bisque, const [
         bisqueTmdb,
       ]);
       expect(bisqueDec.level, MatchLevel.autoBind);
@@ -1053,7 +1053,7 @@ void main() {
           '[VCB-S]Otorimonogatari[04][Hi10p_1080p][BDRip].mkv',
         ],
       );
-      final otoriDecision = ScrapeDomainAdapter.evaluateMatch(
+      final otoriDecision = evaluateMatch(
         otoriFolder,
         const [
           TmdbWorkDetail(
@@ -1096,7 +1096,7 @@ void main() {
           '[Moozzi2] Nanatsu no Taizai OAD - 03 (BD 1080p).mkv',
         ],
       );
-      final sinDecision = ScrapeDomainAdapter.evaluateMatch(
+      final sinDecision = evaluateMatch(
         sinConflictFolder,
         const [
           TmdbWorkDetail(
@@ -1157,7 +1157,7 @@ void main() {
     test('第 7 轮共性回归：防假名短词误碰撞、前后篇单字卷尾消歧与乱目录文件名季/年/演唱会/Dash 识别', () {
       // 1) 4 字符片假名短词不得与长拉丁词误碰撞（防止 `扶桑花之舞` 劫持 `Dance with Devils Fortuna`）
       expect(
-        TitleNormalizer.romajiKanaSimilarity(
+        TitleNormalizer.matchingRomajiKanaSimilarity(
           'Dance with Devils Fortuna',
           'フラ・フラダンス',
         ),
@@ -1179,7 +1179,7 @@ void main() {
         totalEpisodes: 1,
         platform: '剧场版',
       );
-      final bgmEval = ScrapeDomainAdapter.evaluateBangumiMatch(fortuna, const [
+      final bgmEval = evaluateBangumiMatch(fortuna, const [
         hulaBgm,
       ]);
       expect(bgmEval.best, isNull);
@@ -1209,7 +1209,7 @@ void main() {
         voteCount: 35,
         genreIds: [16, 878],
       );
-      final chikyuuDec = ScrapeDomainAdapter.evaluateMatch(chikyuuFront, const [
+      final chikyuuDec = evaluateMatch(chikyuuFront, const [
         chikyuuPart1,
         chikyuuPart2,
       ]);
@@ -1259,7 +1259,7 @@ void main() {
         totalEpisodes: 10,
         platform: 'WEB',
       );
-      final retsukoDec = ScrapeDomainAdapter.evaluateMatch(
+      final retsukoDec = evaluateMatch(
         retsuko,
         const [retsukoTmdb],
         bangumiCandidates: const [retsukoS1Bgm],
@@ -1306,7 +1306,7 @@ void main() {
           ),
         ],
       );
-      final bisqueDec = ScrapeDomainAdapter.evaluateMatch(bisqueS2, const [
+      final bisqueDec = evaluateMatch(bisqueS2, const [
         bisqueTmdb,
       ]);
       expect(bisqueDec.level, MatchLevel.autoBind);
@@ -1330,7 +1330,7 @@ void main() {
         voteCount: 3,
         genreIds: [10402],
       );
-      final liveDec = ScrapeDomainAdapter.evaluateMatch(live, const [liveTmdb]);
+      final liveDec = evaluateMatch(live, const [liveTmdb]);
       expect(liveDec.level, MatchLevel.autoBind);
       expect(liveDec.best?.detail.tmdbId, 992325);
 
@@ -1366,7 +1366,7 @@ void main() {
           ),
         ],
       );
-      final jashinDec = ScrapeDomainAdapter.evaluateMatch(jashinS2, const [
+      final jashinDec = evaluateMatch(jashinS2, const [
         jashinTmdb,
       ]);
       expect(jashinDec.level, MatchLevel.autoBind);
@@ -1397,7 +1397,7 @@ void main() {
           TmdbSeasonSummary(seasonNumber: 1, name: '第 1 季', episodeCount: 13),
         ],
       );
-      final iseleveDec = ScrapeDomainAdapter.evaluateMatch(iseleve, const [
+      final iseleveDec = evaluateMatch(iseleve, const [
         iseleveTmdb,
       ]);
       expect(iseleveDec.level, MatchLevel.autoBind);
@@ -1427,7 +1427,7 @@ void main() {
           TmdbSeasonSummary(seasonNumber: 1, name: '第 1 季', episodeCount: 24),
         ],
       );
-      final saikiDec = ScrapeDomainAdapter.evaluateMatch(saiki, const [
+      final saikiDec = evaluateMatch(saiki, const [
         saikiTmdb,
       ]);
       expect(saikiDec.level, MatchLevel.autoBind);
@@ -1442,7 +1442,7 @@ void main() {
         ],
       );
       expect(seiya.inventory!.fileYear, 1988);
-      expect(ScrapeDomainAdapter.extractSearchYear(seiya), 1988);
+      expect(extractSearchYear(seiya), 1988);
       const seiyaMovie = TmdbWorkDetail(
         tmdbId: 83091,
         mediaType: TmdbMediaType.movie,
@@ -1456,7 +1456,7 @@ void main() {
         voteCount: 180,
         genreIds: [16, 28],
       );
-      final seiyaDec = ScrapeDomainAdapter.evaluateMatch(seiya, const [
+      final seiyaDec = evaluateMatch(seiya, const [
         seiyaMovie,
       ]);
       expect(seiyaDec.level, MatchLevel.autoBind);
@@ -1495,7 +1495,7 @@ void main() {
           TmdbSeasonSummary(seasonNumber: 1, name: '第 1 季', episodeCount: 8),
         ],
       );
-      final magiaDec = ScrapeDomainAdapter.evaluateMatch(magia, const [
+      final magiaDec = evaluateMatch(magia, const [
         magiaTv,
         liveNoise,
       ]);
@@ -1528,7 +1528,7 @@ void main() {
         voteCount: 20,
         genreIds: [16],
       );
-      final mfkzDec = ScrapeDomainAdapter.evaluateMatch(mfkz, const [
+      final mfkzDec = evaluateMatch(mfkz, const [
         mfkzMain,
         mfkzSub,
       ]);
@@ -1558,13 +1558,13 @@ void main() {
           TmdbSeasonSummary(seasonNumber: 2, name: '草莓味+', episodeCount: 36),
         ],
       );
-      final ddDec = ScrapeDomainAdapter.evaluateMatch(ddHokuto, const [ddTv]);
+      final ddDec = evaluateMatch(ddHokuto, const [ddTv]);
       expect(ddDec.level, MatchLevel.autoBind);
       expect(ddDec.best?.detail.tmdbId, 130728);
       expect(ddDec.matchedSeason, 2);
 
       // 6) 高占比假名覆盖免除单处片假名外来词误罚（快盗天使 Twin Angel OVA -> S0）。
-      final rSim = TitleNormalizer.romajiKanaSimilarity(
+      final rSim = TitleNormalizer.matchingRomajiKanaSimilarity(
         'Kaitou Tenshi Twin Angel Kyun Kyun Tokimeki Paradise!!',
         '快盗天使ツインエンジェル 〜キュンキュン☆ときめきパラダイス!!〜',
       );
@@ -1610,7 +1610,7 @@ void main() {
           ),
         ], snapshotDateYyyymmdd: 20261121),
       );
-      final maouDec = ScrapeDomainAdapter.evaluateMatch(
+      final maouDec = evaluateMatch(
         maouGun,
         const [maouTmdb],
         bangumiCandidates: const [maouBgm],
@@ -1674,7 +1674,7 @@ void main() {
           .fetchCandidateDetails(denshin);
       expect(wave4Queries, contains('Mamotte Shugogetten'));
       expect(wave4Details.map((d) => d.tmdbId), contains(24019));
-      final denshinDec = ScrapeDomainAdapter.evaluateMatch(
+      final denshinDec = evaluateMatch(
         denshin,
         wave4Details,
       );

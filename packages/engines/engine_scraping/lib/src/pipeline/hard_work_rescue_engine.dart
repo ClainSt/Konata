@@ -2,13 +2,12 @@ import '../matching/directory_grouper.dart';
 import '../matching/work_matcher.dart';
 import '../models/tmdb_models.dart';
 import '../models/work.dart';
+import '../parsing/title_normalizer.dart';
 import '../scraping/bangumi_models.dart';
 import '../scraping/bangumi_tmdb_index.dart';
 import '../scraping/directory_analyzer.dart';
 import '../scraping/match_difficulty_classifier.dart';
-import '../scraping/scrape_domain_adapter.dart';
-import '../scraping/title_normalizer.dart';
-import '../scraping/work_matcher.dart' as legacy;
+import '../scraping/scrape_rules.dart' as rules;
 import 'scrape_candidate_fetcher.dart';
 import 'scrape_compute_worker.dart';
 
@@ -286,7 +285,7 @@ class HardWorkRescueEngine {
 
     final built = buildRescuedFolder(originalFolder);
     final rescuedFolder = built.folder;
-    final pass1Queries = ScrapeDomainAdapter.buildSearchQueries(originalFolder);
+    final pass1Queries = rules.buildSearchQueries(originalFolder);
     final deepQueries = _collectNovelDeepQueries(
       rescuedFolder: rescuedFolder,
       pass1Queries: pass1Queries,
@@ -353,8 +352,8 @@ class HardWorkRescueEngine {
                 .fold<double>(0.0, (m, v) => v > m ? v : m);
       final trustworthyBgm =
           bgmBest != null &&
-          (bgmEval.tier == legacy.MatchTier.high ||
-              (bgmEval.tier == legacy.MatchTier.medium &&
+          (bgmEval.tier == MatchTier.high ||
+              (bgmEval.tier == MatchTier.medium &&
                   bgmTitleScore >= 34.0));
       if (trustworthyBgm) {
         final mapped = BangumiTmdbIndex.resolveTargets(
@@ -454,7 +453,7 @@ class HardWorkRescueEngine {
     }
 
     tryAdd(rescuedFolder.cleanTitle);
-    for (final q in ScrapeDomainAdapter.buildSearchQueries(rescuedFolder).take(3)) {
+    for (final q in rules.buildSearchQueries(rescuedFolder).take(3)) {
       tryAdd(q);
     }
     if (!allowSpeculativeSplit) {
@@ -568,13 +567,13 @@ class HardWorkRescueEngine {
       final sNorm = DirectoryAnalyzer.normalize(rawSeed);
       if (sNorm.length < 2) continue;
       for (final cn in candNorms) {
-        if (legacy.WorkMatcher.similarity(sNorm, cn) >= 0.72) {
+        if (WorkMatcher.similarity(sNorm, cn) >= 0.72) {
           return true;
         }
       }
       if (!_cjkPattern.hasMatch(rawSeed)) {
         for (final rawCand in candNames) {
-          if (TitleNormalizer.romajiKanaSimilarity(rawSeed, rawCand) >= 0.72) {
+          if (TitleNormalizer.matchingRomajiKanaSimilarity(rawSeed, rawCand) >= 0.72) {
             return true;
           }
         }

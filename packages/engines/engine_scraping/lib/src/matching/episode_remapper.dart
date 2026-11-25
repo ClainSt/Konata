@@ -2,8 +2,8 @@ import '../models/episode.dart';
 import '../models/media_variant.dart';
 import '../models/tmdb_models.dart';
 import '../parsing/bdrip_parser.dart';
+import '../parsing/title_normalizer.dart';
 import '../scraping/bangumi_models.dart';
-import '../scraping/title_normalizer.dart';
 import 'directory_grouper.dart';
 
 /// 单集元数据对齐目标（保留本地 BD 正片集号不变，仅重定位 TMDB 剧照/标题查找槽位）。
@@ -1132,7 +1132,7 @@ class EpisodeRemapper {
     if (dice > score) score = dice;
 
     if (_cjkOrKana.hasMatch(a) || _cjkOrKana.hasMatch(b)) {
-      final phonetic = TitleNormalizer.romajiKanaSimilarity(a, b);
+      final phonetic = TitleNormalizer.matchingRomajiKanaSimilarity(a, b);
       if (phonetic > score) score = phonetic;
     }
     return score;

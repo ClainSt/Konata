@@ -126,6 +126,34 @@ class GroupedWorkFolder {
   /// 来自 `feat/scrape-pipeline` 目录分析器的完整目录画像。
   final DirectoryInventory? inventory;
 
+  /// 匹配所需的目录画像。精简分组未提供完整画像时，使用已有的季号、集号和标题线索。
+  DirectoryInventory get matchingInventory {
+    final analyzed = inventory;
+    if (analyzed != null) return analyzed;
+    final main = [
+      for (final episode in mainEpisodeNumbers)
+        LogicalItem('e::$episode', cleanTitle, episode, seasonHint),
+      if (mainEpisodeNumbers.isEmpty && variants.isNotEmpty)
+        LogicalItem('f:main', cleanTitle, null, seasonHint),
+    ];
+    final shape = mainEpisodeNumbers.length >= 2
+        ? WorkShape.series
+        : (variants.isEmpty ? WorkShape.empty : WorkShape.feature);
+    return DirectoryInventory.synthetic(
+      folder: folderRelativePath,
+      title: cleanTitle,
+      year: year,
+      tmdbId: explicitTmdbId,
+      tmdbType: explicitMediaType?.name,
+      season: seasonHint,
+      folderMovieMarker: isMovieHint,
+      main: main,
+      shape: shape,
+      titleHints: titleHints.isNotEmpty ? titleHints : [cleanTitle],
+      fileHints: fileHints,
+    );
+  }
+
   /// 每个视频相对路径对应的预解析剧集/特典槽位。
   final Map<String, EpisodeSlotAssignment> slotAssignmentsByPath;
 

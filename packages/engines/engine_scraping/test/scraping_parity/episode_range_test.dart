@@ -104,7 +104,7 @@ void main() {
         '[G] Title [Picture_Drama][10-13][1080p].mkv',
         '[G] Title [S2 EP01-12 Digest][1080p].mkv',
       ]) {
-        final groups = ScrapeDomainAdapter.groupAndSplitFiles(
+        final groups = groupAndSplitFiles(
           sourceId: 's',
           files: [
             for (var i = 1; i <= 3; i++)
@@ -154,7 +154,7 @@ void main() {
       };
       cases.forEach((dir, spec) {
         final files = spec.$1;
-        final groups = ScrapeDomainAdapter.groupAndSplitFiles(
+        final groups = groupAndSplitFiles(
           sourceId: 's',
           files: [for (final f in files) _video('$dir/$f')],
         );
@@ -177,7 +177,7 @@ void main() {
       const single = '$dir/[Other] Tamayura [01][1080p][x264].mkv';
       const third =
           '$dir/[VCB-Studio] Tamayura [03][Ma10p_1080p][x265_flac_aac].mkv';
-      final groups = ScrapeDomainAdapter.groupAndSplitFiles(
+      final groups = groupAndSplitFiles(
         sourceId: 's',
         files: [_video(range), _video(single), _video(third)],
       );

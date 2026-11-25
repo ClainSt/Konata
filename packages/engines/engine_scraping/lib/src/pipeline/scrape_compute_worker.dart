@@ -8,8 +8,7 @@ import '../models/tmdb_models.dart';
 import '../parsing/release_groups.dart';
 import '../scraping/bangumi_models.dart';
 import '../scraping/bangumi_tmdb_index.dart';
-import '../scraping/scrape_domain_adapter.dart';
-import '../scraping/work_matcher.dart' as legacy;
+import '../scraping/scrape_rules.dart' as rules;
 
 /// 后台 Isolate 纯计算工作器。
 ///
@@ -36,7 +35,7 @@ class ScrapeComputeWorker {
     final groups = await ReleaseGroups.prepare();
     if (!useIsolate) {
       return Future.value(
-        ScrapeDomainAdapter.groupAndSplitFiles(
+        rules.groupAndSplitFiles(
           sourceId: sourceId,
           files: files,
           nfoByFolder: nfoByFolder,
@@ -46,7 +45,7 @@ class ScrapeComputeWorker {
     }
     return Isolate.run(() {
       ReleaseGroups.usePrepared(groups);
-      return ScrapeDomainAdapter.groupAndSplitFiles(
+      return rules.groupAndSplitFiles(
         sourceId: sourceId,
         files: files,
         nfoByFolder: nfoByFolder,
@@ -57,7 +56,7 @@ class ScrapeComputeWorker {
 
   /// 在后台 Isolate 中执行 Bangumi 候选多维打分。
   Future<({
-    legacy.MatchTier tier,
+    MatchTier tier,
     ScoredBangumiCandidate? best,
     List<ScoredBangumiCandidate> topCandidates,
   })>
@@ -67,7 +66,7 @@ class ScrapeComputeWorker {
   ) async {
     final groups = await ReleaseGroups.prepare();
     if (!useIsolate) {
-      final res = ScrapeDomainAdapter.evaluateBangumiMatch(folder, candidates);
+      final res = rules.evaluateBangumiMatch(folder, candidates);
       return (
         tier: res.tier,
         best: res.best,
@@ -76,7 +75,7 @@ class ScrapeComputeWorker {
     }
     return Isolate.run(() {
       ReleaseGroups.usePrepared(groups);
-      final res = ScrapeDomainAdapter.evaluateBangumiMatch(folder, candidates);
+      final res = rules.evaluateBangumiMatch(folder, candidates);
       return (
         tier: res.tier,
         best: res.best,
@@ -96,7 +95,7 @@ class ScrapeComputeWorker {
     final activeMapping = mappingIndex ?? BangumiTmdbIndex.bundledSnapshot?.index;
     if (!useIsolate) {
       return Future.value(
-        ScrapeDomainAdapter.evaluateMatch(
+        rules.evaluateMatch(
           folder,
           candidates,
           bangumiCandidates: bangumiCandidates,
@@ -106,7 +105,7 @@ class ScrapeComputeWorker {
     }
     return Isolate.run(() {
       ReleaseGroups.usePrepared(groups);
-      return ScrapeDomainAdapter.evaluateMatch(
+      return rules.evaluateMatch(
         folder,
         candidates,
         bangumiCandidates: bangumiCandidates,
@@ -146,7 +145,7 @@ class ScrapeComputeSession implements ScrapeComputeWorker {
   }) async {
     if (!useIsolate) {
       await ReleaseGroups.prepare();
-      return ScrapeDomainAdapter.groupAndSplitFiles(
+      return rules.groupAndSplitFiles(
         sourceId: sourceId,
         files: files,
         nfoByFolder: nfoByFolder,
@@ -166,7 +165,7 @@ class ScrapeComputeSession implements ScrapeComputeWorker {
 
   @override
   Future<({
-    legacy.MatchTier tier,
+    MatchTier tier,
     ScoredBangumiCandidate? best,
     List<ScoredBangumiCandidate> topCandidates,
   })>
@@ -176,7 +175,7 @@ class ScrapeComputeSession implements ScrapeComputeWorker {
   ) async {
     if (!useIsolate) {
       await ReleaseGroups.prepare();
-      final res = ScrapeDomainAdapter.evaluateBangumiMatch(folder, candidates);
+      final res = rules.evaluateBangumiMatch(folder, candidates);
       return (
         tier: res.tier,
         best: res.best,
@@ -187,7 +186,7 @@ class ScrapeComputeSession implements ScrapeComputeWorker {
       _EvalBangumiTask(folder: folder, candidates: candidates),
     );
     return res as ({
-      legacy.MatchTier tier,
+      MatchTier tier,
       ScoredBangumiCandidate? best,
       List<ScoredBangumiCandidate> topCandidates,
     });
@@ -203,7 +202,7 @@ class ScrapeComputeSession implements ScrapeComputeWorker {
     final activeMapping = mappingIndex ?? BangumiTmdbIndex.bundledSnapshot?.index;
     if (!useIsolate) {
       await ReleaseGroups.prepare();
-      return ScrapeDomainAdapter.evaluateMatch(
+      return rules.evaluateMatch(
         folder,
         candidates,
         bangumiCandidates: bangumiCandidates,
@@ -364,14 +363,14 @@ final class _EvalMatchTask extends _ComputeTask {
 Object? _executeTaskSync(_ComputeTask task) {
   switch (task) {
     case _GroupFilesTask():
-      return ScrapeDomainAdapter.groupAndSplitFiles(
+      return rules.groupAndSplitFiles(
         sourceId: task.sourceId,
         files: task.files,
         nfoByFolder: task.nfoByFolder,
         localCoverByFolder: task.localCoverByFolder,
       );
     case _EvalBangumiTask():
-      final res = ScrapeDomainAdapter.evaluateBangumiMatch(
+      final res = rules.evaluateBangumiMatch(
         task.folder,
         task.candidates,
       );
@@ -381,7 +380,7 @@ Object? _executeTaskSync(_ComputeTask task) {
         topCandidates: res.topCandidates,
       );
     case _EvalMatchTask():
-      return ScrapeDomainAdapter.evaluateMatch(
+      return rules.evaluateMatch(
         task.folder,
         task.candidates,
         bangumiCandidates: task.bangumiCandidates,

@@ -2,7 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:engine_scraping/engine_scraping.dart' hide TitleNormalizer;
-import 'package:engine_scraping/src/scraping/title_normalizer.dart';
+import 'package:engine_scraping/src/parsing/title_normalizer.dart';
 import 'package:konata_contracts/konata_contracts.dart' show AssetDataLoaderPort, TmdbNetworkConfig;
 import 'package:test/test.dart';
 
@@ -79,7 +79,7 @@ void main() {
       totalEpisodes: 38,
       platform: 'TV',
     );
-    final decision = ScrapeDomainAdapter.evaluateMatch(
+    final decision = evaluateMatch(
       folder('美妙天堂', year: 2014, eps: [for (var i = 1; i <= 38; i++) i]),
       const [stub, real],
       bangumiCandidates: const [bgm],
@@ -131,7 +131,7 @@ void main() {
       totalEpisodes: 1,
       platform: 'TV',
     );
-    final decision = ScrapeDomainAdapter.evaluateMatch(
+    final decision = evaluateMatch(
       folder('D4DJ Double Mix', year: 2022),
       const [special, series],
       bangumiCandidates: const [bgm],
@@ -157,7 +157,7 @@ void main() {
       totalEpisodes: 12,
       platform: 'WEB',
     );
-    final decision = ScrapeDomainAdapter.evaluateMatch(
+    final decision = evaluateMatch(
       folder('从漫画了解！Fate Grand Order', year: 2018),
       const [shorts],
       bangumiCandidates: const [bgm],
@@ -180,14 +180,14 @@ void main() {
       platform: '剧场版',
     );
     expect(
-      ScrapeDomainAdapter.bangumiMappedTmdbKeys(movieSubject, {
+      bangumiMappedTmdbKeys(movieSubject, {
         'movie:9323',
         'tv:1095',
       }),
       ['movie:9323'],
     );
     expect(
-      ScrapeDomainAdapter.bangumiMappedTmdbKeys(movieSubject, {'tv:1095'}),
+      bangumiMappedTmdbKeys(movieSubject, {'tv:1095'}),
       isEmpty,
     );
   });
@@ -232,7 +232,7 @@ void main() {
       totalEpisodes: 12,
       platform: 'TV',
     );
-    final decision = ScrapeDomainAdapter.evaluateMatch(
+    final decision = evaluateMatch(
       folder('虚构推理 第二季', year: 2023, eps: [for (var i = 1; i <= 12; i++) i]),
       const [parent, unrelated],
       bangumiCandidates: const [bgm],
@@ -284,7 +284,7 @@ void main() {
       totalEpisodes: 26,
       platform: 'TV',
     );
-    final decision = ScrapeDomainAdapter.evaluateMatch(
+    final decision = evaluateMatch(
       folder('苍穹之法芙娜', year: 2004, eps: [for (var i = 1; i <= 25; i++) i]),
       const [real, duplicate],
       bangumiCandidates: const [bgm],
@@ -323,7 +323,7 @@ void main() {
         d.topCandidates.firstWhere((c) => c.detail.tmdbId == id).reasons;
 
     test('正式标题与原名相同、几乎无人评分的新建条目降权，让位给正主', () {
-      final decision = ScrapeDomainAdapter.evaluateMatch(
+      final decision = evaluateMatch(
         folder('狩火之王', year: 2023, eps: [for (var i = 1; i <= 20; i++) i]),
         [tv(312644, '狩火之王', '火狩りの王', 0), tv(156688, '狩火之王', '火狩りの王', 20)],
       );
@@ -336,7 +336,7 @@ void main() {
     });
 
     test('仅别名含系列总称的同系列续作不视为重复条目', () {
-      final decision = ScrapeDomainAdapter.evaluateMatch(
+      final decision = evaluateMatch(
         folder('宇宙战舰大和号2202 爱的战士们', year: 2023),
         [
           tv(
@@ -395,7 +395,7 @@ void main() {
         totalEpisodes: 50,
         platform: 'TV',
       );
-      final seedDecision = ScrapeDomainAdapter.evaluateMatch(
+      final seedDecision = evaluateMatch(
         folder(
           '机动战士高达SEED DESTINY HD重制版',
           eps: [for (var i = 1; i <= 50; i++) i],
@@ -430,7 +430,7 @@ void main() {
           ),
         ],
       );
-      final shugoDecision = ScrapeDomainAdapter.evaluateMatch(
+      final shugoDecision = evaluateMatch(
         folder('传心 守护月天！', eps: [for (var i = 1; i <= 8; i++) i]),
         const [shugogetten],
       );
@@ -480,7 +480,7 @@ void main() {
           ),
         ],
       );
-      final ovaFolder = ScrapeDomainAdapter.groupAndSplitFiles(
+      final ovaFolder = groupAndSplitFiles(
         sourceId: 's',
         files: [
           for (var i = 1; i <= 3; i++)
@@ -493,7 +493,7 @@ void main() {
             ),
         ],
       ).single;
-      final ovaDecision = ScrapeDomainAdapter.evaluateMatch(ovaFolder, const [
+      final ovaDecision = evaluateMatch(ovaFolder, const [
         hakuouki,
         hakuoukiSpin,
       ]);
@@ -533,7 +533,7 @@ void main() {
         voteCount: 12,
         genreIds: [16],
       );
-      final oadFolder = ScrapeDomainAdapter.groupAndSplitFiles(
+      final oadFolder = groupAndSplitFiles(
         sourceId: 's',
         files: const [
           ScannedFileInput(
@@ -544,7 +544,7 @@ void main() {
           ),
         ],
       ).single;
-      final oadDecision = ScrapeDomainAdapter.evaluateMatch(oadFolder, const [
+      final oadDecision = evaluateMatch(oadFolder, const [
         yowamushiTv,
         yowamushiMovie,
       ]);
@@ -602,7 +602,7 @@ void main() {
         totalEpisodes: 12,
         platform: 'TV',
       );
-      final decision = ScrapeDomainAdapter.evaluateMatch(
+      final decision = evaluateMatch(
         folder('美男高校地球防卫部High collar！', eps: [for (var i = 1; i <= 12; i++) i]),
         const [oldLove, highCollar],
         bangumiCandidates: const [wrongMediumBgm],
@@ -630,7 +630,7 @@ void main() {
         totalEpisodes: 1,
         platform: '其他',
       );
-      final decision = ScrapeDomainAdapter.evaluateMatch(
+      final decision = evaluateMatch(
         folder('避难所'),
         const [unrelatedZeroVote],
         bangumiCandidates: const [bgmShelter],
@@ -650,7 +650,7 @@ void main() {
         voteCount: 0,
         genreIds: [10402],
       );
-      final liveFolder = ScrapeDomainAdapter.groupAndSplitFiles(
+      final liveFolder = groupAndSplitFiles(
         sourceId: 's',
         files: const [
           ScannedFileInput(
@@ -662,7 +662,7 @@ void main() {
           ),
         ],
       ).single;
-      final decision = ScrapeDomainAdapter.evaluateMatch(liveFolder, const [
+      final decision = evaluateMatch(liveFolder, const [
         liveMovie,
       ]);
       expect(decision.level, MatchLevel.autoBind);
@@ -692,7 +692,7 @@ void main() {
           TmdbSeasonSummary(seasonNumber: 1, name: '第 1 季', episodeCount: 25),
         ],
       );
-      final planetFolder = ScrapeDomainAdapter.groupAndSplitFiles(
+      final planetFolder = groupAndSplitFiles(
         sourceId: 's',
         files: const [
           ScannedFileInput(
@@ -704,7 +704,7 @@ void main() {
           ),
         ],
       ).single;
-      final planetDecision = ScrapeDomainAdapter.evaluateMatch(
+      final planetDecision = evaluateMatch(
         planetFolder,
         const [planetMovie, planetTv],
       );
@@ -720,7 +720,7 @@ void main() {
         voteCount: 5,
         genreIds: [16, 28],
       );
-      final peaceDecision = ScrapeDomainAdapter.evaluateMatch(
+      final peaceDecision = evaluateMatch(
         folder('新撰组异闻录 铁 ～想道～'),
         const [peacemakerMovie],
       );
@@ -752,7 +752,7 @@ void main() {
           TmdbSeasonSummary(seasonNumber: 1, name: '第 1 季', episodeCount: 25),
         ],
       );
-      final akitoFolder = ScrapeDomainAdapter.groupAndSplitFiles(
+      final akitoFolder = groupAndSplitFiles(
         sourceId: 's',
         files: [
           for (var i = 1; i <= 5; i++)
@@ -765,7 +765,7 @@ void main() {
             ),
         ],
       ).single;
-      final akitoDecision = ScrapeDomainAdapter.evaluateMatch(
+      final akitoDecision = evaluateMatch(
         akitoFolder,
         const [akitoTv, lelouchTv],
       );
@@ -944,7 +944,7 @@ void main() {
       final expectedIds = [978039, 1081640, 1081641];
       for (var i = 0; i < 3; i++) {
         final c = clusters[i];
-        final decision = ScrapeDomainAdapter.evaluateMatch(
+        final decision = evaluateMatch(
           GroupedWorkFolder(
             folderRelativePath: '$folderPath::${c.slug}',
             folderName: c.inventory.title,
@@ -1022,7 +1022,7 @@ void main() {
       );
       expect(stargazer.inventory.year, 2006);
 
-      final destinyDecision = ScrapeDomainAdapter.evaluateMatch(
+      final destinyDecision = evaluateMatch(
         GroupedWorkFolder(
           folderRelativePath: '$root::${destiny.slug}',
           folderName: destiny.inventory.title,
@@ -1096,7 +1096,7 @@ void main() {
             ),
         ],
       );
-      final decision = ScrapeDomainAdapter.evaluateMatch(
+      final decision = evaluateMatch(
         workFolder,
         const [
           TmdbWorkDetail(
@@ -1163,7 +1163,7 @@ void main() {
           ),
         ], snapshotDateYyyymmdd: 20261121),
       );
-      final decision = ScrapeDomainAdapter.evaluateMatch(
+      final decision = evaluateMatch(
         folder('刃牙道 OAD', year: 2016),
         const [
           TmdbWorkDetail(
@@ -1196,7 +1196,7 @@ void main() {
     });
 
     test('无年份 Bangumi 同名多版本按精确集数升格高置信 + 短篇 OVA 与长篇 TV 分离', () {
-      final aikatsu = ScrapeDomainAdapter.evaluateBangumiMatch(
+      final aikatsu = evaluateBangumiMatch(
         folder('偶像活动 10th STORY ～通往未来的STARWAY～', eps: const [1, 2, 3]),
         const [
           BangumiSubjectCandidate(
@@ -1220,7 +1220,7 @@ void main() {
       expect(aikatsu.best?.subject.id, 404427);
       expect(aikatsu.rawResult.tier.name, 'high');
 
-      final aquarion = ScrapeDomainAdapter.evaluateBangumiMatch(
+      final aquarion = evaluateBangumiMatch(
         folder('创星的大天使', eps: const [1, 2]),
         const [
           BangumiSubjectCandidate(
@@ -1254,22 +1254,22 @@ void main() {
       const arseneJp = '探偵オペラ ミルキィホームズ アルセーヌ 華麗なる欲望';
       const pearlyJp = '探偵オペラ ミルキィホームズ ファンファンパーリーナイト♪ ～ケンとジャネットの贈り物～';
 
-      final arseneRight = TitleNormalizer.romajiKanaSimilarity(
+      final arseneRight = TitleNormalizer.matchingRomajiKanaSimilarity(
         arseneLocal,
         arseneJp,
       );
-      final arseneWrong = TitleNormalizer.romajiKanaSimilarity(
+      final arseneWrong = TitleNormalizer.matchingRomajiKanaSimilarity(
         arseneLocal,
         pearlyJp,
       );
       expect(arseneRight, greaterThanOrEqualTo(0.84));
       expect(arseneRight - arseneWrong, greaterThanOrEqualTo(0.30));
 
-      final pearlyRight = TitleNormalizer.romajiKanaSimilarity(
+      final pearlyRight = TitleNormalizer.matchingRomajiKanaSimilarity(
         pearlyLocal,
         pearlyJp,
       );
-      final pearlyWrong = TitleNormalizer.romajiKanaSimilarity(
+      final pearlyWrong = TitleNormalizer.matchingRomajiKanaSimilarity(
         pearlyLocal,
         arseneJp,
       );
@@ -1296,7 +1296,7 @@ void main() {
           ),
         ], snapshotDateYyyymmdd: 20261121),
       );
-      final awExDecision = ScrapeDomainAdapter.evaluateMatch(
+      final awExDecision = evaluateMatch(
         const GroupedWorkFolder(
           folderRelativePath: '动画/加速世界 TV+Movie::ex',
           folderName: 'Accel World EX',

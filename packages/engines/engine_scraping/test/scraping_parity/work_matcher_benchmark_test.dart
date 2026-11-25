@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:engine_scraping/engine_scraping.dart' hide WorkMatcher;
-import 'package:engine_scraping/src/scraping/work_matcher.dart';
+import 'package:engine_scraping/src/matching/work_matcher.dart';
 import 'package:test/test.dart';
 
 /// 基于真实 r7 验收库（182 部作品，含已保存 TMDB/Bangumi 候选）的离线基准测试；

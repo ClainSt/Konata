@@ -514,7 +514,7 @@ Future<EvalClusterRecord> _evaluateSingleOnline({
   final evalFolder = messyFolders
       ? _buildMessyEvalFolder(folder, index)
       : (withExplicit ? folder : folder.withoutExplicitTmdb());
-  final queries = ScrapeDomainAdapter.buildSearchQueries(evalFolder);
+  final queries = buildSearchQueries(evalFolder);
 
   TmdbWorkDetail? explicitDetail;
   if (withExplicit && evalFolder.explicitTmdbId != null) {
@@ -553,7 +553,7 @@ Future<EvalClusterRecord> _evaluateSingleOnline({
         evalFolder,
         extraQueries: [explicitDetail.title, ...explicitDetail.aliases.take(2)],
       );
-      final explicitDecision = ScrapeDomainAdapter.evaluateMatch(
+      final explicitDecision = evaluateMatch(
         evalFolder,
         [explicitDetail],
         bangumiCandidates: bgmCandidates,
@@ -569,7 +569,7 @@ Future<EvalClusterRecord> _evaluateSingleOnline({
       matchedSeason =
           explicitDecision.matchedSeason ??
           evalFolder.seasonHint ??
-          ScrapeDomainAdapter.fallbackResolveSeason(
+          fallbackResolveSeason(
             folder: evalFolder,
             detail: explicitDetail,
           );
@@ -804,7 +804,7 @@ EvalClusterRecord _buildParseOnlyRecord(GroupedWorkFolder folder) {
     explicitTmdbId: folder.explicitTmdbId,
     explicitMediaType: folder.explicitMediaType?.name,
     localPosterPath: folder.localPosterPath,
-    queries: ScrapeDomainAdapter.buildSearchQueries(folder),
+    queries: buildSearchQueries(folder),
     matchLevel: 'parse_only',
     wallChannel: info.hasMainPlayable ? 'parse_playable' : 'block',
   );

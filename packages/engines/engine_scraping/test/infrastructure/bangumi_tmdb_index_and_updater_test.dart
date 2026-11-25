@@ -93,7 +93,7 @@ void main() {
         isTrue,
       );
 
-      // 使用真实二进制映射表通过生产适配器 ScrapeDomainAdapter.evaluateMatch 重跑 r7 离线基准，
+      // 使用真实二进制映射表通过生产适配器 evaluateMatch 重跑 r7 离线基准，
       // 验证跨库防误拼与映射定季协同后保持零误绑且季号准确度不回退
       final fixture =
           jsonDecode(
@@ -172,7 +172,7 @@ void main() {
             ),
         ];
 
-        final decision = ScrapeDomainAdapter.evaluateMatch(
+        final decision = evaluateMatch(
           folder,
           tmdbCands,
           bangumiCandidates: bgmCands,

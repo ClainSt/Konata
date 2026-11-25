@@ -955,7 +955,7 @@ void main() {
       expect(remoteScan.localCoverByFolder, isEmpty);
 
       // 核验拆簇不继承父合集根目录 folder.jpg
-      final splitCheck = ScrapeDomainAdapter.groupAndSplitFiles(
+      final splitCheck = groupAndSplitFiles(
         sourceId: 'src_local',
         files: const [
           ScannedFileInput(

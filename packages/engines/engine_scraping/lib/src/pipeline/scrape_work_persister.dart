@@ -22,7 +22,7 @@ import '../parsing/bdrip_parser.dart';
 import '../scraping/artwork_ranker.dart';
 import '../scraping/bangumi_models.dart';
 import '../scraping/directory_analyzer.dart';
-import '../scraping/scrape_domain_adapter.dart';
+import '../scraping/scrape_rules.dart' as rules;
 import 'library_repository.dart';
 
 /// 刮削结果持久化器。
@@ -98,7 +98,7 @@ class ScrapeWorkPersister {
         bgmPoster != null &&
         (matchedSeason == 0 || effectiveTmdbNoFolder.isSuboptimal);
     final resolved = folder != null
-        ? ScrapeDomainAdapter.resolveSeasonPresentation(
+        ? rules.resolveSeasonPresentation(
             folder: folder,
             detail: detail,
             matchedSeason: matchedSeason,
@@ -310,7 +310,7 @@ class ScrapeWorkPersister {
     bool isHidden = false,
     bool keepHidden = false,
   }) {
-    final resolved = ScrapeDomainAdapter.resolveSeasonPresentation(
+    final resolved = rules.resolveSeasonPresentation(
       folder: folder,
       bangumiCandidate: bangumiCandidate,
     );
@@ -659,7 +659,7 @@ class ScrapeWorkPersister {
         seasonZeroMainVariants.add(rawVariant);
       }
     }
-    final mappedSpecialsByPath = ScrapeDomainAdapter.mapSpecialEpisodes(
+    final mappedSpecialsByPath = rules.mapSpecialEpisodes(
       work: work,
       extraVariants: extraVariants,
       seasonZeroEpisodes: seasonZeroEpisodes,
@@ -1278,7 +1278,7 @@ class ScrapeWorkPersister {
   }) {
     if (parsed.category == EpisodeCategory.extra && !forceMain) {
       if (fileNameForKey != null) {
-        final slot = ScrapeDomainAdapter.resolveExtraSlotAssignment(
+        final slot = rules.resolveExtraSlotAssignment(
           fileName: fileNameForKey,
           relativePath: relativePathForKey ?? fileNameForKey,
           parsed: parsed,

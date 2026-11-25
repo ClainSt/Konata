@@ -1,4 +1,5 @@
 import '../matching/directory_grouper.dart';
+import '../matching/work_matcher.dart';
 import '../models/episode.dart';
 import '../models/media_variant.dart';
 import '../models/tmdb_models.dart';
@@ -6,7 +7,6 @@ import '../models/work.dart';
 import 'artwork_ranker.dart';
 import 'bangumi_models.dart';
 import 'directory_analyzer.dart';
-import 'work_matcher.dart' as legacy;
 
 /// 海报墙独立上墙资格、背景图质量评估与跨来源身份识别纯领域规则（零 IO）。
 ///
@@ -68,15 +68,15 @@ abstract final class WorkWallEligibility {
   static bool shouldPromoteBangumiOnly({
     required GroupedWorkFolder folder,
     required ScoredBangumiCandidate? bestBangumi,
-    required legacy.MatchTier bangumiTier,
+    required MatchTier bangumiTier,
     required bool hasValidCover,
   }) {
     if (bestBangumi == null || !hasValidCover) return false;
     if (!hasMainPlayableContent(folder)) return false;
-    if (bangumiTier == legacy.MatchTier.high) {
+    if (bangumiTier == MatchTier.high) {
       return true;
     }
-    if (bangumiTier == legacy.MatchTier.medium) {
+    if (bangumiTier == MatchTier.medium) {
       if (bestBangumi.score < mediumBangumiPromoteMinScore) return false;
       final hasHardConflict = bestBangumi.reasons.any((reason) {
         final lower = reason.toLowerCase();

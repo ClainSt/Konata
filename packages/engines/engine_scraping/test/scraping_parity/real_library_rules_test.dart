@@ -12,7 +12,7 @@ ScannedFileInput _video(String path, {int size = 900 * _mb}) =>
     );
 
 List<GroupedWorkFolder> _group(List<ScannedFileInput> files) =>
-    ScrapeDomainAdapter.groupAndSplitFiles(sourceId: 's', files: files);
+    groupAndSplitFiles(sourceId: 's', files: files);
 
 EpisodeSlotAssignment _slot(GroupedWorkFolder g, String path) =>
     g.slotAssignmentsByPath[path]!;
@@ -353,7 +353,7 @@ void main() {
           size: 8000 * _mb,
         ),
       ]).single;
-      final queries = ScrapeDomainAdapter.buildSearchQueries(g);
+      final queries = buildSearchQueries(g);
       expect(g.cleanTitle, '电影 摇曳露营△');
       expect(queries, isNot(contains('Nekomoe kissaten')));
       expect(queries.where((q) => q.contains('1080')), isEmpty);
@@ -386,7 +386,7 @@ void main() {
     test('剧集目录在两侧同号条目都存在时选中标题一致的剧集', () {
       expect(series.isMovieHint, isFalse);
       expect(
-        ScrapeDomainAdapter.chooseExplicitTypeCandidate(
+        chooseExplicitTypeCandidate(
           series,
           tv: tv,
           movie: movie,
@@ -409,7 +409,7 @@ void main() {
         fileHints: series.fileHints,
       );
       expect(
-        ScrapeDomainAdapter.chooseExplicitTypeCandidate(
+        chooseExplicitTypeCandidate(
           misleading,
           tv: tv,
           movie: movie,
@@ -712,7 +712,7 @@ void main() {
           size: 1477 * _mb,
         ),
       ]).single;
-      final queries = ScrapeDomainAdapter.buildSearchQueries(folder);
+      final queries = buildSearchQueries(folder);
       expect(
         queries.any((q) => q.contains('未添加TMDB')),
         isFalse,

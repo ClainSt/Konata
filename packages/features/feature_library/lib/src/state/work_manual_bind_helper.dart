@@ -470,7 +470,7 @@ final class WorkManualBindHelper {
     required MediaVariant variant,
     required ParsedBdripRelease parsed,
   }) async {
-    final slot = ScrapeDomainAdapter.resolveExtraSlotAssignment(
+    final slot = resolveExtraSlotAssignment(
       fileName: variant.fileName,
       relativePath: variant.relativePath,
       parsed: parsed,
@@ -566,7 +566,7 @@ final class WorkManualBindHelper {
           var bestSim = 0.0;
           for (final bn in normBgm) {
             for (final hn in hitNorms) {
-              final sim = LegacyWorkMatcher.similarity(bn, hn);
+              final sim = WorkMatcher.similarity(bn, hn);
               if (sim > bestSim) bestSim = sim;
             }
           }

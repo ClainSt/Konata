@@ -2,9 +2,9 @@ import '../models/media_variant.dart';
 import '../models/tmdb_models.dart';
 import '../models/work.dart';
 import '../parsing/bdrip_parser.dart';
+import '../parsing/title_normalizer.dart';
 import '../scraping/bangumi_models.dart';
 import '../scraping/directory_analyzer.dart';
-import '../scraping/title_normalizer.dart';
 import 'directory_grouper.dart';
 
 /// 绑定至 TMDB `Season 0`（特别篇季）的独立作品正片与 `Season 0` 分集列表的语义对齐器（纯函数，零 IO）。
@@ -325,7 +325,7 @@ abstract final class SeasonZeroMainMatcher {
                 (ln.contains(s0Norm) || s0Norm.contains(ln))) {
               if (bestPhonetic < 0.85) bestPhonetic = 0.85;
             }
-            final sim = TitleNormalizer.romajiKanaSimilarity(lt, s0Title);
+            final sim = TitleNormalizer.matchingRomajiKanaSimilarity(lt, s0Title);
             if (sim > bestPhonetic) bestPhonetic = sim;
           }
         }

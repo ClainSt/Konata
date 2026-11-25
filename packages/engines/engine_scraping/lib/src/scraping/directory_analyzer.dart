@@ -1,10 +1,10 @@
 import 'package:konata_contracts/konata_contracts.dart';
 import 'package:path/path.dart' as p;
 
+import '../parsing/title_normalizer.dart';
 import 'cloud_media_asset_presentation.dart';
 import 'cloud_media_file_classifier.dart';
 import 'personal_filename_parser.dart';
-import 'title_normalizer.dart';
 import 'work_season.dart';
 
 /// 仅依据相对路径与文件字节大小推导的作品目录清单画像；
@@ -1960,7 +1960,7 @@ abstract final class DirectoryAnalyzer {
   /// 跨语言标题比对键：统一折叠全半角、大小写、假名、罗马数字、乘号及繁简体，
   /// 剔除标点符号并移除数字前导零（保证 `Legend 01` 与 `Legend 1` 一致）。
   static String normalize(String value) {
-    final folded = TitleNormalizer.fold(value);
+    final folded = TitleNormalizer.foldForMatching(value);
     final len = folded.length;
     if (len == 0) return '';
     final buf = StringBuffer();

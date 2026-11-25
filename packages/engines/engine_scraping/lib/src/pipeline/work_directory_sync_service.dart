@@ -15,7 +15,7 @@ import '../network/tmdb_service.dart';
 import '../parsing/bdrip_parser.dart';
 import '../parsing/release_groups.dart';
 import '../scraping/bangumi_models.dart';
-import '../scraping/scrape_domain_adapter.dart';
+import '../scraping/scrape_rules.dart' as rules;
 import 'library_repository.dart';
 import 'scrape_candidate_fetcher.dart';
 import 'scrape_compute_worker.dart';
@@ -169,7 +169,7 @@ class WorkDirectorySyncService {
 
     if (needTmdbFetch) {
       final seasons = <int>{
-        ...ScrapeDomainAdapter.referencedSeasonsToFetch(
+        ...rules.referencedSeasonsToFetch(
           folder,
           matchedSeason: work.matchedSeason,
         ),

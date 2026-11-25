@@ -1,6 +1,6 @@
 import 'package:engine_scraping/engine_scraping.dart' hide WorkMatcher;
 import 'package:engine_scraping/src/matching/work_matcher.dart' as v2;
-import 'package:engine_scraping/src/scraping/work_matcher.dart';
+import 'package:engine_scraping/src/matching/work_matcher.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -24,7 +24,7 @@ void main() {
           ),
         ],
       );
-      final queries = ScrapeDomainAdapter.buildSearchQueries(folder);
+      final queries = buildSearchQueries(folder);
       expect(
         queries.any((k) => k.trim().toLowerCase() == 'kuroko'),
         isFalse,
@@ -86,7 +86,7 @@ void main() {
         ),
       ];
 
-      final groups = ScrapeDomainAdapter.groupAndSplitFiles(
+      final groups = groupAndSplitFiles(
         sourceId: 's1',
         files: files,
       );
@@ -194,7 +194,7 @@ void main() {
       expect(queries.any((String q) => q.contains('未来篇') || q.contains('未来編')), isTrue);
     });
 
-    test('ScrapeDomainAdapter.groupAndSplitFiles 自动拆分无合集词的《弹丸论破3》并分别精确绑定未来篇(S2)与绝望篇(独立条目)', () {
+    test('groupAndSplitFiles 自动拆分无合集词的《弹丸论破3》并分别精确绑定未来篇(S2)与绝望篇(独立条目)', () {
       const root = '未添加TMDB ID/弹丸论破系列/弹丸论破3';
       final files = <ScannedFileInput>[
         for (var i = 1; i <= 12; i++)
@@ -233,7 +233,7 @@ void main() {
         ),
       ];
 
-      final grouped = ScrapeDomainAdapter.groupAndSplitFiles(
+      final grouped = groupAndSplitFiles(
         sourceId: 'src_test',
         files: files,
       );
@@ -334,7 +334,7 @@ void main() {
         aliases: ['弹丸论破3 绝望篇', 'Danganronpa 3 Zetsubou Hen'],
       );
 
-      final miraiDecision = ScrapeDomainAdapter.evaluateMatch(
+      final miraiDecision = evaluateMatch(
         mirai,
         const [tmdbMain, tmdbZetsubou],
         bangumiCandidates: const [bgmMirai, bgmZetsubou],
@@ -344,7 +344,7 @@ void main() {
       expect(miraiDecision.best?.detail.tmdbId, 49471);
       expect(miraiDecision.matchedSeason, 2);
 
-      final zetsubouDecision = ScrapeDomainAdapter.evaluateMatch(
+      final zetsubouDecision = evaluateMatch(
         zetsubou,
         const [tmdbMain, tmdbZetsubou],
         bangumiCandidates: const [bgmMirai, bgmZetsubou],
@@ -355,7 +355,7 @@ void main() {
       expect(zetsubouDecision.matchedSeason, 1);
 
       // 反向守卫：同作双语多压制组洗版目录绝不被误拆为多部作品
-      final dualGroupGrouped = ScrapeDomainAdapter.groupAndSplitFiles(
+      final dualGroupGrouped = groupAndSplitFiles(
         sourceId: 'src_test',
         files: [
           for (var i = 1; i <= 6; i++) ...[
@@ -412,7 +412,7 @@ void main() {
           ),
         ],
       );
-      final queries = ScrapeDomainAdapter.buildSearchQueries(folder);
+      final queries = buildSearchQueries(folder);
       expect(
         queries.any((q) => q.contains('ONE')) &&
             queries.any((q) => q.contains('TWO')),
@@ -441,7 +441,7 @@ void main() {
           ),
         ],
       );
-      final queries = ScrapeDomainAdapter.buildSearchQueries(folder);
+      final queries = buildSearchQueries(folder);
       expect(queries.any((q) => q.contains('V') && !q.contains('Ⅴ')), isTrue);
       expect(queries.any((q) => q.contains('5')), isTrue);
     });

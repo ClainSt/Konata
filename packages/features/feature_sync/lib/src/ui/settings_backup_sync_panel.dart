@@ -256,15 +256,13 @@ class _SettingsBackupSyncPanelState
         children: <Widget>[
           _SectionTitleRow(
             icon: Icons.sync_outlined,
-            title: 'WebDAV 多设备分片同步',
-            subtitle:
-                '基于 manifest.json 与 slices/*.json.gz 增量校验同步；登录密码仅加密保存在系统安全存储中',
+            title: 'WebDAV 同步',
             palette: palette,
           ),
           const SizedBox(height: 14),
           _SettingsSwitchRow(
             switchKey: const Key('webdav_enabled_switch'),
-            title: '启用 WebDAV 多设备同步',
+            title: '启用 WebDAV 同步',
             subtitle: '开启后支持一键同步与自动策略调度',
             value: _webDavEnabled,
             onChanged: state.isBusy
@@ -275,7 +273,6 @@ class _SettingsBackupSyncPanelState
           const SizedBox(height: 14),
           LayoutBuilder(
             builder: (context, constraints) {
-              final narrow = constraints.maxWidth < 520;
               final urlField = AbsorbPointer(
                 absorbing: state.isBusy,
                 child: KonataSoftTextField(
@@ -349,65 +346,37 @@ class _SettingsBackupSyncPanelState
                 ],
               );
 
-              if (narrow) {
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    urlField,
-                    const SizedBox(height: 12),
-                    dirField,
-                    const SizedBox(height: 12),
-                    userField,
-                    const SizedBox(height: 12),
-                    pwdRow,
-                  ],
-                );
-              }
               return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Expanded(flex: 3, child: urlField),
-                      const SizedBox(width: 12),
-                      Expanded(flex: 2, child: dirField),
-                    ],
-                  ),
+                  urlField,
                   const SizedBox(height: 12),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: <Widget>[
-                      Expanded(child: userField),
-                      const SizedBox(width: 12),
-                      Expanded(child: pwdRow),
-                    ],
-                  ),
+                  dirField,
+                  const SizedBox(height: 12),
+                  userField,
+                  const SizedBox(height: 12),
+                  pwdRow,
                 ],
               );
             },
           ),
           const SizedBox(height: 16),
-          _SliceCheckWrap(
-            title: '参与云端双向协同的切片',
-            slices: state.availableSlices,
-            selectedIds: activeWebDavSliceIds,
-            keyPrefix: 'webdav_slice',
-            onToggle: state.isBusy
+          KonataListTile(
+            key: const Key('webdav_sync_items'),
+            title: '同步项目',
+            estimatedTrailingWidth: 108,
+            trailing: KonataPillButton.secondary(
+              label:
+                  '已选 ${state.availableSlices.where((s) => activeWebDavSliceIds.contains(s.sliceId)).length} / ${state.availableSlices.length}',
+              icon: Icons.chevron_right_rounded,
+              onPressed: state.isBusy
+                  ? null
+                  : () => _selectWebDavItems(context, controller),
+            ),
+            onTap: state.isBusy
                 ? null
-                : (sliceId, selected) {
-                    setState(() {
-                      final next = Set<String>.of(activeWebDavSliceIds);
-                      if (selected) {
-                        next.add(sliceId);
-                      } else {
-                        next.remove(sliceId);
-                      }
-                      _webDavSliceIds = next;
-                    });
-                  },
-            palette: palette,
+                : () => _selectWebDavItems(context, controller),
           ),
           const SizedBox(height: 14),
           _SettingsSwitchRow(
@@ -449,7 +418,7 @@ class _SettingsBackupSyncPanelState
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '按固定分钟间隔检查远端 manifest.json 的 SHA-256 指纹',
+                    '按设定间隔自动检查并同步变更',
                     style: TextStyle(
                       fontSize: 12,
                       color: palette.textSecondary,
@@ -557,6 +526,72 @@ class _SettingsBackupSyncPanelState
         ],
       ),
     );
+  }
+
+  Future<void> _selectWebDavItems(
+    BuildContext context,
+    SyncBackupController controller,
+  ) async {
+    final slices = controller.state.availableSlices;
+    final selected = slices
+        .where(
+          (s) =>
+              _webDavSliceIds == null || _webDavSliceIds!.contains(s.sliceId),
+        )
+        .map((s) => s.sliceId)
+        .toSet();
+    final confirmed = await showKonataGlassDialog<Set<String>>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, update) => KonataGlassDialog(
+          title: '同步项目',
+          width: 480,
+          actions: [
+            KonataPillButton.ghost(
+              key: const Key('webdav_items_cancel'),
+              label: '取消',
+              onPressed: () => Navigator.of(dialogContext).pop(),
+            ),
+            KonataPillButton.primary(
+              key: const Key('webdav_items_confirm'),
+              label: '确定',
+              onPressed: selected.isEmpty
+                  ? null
+                  : () => Navigator.of(
+                      dialogContext,
+                    ).pop(Set<String>.of(selected)),
+            ),
+          ],
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final slice in slices) ...[
+                  _SettingsSwitchRow(
+                    switchKey: Key('webdav_slice_${slice.sliceId}'),
+                    title: slice.displayName,
+                    subtitle: '',
+                    value: selected.contains(slice.sliceId),
+                    onChanged: (enabled) => update(() {
+                      if (enabled) {
+                        selected.add(slice.sliceId);
+                      } else {
+                        selected.remove(slice.sliceId);
+                      }
+                    }),
+                    palette: context.palette,
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    if (!mounted || confirmed == null || controller.state.isBusy) return;
+    setState(() => _webDavSliceIds = confirmed);
   }
 
   Future<void> _handleExportPressed(
@@ -961,7 +996,7 @@ class _SectionTitleRow extends StatelessWidget {
   const _SectionTitleRow({
     required this.icon,
     required this.title,
-    required this.subtitle,
+    this.subtitle = '',
     required this.palette,
   });
 
@@ -999,11 +1034,16 @@ class _SectionTitleRow extends StatelessWidget {
                   color: palette.textPrimary,
                 ),
               ),
-              const SizedBox(height: 3),
-              Text(
-                subtitle,
-                style: TextStyle(fontSize: 12.5, color: palette.textSecondary),
-              ),
+              if (subtitle.isNotEmpty) ...[
+                const SizedBox(height: 3),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    color: palette.textSecondary,
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -1056,81 +1096,6 @@ class _SettingsSwitchRow extends StatelessWidget {
         ),
         const SizedBox(width: 12),
         KonataSwitch(key: switchKey, value: value, onChanged: onChanged),
-      ],
-    );
-  }
-}
-
-class _SliceCheckWrap extends StatelessWidget {
-  const _SliceCheckWrap({
-    required this.title,
-    required this.slices,
-    required this.selectedIds,
-    required this.keyPrefix,
-    required this.onToggle,
-    required this.palette,
-  });
-
-  final String title;
-  final List<SyncSliceInfo> slices;
-  final Set<String> selectedIds;
-  final String keyPrefix;
-  final void Function(String sliceId, bool selected)? onToggle;
-  final KonataPalette palette;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        Text(
-          title,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: palette.textPrimary,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 10,
-          runSpacing: 8,
-          children: <Widget>[
-            for (final slice in slices)
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: palette.softFill,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: palette.hairline),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Text(
-                      slice.displayName,
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        color: palette.textPrimary,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    KonataSwitch(
-                      key: Key('${keyPrefix}_${slice.sliceId}'),
-                      value: selectedIds.contains(slice.sliceId),
-                      onChanged: onToggle == null
-                          ? null
-                          : (checked) => onToggle!(slice.sliceId, checked),
-                    ),
-                  ],
-                ),
-              ),
-          ],
-        ),
       ],
     );
   }

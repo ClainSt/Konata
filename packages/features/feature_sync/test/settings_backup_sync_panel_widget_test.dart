@@ -226,8 +226,8 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.text('创建备份与恢复'), findsOneWidget);
-        expect(find.text('WebDAV 多设备分片同步'), findsOneWidget);
-        expect(find.text('歌词人工修正'), findsOneWidget);
+        expect(find.text('WebDAV 同步'), findsOneWidget);
+        expect(find.text('歌词人工修正'), findsNothing);
         expect(tester.takeException(), isNull);
         toastCtrl.dispose();
       }
@@ -405,6 +405,44 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      final items = find.byKey(const Key('webdav_sync_items'));
+      final catalog = find.byKey(
+        const Key('webdav_slice_library_catalog_slice'),
+      );
+      expect(catalog, findsNothing);
+      final fields = [
+        'webdav_url_field',
+        'webdav_remote_dir_field',
+        'webdav_username_field',
+        'webdav_password_field',
+      ];
+      for (var i = 1; i < fields.length; i++) {
+        expect(
+          tester.getTopLeft(find.byKey(Key(fields[i]))).dy,
+          greaterThan(tester.getBottomLeft(find.byKey(Key(fields[i - 1]))).dy),
+        );
+      }
+      await tester.ensureVisible(items);
+      await tester.tap(
+        find.descendant(of: items, matching: find.text('已选 4 / 4')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(catalog);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('webdav_items_cancel')));
+      await tester.pumpAndSettle();
+      expect(catalog, findsNothing);
+      await tester.tap(
+        find.descendant(of: items, matching: find.text('已选 4 / 4')),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.widget<KonataSwitch>(catalog).value, isTrue);
+      await tester.tap(catalog);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('webdav_items_confirm')));
+      await tester.pumpAndSettle();
+      expect(catalog, findsNothing);
+      expect(find.text('已选 3 / 4'), findsOneWidget);
       final testBtn = find.byKey(const Key('webdav_test_button'));
       await tester.ensureVisible(testBtn);
       await tester.tap(testBtn);

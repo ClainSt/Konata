@@ -321,7 +321,7 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
                     text: MediaDisplayFormatter.formatWrappableFileName(
                       primaryVariant.fileName,
                     ),
-                    maxLines: 1,
+                    maxLines: 2,
                     style: KonataTheme.detailTextStyle(
                       palette: p,
                       color: (widget.onDarkBackdrop || p.isDark)

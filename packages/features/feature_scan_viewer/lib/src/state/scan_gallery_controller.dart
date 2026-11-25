@@ -164,7 +164,6 @@ final class ScanGalleryController extends ChangeNotifier {
 
     final isWorkSwitch = _state.workId != workId;
     if (isWorkSwitch) {
-      _scheduler.cancelAll();
       await _variantWatchSub?.cancel();
       _variantWatchSub = null;
     }
@@ -232,7 +231,7 @@ final class ScanGalleryController extends ChangeNotifier {
 
       final validVolumeKey =
           preferredVolumeKey != null &&
-              dataset.scanSummary.chips.length >= 2 &&
+              dataset.scanSummary.chips.isNotEmpty &&
               dataset.scanSummary.chips.any((c) => c.key == preferredVolumeKey)
           ? preferredVolumeKey
           : null;
@@ -312,13 +311,12 @@ final class ScanGalleryController extends ChangeNotifier {
     }
   }
 
-  /// 切换二级分卷筛选，并立即取消尚未完成的过期微缩图任务。
+  /// 切换二级分卷筛选；移出视口的卡片自行取消，保留卡片继续加载。
   void selectVolume(String? volumeKey) {
     if (_disposed || _state.selectedVolumeKey == volumeKey) return;
-    _scheduler.cancelAll();
     final nextKey =
         volumeKey != null &&
-            _state.scanSummary.chips.length >= 2 &&
+            _state.scanSummary.chips.isNotEmpty &&
             _state.scanSummary.chips.any((c) => c.key == volumeKey)
         ? volumeKey
         : null;

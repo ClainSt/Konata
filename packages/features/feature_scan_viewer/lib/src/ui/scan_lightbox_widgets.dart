@@ -10,7 +10,7 @@ extension _ScanLightboxDialogViews on _ScanLightboxDialogState {
     required double dialogWidth,
     required bool compact,
   }) {
-    final hasVolumes = _scanSummary.chips.length >= 2;
+    final hasVolumes = _scanSummary.chips.isNotEmpty;
     final activeVolumeLabel = _selectedVolumeKey == null
         ? '全部分卷 (${widget.scans.length})'
         : (_scanSummary.chips

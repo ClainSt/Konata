@@ -520,10 +520,18 @@ class AudioAssetExtractor {
   }) async {
     if (maxBytes <= 0) return null;
     try {
+      var end = start + maxBytes - 1;
+      // Cloud gateways validate the exact range, unlike HTTP servers which
+      // may clamp a range extending past EOF. Never request beyond EOF.
+      if (gateway is CloudDriveGateway) {
+        final length = await gateway.probeFileLength(relativePath);
+        if (length == null || length <= start) return null;
+        if (end >= length) end = length - 1;
+      }
       final stream = await gateway.openByteRange(
         relativePath,
         start: start,
-        endInclusive: start + maxBytes - 1,
+        endInclusive: end,
       );
       final chunks = <int>[];
       await for (final chunk in stream) {
@@ -802,7 +810,7 @@ class AudioAssetExtractor {
           }
 
           final matchedLrcPath = trackTitleLrcPath ?? audioStemLrcPath;
-          if (matchedLrcPath != null) {
+          if (probeEmbeddedLyrics && matchedLrcPath != null) {
             final lrcBytes = await readBoundedBytes(
               byteGateway,
               matchedLrcPath,

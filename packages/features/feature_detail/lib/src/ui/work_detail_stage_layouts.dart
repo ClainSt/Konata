@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 import 'package:konata_contracts/konata_contracts.dart';
 import 'package:konata_design_system/konata_design_system.dart';
 
+import '../data/detail_cd_artwork.dart';
 import '../data/detail_display_preferences.dart';
 import '../state/detail_supplementary_view_data.dart';
 import '../state/work_rescrape_state.dart';
@@ -23,6 +24,7 @@ class DetailWideOverlayStageLayout extends StatelessWidget {
     required this.displayPreferences,
     required this.rescrapeState,
     required this.imageLoader,
+    this.cdCoverLoader,
     required this.heroScrollController,
     required this.safePad,
     required this.bottomClearance,
@@ -55,6 +57,7 @@ class DetailWideOverlayStageLayout extends StatelessWidget {
 
   /// 受管图片加载器。
   final ManagedImageLoader imageLoader;
+  final DetailCdCoverLoader? cdCoverLoader;
 
   /// 主舞台信息区滚动控制器。
   final ScrollController heroScrollController;
@@ -196,6 +199,7 @@ class DetailWideOverlayStageLayout extends StatelessWidget {
                   child: DetailBottomDrawer(
                     bundle: bundle,
                     imageLoader: imageLoader,
+                    cdCoverLoader: cdCoverLoader,
                     displayPreferences: displayPreferences,
                     initialTabId: initialTabId,
                     expanded: drawerExpanded,
@@ -241,6 +245,7 @@ class DetailPortraitStageLayout extends StatelessWidget {
     required this.displayPreferences,
     required this.rescrapeState,
     required this.imageLoader,
+    this.cdCoverLoader,
     required this.scrollController,
     required this.viewport,
     required this.safePad,
@@ -276,6 +281,7 @@ class DetailPortraitStageLayout extends StatelessWidget {
 
   /// 受管图片加载器。
   final ManagedImageLoader imageLoader;
+  final DetailCdCoverLoader? cdCoverLoader;
 
   /// 竖屏主滚动控制器。
   final ScrollController scrollController;
@@ -423,6 +429,7 @@ class DetailPortraitStageLayout extends StatelessWidget {
                 child: DetailBottomDrawer(
                   bundle: bundle,
                   imageLoader: imageLoader,
+                  cdCoverLoader: cdCoverLoader,
                   displayPreferences: displayPreferences,
                   initialTabId: initialTabId,
                   expanded: drawerExpanded,

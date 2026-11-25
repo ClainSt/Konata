@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 import 'package:konata_contracts/konata_contracts.dart';
 import 'package:konata_design_system/konata_design_system.dart';
 
+import '../data/detail_cd_artwork.dart';
 import '../data/detail_display_preferences.dart';
 import '../state/detail_supplementary_view_data.dart';
 import 'detail_secondary_filter_bar.dart';
@@ -19,6 +20,7 @@ class DetailFullListDialog extends StatefulWidget {
     required this.bundle,
     required this.initialTabId,
     required this.imageLoader,
+    this.cdCoverLoader,
     required this.displayPreferences,
     required this.onTapEpisode,
     required this.onTapCdVariant,
@@ -33,6 +35,7 @@ class DetailFullListDialog extends StatefulWidget {
 
   /// 受管图片加载器。
   final ManagedImageLoader imageLoader;
+  final DetailCdCoverLoader? cdCoverLoader;
 
   /// 展示偏好快照。
   final DetailDisplayPreferences displayPreferences;
@@ -64,21 +67,6 @@ class _DetailFullListDialogState extends State<DetailFullListDialog> {
   bool _matches(String value) =>
       value.toLowerCase().contains(_query.trim().toLowerCase());
 
-  String _cdGroup(MediaVariant v) {
-    final parts = v.relativePath.replaceAll(r'\', '/').split('/');
-    return parts.length > 1 ? parts[parts.length - 2] : '';
-  }
-
-  String _extraLabel(ExtraKind kind) => switch (kind) {
-    ExtraKind.ncop => '无字幕片头',
-    ExtraKind.nced => '无字幕片尾',
-    ExtraKind.pv => '预告宣传',
-    ExtraKind.menu => '光盘菜单',
-    ExtraKind.mv => '音乐映像',
-    ExtraKind.ova => 'OVA / OAD',
-    ExtraKind.sp => '特别篇与花絮',
-  };
-
   @override
   void dispose() {
     _scrollCtrl.dispose();
@@ -91,6 +79,7 @@ class _DetailFullListDialogState extends State<DetailFullListDialog> {
     final mains = b.mainEpisodes;
     final extras = b.extraEpisodes;
     final cds = b.cdVariants;
+    final cdGroups = SupplementarySubclassifier.groupCdVariants(cds);
     final multiSeason =
         DetailSupplementaryHelper.groupMainBySeason(mains).length > 1;
 
@@ -111,31 +100,31 @@ class _DetailFullListDialogState extends State<DetailFullListDialog> {
       }
     } else if (_activeTab == DetailDrawerTabIds.extras) {
       filters.add((id: 'all', label: '全部', count: extras.length));
-      for (final kind in ExtraKind.values) {
+      for (final kind in SupplementarySubclassifier.extraKindDisplayOrder) {
         final count = extras
-            .where((e) => (e.extraType ?? ExtraKind.sp) == kind)
+            .where(
+              (e) => DetailSupplementaryHelper.resolvedExtraKind(b, e) == kind,
+            )
             .length;
         if (count > 0) {
-          filters.add((id: kind.name, label: _extraLabel(kind), count: count));
+          filters.add((
+            id: kind.name,
+            label: DetailSupplementaryHelper.extraKindLabel(kind),
+            count: count,
+          ));
         }
       }
     } else if (_activeTab == DetailDrawerTabIds.cd) {
-      final counts = <String, int>{};
-      for (final v in cds) {
-        final group = _cdGroup(v);
-        if (group.isNotEmpty) {
-          counts.update(group, (n) => n + 1, ifAbsent: () => 1);
-        }
-      }
       filters.add((id: 'all', label: '全部', count: cds.length));
-      for (final entry in counts.entries) {
-        filters.add((id: entry.key, label: entry.key, count: entry.value));
+      for (final chip in cdGroups.chips) {
+        filters.add((id: chip.key, label: chip.label, count: chip.count));
       }
     }
     final visibleCds = cds
         .where(
           (v) =>
-              (_filter == 'all' || _cdGroup(v) == _filter) &&
+              (_filter == 'all' ||
+                  cdGroups.byVariantId[v.id]?.albumKey == _filter) &&
               (_matches(v.fileName) || _matches(v.relativePath)),
         )
         .toList();
@@ -145,7 +134,11 @@ class _DetailFullListDialogState extends State<DetailFullListDialog> {
           (e) =>
               (_filter == 'all' ||
                   (isExtra
-                      ? (e.extraType ?? ExtraKind.sp).name == _filter
+                      ? DetailSupplementaryHelper.resolvedExtraKind(
+                              b,
+                              e,
+                            ).name ==
+                            _filter
                       : '${e.seasonNumber}' == _filter)) &&
               (_matches(e.title ?? '') ||
                   _matches('${e.episodeNumber ?? ''}') ||
@@ -290,6 +283,7 @@ class _DetailFullListDialogState extends State<DetailFullListDialog> {
         itemBuilder: (v) => CdDrawerCard(
           key: ValueKey('full_list_cd_${v.id}'),
           variant: v,
+          coverLoader: widget.cdCoverLoader,
           source: b.sourcesById[v.sourceId],
           workId: b.work.id,
           workPosterPath: b.work.posterPath ?? b.work.bangumiPosterPath,

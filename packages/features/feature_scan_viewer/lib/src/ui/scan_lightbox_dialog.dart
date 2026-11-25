@@ -212,7 +212,7 @@ class _ScanLightboxDialogState extends State<ScanLightboxDialog> {
 
     final initKey = widget.initialVolumeKey;
     if (initKey != null &&
-        _scanSummary.chips.length >= 2 &&
+        _scanSummary.chips.isNotEmpty &&
         _scanSummary.chips.any((c) => c.key == initKey)) {
       _selectedVolumeKey = initKey;
     } else {
@@ -427,7 +427,9 @@ class _ScanLightboxDialogState extends State<ScanLightboxDialog> {
   }
 
   Future<void> _selectIndex(int nextIndex) async {
-    if (nextIndex < 0 || nextIndex >= _scopedScans.length || nextIndex == _index) {
+    if (nextIndex < 0 ||
+        nextIndex >= _scopedScans.length ||
+        nextIndex == _index) {
       return;
     }
     setState(() {
@@ -444,8 +446,11 @@ class _ScanLightboxDialogState extends State<ScanLightboxDialog> {
     if (!_filmstripController.hasClients) return;
     const itemExtent = 66.0;
     final viewportW = _filmstripController.position.viewportDimension;
-    final targetOffset = (targetIndex * itemExtent - viewportW / 2 + itemExtent / 2)
-        .clamp(0.0, _filmstripController.position.maxScrollExtent);
+    final targetOffset =
+        (targetIndex * itemExtent - viewportW / 2 + itemExtent / 2).clamp(
+          0.0,
+          _filmstripController.position.maxScrollExtent,
+        );
     unawaited(
       _filmstripController.animateTo(
         targetOffset,
@@ -549,10 +554,7 @@ class _ScanLightboxDialogState extends State<ScanLightboxDialog> {
 
       final dims = ImageHeaderParser.parseDimensions(bytes);
       if (dims != null) {
-        _scanScheduler.recordAspectRatio(
-          current.id,
-          dims.width / dims.height,
-        );
+        _scanScheduler.recordAspectRatio(current.id, dims.width / dims.height);
       }
 
       _putIntoMemoryWindow(
@@ -606,7 +608,10 @@ class _ScanLightboxDialogState extends State<ScanLightboxDialog> {
         final source = widget.sourcesById[targetVariant.sourceId];
         if (source == null) continue;
 
-        final handle = _loader.startLoad(variant: targetVariant, source: source);
+        final handle = _loader.startLoad(
+          variant: targetVariant,
+          source: source,
+        );
         _prefetchHandle = handle;
         _prefetchVariantId = targetVariant.id;
 
@@ -866,10 +871,7 @@ class _ScanLightboxDialogState extends State<ScanLightboxDialog> {
   ) async {
     if (source == null || source.kind != MediaSourceKind.local) {
       if (!mounted) return;
-      showKonataToast(
-        context,
-        '远程媒体源不在本地写临时文件，请直接在当前浮层滚轮缩放查看原图',
-      );
+      showKonataToast(context, '远程媒体源不在本地写临时文件，请直接在当前浮层滚轮缩放查看原图');
       return;
     }
 

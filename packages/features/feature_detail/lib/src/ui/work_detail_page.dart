@@ -239,6 +239,9 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
       builder: (dialogCtx) => DetailFullListDialog(
         bundle: bundle,
         initialTabId: tabId,
+        cdCoverLoader: widget.controllerOverride == null
+            ? ref.read(detailCdCoverLoaderProvider)
+            : null,
         imageLoader: imageLoader,
         displayPreferences: prefs,
         onTapEpisode: (ep) {
@@ -665,6 +668,9 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                     return ColoredBox(
                       color: dissolveColor,
                       child: DetailPortraitStageLayout(
+                        cdCoverLoader: widget.controllerOverride == null
+                            ? ref.watch(detailCdCoverLoaderProvider)
+                            : null,
                         bundle: bundle,
                         displayPreferences: prefs,
                         rescrapeState: controller.rescrapeState,
@@ -725,6 +731,9 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                   return ColoredBox(
                     color: KonataTheme.cinemaObsidian,
                     child: DetailWideOverlayStageLayout(
+                      cdCoverLoader: widget.controllerOverride == null
+                          ? ref.watch(detailCdCoverLoaderProvider)
+                          : null,
                       bundle: bundle,
                       displayPreferences: prefs,
                       rescrapeState: controller.rescrapeState,

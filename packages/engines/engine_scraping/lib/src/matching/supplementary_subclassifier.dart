@@ -910,8 +910,31 @@ abstract final class SupplementarySubclassifier {
     }
 
     final after = segs.sublist(containerIdx + 1);
+    // CD 专辑的 Scans 不是作品根目录的平铺扫图：保留所属专辑，
+    // 防止不同专辑内同名 Scans/Booklet 被错误合并。
+    final cdRoot = segs.lastIndexWhere(
+      _cdRootContainerSeg.hasMatch,
+      containerIdx,
+    );
+    if (cdRoot >= 0 && cdRoot + 1 < containerIdx) {
+      final albumPath = segs.take(containerIdx).join('/');
+      final album = extractCdAlbumGroup(
+        relativePath: '$albumPath/placeholder.flac',
+      );
+      final suffix = after
+          .map(_cleanScanSegmentLabel)
+          .where((s) => s.isNotEmpty)
+          .toList();
+      final label = [album.chipLabel, ...suffix].join(' · ');
+      return ScanVolumeGroupingResult(
+        volumeKey:
+            'cd/${album.albumKey}/${suffix.map((s) => s.toLowerCase()).join('/')}',
+        chipLabel: label,
+        directSubdirShort: suffix.isEmpty ? album.chipLabel : suffix.last,
+      );
+    }
     if (after.isEmpty) {
-      // 平铺在单一 Scans/ 下无子文件夹
+      // 平铺在单一作品根 Scans/ 下无子文件夹
       return const ScanVolumeGroupingResult();
     }
 
@@ -955,7 +978,7 @@ abstract final class SupplementarySubclassifier {
     for (final v in scanVariants) {
       final segs = _parentSegments(v.relativePath);
       final idx = segs.lastIndexWhere(_scanContainerSeg.hasMatch);
-      if (idx >= 0 && idx + 2 < segs.length + 1) {
+      if (idx >= 0 && idx + 1 < segs.length) {
         final candidate = segs[idx + 1];
         if (_seasonShellSeg.hasMatch(candidate)) {
           seasonShells.add(candidate.trim().toLowerCase());

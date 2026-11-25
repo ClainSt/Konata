@@ -9,6 +9,7 @@ import 'package:flutter/widgets.dart';
 import 'package:konata_design_system/konata_design_system.dart';
 import 'package:path/path.dart' as p;
 
+import '../data/detail_cd_artwork.dart';
 import '../data/media_display_formatter.dart';
 import 'detail_artwork_view.dart';
 
@@ -33,6 +34,7 @@ class CdDrawerCard extends StatefulWidget {
     this.workId,
     this.workPosterPath,
     this.imageLoader,
+    this.coverLoader,
     this.directSubdirLabel,
     this.displayTitleOverride,
     this.showRawFileName = true,
@@ -54,6 +56,9 @@ class CdDrawerCard extends StatefulWidget {
 
   /// 受管图片加载器。
   final ManagedImageLoader? imageLoader;
+
+  /// 共享专辑封面加载器。
+  final DetailCdCoverLoader? coverLoader;
 
   /// 是否展示「系列共用」角标。
   final bool showSeriesSharedBadge;
@@ -97,7 +102,9 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
   void didUpdateWidget(covariant CdDrawerCard oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.variant.id != widget.variant.id ||
-        oldWidget.source?.id != widget.source?.id) {
+        oldWidget.source?.id != widget.source?.id ||
+        oldWidget.coverLoader != widget.coverLoader) {
+      _loadEpoch++;
       _coverBytes = null;
       _loadLocalCoverIfSafe();
     }
@@ -105,7 +112,23 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
 
   void _loadLocalCoverIfSafe() {
     final src = widget.source;
-    if (src == null || src.kind != MediaSourceKind.local) return;
+    if (src == null) return;
+    final loader = widget.coverLoader;
+    if (loader != null) {
+      final epoch = ++_loadEpoch;
+      unawaited(
+        loader(widget.variant, src).then((bytes) {
+          if (mounted &&
+              epoch == _loadEpoch &&
+              bytes != null &&
+              bytes.isNotEmpty) {
+            setState(() => _coverBytes = bytes);
+          }
+        }, onError: (Object _) {}),
+      );
+      return;
+    }
+    if (src.kind != MediaSourceKind.local) return;
     final key = '${src.id}::${widget.variant.relativePath}';
     final cached = _localCoverCache[key];
     if (cached != null) {
@@ -301,7 +324,7 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
                     text: MediaDisplayFormatter.formatWrappableFileName(
                       v.fileName,
                     ),
-                    maxLines: 1,
+                    maxLines: 2,
                     style: KonataTheme.detailTextStyle(
                       palette: palette,
                       color: (widget.onDarkBackdrop || palette.isDark)
@@ -316,7 +339,7 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
                   const SizedBox(height: 1.5),
                   EllipsisTextWithTooltip(
                     text: subLine,
-                    maxLines: 1,
+                    maxLines: 2,
                     style: KonataTheme.detailTextStyle(
                       palette: palette,
                       color: (widget.onDarkBackdrop || palette.isDark)

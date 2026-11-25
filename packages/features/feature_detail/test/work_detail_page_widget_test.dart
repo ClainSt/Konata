@@ -890,7 +890,7 @@ void main() {
               expect(tester.element(capsule).palette.isDark, isTrue);
               expect(
                 tester.element(play).palette.primaryButtonFg,
-                KonataTheme.pureWhite,
+                const Color(0xFF20242C),
               );
               final capsuleRect = tester.getRect(capsule);
               final playRect = tester.getRect(play);

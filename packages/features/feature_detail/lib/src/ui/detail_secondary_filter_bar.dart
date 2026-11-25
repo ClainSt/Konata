@@ -429,13 +429,13 @@ class _SubFilterChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = palette;
     final bg = selected
-        ? (onDarkBackdrop ? KonataTheme.overlayWhiteMuted : p.softFill)
+        ? (onDarkBackdrop ? const Color(0xE52E4665) : p.softFill)
         : (onDarkBackdrop
-              ? const Color(0x4012151D)
+              ? const Color(0xDD151820)
               : KonataPlaybackTokens.glassSurface(p));
     final fg = selected
         ? (onDarkBackdrop ? KonataTheme.pureWhite : p.textPrimary)
-        : (onDarkBackdrop ? KonataTheme.overlayWhiteTextDim : p.textSecondary);
+        : (onDarkBackdrop ? KonataTheme.overlayWhiteTextHigh : p.textSecondary);
     final border = selected
         ? (onDarkBackdrop
               ? KonataTheme.overlayWhiteBorderStrong

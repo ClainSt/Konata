@@ -89,6 +89,7 @@ class ScanThumbnailCard extends StatefulWidget {
 
 class _ScanThumbnailCardState extends State<ScanThumbnailCard> {
   bool _hovered = false;
+  bool _loading = false;
   Uint8List? _thumbBytes;
   ScanThumbnailTicket? _ticket;
   int _loadEpoch = 0;
@@ -128,9 +129,11 @@ class _ScanThumbnailCardState extends State<ScanThumbnailCard> {
   void _scheduleThumbnail() {
     final source = widget.source;
     if (source == null) {
+      _loading = false;
       _thumbBytes = null;
       return;
     }
+    _loading = true;
     final epoch = ++_loadEpoch;
     final scheduled = widget.scheduler.schedule(
       workId: widget.workId ?? widget.variant.workId,
@@ -144,12 +147,14 @@ class _ScanThumbnailCardState extends State<ScanThumbnailCard> {
         (bytes) {
           if (!mounted || epoch != _loadEpoch) return;
           setState(() {
+            _loading = false;
             _thumbBytes = bytes.isEmpty ? null : bytes;
           });
         },
         onError: (_) {
           if (!mounted || epoch != _loadEpoch) return;
           setState(() {
+            _loading = false;
             _thumbBytes = null;
           });
         },
@@ -216,6 +221,8 @@ class _ScanThumbnailCardState extends State<ScanThumbnailCard> {
                           gaplessPlayback: true,
                           errorBuilder: (_, _, _) => const _ScanPlaceholder(),
                         )
+                      : _loading
+                      ? const Center(child: Text('加载缩略图…'))
                       : const _ScanPlaceholder(),
                 ),
               ),

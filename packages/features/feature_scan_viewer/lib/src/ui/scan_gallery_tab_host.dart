@@ -192,6 +192,8 @@ class _ScanGalleryTabHostState extends ConsumerState<ScanGalleryTabHost> {
                 workTitle: state.workTitle,
                 showSeriesSharedBadge: state.showSeriesSharedBadge,
                 onDarkBackdrop: true,
+                directSubdirLabel:
+                    state.scanSummary.byVariantId[v.id]?.directSubdirShort,
                 cardWidth: width,
                 fillAvailableWidth: false,
                 frameAspectRatio: 4 / 3,
@@ -283,7 +285,7 @@ class _ScanGalleryTabHostState extends ConsumerState<ScanGalleryTabHost> {
                   )
                   .toList();
         final volumeChips = state.scanSummary.chips;
-        final showVolumeBar = volumeChips.length >= 2;
+        final showVolumeBar = volumeChips.isNotEmpty;
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,

@@ -653,12 +653,12 @@ abstract final class KonataTheme {
   /// 构建亮色模式主题（应用壳层可按需缓存复用）。
   static ThemeData lightTheme() => _buildTheme(KonataPalette.light);
 
-  // 原画舞台本身具有固定的暗色护字遮罩；不应随应用主题切换为白色按钮。
+  // 原画舞台本身具有固定的暗色护字遮罩；主播放操作在两种主题中均使用柔和白底。
   static final ThemeData _artworkOverlayTheme = _buildTheme(
     KonataPalette.dark.copyWith(
-      primaryButtonBg: const Color(0xED191D25),
-      primaryButtonHoverBg: const Color(0xF5323844),
-      primaryButtonFg: pureWhite,
+      primaryButtonBg: const Color(0xF2F2F3F5),
+      primaryButtonHoverBg: const Color(0xFFF9F9FA),
+      primaryButtonFg: const Color(0xFF20242C),
     ),
   );
 

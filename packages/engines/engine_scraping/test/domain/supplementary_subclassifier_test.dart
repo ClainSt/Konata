@@ -20,6 +20,44 @@ MediaVariant _variant(
 
 void main() {
   group('特典 / CD / Scan 二级分类与双决策规则测试', () {
+    test('专辑下平铺的 Scans 保留专辑分类，不与作品根扫图混淆', () {
+      final scans = [
+        _variant(
+          'a',
+          'Work/CDs/[241218] Release Sigh (flac+webp)/Scans/01.webp',
+          kind: AssetKind.scanGallery,
+        ),
+        _variant(
+          'b',
+          'Work/CDs/[241218] Release Sigh (flac+webp)/Scans/02.webp',
+          kind: AssetKind.scanGallery,
+        ),
+        _variant(
+          'c',
+          'Work/CDs/[240828] Watch Me/Scans/01.webp',
+          kind: AssetKind.scanGallery,
+        ),
+        _variant('d', 'Work/Scans/01.webp', kind: AssetKind.scanGallery),
+      ];
+      final summary = SupplementarySubclassifier.groupScanVariants(scans);
+      expect(summary.chips, hasLength(2));
+      expect(
+        summary.byVariantId['a']?.volumeKey,
+        summary.byVariantId['b']?.volumeKey,
+      );
+      expect(
+        summary.byVariantId['a']?.volumeKey,
+        isNot(summary.byVariantId['c']?.volumeKey),
+      );
+      expect(summary.byVariantId['a']?.chipLabel, contains('Release Sigh'));
+      expect(summary.byVariantId['d']?.volumeKey, isNull);
+      expect(
+        SupplementarySubclassifier.groupScanVariants(
+          scans.take(2).toList(),
+        ).chips,
+        hasLength(1),
+      );
+    });
     test('决策点 1：文件名显式类型语义优先于父目录；纯歌名回退父目录 MV', () {
       // MVs 目录下带メイキング显式语义 -> 归入 sp 特别篇与花絮
       final makingKind = SupplementarySubclassifier.classifyExtraVideo(
@@ -81,8 +119,7 @@ void main() {
           'CDs/[EAC][201014] Single「炎」[FLAC+BD]/BD/BDMV/STREAM/00000.m2ts';
       const multiDiscVideo2 =
           'CDs/[EAC][201014] Single「炎」[FLAC+BD]/BD/BDMV/STREAM/00001.m2ts';
-      const namedVideo =
-          'CDs/[190529] 紅蓮華 [FLAC]/DVD/Making_Video.mkv';
+      const namedVideo = 'CDs/[190529] 紅蓮華 [FLAC]/DVD/Making_Video.mkv';
 
       final rawEntries = <({String fileName, String relativePath})>[
         (fileName: '00000.m2ts', relativePath: singlePathA),
@@ -142,7 +179,10 @@ void main() {
       final slotA = resolveExtraSlotAssignment(
         fileName: '00000.m2ts',
         relativePath: singlePathA,
-        parsed: BdripParser.parseFileName('00000.m2ts', relativePath: singlePathA),
+        parsed: BdripParser.parseFileName(
+          '00000.m2ts',
+          relativePath: singlePathA,
+        ),
         workVideoEntries: rawEntries,
       );
       final slotB = resolveExtraSlotAssignment(
@@ -161,8 +201,14 @@ void main() {
 
     test('CD EAC 专辑短名提炼、多碟子目录穿透与 Scan 平铺/分卷二级筛选判断', () {
       final cdVariants = <MediaVariant>[
-        _variant('c1', 'CDs/[EAC][120829] Original Soundtrack [FLAC+CUE]/CD1/01.flac'),
-        _variant('c2', 'CDs/[EAC][120829] Original Soundtrack [FLAC+CUE]/CD2/01.flac'),
+        _variant(
+          'c1',
+          'CDs/[EAC][120829] Original Soundtrack [FLAC+CUE]/CD1/01.flac',
+        ),
+        _variant(
+          'c2',
+          'CDs/[EAC][120829] Original Soundtrack [FLAC+CUE]/CD2/01.flac',
+        ),
         _variant('c3', 'CDs/[220105] OP Single「残響散歌」(24bit 96kHz)/01.flac'),
       ];
       final cdSummary = SupplementarySubclassifier.groupCdVariants(cdVariants);
@@ -178,7 +224,9 @@ void main() {
         _variant('s1', 'Scans/001.jpg', kind: AssetKind.scanGallery),
         _variant('s2', 'Scans/002.jpg', kind: AssetKind.scanGallery),
       ];
-      final flatSummary = SupplementarySubclassifier.groupScanVariants(flatScans);
+      final flatSummary = SupplementarySubclassifier.groupScanVariants(
+        flatScans,
+      );
       expect(flatSummary.chips, isEmpty);
       expect(flatSummary.hasMultipleSubdirs, isFalse);
 

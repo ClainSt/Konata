@@ -65,6 +65,50 @@ class _InMemoryWebDavGateway
   }
 }
 
+class _StrictCloudGateway extends _InMemoryWebDavGateway
+    implements CloudDriveGateway {
+  _StrictCloudGateway(super.files);
+
+  @override
+  Future<({int? length, String? validator})> probeFileMetadata(
+    String relativePath,
+  ) async => (length: await probeFileLength(relativePath), validator: null);
+
+  @override
+  Future<Stream<List<int>>> openByteRange(
+    String relativePath, {
+    required int start,
+    int? endInclusive,
+  }) async {
+    final length = files[relativePath]!.length;
+    if (start >= length || (endInclusive != null && endInclusive >= length)) {
+      throw const UpstreamRangeMismatchException('range past EOF');
+    }
+    return super.openByteRange(
+      relativePath,
+      start: start,
+      endInclusive: endInclusive,
+    );
+  }
+
+  @override
+  Future<ValidatedByteRangeStream> openValidatedByteRange(
+    String relativePath, {
+    required int start,
+    int? endInclusive,
+    String? expectedStrongValidator,
+  }) async => ValidatedByteRangeStream(
+    stream: await openByteRange(
+      relativePath,
+      start: start,
+      endInclusive: endInclusive,
+    ),
+    start: start,
+    endInclusive: endInclusive,
+    totalLength: files[relativePath]!.length,
+  );
+}
+
 class _FakeGatewayFactory implements MediaSourceGatewayFactoryPort {
   const _FakeGatewayFactory(this.gateway);
 
@@ -294,6 +338,36 @@ class _FakeBeefwebServer {
 }
 
 void main() {
+  test('严格云盘范围读取不越过短文件 EOF', () async {
+    final data = Uint8List.fromList([1, 2, 3, 4, 5]);
+    final gateway = _StrictCloudGateway({'cover.webp': data});
+    expect(
+      await AudioAssetExtractor.readBoundedBytes(
+        gateway,
+        'cover.webp',
+        maxBytes: 1024,
+      ),
+      data,
+    );
+    expect(
+      await AudioAssetExtractor.readBoundedRange(
+        gateway,
+        'cover.webp',
+        start: 3,
+        maxBytes: 1024,
+      ),
+      [4, 5],
+    );
+    expect(
+      await AudioAssetExtractor.readBoundedRange(
+        gateway,
+        'cover.webp',
+        start: 5,
+        maxBytes: 1024,
+      ),
+      isNull,
+    );
+  });
   group('MPV IPC / PotPlayer Win32 参数构造与防抖追踪', () {
     test('MPV 启动参数前置选项剥离冗余引号，并过滤瞬态归零', () async {
       final args = MpvIpcTracker.buildLaunchArguments(
@@ -304,7 +378,10 @@ void main() {
         subtitlePaths: const [r'C:\subs\01.ass'],
         argumentsTemplate: '--fs "{url}"',
       );
-      expect(args, contains('--input-ipc-server=${r'\\.\pipe\konata_mpv_test'}'));
+      expect(
+        args,
+        contains('--input-ipc-server=${r'\\.\pipe\konata_mpv_test'}'),
+      );
       expect(args, contains('--start=+868'));
       expect(args, contains('--sub-files=${r'C:\subs\01.ass'}'));
       expect(args, contains('--fs'));
@@ -458,13 +535,14 @@ void main() {
         pollInterval: const Duration(milliseconds: 25),
         persistInterval: const Duration(milliseconds: 10),
         isCancelled: () => cancelled,
-        onTrackProgress: (track, pos, dur, {required isCompleted, required isFinal}) async {
-          progressEvents.add((
-            recordId: track.recordId,
-            pos: pos,
-            isFinal: isFinal,
-          ));
-        },
+        onTrackProgress:
+            (track, pos, dur, {required isCompleted, required isFinal}) async {
+              progressEvents.add((
+                recordId: track.recordId,
+                pos: pos,
+                isFinal: isFinal,
+              ));
+            },
       );
 
       expect(attached.attachedToBeefweb, isTrue);

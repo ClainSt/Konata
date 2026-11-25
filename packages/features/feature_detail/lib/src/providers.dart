@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:konata_contracts/konata_contracts.dart';
 import 'package:konata_storage/konata_storage.dart';
 
+import 'data/detail_cd_artwork.dart';
 import 'data/detail_display_preferences.dart';
 import 'data/detail_work_actions.dart';
 import 'data/main_episode_frame_backfill_service.dart';
@@ -332,3 +333,13 @@ final workDetailControllerProvider = Provider.autoDispose
       unawaited(controller.load());
       return controller;
     });
+
+/// 同一宿主共享的限流 CD 封面加载器。
+final detailCdCoverLoaderProvider = Provider<DetailCdCoverLoader>((ref) {
+  final deps = ref.watch(featureDetailDependenciesProvider);
+  return DetailCdArtworkService(
+    databases: deps.databases,
+    photosStorage: deps.photosStorage,
+    gatewayFactory: deps.gatewayFactory,
+  ).load;
+});

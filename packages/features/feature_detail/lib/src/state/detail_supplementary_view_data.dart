@@ -158,16 +158,19 @@ abstract final class DetailSupplementaryHelper {
   }
 
   /// 将特典细分类型映射为简洁中文标签。
-  static String extraKindLabel(ExtraKind kind) {
-    return switch (kind) {
-      ExtraKind.ncop => '无字幕 OP (NCOP)',
-      ExtraKind.nced => '无字幕 ED (NCED)',
-      ExtraKind.pv => '宣传映像 (PV / CM)',
-      ExtraKind.ova => 'OVA / OAD',
-      ExtraKind.sp => '特别篇 / 特典 (SP)',
-      ExtraKind.menu => '光盘菜单 (Menu)',
-      ExtraKind.mv => '音乐录影带 (MV)',
-    };
+  static String extraKindLabel(ExtraKind kind) =>
+      SupplementarySubclassifier.extraKindLabel(kind);
+
+  /// 按黄金源文件名、目录语义和原始类型分类特典。
+  static ExtraKind resolvedExtraKind(WorkDetailBundle bundle, Episode episode) {
+    final v = bundle.variantsForEpisode(episode.id).firstOrNull;
+    return v == null
+        ? episode.extraType ?? ExtraKind.sp
+        : SupplementarySubclassifier.classifyExtraVideo(
+            fileName: v.fileName,
+            relativePath: v.relativePath,
+            fallbackExtraType: episode.extraType,
+          );
   }
 
   /// 提取多个 CD 变体共有的最长父目录前缀后的直接子目录短名（用于仅在多文件夹共存时消歧）。

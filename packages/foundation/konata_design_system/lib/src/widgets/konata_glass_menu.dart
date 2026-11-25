@@ -58,7 +58,7 @@ Future<T?> showKonataGlassMenu<T>({
   final topLeft = renderBox.localToGlobal(Offset.zero, ancestor: overlayBox);
   final anchorRect = topLeft & renderBox.size;
 
-    return Navigator.of(anchorContext, rootNavigator: true).push<T>(
+  return Navigator.of(anchorContext, rootNavigator: true).push<T>(
     RawDialogRoute<T>(
       barrierDismissible: true,
       barrierColor: Colors.transparent,
@@ -75,13 +75,7 @@ Future<T?> showKonataGlassMenu<T>({
           parent: animation,
           curve: Curves.easeOutCubic,
         );
-        return FadeTransition(
-          opacity: curved,
-          child: ScaleTransition(
-            scale: Tween<double>(begin: 0.94, end: 1.0).animate(curved),
-            child: child,
-          ),
-        );
+        return FadeTransition(opacity: curved, child: child);
       },
     ),
   );
@@ -112,10 +106,10 @@ class _KonataGlassMenuOverlayState<T>
     final p = context.palette;
     final media = MediaQuery.of(context);
     final viewport = media.size;
-    final safe = media.padding;
+    final safe = media.viewPadding;
     final itemHeight = KonataAdaptiveTokens.isAndroid
         ? KonataAdaptiveTokens.touchTarget
-        : kMinInteractiveDimension;
+        : 36.0;
     final estimatedHeight = widget.items.length * itemHeight + 12.0;
     final menuWidth = math.min(
       math.max(widget.minWidth, widget.anchorRect.width),
@@ -132,21 +126,29 @@ class _KonataGlassMenuOverlayState<T>
       maxLeft,
     );
 
-    final spaceBelow =
-        viewport.height - safe.bottom - widget.anchorRect.bottom - 12.0;
-    final openDown =
-        spaceBelow >= estimatedHeight || widget.anchorRect.top < estimatedHeight;
+    // 优先在锚点上下完整容纳菜单；空间不足时只缩短滚动视口。
+    const gap = 8.0;
     final minTop = safe.top + 12.0;
-    final maxTop = math.max(
-      minTop,
-      viewport.height - safe.bottom - estimatedHeight - 12.0,
+    final maxBottom = viewport.height - safe.bottom - 12.0;
+    final spaceAbove = math.max(0.0, widget.anchorRect.top - gap - minTop);
+    final spaceBelow = math.max(
+      0.0,
+      maxBottom - widget.anchorRect.bottom - gap,
     );
-    final rawTop = openDown
-        ? widget.anchorRect.bottom + 6.0
-        : widget.anchorRect.top - estimatedHeight - 6.0;
-    final top = rawTop.clamp(minTop, maxTop);
+    final openDown =
+        spaceBelow >= estimatedHeight ||
+        (spaceAbove < estimatedHeight && spaceBelow >= spaceAbove);
+    final menuHeight = math.min(
+      estimatedHeight,
+      openDown ? spaceBelow : spaceAbove,
+    );
+    final top = openDown
+        ? widget.anchorRect.bottom + gap
+        : widget.anchorRect.top - gap - menuHeight;
 
-    final radius = BorderRadius.circular(KonataPlaybackTokens.floatingMiniRadius);
+    final radius = BorderRadius.circular(
+      KonataPlaybackTokens.floatingMiniRadius,
+    );
 
     return Stack(
       children: [
@@ -160,6 +162,7 @@ class _KonataGlassMenuOverlayState<T>
           left: preferredLeft,
           top: top,
           width: menuWidth,
+          height: menuHeight,
           child: Material(
             color: Colors.transparent,
             child: Container(
@@ -196,27 +199,29 @@ class _KonataGlassMenuOverlayState<T>
                           vertical: 6,
                           horizontal: 6,
                         ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            for (var i = 0; i < widget.items.length; i++)
-                              _KonataGlassMenuTile<T>(
-                                item: widget.items[i],
-                                height: itemHeight,
-                                hovered: _hoveredIndex == i,
-                                onHoverEnter: () {
-                                  if (_hoveredIndex != i) {
-                                    setState(() => _hoveredIndex = i);
-                                  }
-                                },
-                                onHoverExit: () {
-                                  if (_hoveredIndex == i) {
-                                    setState(() => _hoveredIndex = null);
-                                  }
-                                },
-                              ),
-                          ],
+                        child: SingleChildScrollView(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              for (var i = 0; i < widget.items.length; i++)
+                                _KonataGlassMenuTile<T>(
+                                  item: widget.items[i],
+                                  height: itemHeight,
+                                  hovered: _hoveredIndex == i,
+                                  onHoverEnter: () {
+                                    if (_hoveredIndex != i) {
+                                      setState(() => _hoveredIndex = i);
+                                    }
+                                  },
+                                  onHoverExit: () {
+                                    if (_hoveredIndex == i) {
+                                      setState(() => _hoveredIndex = null);
+                                    }
+                                  },
+                                ),
+                            ],
+                          ),
                         ),
                       ),
                     ),

@@ -376,6 +376,62 @@ void main() {
       expect(selected, 'opt_25');
     });
 
+    testWidgets('长菜单上下避让触发按钮，支持原位关闭与滚动选择', (tester) async {
+      tester.view.physicalSize = const Size(600, 420);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      for (final alignment in [Alignment.topRight, Alignment.bottomRight]) {
+        int? selected;
+        await tester.pumpWidget(
+          _wrapApp(
+            Align(
+              alignment: alignment,
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Builder(
+                  builder: (anchorCtx) => KonataPillButton.primary(
+                    label: '更多操作',
+                    onPressed: () async {
+                      selected = await showKonataGlassMenu<int>(
+                        anchorContext: anchorCtx,
+                        items: [
+                          for (var i = 0; i < 20; i++)
+                            KonataGlassMenuItem(value: i, label: '动作 $i'),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final anchor = tester.getRect(find.text('更多操作'));
+        await tester.tap(find.text('更多操作'));
+        await tester.pumpAndSettle();
+        final scroll = find.byType(SingleChildScrollView).last;
+        final bounds = tester.getRect(scroll);
+        expect(bounds.overlaps(anchor), isFalse);
+        expect(tester.takeException(), isNull);
+        await tester.tapAt(anchor.center);
+        await tester.pumpAndSettle();
+        expect(find.text('动作 0'), findsNothing);
+        expect(selected, isNull);
+
+        await tester.tap(find.text('更多操作'));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('动作 19'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('动作 19'));
+        await tester.pumpAndSettle();
+        expect(selected, 19);
+        expect(find.text('动作 0'), findsNothing);
+      }
+    });
+
     testWidgets('KonataGlassMenu 浅色主题逐帧划过严格单行高亮零残影', (tester) async {
       Color? tileBg(Finder textFinder) {
         final tile = find.ancestor(

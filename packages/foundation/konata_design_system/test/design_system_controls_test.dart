@@ -14,6 +14,37 @@ Widget _wrapApp(Widget child, {bool dark = true}) {
 }
 
 void main() {
+  testWidgets('全局 Toast 位于 Navigator 外部时保存提示和关闭交互正常', (tester) async {
+    final toastCtrl = KonataToastController();
+    addTearDown(toastCtrl.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: KonataTheme.darkTheme(),
+        builder: (context, child) => Stack(
+          children: [
+            child!,
+            KonataToastViewport(controller: toastCtrl),
+          ],
+        ),
+        home: const Scaffold(body: SizedBox.expand()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    for (final isError in [false, true]) {
+      toastCtrl.show(isError ? '保存失败' : '媒体源保存成功', isError: isError);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 250));
+      expect(tester.takeException(), isNull);
+      expect(find.text(isError ? '保存失败' : '媒体源保存成功'), findsOneWidget);
+      final close = find.byKey(const ValueKey('konata_toast_close'));
+      expect(close, findsOneWidget);
+      await tester.tap(close);
+      await tester.pumpAndSettle();
+      expect(close, findsNothing);
+      expect(tester.takeException(), isNull);
+    }
+  });
+
   group('KonataTheme 与光学令牌校验', () {
     test('亮/暗双主题 ProgressIndicatorTheme 与调色盘完全对齐', () {
       for (final isDark in const <bool>[false, true]) {
@@ -103,11 +134,16 @@ void main() {
       expect(find.text('面板_外观'), findsNothing);
       expect(find.text('深色模式'), findsOneWidget);
 
-      await tester.tap(find.byKey(const ValueKey('settings_category_appearance')));
+      await tester.tap(
+        find.byKey(const ValueKey('settings_category_appearance')),
+      );
       await tester.pumpAndSettle();
       expect(detailVisible, isTrue);
       expect(find.text('面板_外观'), findsOneWidget);
-      expect(find.byKey(const ValueKey('settings_detail_back')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('settings_detail_back')),
+        findsOneWidget,
+      );
 
       await tester.tap(find.byKey(const ValueKey('settings_detail_back')));
       await tester.pumpAndSettle();
@@ -223,9 +259,7 @@ void main() {
 
       final box = tester.getRect(find.byType(KonataDraggableScrollbar));
       final dragStart = Offset(box.right - 4.75, box.top + 18);
-      final gesture = await tester.createGesture(
-        kind: PointerDeviceKind.mouse,
-      );
+      final gesture = await tester.createGesture(kind: PointerDeviceKind.mouse);
       await gesture.addPointer(location: dragStart);
       await tester.pump();
       await gesture.down(dragStart);
@@ -269,7 +303,9 @@ void main() {
 
       final ddBox = tester.getRect(find.byType(KonataDraggableScrollbar).last);
       final ddDrag = await tester.createGesture(kind: PointerDeviceKind.mouse);
-      await ddDrag.addPointer(location: Offset(ddBox.right - 4.75, ddBox.top + 18));
+      await ddDrag.addPointer(
+        location: Offset(ddBox.right - 4.75, ddBox.top + 18),
+      );
       await tester.pump();
       await ddDrag.down(Offset(ddBox.right - 4.75, ddBox.top + 18));
       await tester.pump(const Duration(milliseconds: 50));
@@ -374,7 +410,9 @@ void main() {
       );
 
       final centerOrigin = dialogOrigin();
-      final g1 = await tester.startGesture(tester.getCenter(find.text('可拖拽弹窗')));
+      final g1 = await tester.startGesture(
+        tester.getCenter(find.text('可拖拽弹窗')),
+      );
       await g1.moveBy(const Offset(30, 16));
       await tester.pump();
       await g1.up();
@@ -427,7 +465,10 @@ void main() {
                         child: const Column(
                           mainAxisSize: MainAxisSize.min,
                           children: <Widget>[
-                            KonataSpecBadge(label: 'HEVC · 10bit', highlighted: true),
+                            KonataSpecBadge(
+                              label: 'HEVC · 10bit',
+                              highlighted: true,
+                            ),
                             EpisodeCategoryBadge(isSpecial: false),
                             KonataOsdStrokedText('帧率 23.976'),
                             SizedBox(
@@ -454,10 +495,12 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final adaptiveFilterFinder = find.descendant(
-        of: find.byType(KonataAdaptiveBackdropBlur),
-        matching: find.byType(BackdropFilter),
-      ).first;
+      final adaptiveFilterFinder = find
+          .descendant(
+            of: find.byType(KonataAdaptiveBackdropBlur),
+            matching: find.byType(BackdropFilter),
+          )
+          .first;
       expect(
         tester.widget<BackdropFilter>(adaptiveFilterFinder).enabled,
         isTrue,

@@ -58,9 +58,7 @@ class _SourceBrowserEntryRowState extends State<SourceBrowserEntryRow> {
             child: Row(
               children: [
                 Checkbox(
-                  visualDensity: shortLandscape
-                      ? VisualDensity.compact
-                      : null,
+                  visualDensity: shortLandscape ? VisualDensity.compact : null,
                   value: widget.checked,
                   onChanged: (_) => widget.onToggleDirectory(),
                 ),
@@ -149,8 +147,8 @@ void showSourceBrowserHelpDialog(BuildContext context) {
       ],
       child: Text(
         '1. 勾选一个或多个文件夹后，已选管理面板会实时汇总已选范围。\n'
-        '2. 勾选子目录后点击「扫描所选目录 (N)」仅针对已选目录执行文件遍历与刮削，不会误删同源下未扫描文件夹的已有作品。\n'
-        '3. 未勾选任何目录时，点击「扫描全库」或「使用全盘根目录」将遍历整个媒体源根目录。\n'
+        '2. 勾选子目录后点击「扫描」仅针对已选目录执行文件遍历与刮削，不会误删同源下未扫描文件夹的已有作品。\n'
+        '3. 至少勾选一个扫描目录后才能开始扫描。\n'
         '4. 同时选中父目录与子目录时，后台扫描器会自动去重。',
         style: TextStyle(
           color: p.textSecondary,
@@ -386,7 +384,7 @@ class _SourceSelectedScopePanelState extends State<SourceSelectedScopePanel> {
                           ),
                           const SizedBox(height: 6),
                           Text(
-                            '当前未勾选指定目录（默认扫描整源）',
+                            '当前未勾选扫描目录',
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               color: p.textPrimary,
@@ -424,8 +422,9 @@ class _SourceSelectedScopePanelState extends State<SourceSelectedScopePanel> {
                               final path = widget.selectedPaths[index];
                               final checked = _checkedPaths.contains(path);
                               final segments = path.split('/');
-                              final name =
-                                  segments.isEmpty ? path : segments.last;
+                              final name = segments.isEmpty
+                                  ? path
+                                  : segments.last;
                               return MouseRegion(
                                 cursor: widget.busy
                                     ? SystemMouseCursors.basic
@@ -481,8 +480,8 @@ class _SourceSelectedScopePanelState extends State<SourceSelectedScopePanel> {
                                                 overflow: TextOverflow.ellipsis,
                                                 style: TextStyle(
                                                   color: p.textPrimary,
-                                                  fontSize:
-                                                      KonataTheme.fontSizeBodySm,
+                                                  fontSize: KonataTheme
+                                                      .fontSizeBodySm,
                                                   fontWeight: FontWeight.w600,
                                                 ),
                                               ),

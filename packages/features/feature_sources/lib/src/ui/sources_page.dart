@@ -49,30 +49,15 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
   }
 
   Future<void> _pickSourceFolders(MediaSource source) async {
-    final sourcesController = ref.read(sourcesControllerProvider);
-    final selected = await showSourceFolderPickerDialog(
+    await showSourceFolderPickerDialog(
       context,
       sourceId: source.id,
       kind: source.kind,
       location: source.location,
       username: source.username,
       sourceLabel: source.label,
-      initialSelected: sourcesController.readIncludedFolders(source.id),
-      onForceScanSelected: (selectedPaths) async {
-        if (!mounted) return;
-        await sourcesController.updateIncludedFolders(source.id, selectedPaths);
-        if (!mounted) return;
-        await _scanSingleSource(
-          source,
-          scanRootsOverride: selectedPaths,
-          forceFullRescan: true,
-          openProgressDialog: true,
-        );
-      },
       onScanSelected: (selectedPaths) async {
-        if (!mounted) return;
-        await sourcesController.updateIncludedFolders(source.id, selectedPaths);
-        if (!mounted) return;
+        if (!mounted || selectedPaths.isEmpty) return;
         await _scanSingleSource(
           source,
           scanRootsOverride: selectedPaths,
@@ -80,8 +65,6 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
         );
       },
     );
-    if (!mounted || selected == null) return;
-    await sourcesController.updateIncludedFolders(source.id, selected);
   }
 
   Future<void> _testSource(MediaSource source) async {
@@ -108,8 +91,7 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
 
   Future<void> _scanSingleSource(
     MediaSource source, {
-    List<String>? scanRootsOverride,
-    bool forceFullRescan = false,
+    required List<String> scanRootsOverride,
     bool openProgressDialog = false,
   }) async {
     final scrapeController = ref.read(sourceScrapeControllerProvider);
@@ -137,7 +119,6 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
     final phase = await scrapeController.scanSource(
       source,
       scanRootsOverride: scanRootsOverride,
-      forceFullRescan: forceFullRescan,
     );
     if (!mounted) return;
     if (phase is ScrapeCompletedPhase) {
@@ -331,8 +312,10 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
                     testing: _testingSourceId == source.id,
                     scanning: isScanningThis,
                     anyScanning: phase.isActive,
-                    onScan: () =>
-                        _scanSingleSource(source, openProgressDialog: true),
+                    onScan: () => showScanProgressDialog(
+                      context,
+                      focusSourceId: source.id,
+                    ),
                     onInspectPendingReview: () => showScanProgressDialog(
                       context,
                       focusSourceId: source.id,

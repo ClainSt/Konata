@@ -234,11 +234,6 @@ GROUP BY mv.${MediaVariantsSchema.colSourceId};
     return _repository.getIgnoredFolders(sourceId);
   }
 
-  /// 读取指定媒体源的限定扫描子目录列表。
-  List<String> readIncludedFolders(String sourceId) {
-    return SourceScopePrefs.readIncludedFolders(scopedPrefs, sourceId);
-  }
-
   /// 读取指定媒体源最近一次扫库完成时间。
   DateTime? readLastScannedAt(String sourceId) {
     return SourceScopePrefs.readLastScannedAt(scopedPrefs, sourceId);
@@ -266,7 +261,6 @@ GROUP BY mv.${MediaVariantsSchema.colSourceId};
     String? username,
     String? password,
     bool clearPassword = false,
-    List<String>? includedFolders,
   }) async {
     var trimmedLabel = label.trim();
     if (trimmedLabel.isEmpty && kind != MediaSourceKind.cloudDrive) {
@@ -339,10 +333,6 @@ GROUP BY mv.${MediaVariantsSchema.colSourceId};
     }
 
     final cleanUsername = _cleanOptionalText(username);
-    final cleanFolders = _normalizeIncludedFolders(
-      includedFolders ?? readIncludedFolders(id),
-    );
-
     final entity = MediaSource(
       id: id,
       kind: kind,
@@ -366,7 +356,6 @@ GROUP BY mv.${MediaVariantsSchema.colSourceId};
       }
 
       await _repository.upsertMediaSource(entity);
-      SourceScopePrefs.writeIncludedFolders(scopedPrefs, id, cleanFolders);
       eventBus.publish(
         MediaSourceChangedEvent(
           sourceId: SourceId.trusted(id),
@@ -390,25 +379,6 @@ GROUP BY mv.${MediaVariantsSchema.colSourceId};
         errorMessage: '保存媒体源失败：$safeError',
       );
     }
-  }
-
-  /// 更新指定媒体源勾选的扫描子目录作用域。
-  Future<void> updateIncludedFolders(
-    String sourceId,
-    List<String> folders,
-  ) async {
-    final existing = await _repository.findSourceById(sourceId);
-    if (existing == null) return;
-    final cleanFolders = _normalizeIncludedFolders(folders);
-    SourceScopePrefs.writeIncludedFolders(scopedPrefs, sourceId, cleanFolders);
-    eventBus.publish(
-      MediaSourceChangedEvent(
-        sourceId: SourceId.trusted(sourceId),
-        reason: 'scope_updated',
-        occurredAtMs: _nowMs(),
-      ),
-    );
-    notifyListeners();
   }
 
   /// 添加一个在后续扫库中跳过的相对目录路径。
@@ -725,19 +695,6 @@ GROUP BY mv.${MediaVariantsSchema.colSourceId};
         .replaceAll('\\', '/')
         .replaceAll(_leadingSlashes, '')
         .replaceAll(_trailingSlashes, '');
-  }
-
-  static List<String> _normalizeIncludedFolders(List<String> raw) {
-    final seen = <String>{};
-    final result = <String>[];
-    for (final entry in raw) {
-      final clean = _normalizeRelativePath(entry);
-      if (clean.isEmpty) continue;
-      if (seen.add(clean.toLowerCase())) {
-        result.add(clean);
-      }
-    }
-    return List<String>.unmodifiable(result);
   }
 
   static String _normalizeComparableLocation(

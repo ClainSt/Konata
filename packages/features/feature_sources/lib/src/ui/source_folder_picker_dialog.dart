@@ -14,9 +14,7 @@ enum _FolderPickerViewMode { browse, selectedManage }
 
 /// 媒体源目录浏览、搜索与多选范围毛玻璃弹窗（支持本地 / WebDAV / SMB 统一浏览）。
 ///
-/// 当提供 [onScanSelected] 时，确认扫描将先回传已选作用域并直接启动局部/全库扫库；
-/// 未提供 [onScanSelected] 时（如源编辑器内预选作用域），确认即返回所选相对路径列表。
-Future<List<String>?> showSourceFolderPickerDialog(
+Future<void> showSourceFolderPickerDialog(
   BuildContext context, {
   String? sourceId,
   required MediaSourceKind kind,
@@ -24,12 +22,10 @@ Future<List<String>?> showSourceFolderPickerDialog(
   String? username,
   String? password,
   bool clearPassword = false,
-  List<String> initialSelected = const <String>[],
   String? sourceLabel,
-  Future<void> Function(List<String> selectedPaths)? onScanSelected,
-  Future<void> Function(List<String> selectedPaths)? onForceScanSelected,
+  required Future<void> Function(List<String> selectedPaths) onScanSelected,
 }) {
-  return showKonataGlassDialog<List<String>>(
+  return showKonataGlassDialog<void>(
     context: context,
     builder: (_) => _SourceFolderPickerDialog(
       sourceId: sourceId,
@@ -38,10 +34,8 @@ Future<List<String>?> showSourceFolderPickerDialog(
       username: username,
       password: password,
       clearPassword: clearPassword,
-      initialSelected: initialSelected,
       sourceLabel: sourceLabel,
       onScanSelected: onScanSelected,
-      onForceScanSelected: onForceScanSelected,
     ),
   );
 }
@@ -54,10 +48,8 @@ class _SourceFolderPickerDialog extends ConsumerStatefulWidget {
     required this.username,
     required this.password,
     required this.clearPassword,
-    required this.initialSelected,
     this.sourceLabel,
-    this.onScanSelected,
-    this.onForceScanSelected,
+    required this.onScanSelected,
   });
 
   final String? sourceId;
@@ -66,10 +58,8 @@ class _SourceFolderPickerDialog extends ConsumerStatefulWidget {
   final String? username;
   final String? password;
   final bool clearPassword;
-  final List<String> initialSelected;
   final String? sourceLabel;
-  final Future<void> Function(List<String> selectedPaths)? onScanSelected;
-  final Future<void> Function(List<String> selectedPaths)? onForceScanSelected;
+  final Future<void> Function(List<String> selectedPaths) onScanSelected;
 
   @override
   ConsumerState<_SourceFolderPickerDialog> createState() =>
@@ -97,12 +87,6 @@ class _SourceFolderPickerDialogState
   @override
   void initState() {
     super.initState();
-    for (final item in widget.initialSelected) {
-      final clean = _normalizeRel(item);
-      if (clean.isNotEmpty) {
-        _selectedPaths.add(clean);
-      }
-    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _loadDirectory('');
@@ -248,12 +232,12 @@ class _SourceFolderPickerDialogState
     return list;
   }
 
-  Future<void> _scanNow({bool force = false}) async {
-    final callback = force ? widget.onForceScanSelected : widget.onScanSelected;
-    if (callback == null) return;
+  Future<void> _scanNow() async {
+    final callback = widget.onScanSelected;
+    if (_selectedPaths.isEmpty || _busy) return;
     setState(() => _busy = true);
     final targets = _sortedSelected;
-    Navigator.of(context).pop(targets);
+    Navigator.of(context).pop();
     await callback(targets);
   }
 
@@ -313,36 +297,15 @@ class _SourceFolderPickerDialogState
           compact: true,
           onPressed: _busy ? null : () => Navigator.of(context).pop(),
         ),
-        if (widget.onScanSelected != null) ...[
-          if (widget.onForceScanSelected != null)
-            KonataPillButton.ghost(
-              label: '忽略缓存重扫',
-              compact: true,
-              onPressed: _busy ? null : () => _scanNow(force: true),
-            ),
-          KonataPillButton.secondary(
-            label: '仅保存范围',
+        KonataTooltip(
+          message: sortedSelected.isEmpty ? '需要选择扫描目录' : '扫描',
+          child: KonataPillButton.primary(
+            key: const ValueKey('source_start_scan'),
+            label: '扫描',
             compact: true,
-            onPressed: _busy
-                ? null
-                : () => Navigator.of(context).pop(sortedSelected),
+            onPressed: _busy || sortedSelected.isEmpty ? null : _scanNow,
           ),
-          KonataPillButton.primary(
-            label: sortedSelected.isNotEmpty
-                ? '扫描所选目录 (${sortedSelected.length})'
-                : '扫描全库',
-            icon: Icons.radar_rounded,
-            compact: true,
-            onPressed: _busy ? null : _scanNow,
-          ),
-        ] else
-          KonataPillButton.primary(
-            label: sortedSelected.isEmpty
-                ? '使用全盘根目录'
-                : '确认 (${sortedSelected.length})',
-            compact: true,
-            onPressed: () => Navigator.of(context).pop(sortedSelected),
-          ),
+        ),
       ],
       child: LayoutBuilder(
         builder: (dialogCtx, outerConstraints) {

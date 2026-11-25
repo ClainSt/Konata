@@ -6,7 +6,6 @@ import 'package:konata_design_system/konata_design_system.dart';
 import '../providers.dart';
 import '../state/sources_controller.dart';
 import 'cloud_account_signin_dialog.dart';
-import 'source_folder_picker_dialog.dart';
 
 /// 打开新建或编辑媒体源毛玻璃弹窗；保存成功时返回落库后的 `MediaSource` 实例。
 Future<MediaSource?> showSourceEditorDialog(
@@ -36,7 +35,6 @@ class _SourceEditorDialogState extends ConsumerState<_SourceEditorDialog> {
   late final TextEditingController _usernameCtrl;
   late final TextEditingController _passwordCtrl;
 
-  List<String> _includedFolders = const <String>[];
   bool _hasSavedPassword = false;
   bool _clearPassword = false;
   bool _testing = false;
@@ -64,7 +62,6 @@ class _SourceEditorDialogState extends ConsumerState<_SourceEditorDialog> {
       setState(() {
         if (widget.existingSource == null) {
           _locationCtrl.text = location;
-          _includedFolders = const [];
           _cloudAccounts = deps.listCloudAccountLocations?.call();
         }
         _formError = null;
@@ -91,10 +88,6 @@ class _SourceEditorDialogState extends ConsumerState<_SourceEditorDialog> {
     _locationCtrl = TextEditingController(text: src?.location ?? '');
     _usernameCtrl = TextEditingController(text: src?.username ?? '');
     _passwordCtrl = TextEditingController();
-    _includedFolders = src == null
-        ? const <String>[]
-        : ref.read(sourcesControllerProvider).readIncludedFolders(src.id);
-
     if (src != null &&
         src.kind != MediaSourceKind.local &&
         src.kind != MediaSourceKind.cloudDrive) {
@@ -176,31 +169,6 @@ class _SourceEditorDialogState extends ConsumerState<_SourceEditorDialog> {
     });
   }
 
-  Future<void> _openScopePicker() async {
-    final controller = ref.read(sourcesControllerProvider);
-    final validated = controller.validateLocation(_kind, _locationCtrl.text);
-    if (!validated.isValid) {
-      setState(() => _formError = validated.errorMessage);
-      return;
-    }
-
-    final selected = await showSourceFolderPickerDialog(
-      context,
-      sourceId: widget.existingSource?.id,
-      kind: _kind,
-      location: validated.normalizedLocation,
-      username: _usernameCtrl.text,
-      password: _passwordCtrl.text,
-      clearPassword: _clearPassword,
-      initialSelected: _includedFolders,
-      sourceLabel: _labelCtrl.text.trim().isEmpty
-          ? null
-          : _labelCtrl.text.trim(),
-    );
-    if (!mounted || selected == null) return;
-    setState(() => _includedFolders = selected);
-  }
-
   Future<void> _submit() async {
     if (_saving || _testing) return;
     final controller = ref.read(sourcesControllerProvider);
@@ -231,7 +199,6 @@ class _SourceEditorDialogState extends ConsumerState<_SourceEditorDialog> {
       username: _usernameCtrl.text,
       password: _passwordCtrl.text,
       clearPassword: _clearPassword,
-      includedFolders: _includedFolders,
     );
     if (!mounted) return;
     if (res.success && res.source != null) {
@@ -268,7 +235,6 @@ class _SourceEditorDialogState extends ConsumerState<_SourceEditorDialog> {
           _locationCtrl.clear();
           _usernameCtrl.clear();
           _passwordCtrl.clear();
-          _includedFolders = const [];
           _clearPassword = false;
         }
         if (next == MediaSourceKind.cloudDrive) {
@@ -417,7 +383,6 @@ class _SourceEditorDialogState extends ConsumerState<_SourceEditorDialog> {
                               enabled: !_saving && !_testing,
                               onChanged: (location) => setState(() {
                                 _locationCtrl.text = location;
-                                _includedFolders = const [];
                                 _formError = null;
                                 _testResult = null;
                               }),
@@ -564,25 +529,6 @@ class _SourceEditorDialogState extends ConsumerState<_SourceEditorDialog> {
                       ],
                     ],
                     const SizedBox(height: 12),
-                    AdaptiveResponsiveRow(
-                      minLeadingWidth: 160,
-                      estimatedTrailingWidth: 108,
-                      leading: Text(
-                        _includedFolders.isEmpty
-                            ? '扫库作用域：全盘根目录'
-                            : '扫库作用域：已选 ${_includedFolders.length} 个子目录',
-                        style: TextStyle(
-                          fontSize: KonataTheme.fontSizeBodyXs,
-                          color: p.textSecondary,
-                        ),
-                      ),
-                      trailing: KonataPillButton.secondary(
-                        label: '选择范围',
-                        icon: Icons.account_tree_outlined,
-                        compact: true,
-                        onPressed: _openScopePicker,
-                      ),
-                    ),
                     if (_testing && !_authorizing) ...[
                       const SizedBox(height: 12),
                       Row(

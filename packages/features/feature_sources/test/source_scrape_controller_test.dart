@@ -156,7 +156,6 @@ class _StubScrapePipeline extends ScrapePipeline {
   Future<ScrapeProgress> scanAndScrapeSource(
     MediaSource source, {
     List<String>? scanRootsOverride,
-    bool forceFullRescan = false,
     bool Function()? isCancelled,
     ScrapeProgressListener? onProgress,
     ScrapeWorkPersistedListener? onWorkPersisted,
@@ -211,49 +210,54 @@ void main() {
           _StubScrapePipeline(
             repository: repository,
             httpClient: httpClient,
-            behavior: (repo, src, isCancelled, onProgress, onWorkPersisted) async {
-              onProgress?.call(
-                ScrapeProgress(
-                  phase: ScrapePhase.scanning,
-                  sourceId: src.id,
-                  sourceLabel: src.label,
-                  currentItemName: '孤独摇滚',
-                  scannedDirectories: 2,
-                  foundFiles: 12,
-                ),
-              );
-              await repo.upsertWork(
-                const Work(
-                  id: 'w_bocchi',
-                  title: '孤独摇滚！',
-                  scrapeStatus: ScrapeStatus.matched,
-                ),
-              );
-              onProgress?.call(
-                ScrapeProgress(
-                  phase: ScrapePhase.scraping,
-                  sourceId: src.id,
-                  sourceLabel: src.label,
-                  currentItemName: '孤独摇滚！',
-                  scannedDirectories: 2,
-                  foundFiles: 12,
-                  totalWorks: 1,
-                  processedWorks: 1,
-                  matchedWorks: 1,
-                ),
-              );
-              onWorkPersisted?.call('w_bocchi', ScrapeStatus.matched, '孤独摇滚！');
-              return ScrapeProgress(
-                phase: ScrapePhase.completed,
-                sourceId: src.id,
-                sourceLabel: src.label,
-                scannedDirectories: 2,
-                foundFiles: 12,
-                totalWorks: 1,
-                processedWorks: 1,
-                matchedWorks: 1,
-              );
-            },
+            behavior:
+                (repo, src, isCancelled, onProgress, onWorkPersisted) async {
+                  onProgress?.call(
+                    ScrapeProgress(
+                      phase: ScrapePhase.scanning,
+                      sourceId: src.id,
+                      sourceLabel: src.label,
+                      currentItemName: '孤独摇滚',
+                      scannedDirectories: 2,
+                      foundFiles: 12,
+                    ),
+                  );
+                  await repo.upsertWork(
+                    const Work(
+                      id: 'w_bocchi',
+                      title: '孤独摇滚！',
+                      scrapeStatus: ScrapeStatus.matched,
+                    ),
+                  );
+                  onProgress?.call(
+                    ScrapeProgress(
+                      phase: ScrapePhase.scraping,
+                      sourceId: src.id,
+                      sourceLabel: src.label,
+                      currentItemName: '孤独摇滚！',
+                      scannedDirectories: 2,
+                      foundFiles: 12,
+                      totalWorks: 1,
+                      processedWorks: 1,
+                      matchedWorks: 1,
+                    ),
+                  );
+                  onWorkPersisted?.call(
+                    'w_bocchi',
+                    ScrapeStatus.matched,
+                    '孤独摇滚！',
+                  );
+                  return ScrapeProgress(
+                    phase: ScrapePhase.completed,
+                    sourceId: src.id,
+                    sourceLabel: src.label,
+                    scannedDirectories: 2,
+                    foundFiles: 12,
+                    totalWorks: 1,
+                    processedWorks: 1,
+                    matchedWorks: 1,
+                  );
+                },
           ),
     );
     controller.addListener(() => phases.add(controller.phase.stage));
@@ -263,20 +267,40 @@ void main() {
     final sub = eventBus.on<LibraryWorkChangedEvent>().listen(workEvents.add);
     addTearDown(() => unawaited(sub.cancel()));
 
-    final terminal = await controller.scanSource(source);
+    await expectLater(
+      controller.scanSource(source, scanRootsOverride: const []),
+      throwsArgumentError,
+    );
+    await expectLater(
+      controller.scanSource(source, scanRootsOverride: const ['/']),
+      throwsArgumentError,
+    );
+    await expectLater(
+      controller.scanSource(source, scanRootsOverride: const ['../outside']),
+      throwsArgumentError,
+    );
+    final terminal = await controller.scanSource(
+      source,
+      scanRootsOverride: const ['2024'],
+    );
     await Future<void>.delayed(Duration.zero);
 
     expect(terminal, isA<ScrapeCompletedPhase>());
     expect(terminal.matchedWorks, 1);
-    expect(phases, containsAllInOrder([
-      ScrapeTaskStage.checkingIndex,
-      ScrapeTaskStage.scanning,
-      ScrapeTaskStage.running,
-      ScrapeTaskStage.completed,
-    ]));
     expect(
-      SourceScopePrefs.readLastScannedAt(prefs, source.id)
-          ?.millisecondsSinceEpoch,
+      phases,
+      containsAllInOrder([
+        ScrapeTaskStage.checkingIndex,
+        ScrapeTaskStage.scanning,
+        ScrapeTaskStage.running,
+        ScrapeTaskStage.completed,
+      ]),
+    );
+    expect(
+      SourceScopePrefs.readLastScannedAt(
+        prefs,
+        source.id,
+      )?.millisecondsSinceEpoch,
       88000,
     );
     expect(workEvents.any((e) => e.workId.value == 'w_bocchi'), isTrue);
@@ -304,33 +328,37 @@ void main() {
           _StubScrapePipeline(
             repository: repository,
             httpClient: httpClient,
-            behavior: (repo, src, isCancelled, onProgress, onWorkPersisted) async {
-              onProgress?.call(
-                ScrapeProgress(
-                  phase: ScrapePhase.scraping,
-                  sourceId: src.id,
-                  sourceLabel: src.label,
-                  totalWorks: 5,
-                  processedWorks: 1,
-                ),
-              );
-              enteredScrape.complete();
-              await allowFinish.future;
-              return ScrapeProgress(
-                phase: (isCancelled?.call() ?? false)
-                    ? ScrapePhase.cancelled
-                    : ScrapePhase.completed,
-                sourceId: src.id,
-                sourceLabel: src.label,
-                totalWorks: 5,
-                processedWorks: 1,
-              );
-            },
+            behavior:
+                (repo, src, isCancelled, onProgress, onWorkPersisted) async {
+                  onProgress?.call(
+                    ScrapeProgress(
+                      phase: ScrapePhase.scraping,
+                      sourceId: src.id,
+                      sourceLabel: src.label,
+                      totalWorks: 5,
+                      processedWorks: 1,
+                    ),
+                  );
+                  enteredScrape.complete();
+                  await allowFinish.future;
+                  return ScrapeProgress(
+                    phase: (isCancelled?.call() ?? false)
+                        ? ScrapePhase.cancelled
+                        : ScrapePhase.completed,
+                    sourceId: src.id,
+                    sourceLabel: src.label,
+                    totalWorks: 5,
+                    processedWorks: 1,
+                  );
+                },
           ),
     );
     addTearDown(controller.dispose);
 
-    final scanFuture = controller.scanSource(source);
+    final scanFuture = controller.scanSource(
+      source,
+      scanRootsOverride: const ['2024'],
+    );
     await enteredScrape.future;
 
     controller.cancelActiveScan();
@@ -435,7 +463,11 @@ void main() {
     expect(phase.totalVideos, 20);
     expect(phase.videosUnderRoot('2024'), 18);
     expect(phase.videosUnderRoot('OVA'), 2);
-    expect(phase.visitedFolders, ['2024/Bocchi', '2024/Frieren', 'OVA/Special']);
+    expect(phase.visitedFolders, [
+      '2024/Bocchi',
+      '2024/Frieren',
+      'OVA/Special',
+    ]);
     expect(phase.statusLabel, contains('归组'));
 
     final controller = SourceScrapeController(

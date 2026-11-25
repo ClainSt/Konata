@@ -211,9 +211,18 @@ class SourceScrapeController extends ChangeNotifier {
   /// 对指定媒体源发起一次完整或选定子目录的扫库刮削。
   Future<ScrapeTaskPhase> scanSource(
     MediaSource source, {
-    List<String>? scanRootsOverride,
-    bool forceFullRescan = false,
+    required List<String> scanRootsOverride,
   }) async {
+    if (scanRootsOverride.isEmpty ||
+        scanRootsOverride.any(
+          (p) =>
+              p.trim().replaceAll(RegExp(r'[/\\]'), '').isEmpty ||
+              p
+                  .split(RegExp(r'[/\\]'))
+                  .any((part) => part.trim() == '.' || part.trim() == '..'),
+        )) {
+      throw ArgumentError('需要选择扫描目录');
+    }
     if (_isRunning) {
       return _phase;
     }
@@ -223,41 +232,7 @@ class SourceScrapeController extends ChangeNotifier {
       return await _runSingleSource(
         source,
         scanRootsOverride: scanRootsOverride,
-        forceFullRescan: forceFullRescan,
       );
-    } finally {
-      _isRunning = false;
-    }
-  }
-
-  /// 顺序扫描当前全部已配置媒体源；遇到主动取消时提前结束后续源队列。
-  Future<List<ScrapeTaskPhase>> scanAllSources({
-    bool forceFullRescan = false,
-  }) async {
-    if (_isRunning) {
-      return <ScrapeTaskPhase>[_phase];
-    }
-    final sources = await _repository.getMediaSources();
-    if (sources.isEmpty) {
-      return const <ScrapeTaskPhase>[];
-    }
-
-    _isRunning = true;
-    _cancelRequested = false;
-    final results = <ScrapeTaskPhase>[];
-    try {
-      for (final source in sources) {
-        if (_cancelRequested) break;
-        final terminal = await _runSingleSource(
-          source,
-          forceFullRescan: forceFullRescan,
-        );
-        results.add(terminal);
-        if (terminal is ScrapeCancelledPhase || _cancelRequested) {
-          break;
-        }
-      }
-      return List<ScrapeTaskPhase>.unmodifiable(results);
     } finally {
       _isRunning = false;
     }
@@ -350,9 +325,9 @@ class SourceScrapeController extends ChangeNotifier {
 
   Future<ScrapeTaskPhase> _runSingleSource(
     MediaSource source, {
-    List<String>? scanRootsOverride,
-    bool forceFullRescan = false,
+    required List<String> scanRootsOverride,
   }) async {
+    final roots = scanRootsOverride;
     _setPhase(
       ScrapeCheckingIndexPhase(
         sourceId: source.id,
@@ -371,9 +346,6 @@ class SourceScrapeController extends ChangeNotifier {
       return cancelled;
     }
 
-    final roots =
-        scanRootsOverride ??
-        SourceScopePrefs.readIncludedFolders(scopedPrefs, source.id);
     _setPhase(
       ScrapeScanningPhase(
         sourceId: source.id,
@@ -385,16 +357,12 @@ class SourceScrapeController extends ChangeNotifier {
 
     try {
       final pipeline =
-          pipelineBuilder?.call(
-            repository: _repository,
-            mappingIndex: index,
-          ) ??
+          pipelineBuilder?.call(repository: _repository, mappingIndex: index) ??
           _buildDefaultPipeline(mappingIndex: index);
 
       final result = await pipeline.scanAndScrapeSource(
         source,
-        scanRootsOverride: roots.isEmpty ? null : roots,
-        forceFullRescan: forceFullRescan,
+        scanRootsOverride: roots,
         isCancelled: () => _cancelRequested,
         onProgress: (progress) {
           final next = ScrapeTaskPhase.fromProgress(progress);

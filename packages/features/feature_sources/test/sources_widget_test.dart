@@ -343,7 +343,6 @@ class _StubWidgetPipeline extends ScrapePipeline {
   Future<ScrapeProgress> scanAndScrapeSource(
     MediaSource source, {
     List<String>? scanRootsOverride,
-    bool forceFullRescan = false,
     bool Function()? isCancelled,
     ScrapeProgressListener? onProgress,
     ScrapeWorkPersistedListener? onWorkPersisted,
@@ -568,10 +567,16 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('readme.nfo'), findsOneWidget);
     expect(find.text('已选目录 · 0（点击管理）'), findsOneWidget);
+    final scanButton = find.byKey(const ValueKey('source_start_scan'));
+    expect(tester.widget<KonataPillButton>(scanButton).onPressed, isNull);
+    expect(find.byTooltip('需要选择扫描目录'), findsOneWidget);
+    expect(find.text('仅保存范围'), findsNothing);
+    expect(find.text('忽略缓存重扫'), findsNothing);
 
     await tester.tap(find.byType(Checkbox).at(1));
     await tester.pumpAndSettle();
-    expect(find.text('扫描所选目录 (1)'), findsOneWidget);
+    expect(find.text('扫描'), findsOneWidget);
+    expect(tester.widget<KonataPillButton>(scanButton).onPressed, isNotNull);
 
     await tester.tap(find.byKey(const ValueKey('source_selected_scope_entry')));
     await tester.pumpAndSettle();
@@ -581,9 +586,14 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('source_scope_back_to_browse')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('仅保存范围'));
+    await tester.tap(find.text('取消'));
     await tester.pumpAndSettle();
     expect(find.text('选择目录'), findsWidgets);
+    await tester.tap(find.text('选择目录').first);
+    await tester.pumpAndSettle();
+    expect(tester.widget<KonataPillButton>(scanButton).onPressed, isNull);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
 
     // 验证移除确认弹窗与安全承诺文案。
     await tester.tap(find.byTooltip('删除').first);
@@ -654,6 +664,7 @@ void main() {
       platform: KonataPlatform.androidPhone,
     );
 
+    List<String>? chosenScanPaths;
     final enteredScrape = Completer<void>();
     final allowFinish = Completer<void>();
     final scrapeController = SourceScrapeController(
@@ -706,7 +717,10 @@ void main() {
           ),
     );
     addTearDown(scrapeController.dispose);
-    final scanFuture = scrapeController.scanSource(source);
+    final scanFuture = scrapeController.scanSource(
+      source,
+      scanRootsOverride: const ['2024'],
+    );
     await enteredScrape.future;
 
     tester.view.physicalSize = const Size(780, 390);
@@ -751,6 +765,9 @@ void main() {
                     kind: MediaSourceKind.local,
                     location: 'D:/Anime',
                     sourceLabel: '动画盘',
+                    onScanSelected: (paths) async {
+                      chosenScanPaths = paths;
+                    },
                   ),
                 ),
               ],
@@ -789,10 +806,21 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
     expect(find.text('已选目录 · 0'), findsOneWidget);
-    expect(find.text('当前未勾选指定目录（默认扫描整源）'), findsOneWidget);
+    expect(find.text('当前未勾选扫描目录'), findsOneWidget);
 
-    await tester.tap(find.text('取消'));
+    final scan = find.byKey(const ValueKey('source_start_scan'));
+    expect(tester.widget<KonataPillButton>(scan).onPressed, isNull);
+    expect(chosenScanPaths, isNull);
+    // 手机横屏目录浏览侧同样必须明确选中路径才可扫描。
+    await tester.tap(find.byType(Checkbox).at(1));
     await tester.pumpAndSettle();
+    expect(tester.widget<KonataPillButton>(scan).onPressed, isNotNull);
+    await tester.tap(scan);
+    await tester.pumpAndSettle();
+    expect(chosenScanPaths, isNotNull);
+    expect(chosenScanPaths, hasLength(1));
+    expect(chosenScanPaths!.single, isNotEmpty);
+    expect(tester.takeException(), isNull);
   });
 }
 

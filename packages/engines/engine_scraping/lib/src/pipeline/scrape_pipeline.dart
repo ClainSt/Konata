@@ -207,11 +207,10 @@ class ScrapePipeline {
 
   /// 对指定媒体源执行完整的扫描 + 四段漏斗刮削流水线。
   ///
-  /// 默认启用目录树快照增量复用与中断断点续扫；若需忽略历史快照执行全盘校准，可传 [forceFullRescan] 为真。
+  /// 默认启用目录树快照增量复用与中断断点续扫。
   Future<ScrapeProgress> scanAndScrapeSource(
     MediaSource source, {
     List<String>? scanRootsOverride,
-    bool forceFullRescan = false,
     bool Function()? isCancelled,
     ScrapeProgressListener? onProgress,
     ScrapeWorkPersistedListener? onWorkPersisted,
@@ -247,7 +246,7 @@ class ScrapePipeline {
               ),
               DirectoryScanner.normalizeScanRoots(effectiveRoots),
             );
-      final previousSnapshot = store != null && !forceFullRescan
+      final previousSnapshot = store != null
           ? await store.load(snapshotKey)
           : null;
 
@@ -258,7 +257,6 @@ class ScrapePipeline {
         context: <String, Object?>{
           'sourceId': source.id,
           'sourceKind': source.kind.name,
-          'forceFullRescan': forceFullRescan,
           'rootCount': effectiveRoots.length,
         },
       );

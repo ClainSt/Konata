@@ -202,7 +202,6 @@ void main() {
       location: 'https://nas.local:5006/anime/',
       username: 'otaku',
       password: 'top-secret-password',
-      includedFolders: const ['2024', '/2025/'],
     );
     expect(created.success, isTrue);
     final src = created.source!;
@@ -214,8 +213,6 @@ void main() {
     );
     expect(sqliteRows.length, 1);
     expect(sqliteRows.first.values.join('|'), isNot(contains('top-secret')));
-
-    expect(controller.readIncludedFolders(src.id), ['2024', '2025']);
 
     final dup = await controller.saveSource(
       kind: MediaSourceKind.webdav,
@@ -276,13 +273,11 @@ void main() {
       location: 'guangyapan://account_a',
       username: 'should-not-save',
       password: 'should-not-save',
-      includedFolders: const ['Anime'],
     );
     expect(added.success, isTrue);
     final id = added.source!.id;
     expect(added.source!.username, isNull);
     expect(await controller.readSavedPassword(id), isNull);
-    expect(controller.readIncludedFolders(id), ['Anime']);
     final rebound = await controller.saveSource(
       existingId: id,
       kind: MediaSourceKind.cloudDrive,
@@ -309,7 +304,8 @@ void main() {
 
   test('云盘留空自动编号，保留已有名称与账号地址', () async {
     final repo = StorageScrapeRepository(db);
-    final legacyId = 'gya_' + List.filled(64, 'a').join();
+    const legacyId =
+        'gya_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
     await repo.upsertMediaSource(
       MediaSource(
         id: 'legacy_cloud',

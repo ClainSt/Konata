@@ -15,13 +15,8 @@
 # 保留 Konata 原生宿主活动、视频底层表面、前台媒体服务与文档提供器
 -keep class com.anime.konata.** { *; }
 
-# 保留 Flutter 引擎嵌入层与自动注册插件类
--keep class io.flutter.app.** { *; }
--keep class io.flutter.plugin.** { *; }
--keep class io.flutter.plugins.** { *; }
--keep class io.flutter.util.** { *; }
--keep class io.flutter.view.** { *; }
--keep class io.flutter.embedding.** { *; }
+# 保留实际可达的引擎嵌入层签名，允许剔除未使用的 Play 商店分包入口。
+-keep,allowshrinking class io.flutter.** { *; }
 
 # 保留 media_kit JNI 回调及 AndroidUnderlaySurfaceHost 反射访问的原生桥接类
 -keep class com.alexmercerind.mediakitandroidhelper.** { *; }

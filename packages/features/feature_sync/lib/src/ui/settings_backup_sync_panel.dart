@@ -108,7 +108,9 @@ class _SettingsBackupSyncPanelState
     final allSliceIds = <String>{
       for (final item in state.availableSlices) item.sliceId,
     };
-    final effectiveSelected = _webDavSliceIds?.where(allSliceIds.contains).toSet();
+    final effectiveSelected = _webDavSliceIds
+        ?.where(allSliceIds.contains)
+        .toSet();
     return WebDavSyncConfig(
       enabled: _webDavEnabled,
       baseUrl: _urlController.text.trim(),
@@ -172,9 +174,6 @@ class _SettingsBackupSyncPanelState
     SyncBackupState state,
     KonataPalette palette,
   ) {
-    final selectedCount = state.exportSelectedSliceIds.length;
-    final totalCount = state.availableSlices.length;
-
     return KonataSurfaceCard(
       padding: const EdgeInsets.all(20),
       child: Column(
@@ -183,8 +182,8 @@ class _SettingsBackupSyncPanelState
         children: <Widget>[
           _SectionTitleRow(
             icon: Icons.cloud_download_outlined,
-            title: '本地 .konata 归档备份与恢复',
-            subtitle: '按切片选择性导出自校验归档，恢复前先干跑预览新增、更新与删除计数',
+            title: '创建备份与恢复',
+            subtitle: '选择需要备份或恢复的数据，恢复前可预览变更。',
             palette: palette,
           ),
           const SizedBox(height: 14),
@@ -206,26 +205,13 @@ class _SettingsBackupSyncPanelState
             ),
             const SizedBox(height: 12),
           ],
-          _SliceCheckWrap(
-            title: '导出包含的数据切片（已选 $selectedCount / $totalCount）',
-            slices: state.availableSlices,
-            selectedIds: state.exportSelectedSliceIds,
-            keyPrefix: 'export_slice',
-            onToggle: state.isBusy
-                ? null
-                : (sliceId, selected) {
-                    controller.toggleExportSlice(sliceId, selected);
-                  },
-            palette: palette,
-          ),
-          const SizedBox(height: 14),
           Wrap(
             spacing: 10,
             runSpacing: 10,
             children: <Widget>[
               KonataPillButton.primary(
                 key: const Key('export_konata_button'),
-                label: state.isExporting ? '正在导出...' : '导出 .konata 备份',
+                label: state.isExporting ? '正在创建...' : '创建备份',
                 icon: Icons.upload_file_outlined,
                 onPressed: state.isBusy
                     ? null
@@ -233,7 +219,7 @@ class _SettingsBackupSyncPanelState
               ),
               KonataPillButton.secondary(
                 key: const Key('import_konata_button'),
-                label: state.isPreparingImport ? '正在解析预览...' : '导入并预览恢复',
+                label: state.isPreparingImport ? '正在读取...' : '恢复备份',
                 icon: Icons.file_open_outlined,
                 onPressed: state.isBusy
                     ? null
@@ -340,9 +326,8 @@ class _SettingsBackupSyncPanelState
                   GestureDetector(
                     key: const Key('webdav_toggle_password_visibility'),
                     behavior: HitTestBehavior.opaque,
-                    onTap: () => setState(
-                      () => _obscurePassword = !_obscurePassword,
-                    ),
+                    onTap: () =>
+                        setState(() => _obscurePassword = !_obscurePassword),
                     child: Container(
                       height: 40,
                       width: 40,
@@ -465,7 +450,10 @@ class _SettingsBackupSyncPanelState
                   const SizedBox(height: 2),
                   Text(
                     '按固定分钟间隔检查远端 manifest.json 的 SHA-256 指纹',
-                    style: TextStyle(fontSize: 12, color: palette.textSecondary),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: palette.textSecondary,
+                    ),
                   ),
                 ],
               );
@@ -482,13 +470,18 @@ class _SettingsBackupSyncPanelState
                 ],
                 onChanged: state.isBusy
                     ? null
-                    : (value) => setState(() => _autoSyncIntervalMinutes = value),
+                    : (value) =>
+                          setState(() => _autoSyncIntervalMinutes = value),
               );
               if (narrow) {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[label, const SizedBox(height: 8), dropdown],
+                  children: <Widget>[
+                    label,
+                    const SizedBox(height: 8),
+                    dropdown,
+                  ],
                 );
               }
               return Row(
@@ -539,11 +532,8 @@ class _SettingsBackupSyncPanelState
                 icon: Icons.wifi_tethering_outlined,
                 onPressed: state.isBusy
                     ? null
-                    : () => _handleTestWebDavPressed(
-                        context,
-                        controller,
-                        state,
-                      ),
+                    : () =>
+                          _handleTestWebDavPressed(context, controller, state),
               ),
               KonataPillButton.secondary(
                 key: const Key('webdav_save_button'),
@@ -551,11 +541,8 @@ class _SettingsBackupSyncPanelState
                 icon: Icons.save_outlined,
                 onPressed: state.isBusy
                     ? null
-                    : () => _handleSaveWebDavPressed(
-                        context,
-                        controller,
-                        state,
-                      ),
+                    : () =>
+                          _handleSaveWebDavPressed(context, controller, state),
               ),
               KonataPillButton.primary(
                 key: const Key('webdav_sync_now_button'),
@@ -576,12 +563,70 @@ class _SettingsBackupSyncPanelState
     BuildContext context,
     SyncBackupController controller,
   ) async {
-    if (controller.state.exportSelectedSliceIds.isEmpty) {
-      showKonataToast(context, '请至少勾选一个要导出的同步切片', isError: true);
+    final slices = controller.state.availableSlices;
+    final selected = slices.map((s) => s.sliceId).toSet();
+    final confirmed = await showKonataGlassDialog<Set<String>>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setState) => KonataGlassDialog(
+          title: '创建备份',
+          width: 480,
+          actions: [
+            KonataPillButton.ghost(
+              label: '取消',
+              key: const Key('export_backup_cancel_button'),
+              onPressed: () => Navigator.of(dialogContext).pop(),
+            ),
+            KonataPillButton.primary(
+              label: '创建备份',
+              key: const Key('export_backup_confirm_button'),
+              onPressed: selected.isEmpty
+                  ? null
+                  : () => Navigator.of(
+                      dialogContext,
+                    ).pop(Set<String>.of(selected)),
+            ),
+          ],
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('选择需要备份的数据（已选 ${selected.length} / ${slices.length}）'),
+                const SizedBox(height: 12),
+                for (final slice in slices) ...[
+                  _SettingsSwitchRow(
+                    switchKey: Key('export_slice_${slice.sliceId}'),
+                    title: slice.displayName,
+                    subtitle: '',
+                    value: selected.contains(slice.sliceId),
+                    onChanged: (enabled) => setState(() {
+                      if (enabled) {
+                        selected.add(slice.sliceId);
+                      } else {
+                        selected.remove(slice.sliceId);
+                      }
+                    }),
+                    palette: context.palette,
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    if (!context.mounted ||
+        confirmed == null ||
+        confirmed.isEmpty ||
+        controller.state.isBusy) {
       return;
     }
     try {
-      final savedPath = await controller.exportBackupToFilePort();
+      final savedPath = await controller.exportBackupToFilePort(
+        sliceIds: confirmed,
+      );
       if (!context.mounted || savedPath == null) return;
       showKonataToast(context, '备份导出成功：$savedPath');
     } catch (_) {
@@ -614,10 +659,8 @@ class _SettingsBackupSyncPanelState
 
     await showKonataGlassDialog<void>(
       context: context,
-      builder: (_) => _RestorePreviewDialog(
-        controller: controller,
-        initialData: picked!,
-      ),
+      builder: (_) =>
+          _RestorePreviewDialog(controller: controller, initialData: picked!),
     );
   }
 
@@ -746,13 +789,19 @@ class _RestorePreviewDialogState extends State<_RestorePreviewDialog> {
   Widget build(BuildContext context) {
     final palette = context.palette;
     final report = _data.report;
+    final chosen = report.slicePreviews.where(
+      (p) => p.remoteAvailable && _selectedIds.contains(p.sliceId),
+    );
+    final inserts = chosen.fold<int>(0, (n, p) => n + p.insertCount);
+    final updates = chosen.fold<int>(0, (n, p) => n + p.updateCount);
+    final deletes = chosen.fold<int>(0, (n, p) => n + p.deleteCount);
     final maxDialogHeight = math.min(
       560.0,
       math.max(260.0, MediaQuery.sizeOf(context).height - 40),
     );
 
     return KonataGlassDialog(
-      title: '备份导入干跑预览确认',
+      title: '恢复备份',
       width: 560,
       maxHeight: maxDialogHeight,
       actions: <Widget>[
@@ -763,7 +812,7 @@ class _RestorePreviewDialogState extends State<_RestorePreviewDialog> {
         ),
         KonataPillButton.primary(
           key: const Key('restore_preview_confirm_button'),
-          label: _applying ? '正在应用...' : '确认应用恢复',
+          label: _applying ? '正在应用...' : '确认恢复',
           onPressed: (_selectedIds.isEmpty || _applying || _recalculating)
               ? null
               : _applyRestore,
@@ -804,8 +853,8 @@ class _RestorePreviewDialogState extends State<_RestorePreviewDialog> {
             const SizedBox(height: 12),
             Text(
               _recalculating
-                  ? '正在重新计算干跑合并差异...'
-                  : '预计累计变更：新增 ${report.totalInserts} 项 · 更新 ${report.totalUpdates} 项 · 删除 ${report.totalDeletes} 项',
+                  ? '正在计算预计变更…'
+                  : '预计累计变更：新增 $inserts 项 · 更新 $updates 项 · 删除 $deletes 项',
               style: TextStyle(
                 fontSize: 12.5,
                 fontWeight: FontWeight.w600,
@@ -862,7 +911,7 @@ class _PreviewSliceRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final summary = preview.remoteAvailable
         ? '新增 ${preview.insertCount} · 更新 ${preview.updateCount} · 删除 ${preview.deleteCount} · 跳过 ${preview.skippedCount}'
-        : '备份归档中未包含该切片';
+        : '备份中未包含此项';
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),

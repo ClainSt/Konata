@@ -12,12 +12,26 @@ import 'support/detail_test_fixtures.dart';
 
 void main() {
   group('DetailDisplayPreferencesStore 展示偏好持久化切片', () {
+    test('标题模式互斥并兼容旧版双选、空选与明确文字模式', () {
+      for (final text in [true, false]) {
+        for (final logo in [true, false]) {
+          final prefs = DetailDisplayPreferences.decodeJson({
+            'showTitleText': text,
+            'showTitleLogo': logo,
+          }, 1);
+          expect(prefs.showTitleLogo, logo || !text);
+          expect(prefs.showTitleText, !prefs.showTitleLogo);
+          expect(prefs.copyWith(showTitleLogo: false).showTitleText, isTrue);
+          expect(prefs.copyWith(showTitleLogo: true).showTitleText, isFalse);
+        }
+      }
+    });
     test('读取默认值、写入同步事件流、10 键共享切片与未知扩展字段透传往返一致', () async {
       final harness = await DetailTestHarness.create();
       final store = DetailDisplayPreferencesStore(harness.scopedPrefs);
 
       final initial = store.read();
-      expect(initial.showTitleText, isTrue);
+      expect(initial.showTitleText, isFalse);
       expect(initial.showTitleLogo, isTrue);
       expect(initial.showOverview, isTrue);
       expect(initial.showRawVideoFilename, isTrue);

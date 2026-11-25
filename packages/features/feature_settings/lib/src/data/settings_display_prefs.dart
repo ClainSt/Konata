@@ -8,7 +8,6 @@ import 'package:konata_storage/konata_storage.dart';
 final class SettingsDisplayPrefs {
   /// 创建详情页展示偏好配置。
   const SettingsDisplayPrefs({
-    this.showTitleText = true,
     this.showTitleLogo = true,
     this.showOverview = true,
     this.showRawVideoFilename = true,
@@ -22,7 +21,7 @@ final class SettingsDisplayPrefs {
   });
 
   /// 详情页主视觉区是否展示文字标题。
-  final bool showTitleText;
+  bool get showTitleText => !showTitleLogo;
 
   /// 详情页主视觉区是否展示透明标题徽标。
   final bool showTitleLogo;
@@ -56,7 +55,6 @@ final class SettingsDisplayPrefs {
 
   /// 复制并修改部分详情展示偏好字段。
   SettingsDisplayPrefs copyWith({
-    bool? showTitleText,
     bool? showTitleLogo,
     bool? showOverview,
     bool? showRawVideoFilename,
@@ -69,7 +67,6 @@ final class SettingsDisplayPrefs {
     Map<String, Object?>? extraFields,
   }) {
     return SettingsDisplayPrefs(
-      showTitleText: showTitleText ?? this.showTitleText,
       showTitleLogo: showTitleLogo ?? this.showTitleLogo,
       showOverview: showOverview ?? this.showOverview,
       showRawVideoFilename: showRawVideoFilename ?? this.showRawVideoFilename,
@@ -123,8 +120,9 @@ final class SettingsDisplayPrefs {
     };
 
     return SettingsDisplayPrefs(
-      showTitleText: _readBool(json, 'showTitleText', true),
-      showTitleLogo: _readBool(json, 'showTitleLogo', true),
+      // 旧版双选或全不选均归一为徽标优先；保留明确的文字模式。
+      showTitleLogo:
+          json['showTitleLogo'] != false || json['showTitleText'] == false,
       showOverview: _readBool(json, 'showOverview', true),
       showRawVideoFilename: _readBool(json, 'showRawVideoFilename', true),
       showCdTab: _readBool(json, 'showCdTab', true),

@@ -24,7 +24,6 @@ class DetailStylizedTitleBlock extends StatefulWidget {
     this.maxLogoHeight,
     this.maxLogoWidth,
     this.onTapEditLogo,
-    this.showTitleText = true,
     this.showTitleLogo = true,
     this.onDarkBackdrop = true,
   });
@@ -50,9 +49,6 @@ class DetailStylizedTitleBlock extends StatefulWidget {
   /// 可选交互编辑徽标回调。
   final VoidCallback? onTapEditLogo;
 
-  /// 是否显示作品标题文字。
-  final bool showTitleText;
-
   /// 是否显示透明标题徽标。
   final bool showTitleLogo;
 
@@ -73,7 +69,8 @@ class _DetailStylizedTitleBlockState extends State<DetailStylizedTitleBlock> {
   void didUpdateWidget(covariant DetailStylizedTitleBlock oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.work.id != widget.work.id ||
-        oldWidget.work.logoPath != widget.work.logoPath) {
+        oldWidget.work.logoPath != widget.work.logoPath ||
+        oldWidget.showTitleLogo != widget.showTitleLogo) {
       _analyzedUrl = null;
       _logoLoadFailed = false;
       _legibility = ClearLogoLegibilityResult.neutral;
@@ -103,15 +100,9 @@ class _DetailStylizedTitleBlockState extends State<DetailStylizedTitleBlock> {
 
   @override
   Widget build(BuildContext context) {
-    if (!widget.showTitleText && !widget.showTitleLogo) {
-      return const SizedBox.shrink();
-    }
     final logoUrl = widget.work.logoPath?.trim() ?? '';
     if (widget.showTitleLogo && logoUrl.isNotEmpty && !_logoLoadFailed) {
       return _buildLogoView(context, logoUrl);
-    }
-    if (!widget.showTitleText) {
-      return const SizedBox.shrink();
     }
     return _buildStylizedTextTitle(context);
   }
@@ -196,7 +187,10 @@ class _DetailStylizedTitleBlockState extends State<DetailStylizedTitleBlock> {
         onImageResolved: (img, _) => _handleLogoResolved(img, logoUrl),
         errorBuilder: (_, _, _) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted && !_logoLoadFailed) {
+            if (mounted &&
+                widget.showTitleLogo &&
+                widget.work.logoPath?.trim() == logoUrl &&
+                !_logoLoadFailed) {
               setState(() => _logoLoadFailed = true);
             }
           });

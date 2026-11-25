@@ -100,7 +100,6 @@ class DetailHeroInfo extends StatelessWidget {
           work: work,
           imageLoader: imageLoader,
           isCompactViewport: compact,
-          showTitleText: displayPreferences.showTitleText,
           showTitleLogo: displayPreferences.showTitleLogo,
           onDarkBackdrop: onDarkBackdrop,
           onTapEditLogo: () =>

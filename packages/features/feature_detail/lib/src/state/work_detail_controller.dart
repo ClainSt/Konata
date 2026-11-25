@@ -298,8 +298,8 @@ final class WorkDetailController extends ChangeNotifier {
         final variants = await _repository.getVariantsByWork(workId.value);
         final sourceIds = variants.map((v) => v.sourceId).toSet();
         for (final sourceId in sourceIds) {
-          final merged = await ReleaseGroupWorkMerger
-              .mergeSameSourceIdentityWorks(
+          final merged =
+              await ReleaseGroupWorkMerger.mergeSameSourceIdentityWorks(
                 repository: _repository,
                 sourceId: sourceId,
                 focusWorkIds: <String>{workId.value},
@@ -446,7 +446,10 @@ final class WorkDetailController extends ChangeNotifier {
     if (work == null) {
       return Future<WorkArtworkOptions>.value(const WorkArtworkOptions());
     }
-    return _artworkOptionsService.fetchForWork(work, includeLogos: includeLogos);
+    return _artworkOptionsService.fetchForWork(
+      work,
+      includeLogos: includeLogos,
+    );
   }
 
   /// 查询 `Fanart.tv` 当前中继熔断健康快照。
@@ -589,7 +592,9 @@ final class WorkDetailController extends ChangeNotifier {
   }
 
   /// 保存单文件手动剧集/特典重映射并持久化锁定。
-  Future<void> saveEpisodeMappings(List<EpisodeFileMappingEdit> mappings) async {
+  Future<void> saveEpisodeMappings(
+    List<EpisodeFileMappingEdit> mappings,
+  ) async {
     await _actionsService.saveEpisodeMappings(
       workId: workId.value,
       mappings: mappings,
@@ -778,12 +783,6 @@ final class WorkDetailController extends ChangeNotifier {
         query,
         priority: RequestPriority.interactive,
       );
-
-  /// 更新「展示单集剧照缩略图」偏好设置。
-  /// 更新是否显示标题文字。
-  Future<void> setShowTitleText(bool enabled) async {
-    _displayPreferencesStore.setShowTitleText(enabled);
-  }
 
   /// 更新是否显示标题徽标（ClearLogo）。
   Future<void> setShowTitleLogo(bool enabled) async {

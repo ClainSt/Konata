@@ -2,7 +2,6 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:konata_design_system/konata_design_system.dart';
 
-import '../data/settings_display_prefs.dart';
 import '../providers.dart';
 import '../state/settings_controller.dart';
 import 'settings_photos_storage_card.dart';
@@ -18,15 +17,6 @@ class SettingsDisplayPanel extends ConsumerWidget {
   /// 可选直传设置控制器；为空时从 [settingsControllerProvider] 获取。
   final SettingsController? controller;
 
-  String _titleSummary(SettingsDisplayPrefs prefs) {
-    if (prefs.showTitleText && prefs.showTitleLogo) {
-      return '文字标题 · 标题徽标';
-    }
-    if (prefs.showTitleLogo) return '标题徽标';
-    if (prefs.showTitleText) return '文字标题';
-    return '不显示';
-  }
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final direct = controller;
@@ -41,11 +31,6 @@ class SettingsDisplayPanel extends ConsumerWidget {
       animation: effectiveController,
       builder: (context, _) {
         final prefs = effectiveController.displayPrefs;
-        final selectedElements = <_DetailTitleDisplayElement>{
-          if (prefs.showTitleText) _DetailTitleDisplayElement.textTitle,
-          if (prefs.showTitleLogo) _DetailTitleDisplayElement.titleLogo,
-        };
-
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -64,39 +49,28 @@ class SettingsDisplayPanel extends ConsumerWidget {
                     ),
                     trailing: SizedBox(
                       width: titleDropdownWidth,
-                      child:
-                          KonataMultiSelectDropdown<_DetailTitleDisplayElement>(
-                            key: const ValueKey(
-                              'settings_display_title_dropdown',
-                            ),
-                            dense: true,
-                            menuWidth: 172,
-                            centerAligned: true,
-                            selectedValues: selectedElements,
-                            displayText: _titleSummary(prefs),
-                            options: const [
-                              KonataDropdownOption(
-                                value: _DetailTitleDisplayElement.textTitle,
-                                label: '文字标题',
-                              ),
-                              KonataDropdownOption(
-                                value: _DetailTitleDisplayElement.titleLogo,
-                                label: '标题徽标',
-                              ),
-                            ],
-                            onToggle: (item) {
-                              switch (item) {
-                                case _DetailTitleDisplayElement.textTitle:
-                                  effectiveController.setShowTitleText(
-                                    !prefs.showTitleText,
-                                  );
-                                case _DetailTitleDisplayElement.titleLogo:
-                                  effectiveController.setShowTitleLogo(
-                                    !prefs.showTitleLogo,
-                                  );
-                              }
-                            },
+                      child: KonataSegmentedCapsule<_DetailTitleDisplayElement>(
+                        key: const ValueKey('settings_display_title_segmented'),
+                        compact: true,
+                        expand: true,
+                        selected: prefs.showTitleLogo
+                            ? _DetailTitleDisplayElement.titleLogo
+                            : _DetailTitleDisplayElement.textTitle,
+                        options: const [
+                          KonataSegmentOption(
+                            value: _DetailTitleDisplayElement.textTitle,
+                            label: '文字标题',
                           ),
+                          KonataSegmentOption(
+                            value: _DetailTitleDisplayElement.titleLogo,
+                            label: '标题徽标',
+                          ),
+                        ],
+                        onChanged: (item) =>
+                            effectiveController.setShowTitleLogo(
+                              item == _DetailTitleDisplayElement.titleLogo,
+                            ),
+                      ),
                     ),
                   ),
                   Divider(

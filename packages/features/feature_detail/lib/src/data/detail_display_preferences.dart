@@ -5,7 +5,6 @@ import 'package:konata_storage/konata_storage.dart';
 class DetailDisplayPreferences {
   /// 创建详情页展示偏好快照。
   const DetailDisplayPreferences({
-    this.showTitleText = true,
     this.showTitleLogo = true,
     this.showOverview = true,
     this.showRawVideoFilename = true,
@@ -45,7 +44,7 @@ class DetailDisplayPreferences {
   };
 
   /// 是否显示详情页标题文字。
-  final bool showTitleText;
+  bool get showTitleText => !showTitleLogo;
 
   /// 是否优先显示作品透明标题徽标（ClearLogo）。
   final bool showTitleLogo;
@@ -79,7 +78,6 @@ class DetailDisplayPreferences {
 
   /// 返回更新指定展示开关后的新偏好实例。
   DetailDisplayPreferences copyWith({
-    bool? showTitleText,
     bool? showTitleLogo,
     bool? showOverview,
     bool? showRawVideoFilename,
@@ -92,7 +90,6 @@ class DetailDisplayPreferences {
     Map<String, Object?>? extraFields,
   }) {
     return DetailDisplayPreferences(
-      showTitleText: showTitleText ?? this.showTitleText,
       showTitleLogo: showTitleLogo ?? this.showTitleLogo,
       showOverview: showOverview ?? this.showOverview,
       showRawVideoFilename: showRawVideoFilename ?? this.showRawVideoFilename,
@@ -147,8 +144,9 @@ class DetailDisplayPreferences {
       }
     }
     return DetailDisplayPreferences(
-      showTitleText: _readBool(raw[_keyShowTitleText], fallback: true),
-      showTitleLogo: _readBool(raw[_keyShowTitleLogo], fallback: true),
+      // 旧版双选或全不选均归一为徽标优先；保留明确的文字模式。
+      showTitleLogo:
+          raw[_keyShowTitleLogo] != false || raw[_keyShowTitleText] == false,
       showOverview: _readBool(raw[_keyShowOverview], fallback: true),
       showRawVideoFilename: _readBool(
         raw[_keyShowRawVideoFilename],
@@ -246,10 +244,6 @@ final class DetailDisplayPreferencesStore {
   /// 覆写保存完整的展示偏好快照。
   void write(DetailDisplayPreferences next) =>
       _scopedPrefs.write(DetailDisplayPreferences.prefsSlice, next);
-
-  /// 更新是否显示标题文字。
-  void setShowTitleText(bool enabled) =>
-      write(read().copyWith(showTitleText: enabled));
 
   /// 更新是否显示标题徽标（ClearLogo）。
   void setShowTitleLogo(bool enabled) =>

@@ -438,16 +438,22 @@ void main() {
     expect(find.text('「Scan」分类页签'), findsOneWidget);
     expect(find.text('本地图片存储'), findsOneWidget);
 
+    final titleSelector = find.byKey(
+      const ValueKey('settings_display_title_segmented'),
+    );
+    expect(titleSelector, findsOneWidget);
     await tester.tap(
-      find.byKey(const ValueKey('settings_display_title_dropdown')),
+      find.descendant(of: titleSelector, matching: find.text('文字标题')),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('文字标题').last);
+    await tester.tap(
+      find.descendant(of: titleSelector, matching: find.text('标题徽标')),
+    );
     await tester.pumpAndSettle();
-    // 收起多选下拉浮层。
-    await tester.tapAt(const Offset(10, 10));
+    await tester.tap(
+      find.descendant(of: titleSelector, matching: find.text('文字标题')),
+    );
     await tester.pumpAndSettle();
-
     await tester.tap(
       find.byKey(const ValueKey('settings_display_raw_filename_switch')),
     );
@@ -462,8 +468,8 @@ void main() {
     )!;
     final decodedDisplay =
         jsonDecode(displayRecord.payloadJson) as Map<String, dynamic>;
-    expect(decodedDisplay['showTitleText'], isFalse);
-    expect(decodedDisplay['showTitleLogo'], isTrue);
+    expect(decodedDisplay['showTitleText'], isTrue);
+    expect(decodedDisplay['showTitleLogo'], isFalse);
     expect(decodedDisplay['showRawVideoFilename'], isFalse);
     expect(decodedDisplay['showCdTab'], isFalse);
     expect(decodedDisplay['showMainHeroBackdrop'], isFalse);
@@ -479,6 +485,8 @@ void main() {
     // 切换至「关于」验证结构化诊断包导出与外链打开。
     await tester.tap(find.text('关于'));
     await tester.pumpAndSettle();
+    expect(find.textContaining('Schema v3'), findsNothing);
+    expect(find.text('导出包含故障信息、运行状态与操作记录的诊断数据'), findsOneWidget);
     await tester.tap(find.text('导出结构化诊断包 (.json)'));
     await tester.pumpAndSettle();
     expect(backupPort.savedFiles.length, equals(1));

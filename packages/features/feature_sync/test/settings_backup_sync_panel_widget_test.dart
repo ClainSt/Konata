@@ -58,9 +58,7 @@ final class _FakeWidgetExtraSlice
       schemaVersion: schemaVersion,
       exportedAtMs: 1000,
       sourceDeviceId: localDeviceId,
-      data: <String, Object?>{
-        'items': entries.values.toList(growable: false),
-      },
+      data: <String, Object?>{'items': entries.values.toList(growable: false)},
     );
   }
 
@@ -152,7 +150,9 @@ Widget _wrapForTest({
 }) {
   final themeData = isDark ? KonataTheme.darkTheme() : KonataTheme.lightTheme();
   return ProviderScope(
-    overrides: [featureSyncDependenciesProvider.overrideWithValue(dependencies)],
+    overrides: [
+      featureSyncDependenciesProvider.overrideWithValue(dependencies),
+    ],
     child: KonataToastScope(
       controller: toastController,
       child: KonataBottomClearanceScope(
@@ -225,9 +225,9 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        expect(find.text('本地 .konata 归档备份与恢复'), findsOneWidget);
+        expect(find.text('创建备份与恢复'), findsOneWidget);
         expect(find.text('WebDAV 多设备分片同步'), findsOneWidget);
-        expect(find.text('歌词人工修正'), findsNWidgets(2));
+        expect(find.text('歌词人工修正'), findsOneWidget);
         expect(tester.takeException(), isNull);
         toastCtrl.dispose();
       }
@@ -253,7 +253,9 @@ void main() {
         encode: _identityEncode,
         decode: _identityDecode,
       );
-      sourcePrefs.write(appearanceSlice, <String, Object?>{'themeMode': 'dark'});
+      sourcePrefs.write(appearanceSlice, <String, Object?>{
+        'themeMode': 'dark',
+      });
       sourceDb.library.works.upsert(
         WorkRecord(id: WorkId('w-import'), title: '白箱', updatedAtMs: 5000),
       );
@@ -309,19 +311,30 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // 1. 取消勾选 media catalog 后触发选择性导出 .konata。
+      final exportBtn = find.byKey(const Key('export_konata_button'));
       final exportCatalogToggle = find.byKey(
         const Key('export_slice_library_catalog_slice'),
       );
-      await tester.ensureVisible(exportCatalogToggle);
-      await tester.tap(exportCatalogToggle);
-      await tester.pumpAndSettle();
-
-      final exportBtn = find.byKey(const Key('export_konata_button'));
+      expect(exportCatalogToggle, findsNothing);
       await tester.ensureVisible(exportBtn);
       await tester.tap(exportBtn);
       await tester.pumpAndSettle();
+      expect(exportCatalogToggle, findsOneWidget);
+      await tester.tap(exportCatalogToggle);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('export_backup_cancel_button')));
+      await tester.pumpAndSettle();
+      expect(exportCatalogToggle, findsNothing);
+      expect(filePort.lastSavedBytes, isNull);
 
+      await tester.tap(exportBtn);
+      await tester.pumpAndSettle();
+      expect(tester.widget<KonataSwitch>(exportCatalogToggle).value, isTrue);
+      await tester.tap(exportCatalogToggle);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('export_backup_confirm_button')));
+      await tester.pumpAndSettle();
+      expect(exportCatalogToggle, findsNothing);
       expect(filePort.lastSavedFileName, endsWith('.konata'));
       expect(filePort.lastSavedBytes, isNotNull);
       final exportedArchive = KonataBackupArchive.parseAndVerify(
@@ -339,7 +352,10 @@ void main() {
       await tester.tap(importBtn);
       await tester.pumpAndSettle();
 
-      expect(find.text('备份导入干跑预览确认'), findsOneWidget);
+      expect(
+        find.byKey(const Key('restore_preview_confirm_button')),
+        findsOneWidget,
+      );
       expect(find.textContaining('预计累计变更'), findsOneWidget);
 
       // 在弹窗中切换至覆盖还原再切回智能合并，并取消勾选 library_catalog_slice。
@@ -356,7 +372,10 @@ void main() {
       await tester.tap(find.byKey(const Key('restore_preview_confirm_button')));
       await tester.pumpAndSettle();
 
-      expect(find.text('备份导入干跑预览确认'), findsNothing);
+      expect(
+        find.byKey(const Key('restore_preview_confirm_button')),
+        findsNothing,
+      );
       expect(targetPrefs.read(appearanceSlice)['themeMode'], 'dark');
       expect(localExtra.entries['ovr-1']?['line'], '第 1 行校对');
       expect(targetDb.library.works.listVisible(), isEmpty);

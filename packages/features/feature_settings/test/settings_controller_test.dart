@@ -385,14 +385,18 @@ void main() {
     expect(controller.displayPrefs.showEpisodeStillThumbnails, isFalse);
     expect(controller.displayPrefs.showOriginalSubtitlesOnCards, isFalse);
     expect(controller.displayPrefs.autoSilentWarmup, isFalse);
-    expect(controller.displayPrefs.showTitleText, isTrue);
+    expect(controller.displayPrefs.showTitleText, isFalse);
     expect(controller.displayPrefs.showTitleLogo, isTrue);
     expect(controller.displayPrefs.showOverview, isTrue);
     expect(controller.displayPrefs.showRawVideoFilename, isTrue);
     expect(controller.displayPrefs.showCdTab, isTrue);
     expect(controller.displayPrefs.showScanTab, isTrue);
 
-    controller.setShowTitleText(false);
+    controller.setShowTitleLogo(false);
+    expect(controller.displayPrefs.showTitleText, isTrue);
+    expect(controller.displayPrefs.showTitleLogo, isFalse);
+    controller.setShowTitleLogo(true);
+    expect(controller.displayPrefs.showTitleText, isFalse);
     controller.setShowTitleLogo(false);
     controller.setShowOverview(false);
     controller.setShowRawVideoFilename(true);
@@ -410,7 +414,7 @@ void main() {
     expect(decoded['showOriginalSubtitlesOnCards'], isFalse);
     expect(decoded['autoSilentWarmup'], isFalse);
     expect(decoded['futureUnknownKey'], equals('preserve-value'));
-    expect(decoded['showTitleText'], isFalse);
+    expect(decoded['showTitleText'], isTrue);
     expect(decoded['showTitleLogo'], isFalse);
     expect(decoded['showOverview'], isFalse);
     expect(decoded['showRawVideoFilename'], isTrue);

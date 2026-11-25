@@ -231,20 +231,14 @@ final class SettingsController extends ChangeNotifier {
     _safeNotify();
   }
 
-  /// 切换详情页文字标题显示。
-  void setShowTitleText(bool enabled) => _updateDisplayPrefs(
-    (current) => current.copyWith(showTitleText: enabled),
-  );
-
   /// 切换详情页透明标题徽标显示。
   void setShowTitleLogo(bool enabled) => _updateDisplayPrefs(
     (current) => current.copyWith(showTitleLogo: enabled),
   );
 
   /// 切换详情页作品简介显示。
-  void setShowOverview(bool enabled) => _updateDisplayPrefs(
-    (current) => current.copyWith(showOverview: enabled),
-  );
+  void setShowOverview(bool enabled) =>
+      _updateDisplayPrefs((current) => current.copyWith(showOverview: enabled));
 
   /// 切换选集与特典卡片原始视频文件名显示。
   void setShowRawVideoFilename(bool enabled) => _updateDisplayPrefs(
@@ -252,14 +246,12 @@ final class SettingsController extends ChangeNotifier {
   );
 
   /// 切换详情页「CD」分类页签显示。
-  void setShowCdTab(bool enabled) => _updateDisplayPrefs(
-    (current) => current.copyWith(showCdTab: enabled),
-  );
+  void setShowCdTab(bool enabled) =>
+      _updateDisplayPrefs((current) => current.copyWith(showCdTab: enabled));
 
   /// 切换详情页「Scan」分类页签显示。
-  void setShowScanTab(bool enabled) => _updateDisplayPrefs(
-    (current) => current.copyWith(showScanTab: enabled),
-  );
+  void setShowScanTab(bool enabled) =>
+      _updateDisplayPrefs((current) => current.copyWith(showScanTab: enabled));
 
   void _updateDisplayPrefs(
     SettingsDisplayPrefs Function(SettingsDisplayPrefs current) transform,

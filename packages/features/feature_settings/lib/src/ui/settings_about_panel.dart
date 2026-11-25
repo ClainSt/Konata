@@ -190,10 +190,10 @@ class SettingsAboutPanel extends ConsumerWidget {
                     onTap: effectiveController.isExportingDiagnostics
                         ? null
                         : () => _exportReport(
-                              context,
-                              effectiveController,
-                              asJson: false,
-                            ),
+                            context,
+                            effectiveController,
+                            asJson: false,
+                          ),
                   ),
                   Divider(
                     height: 1,
@@ -204,7 +204,7 @@ class SettingsAboutPanel extends ConsumerWidget {
                   KonataListTile(
                     key: const ValueKey('settings_export_diagnostics_json'),
                     title: '导出结构化诊断包 (.json)',
-                    subtitle: '导出包含故障分诊、运行快照与操作轨迹的 Schema v3 结构化数据',
+                    subtitle: '导出包含故障信息、运行状态与操作记录的诊断数据',
                     leading: _buildLeadingBox(
                       Icon(
                         Icons.data_object_rounded,
@@ -220,10 +220,10 @@ class SettingsAboutPanel extends ConsumerWidget {
                     onTap: effectiveController.isExportingDiagnostics
                         ? null
                         : () => _exportReport(
-                              context,
-                              effectiveController,
-                              asJson: true,
-                            ),
+                            context,
+                            effectiveController,
+                            asJson: true,
+                          ),
                   ),
                   Divider(
                     height: 1,

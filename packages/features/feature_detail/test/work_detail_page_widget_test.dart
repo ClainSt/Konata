@@ -338,6 +338,22 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 260));
 
+      // 正常进入详情时默认收起，只有点击分类后才显示资源。
+      expect(
+        find.byKey(const Key('detail_drawer_collapsed_body')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('detail_drawer_expanded_body')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('detail_drawer_view_all_button')),
+        findsNothing,
+      );
+      await tester.tap(find.byKey(const ValueKey('detail_tab_episodes')));
+      await tester.pumpAndSettle();
+
       // 展开态右端可见 `⊞`，且彻底不存在独立 `⌄` 收起按钮
       expect(find.byKey(const Key('detail_category_capsule')), findsOneWidget);
       expect(
@@ -707,6 +723,16 @@ void main() {
           findsOneWidget,
         );
         expect(
+          find.byKey(const Key('detail_drawer_collapsed_body')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('episode_card_ep_g1')),
+          findsNothing,
+        );
+        await tester.tap(find.byKey(const ValueKey('detail_tab_episodes')));
+        await tester.pumpAndSettle();
+        expect(
           find.byKey(const ValueKey<String>('episode_card_ep_g1')),
           findsOneWidget,
         );
@@ -820,6 +846,8 @@ void main() {
           addTearDown(tester.view.resetPhysicalSize);
           addTearDown(tester.view.resetDevicePixelRatio);
 
+          Rect? previousCapsule;
+          Rect? previousPlay;
           for (final dark in const <bool>[true, false]) {
             await tester.pumpWidget(
               wrapDetailTestApp(
@@ -850,6 +878,29 @@ void main() {
               findsOneWidget,
             );
             expect(find.byKey(const ValueKey('detail_tab_cd')), findsOneWidget);
+            expect(
+              find.byKey(const Key('detail_drawer_expanded_body')),
+              findsNothing,
+            );
+            final capsule = find.byKey(const Key('detail_category_capsule'));
+            final play = find.byKey(const Key('detail_primary_play_button'));
+            if (vp.platform == KonataPlatform.windows &&
+                vp.size.width >= 760 &&
+                vp.size.height >= 540) {
+              expect(tester.element(capsule).palette.isDark, isTrue);
+              expect(
+                tester.element(play).palette.primaryButtonFg,
+                KonataTheme.pureWhite,
+              );
+              final capsuleRect = tester.getRect(capsule);
+              final playRect = tester.getRect(play);
+              if (previousCapsule != null) {
+                expect(capsuleRect, previousCapsule);
+                expect(playRect, previousPlay);
+              }
+              previousCapsule = capsuleRect;
+              previousPlay = playRect;
+            }
           }
         });
       });

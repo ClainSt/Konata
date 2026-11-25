@@ -161,6 +161,9 @@ class DetailHeroInfo extends StatelessWidget {
                   alignment: Alignment.centerLeft,
                   child: KonataPillButton.primary(
                     key: const Key('detail_primary_play_button'),
+                    borderColor: onDarkBackdrop
+                        ? KonataTheme.overlayWhiteBorderStrong
+                        : null,
                     label: playButtonText,
                     icon: Icons.play_arrow_rounded,
                     compact: compact,
@@ -175,6 +178,9 @@ class DetailHeroInfo extends StatelessWidget {
                   alignment: Alignment.centerLeft,
                   child: KonataPillButton.primary(
                     key: const Key('detail_primary_audio_button'),
+                    borderColor: onDarkBackdrop
+                        ? KonataTheme.overlayWhiteBorderStrong
+                        : null,
                     label: '播放音乐专辑',
                     icon: Icons.album_rounded,
                     compact: compact,

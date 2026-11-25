@@ -257,14 +257,29 @@ abstract final class KonataTheme {
   );
 
   /// 暗底单色深黑 ClearLogo 的保色相亮度反相滤镜（180° 色相旋转复合反转，黑字柔化为光学象牙白且少量彩色点缀保持原色相）。
-  static const ColorFilter clearLogoSmartInvertFilter = ColorFilter.matrix(
-    <double>[
-      0.540, -1.344, -0.135, 0, 244,
-      -0.400, -0.404, -0.135, 0, 244,
-      -0.400, -1.344, 0.805, 0, 244,
-      0, 0, 0, 1, 0,
-    ],
-  );
+  static const ColorFilter clearLogoSmartInvertFilter =
+      ColorFilter.matrix(<double>[
+        0.540,
+        -1.344,
+        -0.135,
+        0,
+        244,
+        -0.400,
+        -0.404,
+        -0.135,
+        0,
+        244,
+        -0.400,
+        -1.344,
+        0.805,
+        0,
+        244,
+        0,
+        0,
+        0,
+        1,
+        0,
+      ]);
 
   /// 深彩色无白边 ClearLogo 的字形轮廓霜白背晕滤镜与颜色令牌（`TileMode.decal` 保证画布边缘平滑归零不拖影）。
   static final ui.ImageFilter clearLogoHaloBlurWide = ui.ImageFilter.blur(
@@ -317,21 +332,9 @@ abstract final class KonataTheme {
     1.0,
   ];
   static const List<Shadow> detailHeroTitleShadows = <Shadow>[
-    Shadow(
-      color: Color(0xC2000000),
-      offset: Offset(0, 1),
-      blurRadius: 2.5,
-    ),
-    Shadow(
-      color: Color(0x8A000000),
-      offset: Offset(0, 3),
-      blurRadius: 10,
-    ),
-    Shadow(
-      color: Color(0x4D000000),
-      offset: Offset(0, 6),
-      blurRadius: 24,
-    ),
+    Shadow(color: Color(0xC2000000), offset: Offset(0, 1), blurRadius: 2.5),
+    Shadow(color: Color(0x8A000000), offset: Offset(0, 3), blurRadius: 10),
+    Shadow(color: Color(0x4D000000), offset: Offset(0, 6), blurRadius: 24),
   ];
   static const double detailHeroMaxTextScale = 1.25;
   static const double detailHeroTitleStepDownDelta = 2.0;
@@ -344,9 +347,8 @@ abstract final class KonataTheme {
   static const Color logoCheckerDarkCellB = Color(0xFF333B4C);
 
   /// 解析毛玻璃弹窗与侧边抽屉的高对比度表面色。
-  static Color glassDialogSurface(KonataPalette p) => p.isDark
-      ? const Color(0xE0141722)
-      : const Color(0xF2FDFDFE);
+  static Color glassDialogSurface(KonataPalette p) =>
+      p.isDark ? const Color(0xE0141722) : const Color(0xF2FDFDFE);
 
   /// 解析毛玻璃弹窗与侧边抽屉的微光外框色。
   static Color glassDialogBorder(KonataPalette p) =>
@@ -475,10 +477,8 @@ abstract final class KonataTheme {
       p.isDark ? const Color(0x42FFFFFF) : p.primaryButtonBg;
   static Color darkInkBorder(KonataPalette p) =>
       p.isDark ? overlayWhiteBorder : const Color(0x260F172A);
-  static Color episodeCardOutline(
-    KonataPalette p, {
-    required bool hovered,
-  }) => p.isDark
+  static Color episodeCardOutline(KonataPalette p, {required bool hovered}) =>
+      p.isDark
       ? (hovered ? const Color(0x5CFFFFFF) : overlayWhiteBorder)
       : detailLightSlatePrimary.withValues(alpha: hovered ? 0.28 : 0.12);
 
@@ -587,16 +587,8 @@ abstract final class KonataTheme {
 
   /// 详情页叠放于背景原画之上的统一双层柔和文字投影（内层贴边轮廓 + 外层环境晕影）。
   static const List<Shadow> detailTextShadows = <Shadow>[
-    Shadow(
-      color: Color(0xA6000000),
-      offset: Offset(0, 1.5),
-      blurRadius: 4,
-    ),
-    Shadow(
-      color: Color(0x73000000),
-      offset: Offset(0, 3),
-      blurRadius: 14,
-    ),
+    Shadow(color: Color(0xA6000000), offset: Offset(0, 1.5), blurRadius: 4),
+    Shadow(color: Color(0x73000000), offset: Offset(0, 3), blurRadius: 14),
   ];
 
   /// 亮色详情页彻底清空白色发光阴影，保持高对比深石板色实字锐利清晰。
@@ -660,6 +652,24 @@ abstract final class KonataTheme {
 
   /// 构建亮色模式主题（应用壳层可按需缓存复用）。
   static ThemeData lightTheme() => _buildTheme(KonataPalette.light);
+
+  // 原画舞台本身具有固定的暗色护字遮罩；不应随应用主题切换为白色按钮。
+  static final ThemeData _artworkOverlayTheme = _buildTheme(
+    KonataPalette.dark.copyWith(
+      primaryButtonBg: const Color(0xED191D25),
+      primaryButtonHoverBg: const Color(0xF5323844),
+      primaryButtonFg: pureWhite,
+    ),
+  );
+
+  /// 仅在沉浸原画舞台内使用统一的高反差控件配色，不改变全局主题。
+  static Widget artworkOverlayScope({required Widget child}) => Theme(
+    data: _artworkOverlayTheme,
+    child: DefaultTextStyle.merge(
+      style: const TextStyle(color: pureWhite),
+      child: child,
+    ),
+  );
 
   static ThemeData _buildTheme(KonataPalette palette) {
     final brightness = palette.isDark ? Brightness.dark : Brightness.light;

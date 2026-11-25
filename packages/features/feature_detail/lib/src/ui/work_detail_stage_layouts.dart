@@ -123,109 +123,111 @@ class DetailWideOverlayStageLayout extends StatelessWidget {
         : (work.bangumiPosterPath?.trim() ?? '');
     final bgPath = hasBackdrop ? effectiveBackdrop.path : fallbackPoster;
 
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        Positioned.fill(
-          key: const ValueKey<String>('detail_wide_backdrop_stage'),
-          child: GestureDetector(
-            key: const Key('detail_wide_backdrop_dismiss_area'),
-            behavior: HitTestBehavior.translucent,
-            onTap: drawerExpanded ? onCollapseDrawer : null,
-            child: DetailWideBackdropStage(
-              workId: work.id,
-              backdropOwnerWorkId: hasBackdrop
-                  ? effectiveBackdrop.ownerWorkId
-                  : work.id,
-              bgPath: bgPath,
-              hasBackdrop: hasBackdrop,
-              fallbackPosterPath: fallbackPoster,
-              showHeroBackdrop: displayPreferences.showMainHeroBackdrop,
-              isDrawerExpanded: drawerExpanded,
-              imageLoader: imageLoader,
+    return KonataTheme.artworkOverlayScope(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Positioned.fill(
+            key: const ValueKey<String>('detail_wide_backdrop_stage'),
+            child: GestureDetector(
+              key: const Key('detail_wide_backdrop_dismiss_area'),
+              behavior: HitTestBehavior.translucent,
+              onTap: drawerExpanded ? onCollapseDrawer : null,
+              child: DetailWideBackdropStage(
+                workId: work.id,
+                backdropOwnerWorkId: hasBackdrop
+                    ? effectiveBackdrop.ownerWorkId
+                    : work.id,
+                bgPath: bgPath,
+                hasBackdrop: hasBackdrop,
+                fallbackPosterPath: fallbackPoster,
+                showHeroBackdrop: displayPreferences.showMainHeroBackdrop,
+                isDrawerExpanded: drawerExpanded,
+                imageLoader: imageLoader,
+              ),
             ),
           ),
-        ),
-        Positioned.fill(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              SizedBox(height: safePad.top + 58),
-              Expanded(
-                child: Align(
-                  alignment: Alignment.bottomLeft,
-                  child: SingleChildScrollView(
-                    controller: heroScrollController,
-                    hitTestBehavior: HitTestBehavior.deferToChild,
-                    padding: const EdgeInsets.fromLTRB(36, 8, 36, 14),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        DetailHeroInfo(
-                          bundle: bundle,
-                          imageLoader: imageLoader,
-                          rescrapeState: rescrapeState,
-                          displayPreferences: displayPreferences,
-                          compact: false,
-                          showOverview: true,
-                          onDarkBackdrop: true,
-                          useSeriesBottomSheet: false,
-                          onPlayPrimary: onPlayPrimary,
-                          onSelectSeriesWork: onSelectSeriesWork,
-                          onDismissRescrape: onDismissRescrape,
-                          onBuiltInAction: onBuiltInAction,
-                        ),
-                        if (reviewBanner != null) ...[
-                          const SizedBox(height: 12),
-                          reviewBanner!,
+          Positioned.fill(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(height: safePad.top + 58),
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.bottomLeft,
+                    child: SingleChildScrollView(
+                      controller: heroScrollController,
+                      hitTestBehavior: HitTestBehavior.deferToChild,
+                      padding: const EdgeInsets.fromLTRB(36, 8, 36, 14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          DetailHeroInfo(
+                            bundle: bundle,
+                            imageLoader: imageLoader,
+                            rescrapeState: rescrapeState,
+                            displayPreferences: displayPreferences,
+                            compact: false,
+                            showOverview: true,
+                            onDarkBackdrop: true,
+                            useSeriesBottomSheet: false,
+                            onPlayPrimary: onPlayPrimary,
+                            onSelectSeriesWork: onSelectSeriesWork,
+                            onDismissRescrape: onDismissRescrape,
+                            onBuiltInAction: onBuiltInAction,
+                          ),
+                          if (reviewBanner != null) ...[
+                            const SizedBox(height: 12),
+                            reviewBanner!,
+                          ],
                         ],
-                      ],
+                      ),
                     ),
                   ),
                 ),
-              ),
-              Padding(
-                padding: EdgeInsets.fromLTRB(
-                  36.0,
-                  0,
-                  36.0,
-                  math.max(12.0, bottomClearance),
-                ),
-                child: DetailBottomDrawer(
-                  bundle: bundle,
-                  imageLoader: imageLoader,
-                  displayPreferences: displayPreferences,
-                  initialTabId: initialTabId,
-                  expanded: drawerExpanded,
-                  onExpandedChanged: onDrawerExpandedChanged,
-                  showGearButton: true,
-                  gearButton: DetailGearMenu(
-                    work: work,
-                    externalActions: mergedExternalActions,
-                    onBuiltInAction: onBuiltInAction,
-                    onInvokeExternalAction: onInvokeExternalAction,
-                    compact: false,
+                Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    36.0,
+                    0,
+                    36.0,
+                    math.max(12.0, bottomClearance),
                   ),
-                  onDarkBackdrop: true,
-                  compact: false,
-                  inlineMode: false,
-                  onTapEpisode: onTapEpisode,
-                  onTapCdVariant: onTapCdVariant,
-                  onInspectEpisodeInfo: onInspectEpisodeInfo,
-                  onOpenFullList: onOpenFullList,
+                  child: DetailBottomDrawer(
+                    bundle: bundle,
+                    imageLoader: imageLoader,
+                    displayPreferences: displayPreferences,
+                    initialTabId: initialTabId,
+                    expanded: drawerExpanded,
+                    onExpandedChanged: onDrawerExpandedChanged,
+                    showGearButton: true,
+                    gearButton: DetailGearMenu(
+                      work: work,
+                      externalActions: mergedExternalActions,
+                      onBuiltInAction: onBuiltInAction,
+                      onInvokeExternalAction: onInvokeExternalAction,
+                      compact: false,
+                    ),
+                    onDarkBackdrop: true,
+                    compact: false,
+                    inlineMode: false,
+                    onTapEpisode: onTapEpisode,
+                    onTapCdVariant: onTapCdVariant,
+                    onInspectEpisodeInfo: onInspectEpisodeInfo,
+                    onOpenFullList: onOpenFullList,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-        Positioned(
-          top: safePad.top + 12,
-          left: math.max(16.0, safePad.left + 12),
-          right: math.max(16.0, safePad.right + 12),
-          child: WorkDetailTopBar(onBack: onBack),
-        ),
-      ],
+          Positioned(
+            top: safePad.top + 12,
+            left: math.max(16.0, safePad.left + 12),
+            right: math.max(16.0, safePad.right + 12),
+            child: WorkDetailTopBar(onBack: onBack),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -352,10 +354,7 @@ class DetailPortraitStageLayout extends StatelessWidget {
     final heroHeight = isTabletPortrait
         ? (viewport.height * 0.46).clamp(300.0, 520.0)
         : (viewport.height * 0.48).clamp(290.0, 420.0);
-    final artworkClearance = math.max(
-      safePad.top + 88.0,
-      heroHeight * 0.62,
-    );
+    final artworkClearance = math.max(safePad.top + 88.0, heroHeight * 0.62);
     final hasOverview =
         displayPreferences.showOverview &&
         work.overview != null &&

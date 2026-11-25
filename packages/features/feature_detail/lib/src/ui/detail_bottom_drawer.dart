@@ -86,7 +86,7 @@ class DetailBottomDrawer extends StatefulWidget {
 class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
   final ScrollController _trackScrollCtrl = ScrollController();
   late String _activeTabId;
-  bool _localExpanded = true;
+  late bool _localExpanded;
   String? _activeSeasonFilterId;
   String? _activeExtraKindFilterId;
 
@@ -95,6 +95,7 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
   @override
   void initState() {
     super.initState();
+    _localExpanded = widget.initialTabId?.trim().isNotEmpty ?? false;
     _activeTabId = _resolveInitialTabId(widget.initialTabId);
     _syncDefaultSubFilters();
   }
@@ -104,6 +105,7 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.bundle.work.id != widget.bundle.work.id ||
         oldWidget.initialTabId != widget.initialTabId) {
+      _localExpanded = widget.initialTabId?.trim().isNotEmpty ?? false;
       _activeTabId = _resolveInitialTabId(widget.initialTabId);
       _syncDefaultSubFilters();
     } else if (!_isTabCurrentlyAvailable(_activeTabId)) {

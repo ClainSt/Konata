@@ -44,6 +44,7 @@ class WorkDetailTopBar extends StatelessWidget {
         ? KonataDesktopWindowChromeScope.buildWindowControls(
             context,
             showGlassPill: true,
+            forceLightIcons: forceLightChrome,
           )
         : null;
 

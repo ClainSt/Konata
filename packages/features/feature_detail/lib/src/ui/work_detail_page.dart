@@ -59,7 +59,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
   final ScrollController _portraitScrollCtrl = ScrollController();
   final ScrollController _wideHeroScrollCtrl = ScrollController();
   bool _rematching = false;
-  bool _drawerExpanded = true;
+  late bool _drawerExpanded;
   bool _lockedPortraitOrientation = false;
   String? _sampledDissolveKey;
   Color? _sampledDissolveColor;
@@ -67,6 +67,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
   @override
   void initState() {
     super.initState();
+    _drawerExpanded = widget.initialTabId?.trim().isNotEmpty ?? false;
     final platform =
         widget.controllerOverride?.platform ??
         ref.read(workDetailControllerProvider(widget.workId)).platform;
@@ -85,7 +86,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.workId != widget.workId ||
         oldWidget.initialTabId != widget.initialTabId) {
-      _drawerExpanded = true;
+      _drawerExpanded = widget.initialTabId?.trim().isNotEmpty ?? false;
       _sampledDissolveKey = null;
       _sampledDissolveColor = null;
     }

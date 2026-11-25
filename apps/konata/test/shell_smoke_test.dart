@@ -90,10 +90,7 @@ void main() {
               width: 4,
               height: 4,
             );
-            return (
-              stream: Stream<List<int>>.value(webp),
-              close: () async {},
-            );
+            return (stream: Stream<List<int>>.value(webp), close: () async {});
           },
         );
       });
@@ -254,10 +251,7 @@ void main() {
       );
 
       await tester.pumpWidget(
-        KonataBootstrapApp(
-          bootstrap: bootstrap,
-          platformLabel: 'Windows',
-        ),
+        KonataBootstrapApp(bootstrap: bootstrap, platformLabel: 'Windows'),
       );
       await _pumpFrames(tester);
 
@@ -361,7 +355,7 @@ void main() {
       await _pumpFrames(tester);
       expect(find.byType(SettingsPage), findsOneWidget);
       expect(find.text('备份与同步'), findsWidgets);
-      expect(find.text('追番同步'), findsWidgets);
+      expect(find.text('追踪记录'), findsWidgets);
 
       // 5. 切回「媒体库」并点击作品卡片进入 WorkDetailPage，并验证动态挂载「扫图」标签。
       await tester.tap(find.text('媒体库').first);
@@ -407,7 +401,9 @@ void main() {
               title: '仅桌面设置',
               iconKey: 'desktop',
               order: 20,
-              supportedPlatforms: const <KonataPlatform>{KonataPlatform.windows},
+              supportedPlatforms: const <KonataPlatform>{
+                KonataPlatform.windows,
+              },
               viewBuilder: (_) => 'win',
             ),
             SettingsSectionContribution(

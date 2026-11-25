@@ -11,7 +11,7 @@ final FeatureManifest featureTrackerSyncManifest = FeatureManifest(
   settingsSections: <SettingsSectionContribution>[
     SettingsSectionContribution(
       id: 'bangumi_sync',
-      title: '追番同步',
+      title: '追踪记录',
       subtitle: 'Bangumi PAT 凭据与离线队列同步',
       iconKey: 'tracker',
       order: 40,

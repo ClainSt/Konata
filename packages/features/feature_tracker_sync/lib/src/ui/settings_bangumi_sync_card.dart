@@ -13,11 +13,7 @@ import '../state/tracker_sync_coordinator.dart';
 /// 展示鉴权失效重绑提示，并支持待重试队列查看与一键补推。
 class SettingsBangumiSyncCard extends ConsumerStatefulWidget {
   /// 创建 Bangumi 同步设置卡片。
-  const SettingsBangumiSyncCard({
-    super.key,
-    this.coordinator,
-    this.urlOpener,
-  });
+  const SettingsBangumiSyncCard({super.key, this.coordinator, this.urlOpener});
 
   /// 可选直传协调器实例；为空时从 [trackerSyncCoordinatorProvider] 获取。
   final TrackerSyncCoordinator? coordinator;
@@ -46,7 +42,8 @@ class _SettingsBangumiSyncCardState
       widget.coordinator ?? ref.read(trackerSyncCoordinatorProvider);
 
   UrlOpenerPort get _urlOpener =>
-      widget.urlOpener ?? ref.read(featureTrackerSyncDependenciesProvider).urlOpener;
+      widget.urlOpener ??
+      ref.read(featureTrackerSyncDependenciesProvider).urlOpener;
 
   @override
   void dispose() {
@@ -79,10 +76,7 @@ class _SettingsBangumiSyncCardState
         _inlineFeedback = '已验证并绑定：${profile.nickname} (@${profile.username})';
         _inlineIsError = false;
       });
-      showKonataToast(
-        context,
-        '已绑定 Bangumi 账号 ${profile.nickname}',
-      );
+      showKonataToast(context, '已绑定 Bangumi 账号 ${profile.nickname}');
     } on BangumiAuthException catch (error) {
       if (!mounted) {
         return;
@@ -446,6 +440,9 @@ class _HeaderRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accentPink = tokens.isDark
+        ? KonataTheme.bangumiPink
+        : KonataTheme.bangumiPinkLightTheme;
     final String badgeText;
     final Color badgeColor;
     if (authInvalid) {
@@ -461,12 +458,30 @@ class _HeaderRow extends StatelessWidget {
 
     return Row(
       children: [
-        Icon(
-          Icons.track_changes_rounded,
-          size: 20,
-          color: tokens.accent,
+        SizedBox(
+          key: const ValueKey('bangumi_sync_wordmark'),
+          width: 38,
+          height: 38,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: accentPink.withValues(alpha: 0.14),
+              borderRadius: KonataTheme.borderRadiusControl,
+              border: Border.all(color: accentPink.withValues(alpha: 0.35)),
+            ),
+            child: Center(
+              child: Text(
+                'bgm',
+                style: TextStyle(
+                  color: accentPink,
+                  fontSize: KonataTheme.fontSizeBadge,
+                  fontWeight: FontWeight.w800,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ),
+          ),
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: 12),
         Expanded(
           child: Text(
             'Bangumi 番组计划同步',
@@ -581,10 +596,7 @@ class _ProfileBanner extends StatelessWidget {
                 ),
                 Text(
                   lastText,
-                  style: TextStyle(
-                    fontSize: 11.5,
-                    color: tokens.textSecondary,
-                  ),
+                  style: TextStyle(fontSize: 11.5, color: tokens.textSecondary),
                 ),
               ],
             ),
@@ -595,7 +607,10 @@ class _ProfileBanner extends StatelessWidget {
   }
 
   static String _formatTimestamp(int utcMs) {
-    final local = DateTime.fromMillisecondsSinceEpoch(utcMs, isUtc: true).toLocal();
+    final local = DateTime.fromMillisecondsSinceEpoch(
+      utcMs,
+      isUtc: true,
+    ).toLocal();
     final m = local.month.toString().padLeft(2, '0');
     final d = local.day.toString().padLeft(2, '0');
     final hh = local.hour.toString().padLeft(2, '0');
@@ -638,10 +653,7 @@ class _SwitchRow extends StatelessWidget {
               const SizedBox(height: 2),
               Text(
                 subtitle,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: tokens.textSecondary,
-                ),
+                style: TextStyle(fontSize: 12, color: tokens.textSecondary),
               ),
             ],
           ),

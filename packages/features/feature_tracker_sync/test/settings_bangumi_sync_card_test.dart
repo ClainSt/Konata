@@ -305,9 +305,10 @@ void main() {
             child: Scaffold(
               body: SingleChildScrollView(
                 padding: const EdgeInsets.all(16),
-                child: featureTrackerSyncManifest.settingsSections.single
-                        .viewBuilder(const ViewSlotContext())
-                    as Widget,
+                child:
+                    featureTrackerSyncManifest.settingsSections.single
+                            .viewBuilder(const ViewSlotContext())
+                        as Widget,
               ),
             ),
           ),
@@ -317,6 +318,13 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Bangumi 番组计划同步'), findsOneWidget);
+    expect(featureTrackerSyncManifest.settingsSections.single.title, '追踪记录');
+    final wordmark = find.byKey(const ValueKey('bangumi_sync_wordmark'));
+    expect(tester.getSize(wordmark), const Size(38, 38));
+    final logo = find.descendant(of: wordmark, matching: find.text('bgm'));
+    expect(logo, findsOneWidget);
+    expect(tester.widget<Text>(logo).style?.color, KonataTheme.bangumiPink);
+    expect(tester.getCenter(logo), tester.getCenter(wordmark));
     expect(find.text('待重试推送队列：1 条'), findsOneWidget);
 
     await tester.tap(find.text('获取 PAT'));
@@ -329,7 +337,10 @@ void main() {
 
     expect(find.text('莱欧斯 (@laios)'), findsOneWidget);
     expect(find.text('已验证并绑定：莱欧斯 (@laios)'), findsOneWidget);
-    expect(await secureStorage.read(BangumiSyncConfigStore.patStorageKey), equals('bgm_widget_pat_test'));
+    expect(
+      await secureStorage.read(BangumiSyncConfigStore.patStorageKey),
+      equals('bgm_widget_pat_test'),
+    );
 
     await tester.tap(find.text('一键补推'));
     await tester.pumpAndSettle();

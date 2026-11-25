@@ -16,12 +16,17 @@ class _FakeGateway implements MediaSourceGateway {
 
   final String? testConnectionError;
   final List<RemoteEntry> entries;
+  int listCalls = 0;
+  int closeCalls = 0;
 
   @override
-  Future<void> close() async {}
+  Future<void> close() async {
+    closeCalls++;
+  }
 
   @override
   Future<List<RemoteEntry>> listDirectory(String relativePath) async {
+    listCalls++;
     return entries;
   }
 
@@ -76,6 +81,80 @@ void main() {
   tearDown(() async {
     await eventBus.dispose();
     await db.close();
+  });
+
+  test('1246 项大目录往返复用同一浏览网关，关闭后重新读取', () async {
+    final gateways = <_FakeGateway>[];
+    final entries = List.generate(
+      1246,
+      (i) => RemoteEntry(
+        name: 'Anime $i',
+        relativePath: 'Anime $i',
+        isDirectory: true,
+        size: 0,
+      ),
+    );
+    final controller = SourcesController(
+      databases: db,
+      credentialStore: credentialStore,
+      eventBus: eventBus,
+      scopedPrefs: prefs,
+      gatewayFactory: _FakeGatewayFactory((source, pwd, clear) {
+        final gateway = _FakeGateway(entries: entries);
+        gateways.add(gateway);
+        return gateway;
+      }),
+    );
+    addTearDown(controller.dispose);
+    Future<SourceDirectoryBrowseSession> open() =>
+        controller.openDirectoryBrowseSession(
+          kind: MediaSourceKind.cloudDrive,
+          location: 'guangyapan://account_fixture',
+        );
+    final session = await open();
+    addTearDown(session.close);
+    final first = await session.listDirectory('Anime', includeFiles: true);
+    await session.listDirectory('', includeFiles: true);
+    final cached = await session.listDirectory('Anime', includeFiles: true);
+    expect(first.length, 1246);
+    expect(identical(first, cached), isTrue);
+    expect(gateways.length, 1);
+    expect(gateways.single.listCalls, 2);
+    await session.close();
+    expect(gateways.single.closeCalls, 1);
+    await expectLater(session.listDirectory('Anime'), throwsStateError);
+    final refreshed = await open();
+    addTearDown(refreshed.close);
+    expect(
+      (await refreshed.listDirectory('Anime', includeFiles: true)).length,
+      1246,
+    );
+    expect(gateways.length, 2);
+    expect(gateways.last.listCalls, 1);
+  });
+
+  test('目录浏览缓存受条目和目录数量限制', () async {
+    final gateway = _FakeGateway(
+      entries: List.generate(
+        1246,
+        (i) => RemoteEntry(
+          name: 'Anime $i',
+          relativePath: 'Anime $i',
+          isDirectory: true,
+          size: 0,
+        ),
+      ),
+    );
+    final session = SourceDirectoryBrowseSession(gateway);
+    addTearDown(session.close);
+    for (var i = 0; i < 10; i++) {
+      await session.listDirectory('folder$i', includeFiles: true);
+    }
+    expect(gateway.listCalls, 10);
+    await session.listDirectory('folder9', includeFiles: true);
+    expect(gateway.listCalls, 10);
+    await session.listDirectory('folder0', includeFiles: true);
+    expect(gateway.listCalls, 11);
   });
 
   test('媒体源校验拒绝无效地址并隔离凭据（密码绝不写入 SQLite）', () async {

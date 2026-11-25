@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import '../tokens/konata_adaptive_tokens.dart';
 import '../tokens/konata_palette.dart';
 import '../tokens/konata_theme.dart';
+import 'konata_tooltip.dart';
 
 /// 单条悬浮轻提示载荷模型。
 @immutable
@@ -444,6 +445,28 @@ class _KonataGlassToastCapsule extends StatelessWidget {
         ? KonataAdaptiveTokens.touchTarget
         : KonataAdaptiveTokens.desktopToastCloseHitSize;
 
+    // 全局提示可位于 Navigator 的 Overlay 外部，关闭按钮始终可用。
+    final closeButton = Semantics(
+      label: '关闭提示',
+      button: true,
+      child: GestureDetector(
+        key: const ValueKey('konata_toast_close'),
+        behavior: HitTestBehavior.opaque,
+        onTap: onCloseTap,
+        child: SizedBox(
+          width: closeHitSize,
+          height: closeHitSize,
+          child: Center(
+            child: Icon(
+              Icons.close_rounded,
+              size: 16,
+              color: fgColor.withValues(alpha: 0.86),
+            ),
+          ),
+        ),
+      ),
+    );
+
     return ConstrainedBox(
       constraints: const BoxConstraints(
         maxWidth: KonataAdaptiveTokens.toastMaxWidth,
@@ -517,24 +540,10 @@ class _KonataGlassToastCapsule extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 4),
-                Tooltip(
+                KonataTooltip(
                   message: '关闭提示',
-                  child: GestureDetector(
-                    key: const ValueKey('konata_toast_close'),
-                    behavior: HitTestBehavior.opaque,
-                    onTap: onCloseTap,
-                    child: SizedBox(
-                      width: closeHitSize,
-                      height: closeHitSize,
-                      child: Center(
-                        child: Icon(
-                          Icons.close_rounded,
-                          size: 16,
-                          color: fgColor.withValues(alpha: 0.86),
-                        ),
-                      ),
-                    ),
-                  ),
+                  excludeFromSemantics: true,
+                  child: closeButton,
                 ),
               ],
             ),

@@ -59,6 +59,8 @@ final class FeatureRuntimeWiring {
     required this.audiophileCoordinator,
     required this.hostWindow,
     required this.autoStartDetailWarmupAndBackfill,
+    this.listCloudAccountLocations,
+    this.createCloudSignIn,
     this.desktopSurfaceBridge,
     this.desktopRelayGateway,
     this.externalPlayerStore,
@@ -79,6 +81,13 @@ final class FeatureRuntimeWiring {
 
   /// 当前运行平台形态。
   final KonataPlatform platform;
+
+  /// 本机已授权云盘的无凭据根地址入口。
+  final Future<List<String>> Function()? listCloudAccountLocations;
+
+  /// 可选已配置客户端的用户主动授权事务。
+  final CloudAccountSignInPort Function(String? expectedLocation)?
+  createCloudSignIn;
 
   /// 三库物理分治数据库总管。
   final KonataDatabaseBundle databases;
@@ -224,7 +233,8 @@ Future<KonataNetworkConfig> preloadFeatureRuntimeSettings({
       error: error,
       stackTrace: stackTrace,
       severity: DiagnosticSeverity.warn,
-      source: 'apps/konata/lib/bootstrap/feature_registry.dart:preloadFeatureRuntimeSettings',
+      source:
+          'apps/konata/lib/bootstrap/feature_registry.dart:preloadFeatureRuntimeSettings',
     );
     return httpClient.config;
   }
@@ -400,7 +410,9 @@ List<Override> buildFeatureProviderOverrides(FeatureRuntimeWiring wiring) {
         platform: platform,
       ),
     ),
-    workManageDialogPortProvider.overrideWithValue(const HostWorkManageDialogs()),
+    workManageDialogPortProvider.overrideWithValue(
+      const HostWorkManageDialogs(),
+    ),
     featureLibraryDependenciesProvider.overrideWithValue(
       FeatureLibraryDependencies(
         databases: wiring.databases,
@@ -557,6 +569,8 @@ List<Override> buildFeatureProviderOverrides(FeatureRuntimeWiring wiring) {
         gatewayFactory: wiring.gatewayFactory,
         photosStorage: wiring.photosStorage,
         platform: platform,
+        listCloudAccountLocations: wiring.listCloudAccountLocations,
+        createCloudSignIn: wiring.createCloudSignIn,
       ),
     ),
     featureSyncDependenciesProvider.overrideWithValue(
@@ -587,7 +601,10 @@ List<Override> buildFeatureProviderOverrides(FeatureRuntimeWiring wiring) {
 }
 
 /// 激活需要随应用生命周期常驻事件订阅与启动自动同步的已注册后台业务协调器。
-void activateRegisteredFeatureServices(WidgetRef ref, FeatureRegistry registry) {
+void activateRegisteredFeatureServices(
+  WidgetRef ref,
+  FeatureRegistry registry,
+) {
   if (registry.containsFeature('feature_tracker_sync')) {
     ref.watch(trackerSyncCoordinatorProvider);
   }
@@ -604,9 +621,9 @@ void triggerOngoingWorksAutoSync(
 }) {
   if (!registry.containsFeature('feature_sources')) return;
   unawaited(
-    ref.read(sourceScrapeControllerProvider).runOngoingWorksAutoSyncIfDue(
-      force: force,
-    ),
+    ref
+        .read(sourceScrapeControllerProvider)
+        .runOngoingWorksAutoSyncIfDue(force: force),
   );
 }
 
@@ -737,7 +754,9 @@ final class _HostVideoStageRouteState
     super.initState();
     _sessionManager = ref.read(activeVideoSessionManagerProvider);
     if (widget.hasAudioFeature) {
-      unawaited(ref.read(audioPlaybackControllerProvider).pauseForVideoSession());
+      unawaited(
+        ref.read(audioPlaybackControllerProvider).pauseForVideoSession(),
+      );
     }
     _controller = _sessionManager.openOrReuseSession(widget.request);
   }
@@ -954,7 +973,9 @@ final class _HostFloatingPlaybackOverlayState
   void dispose() {
     _videoManager?.removeListener(_syncPlaybackSideEffects);
     _audioController?.activeListenable.removeListener(_syncPlaybackSideEffects);
-    _audioController?.playingListenable.removeListener(_syncPlaybackSideEffects);
+    _audioController?.playingListenable.removeListener(
+      _syncPlaybackSideEffects,
+    );
     widget.androidPipPort?.unbindCallbacks();
     if (_audioFocusHeld) {
       unawaited(widget.androidAudioFocusPort?.abandonAudioFocus());
@@ -1122,7 +1143,10 @@ final class _HostFloatingPlaybackOverlayState
               final bottomClearance =
                   widget.platform == KonataPlatform.androidPhone ? 96.0 : 28.0;
               final defaultOffset = Offset(
-                (size.width - miniWidth - margin).clamp(margin, double.infinity),
+                (size.width - miniWidth - margin).clamp(
+                  margin,
+                  double.infinity,
+                ),
                 (size.height - miniHeight - bottomClearance).clamp(
                   KonataPlaybackTokens.floatingMiniDesktopTopBarClearance,
                   double.infinity,

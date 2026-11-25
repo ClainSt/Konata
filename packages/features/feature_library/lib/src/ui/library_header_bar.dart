@@ -222,10 +222,7 @@ class LibraryHeaderBar extends StatelessWidget {
             children: <Widget>[
               SizedBox(
                 height: 38,
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: titleRow,
-                ),
+                child: Align(alignment: Alignment.centerLeft, child: titleRow),
               ),
               const SizedBox(height: 8),
               Align(
@@ -337,9 +334,7 @@ class LibraryFilterSortStrip extends StatelessWidget {
         if (years.isNotEmpty)
           Builder(
             builder: (btnCtx) => _FilterChipMenuTrigger(
-              label: prefs.yearFilter == null
-                  ? '年份'
-                  : '年份：${prefs.yearFilter}',
+              label: prefs.yearFilter == null ? '年份' : '年份：${prefs.yearFilter}',
               icon: Icons.calendar_today_outlined,
               active: prefs.yearFilter != null,
               onTap: () async {
@@ -487,7 +482,7 @@ class _HeaderIconPillState extends State<_HeaderIconPill> {
         : (_hovered ? p.hoverBorder : p.hairline);
     final fg = widget.highlighted ? p.accentBadge.fg : p.textSecondary;
 
-    return Tooltip(
+    return KonataTooltip(
       message: widget.tooltip,
       waitDuration: KonataTheme.tooltipWaitDuration,
       child: MouseRegion(
@@ -537,7 +532,7 @@ class _HiddenWorksHeaderButtonState extends State<_HiddenWorksHeaderButton> {
   Widget build(BuildContext context) {
     final p = context.palette;
     final count = widget.hiddenCount;
-    return Tooltip(
+    return KonataTooltip(
       message: count > 0 ? '隐藏作品（$count 部）' : '隐藏作品管理',
       waitDuration: KonataTheme.tooltipWaitDuration,
       child: MouseRegion(
@@ -639,9 +634,7 @@ class _ReviewHeaderPillState extends State<_ReviewHeaderPill> {
               ),
               const SizedBox(width: 7),
               Text(
-                widget.compact
-                    ? '复核 ${widget.count}'
-                    : '待复核 · ${widget.count}',
+                widget.compact ? '复核 ${widget.count}' : '待复核 · ${widget.count}',
                 style: KonataTheme.textStyle(
                   color: p.textPrimary,
                   fontSize: KonataTheme.fontSizeCaption,

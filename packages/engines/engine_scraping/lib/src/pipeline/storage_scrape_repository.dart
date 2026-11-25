@@ -146,7 +146,9 @@ final class StorageScrapeRepository implements LibraryRepository {
     final canonicalKey =
         existing?.canonicalKey ?? 'source:${source.kind.name}:${source.id}';
     final createdAtMs =
-        source.createdAt?.millisecondsSinceEpoch ?? existing?.createdAtMs ?? now;
+        source.createdAt?.millisecondsSinceEpoch ??
+        existing?.createdAtMs ??
+        now;
     _runAtomicLibraryWrite((exec) {
       exec(
         '''
@@ -392,9 +394,9 @@ ON CONFLICT(${WorksSchema.colId}) DO UPDATE SET
   @override
   Future<List<Work>> getAllWorks() async {
     final negByWork = _loadAllLogoNegatives();
-    final records = _lib.works
-        .listAllWithTombstones()
-        .where((r) => !r.isDeleted);
+    final records = _lib.works.listAllWithTombstones().where(
+      (r) => !r.isDeleted,
+    );
     return <Work>[
       for (final rec in records) _mapWork(rec, negByWork[rec.id.value]),
     ];
@@ -667,6 +669,7 @@ INSERT INTO ${MediaVariantsSchema.table} (
   ${MediaVariantsSchema.colEpisodeId},
   ${MediaVariantsSchema.colSourceId},
   ${MediaVariantsSchema.colRelativePath},
+  ${MediaVariantsSchema.colRemoteFileId},
   ${MediaVariantsSchema.colFileName},
   ${MediaVariantsSchema.colFileSize},
   ${MediaVariantsSchema.colAssetKind},
@@ -684,13 +687,14 @@ INSERT INTO ${MediaVariantsSchema.table} (
   ${MediaVariantsSchema.colUpdatedAtMs},
   ${MediaVariantsSchema.colSourceDeviceId},
   ${MediaVariantsSchema.colDeletedAtMs}
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
 ON CONFLICT(${MediaVariantsSchema.colId}) DO UPDATE SET
   ${MediaVariantsSchema.colCanonicalKey} = excluded.${MediaVariantsSchema.colCanonicalKey},
   ${MediaVariantsSchema.colWorkId} = excluded.${MediaVariantsSchema.colWorkId},
   ${MediaVariantsSchema.colEpisodeId} = excluded.${MediaVariantsSchema.colEpisodeId},
   ${MediaVariantsSchema.colSourceId} = excluded.${MediaVariantsSchema.colSourceId},
   ${MediaVariantsSchema.colRelativePath} = excluded.${MediaVariantsSchema.colRelativePath},
+  ${MediaVariantsSchema.colRemoteFileId} = excluded.${MediaVariantsSchema.colRemoteFileId},
   ${MediaVariantsSchema.colFileName} = excluded.${MediaVariantsSchema.colFileName},
   ${MediaVariantsSchema.colFileSize} = excluded.${MediaVariantsSchema.colFileSize},
   ${MediaVariantsSchema.colAssetKind} = excluded.${MediaVariantsSchema.colAssetKind},
@@ -716,6 +720,7 @@ ON CONFLICT(${MediaVariantsSchema.colId}) DO UPDATE SET
             v.episodeId,
             v.sourceId,
             v.relativePath,
+            v.remoteFileId,
             v.fileName,
             v.fileSize,
             v.assetKind.name,
@@ -911,7 +916,9 @@ ON CONFLICT(${MediaVariantsSchema.colId}) DO UPDATE SET
         await deleteMediaVariantsBatch(staleVariantIds);
       }
 
-      for (final workId in worksWithDeletedVariants.intersection(activeWorkIds)) {
+      for (final workId in worksWithDeletedVariants.intersection(
+        activeWorkIds,
+      )) {
         await deleteOrphanEpisodes(workId);
       }
 
@@ -967,7 +974,8 @@ ON CONFLICT(${MediaVariantsSchema.colId}) DO UPDATE SET
     _user.playbackRecords.upsert(
       PlaybackRecordEntity(
         id: record.id,
-        canonicalKey: '${record.workId}:${record.episodeId}:${record.variantId}',
+        canonicalKey:
+            '${record.workId}:${record.episodeId}:${record.variantId}',
         workId: WorkId.trusted(record.workId),
         episodeId: EpisodeId.trusted(record.episodeId),
         variantId: VariantId.trusted(record.variantId),
@@ -1076,10 +1084,7 @@ ON CONFLICT(${IgnoredFoldersSchema.colId}) DO UPDATE SET
   }
 
   @override
-  Future<void> removeIgnoredFolder(
-    String sourceId,
-    String relativePath,
-  ) async {
+  Future<void> removeIgnoredFolder(String sourceId, String relativePath) async {
     final normalized = relativePath.trim().replaceAll('\\', '/');
     _writeLibrarySql(
       'DELETE FROM ${IgnoredFoldersSchema.table} '
@@ -1223,10 +1228,7 @@ ON CONFLICT(${SeriesGroupsSchema.colId}) DO UPDATE SET
     );
   }
 
-  static Work _mapWork(
-    WorkRecord rec,
-    ArtworkNegativeCacheRecord? logoNeg,
-  ) {
+  static Work _mapWork(WorkRecord rec, ArtworkNegativeCacheRecord? logoNeg) {
     final artworks = ArtworkRefCodec.unpackWorkArtworks(
       posterRef: rec.posterRef,
       backdropRef: rec.backdropRef,
@@ -1376,6 +1378,7 @@ ON CONFLICT(${SeriesGroupsSchema.colId}) DO UPDATE SET
       episodeId: rec.episodeId?.value,
       sourceId: rec.sourceId.value,
       relativePath: rec.relativePath,
+      remoteFileId: rec.remoteFileId,
       fileName: rec.fileName,
       fileSize: rec.fileSize,
       assetKind: rec.assetKind,
@@ -1400,9 +1403,12 @@ ON CONFLICT(${SeriesGroupsSchema.colId}) DO UPDATE SET
       episodeId: row[MediaVariantsSchema.colEpisodeId] as String?,
       sourceId: row[MediaVariantsSchema.colSourceId] as String,
       relativePath: row[MediaVariantsSchema.colRelativePath] as String,
+      remoteFileId: row[MediaVariantsSchema.colRemoteFileId] as String?,
       fileName: row[MediaVariantsSchema.colFileName] as String,
       fileSize: row[MediaVariantsSchema.colFileSize] as int? ?? 0,
-      assetKind: _parseAssetKind(row[MediaVariantsSchema.colAssetKind] as String?),
+      assetKind: _parseAssetKind(
+        row[MediaVariantsSchema.colAssetKind] as String?,
+      ),
       releaseGroup: row[MediaVariantsSchema.colReleaseGroup] as String?,
       subtitleGroup: row[MediaVariantsSchema.colSubtitleGroup] as String?,
       videoCodec: row[MediaVariantsSchema.colVideoCodec] as String?,
@@ -1415,7 +1421,9 @@ ON CONFLICT(${SeriesGroupsSchema.colId}) DO UPDATE SET
       mappingLocked:
           (row[MediaVariantsSchema.colMappingLocked] as int? ?? 0) != 0,
       workLocked: (row[MediaVariantsSchema.colWorkLocked] as int? ?? 0) != 0,
-      assetScope: _parseScope(row[MediaVariantsSchema.colAssetScope] as String?),
+      assetScope: _parseScope(
+        row[MediaVariantsSchema.colAssetScope] as String?,
+      ),
       scopeLocked: (row[MediaVariantsSchema.colScopeLocked] as int? ?? 0) != 0,
     );
   }
@@ -1463,9 +1471,12 @@ ON CONFLICT(${SeriesGroupsSchema.colId}) DO UPDATE SET
       playedAt: DateTime.fromMillisecondsSinceEpoch(
         row[PlaybackRecordsSchema.colPlayedAtMs] as int? ?? 0,
       ),
-      positionSeconds: row[PlaybackRecordsSchema.colPositionSeconds] as int? ?? 0,
-      durationSeconds: row[PlaybackRecordsSchema.colDurationSeconds] as int? ?? 0,
-      isCompleted: (row[PlaybackRecordsSchema.colIsCompleted] as int? ?? 0) != 0,
+      positionSeconds:
+          row[PlaybackRecordsSchema.colPositionSeconds] as int? ?? 0,
+      durationSeconds:
+          row[PlaybackRecordsSchema.colDurationSeconds] as int? ?? 0,
+      isCompleted:
+          (row[PlaybackRecordsSchema.colIsCompleted] as int? ?? 0) != 0,
     );
   }
 

@@ -32,10 +32,7 @@ class SourceActionResult {
 @immutable
 class SourceTestResult {
   /// 构造连通性测试结果。
-  const SourceTestResult({
-    required this.success,
-    required this.message,
-  });
+  const SourceTestResult({required this.success, required this.message});
 
   /// 是否成功连上媒体源根目录。
   final bool success;
@@ -235,10 +232,7 @@ GROUP BY mv.${MediaVariantsSchema.colSourceId};
   }) async {
     final trimmedLabel = label.trim();
     if (trimmedLabel.isEmpty) {
-      return const SourceActionResult(
-        success: false,
-        errorMessage: '请填写媒体源名称',
-      );
+      return const SourceActionResult(success: false, errorMessage: '请填写媒体源名称');
     }
 
     final validated = SourceLocationValidator.validate(kind, location);
@@ -274,6 +268,31 @@ GROUP BY mv.${MediaVariantsSchema.colSourceId};
         existingId ??
         'src_${kind.name}_${_nowMs()}_${++_idSequence}';
 
+    if (kind == MediaSourceKind.cloudDrive ||
+        existing?.kind == MediaSourceKind.cloudDrive) {
+      if (existing != null &&
+          (existing.kind != kind ||
+              _normalizeComparableLocation(existing.kind, existing.location) !=
+                  normalizedLoc)) {
+        return const SourceActionResult(
+          success: false,
+          errorMessage: '云盘媒体源的账号与根目录不可更换，请添加独立媒体源',
+        );
+      }
+      if (existing == null) {
+        final result = await testConnection(
+          kind: kind,
+          location: validated.normalizedLocation,
+        );
+        if (!result.success) {
+          return SourceActionResult(
+            success: false,
+            errorMessage: result.message,
+          );
+        }
+      }
+    }
+
     final cleanUsername = _cleanOptionalText(username);
     final cleanFolders = _normalizeIncludedFolders(
       includedFolders ?? readIncludedFolders(id),
@@ -284,13 +303,18 @@ GROUP BY mv.${MediaVariantsSchema.colSourceId};
       kind: kind,
       label: trimmedLabel,
       location: validated.normalizedLocation,
-      username: kind == MediaSourceKind.local ? null : cleanUsername,
+      username:
+          kind == MediaSourceKind.local || kind == MediaSourceKind.cloudDrive
+          ? null
+          : cleanUsername,
       createdAt:
           existing?.createdAt ?? DateTime.fromMillisecondsSinceEpoch(_nowMs()),
     );
 
     try {
-      if (kind == MediaSourceKind.local || clearPassword) {
+      if (kind == MediaSourceKind.local ||
+          kind == MediaSourceKind.cloudDrive ||
+          clearPassword) {
         await credentialStore.deletePassword(id);
       } else if (password != null && password.isNotEmpty) {
         await credentialStore.savePassword(id, password);
@@ -358,10 +382,7 @@ GROUP BY mv.${MediaVariantsSchema.colSourceId};
   }
 
   /// 恢复一个此前被忽略的相对目录路径（采用软删除墓碑标记）。
-  Future<void> removeIgnoredFolder(
-    String sourceId,
-    String relativePath,
-  ) async {
+  Future<void> removeIgnoredFolder(String sourceId, String relativePath) async {
     final clean = _normalizeRelativePath(relativePath);
     if (clean.isEmpty) return;
     databases.library.ignoredFolders.softDelete(
@@ -401,14 +422,17 @@ GROUP BY mv.${MediaVariantsSchema.colSourceId};
       kind: kind,
       label: '连通性测试',
       location: validated.normalizedLocation,
-      username: kind == MediaSourceKind.local
+      username:
+          kind == MediaSourceKind.local || kind == MediaSourceKind.cloudDrive
           ? null
           : _cleanOptionalText(username),
     );
 
     try {
       String? passwordOverride;
-      if (kind != MediaSourceKind.local && !clearPassword) {
+      if (kind != MediaSourceKind.local &&
+          kind != MediaSourceKind.cloudDrive &&
+          !clearPassword) {
         if (password != null && password.isNotEmpty) {
           passwordOverride = password;
         } else if (sourceId != null && sourceId.isNotEmpty) {
@@ -440,10 +464,7 @@ GROUP BY mv.${MediaVariantsSchema.colSourceId};
       }
     } catch (error) {
       final safeError = DiagnosticTextSanitizer.redactSecrets('$error');
-      return SourceTestResult(
-        success: false,
-        message: '连接失败：$safeError',
-      );
+      return SourceTestResult(success: false, message: '连接失败：$safeError');
     }
   }
 
@@ -458,6 +479,33 @@ GROUP BY mv.${MediaVariantsSchema.colSourceId};
     String relativePath = '',
     bool includeFiles = false,
   }) async {
+    final session = await openDirectoryBrowseSession(
+      sourceId: sourceId,
+      kind: kind,
+      location: location,
+      username: username,
+      password: password,
+      clearPassword: clearPassword,
+    );
+    try {
+      return await session.listDirectory(
+        relativePath,
+        includeFiles: includeFiles,
+      );
+    } finally {
+      await session.close();
+    }
+  }
+
+  /// 打开由调用方负责关闭的目录浏览会话；仅供交互式浏览，扫库仍独立创建网关。
+  Future<SourceDirectoryBrowseSession> openDirectoryBrowseSession({
+    String? sourceId,
+    required MediaSourceKind kind,
+    required String location,
+    String? username,
+    String? password,
+    bool clearPassword = false,
+  }) async {
     final validated = SourceLocationValidator.validate(kind, location);
     if (!validated.isValid) {
       throw StateError(validated.errorMessage ?? '媒体源地址无效');
@@ -468,13 +516,16 @@ GROUP BY mv.${MediaVariantsSchema.colSourceId};
       kind: kind,
       label: '目录浏览',
       location: validated.normalizedLocation,
-      username: kind == MediaSourceKind.local
+      username:
+          kind == MediaSourceKind.local || kind == MediaSourceKind.cloudDrive
           ? null
           : _cleanOptionalText(username),
     );
 
     String? passwordOverride;
-    if (kind != MediaSourceKind.local && !clearPassword) {
+    if (kind != MediaSourceKind.local &&
+        kind != MediaSourceKind.cloudDrive &&
+        !clearPassword) {
       if (password != null && password.isNotEmpty) {
         passwordOverride = password;
       } else if (sourceId != null && sourceId.isNotEmpty) {
@@ -487,19 +538,7 @@ GROUP BY mv.${MediaVariantsSchema.colSourceId};
       passwordOverride: passwordOverride,
       clearPassword: clearPassword,
     );
-    try {
-      final entries = await gateway.listDirectory(relativePath);
-      final filtered = entries
-          .where((e) => !e.name.startsWith('.') && (includeFiles || e.isDirectory))
-          .toList(growable: false)
-        ..sort((a, b) {
-          if (a.isDirectory != b.isDirectory) return a.isDirectory ? -1 : 1;
-          return compareNaturalFolderName(a.name, b.name);
-        });
-      return List<RemoteEntry>.unmodifiable(filtered);
-    } finally {
-      await gateway.close();
-    }
+    return SourceDirectoryBrowseSession(gateway);
   }
 
   /// 软删除媒体源及其关联索引与安全凭据（绝不触碰或删除物理媒体文件）。
@@ -665,5 +704,60 @@ GROUP BY mv.${MediaVariantsSchema.colSourceId};
       return trimmed.replaceAll(_trailingSlashes, '').toLowerCase();
     }
     return trimmed.replaceAll(_trailingSlashes, '');
+  }
+}
+
+/// 单个目录弹窗持有的网关与有界目录缓存，关闭时释放，不跨账号或扫库共享。
+final class SourceDirectoryBrowseSession {
+  SourceDirectoryBrowseSession(this._gateway);
+  final MediaSourceGateway _gateway;
+  final _cache = <(String, bool), List<RemoteEntry>>{};
+  int _cachedEntries = 0;
+  bool _closed = false;
+  static const _maxDirectories = 32;
+  static const _maxEntries = 12000;
+
+  Future<List<RemoteEntry>> listDirectory(
+    String path, {
+    bool includeFiles = false,
+  }) async {
+    if (_closed) throw StateError('目录浏览会话已关闭');
+    final key = (path, includeFiles);
+    final cached = _cache.remove(key);
+    if (cached != null) {
+      _cache[key] = cached;
+      return cached;
+    }
+    final entries = await _gateway.listDirectory(path);
+    if (_closed) throw StateError('目录浏览会话已关闭');
+    final filtered =
+        entries
+            .where(
+              (e) => !e.name.startsWith('.') && (includeFiles || e.isDirectory),
+            )
+            .toList(growable: false)
+          ..sort((a, b) {
+            if (a.isDirectory != b.isDirectory) return a.isDirectory ? -1 : 1;
+            return SourcesController.compareNaturalFolderName(a.name, b.name);
+          });
+    final result = List<RemoteEntry>.unmodifiable(filtered);
+    if (result.length <= _maxEntries) {
+      final previous = _cache.remove(key);
+      _cachedEntries -= previous?.length ?? 0;
+      _cache[key] = result;
+      _cachedEntries += result.length;
+      while (_cache.length > _maxDirectories || _cachedEntries > _maxEntries) {
+        _cachedEntries -= _cache.remove(_cache.keys.first)!.length;
+      }
+    }
+    return result;
+  }
+
+  Future<void> close() async {
+    if (_closed) return;
+    _closed = true;
+    _cache.clear();
+    _cachedEntries = 0;
+    await _gateway.close();
   }
 }

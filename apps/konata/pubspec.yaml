@@ -14,6 +14,7 @@ dependencies:
   flutter_localizations:
     sdk: flutter
   flutter_riverpod: ^3.5.0
+  engine_cloud_drives:
   engine_playback:
   engine_scraping:
   engine_sources:

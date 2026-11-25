@@ -11,5 +11,5 @@
 - **响应式 SQLite 引擎**：`KonataSqliteEngine`、`SqliteTransaction`、`SqliteMigration`、`TableChangeBus`、`KonataDatabaseBundle`。
 - **媒体资产库（`library.db`）**：`LibraryDatabase`、`MediaSourceDao`、`SeriesGroupDao`、`WorkDao`、`EpisodeDao`、`MediaVariantDao`、`IgnoredFolderDao`、`StorageLibraryReadAdapter` 及全部独立 `*_schema.dart` 列常量与记录模型。
 - **用户态库（`user_state.db`）**：`UserStateDatabase`、`PlaybackRecordDao`、`ScopedPrefsDao`、`LyricUserOverrideDao`、`SyncMetaDao`、`TrackerSyncQueueDao`、`StoragePlaybackReadAdapter`。
-- **惰性缓存库（`cache.db`）**：`CacheDatabase`（支持冷启动惰性打开与一键删库重建）、`ScrapeCandidateDao`、`LyricCacheDao`、`ArtworkNegativeCacheDao`。
+- **惰性缓存库（`cache.db`）**：`CacheDatabase`（支持冷启动惰性打开与一键删库重建）、`ScrapeCandidateDao`、`LyricCacheDao`、`ArtworkNegativeCacheDao`、`CloudDriveEntryDao`（仅非敏感云盘目录快照，按媒体源隔离）。
 - **配置、日志与路径服务**：`ScopedPrefsStore`、`TypedPrefsSlice`、`DiagnosticLogStore`、`PortableStorageRootService`、`InMemorySecureStorage`。

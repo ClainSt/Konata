@@ -23,6 +23,8 @@ final class FeatureSourcesDependencies {
     required this.gatewayFactory,
     required this.photosStorage,
     required this.platform,
+    this.listCloudAccountLocations,
+    this.createCloudSignIn,
   });
 
   /// 三库合一持久化门面（主媒体库 + 用户态 + 缓存）。
@@ -60,15 +62,23 @@ final class FeatureSourcesDependencies {
 
   /// 当前运行平台类型（桌面 / 手机 / 平板）。
   final KonataPlatform platform;
+
+  /// 本机已授权云盘根地址列表，不包含令牌或账号密码。
+  final Future<List<String>> Function()? listCloudAccountLocations;
+
+  /// 可选已配置客户端的用户主动授权事务。
+  final CloudAccountSignInPort Function(String? expectedLocation)?
+  createCloudSignIn;
 }
 
 /// 媒体源业务包依赖注入根 `Provider`（必须由宿主 `ProviderScope` 覆盖提供）。
-final featureSourcesDependenciesProvider =
-    Provider<FeatureSourcesDependencies>((ref) {
-      throw UnimplementedError(
-        'featureSourcesDependenciesProvider 必须由宿主 ProviderScope 注入覆盖',
-      );
-    });
+final featureSourcesDependenciesProvider = Provider<FeatureSourcesDependencies>(
+  (ref) {
+    throw UnimplementedError(
+      'featureSourcesDependenciesProvider 必须由宿主 ProviderScope 注入覆盖',
+    );
+  },
+);
 
 /// 媒体源受保护凭据仓储 `Provider`。
 final sourceCredentialStoreProvider = Provider<SourceCredentialStore>((ref) {

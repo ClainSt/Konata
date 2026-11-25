@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../tokens/konata_palette.dart';
 import '../tokens/konata_theme.dart';
+import 'konata_tooltip.dart';
 
 /// 仅在单/多行文本真实发生省略截断时挂载全名悬停 Tooltip 的通用文本组件。
 class EllipsisTextWithTooltip extends StatelessWidget {
@@ -106,7 +107,7 @@ class EllipsisTextWithTooltip extends StatelessWidget {
 
   Widget _buildStyledTooltip(BuildContext context, Widget child) {
     final p = context.palette;
-    return Tooltip(
+    return KonataTooltip(
       message: tooltipMessage ?? text,
       waitDuration: waitDuration,
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -120,10 +121,7 @@ class EllipsisTextWithTooltip extends StatelessWidget {
       decoration: BoxDecoration(
         color: KonataTheme.tooltipSurface(p),
         borderRadius: KonataTheme.borderRadiusSm,
-        border: Border.all(
-          color: KonataTheme.tooltipBorder(p),
-          width: 1,
-        ),
+        border: Border.all(color: KonataTheme.tooltipBorder(p), width: 1),
         boxShadow: [
           BoxShadow(
             color: KonataTheme.tooltipShadow(p),

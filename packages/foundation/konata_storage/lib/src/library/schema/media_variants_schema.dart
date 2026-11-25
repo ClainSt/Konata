@@ -25,6 +25,9 @@ abstract final class MediaVariantsSchema {
   /// 相对媒体源根目录的路径。
   static const String colRelativePath = 'relative_path';
 
+  /// 云盘稳定文件标识，不包含访问凭据。
+  static const String colRemoteFileId = 'remote_file_id';
+
   /// 文件名（含扩展名）。
   static const String colFileName = 'file_name';
 
@@ -77,7 +80,8 @@ abstract final class MediaVariantsSchema {
   static const String colDeletedAtMs = 'deleted_at_ms';
 
   /// 建表 DDL 语句。
-  static const String createTableSql = '''
+  static const String createTableSql =
+      '''
 CREATE TABLE IF NOT EXISTS $table (
   $colId TEXT NOT NULL PRIMARY KEY,
   $colCanonicalKey TEXT,
@@ -85,6 +89,7 @@ CREATE TABLE IF NOT EXISTS $table (
   $colEpisodeId TEXT REFERENCES ${EpisodesSchema.table}(${EpisodesSchema.colId}) ON DELETE SET NULL,
   $colSourceId TEXT NOT NULL REFERENCES ${MediaSourcesSchema.table}(${MediaSourcesSchema.colId}) ON DELETE CASCADE,
   $colRelativePath TEXT NOT NULL,
+  $colRemoteFileId TEXT,
   $colFileName TEXT NOT NULL,
   $colFileSize INTEGER NOT NULL DEFAULT 0,
   $colAssetKind TEXT NOT NULL DEFAULT 'video',

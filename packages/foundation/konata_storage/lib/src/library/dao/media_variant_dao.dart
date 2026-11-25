@@ -16,6 +16,7 @@ final class MediaVariantRecord {
     required this.fileName,
     required this.fileSize,
     this.canonicalKey,
+    this.remoteFileId,
     this.episodeId,
     this.assetKind = AssetKind.video,
     this.releaseGroup,
@@ -51,6 +52,9 @@ final class MediaVariantRecord {
 
   /// 相对媒体源根目录的路径。
   final String relativePath;
+
+  /// 云盘稳定文件标识，仅用于只读定位。
+  final String? remoteFileId;
 
   /// 文件名。
   final String fileName;
@@ -132,6 +136,7 @@ INSERT INTO ${MediaVariantsSchema.table} (
   ${MediaVariantsSchema.colEpisodeId},
   ${MediaVariantsSchema.colSourceId},
   ${MediaVariantsSchema.colRelativePath},
+  ${MediaVariantsSchema.colRemoteFileId},
   ${MediaVariantsSchema.colFileName},
   ${MediaVariantsSchema.colFileSize},
   ${MediaVariantsSchema.colAssetKind},
@@ -150,7 +155,7 @@ INSERT INTO ${MediaVariantsSchema.table} (
   ${MediaVariantsSchema.colSourceDeviceId},
   ${MediaVariantsSchema.colDeletedAtMs}
 ) VALUES (
-  ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+  ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
 )
 ON CONFLICT(${MediaVariantsSchema.colId}) DO UPDATE SET
   ${MediaVariantsSchema.colCanonicalKey} = excluded.${MediaVariantsSchema.colCanonicalKey},
@@ -158,6 +163,7 @@ ON CONFLICT(${MediaVariantsSchema.colId}) DO UPDATE SET
   ${MediaVariantsSchema.colEpisodeId} = excluded.${MediaVariantsSchema.colEpisodeId},
   ${MediaVariantsSchema.colSourceId} = excluded.${MediaVariantsSchema.colSourceId},
   ${MediaVariantsSchema.colRelativePath} = excluded.${MediaVariantsSchema.colRelativePath},
+  ${MediaVariantsSchema.colRemoteFileId} = excluded.${MediaVariantsSchema.colRemoteFileId},
   ${MediaVariantsSchema.colFileName} = excluded.${MediaVariantsSchema.colFileName},
   ${MediaVariantsSchema.colFileSize} = excluded.${MediaVariantsSchema.colFileSize},
   ${MediaVariantsSchema.colAssetKind} = excluded.${MediaVariantsSchema.colAssetKind},
@@ -183,6 +189,7 @@ ON CONFLICT(${MediaVariantsSchema.colId}) DO UPDATE SET
         record.episodeId?.value,
         record.sourceId.value,
         record.relativePath,
+        record.remoteFileId,
         record.fileName,
         record.fileSize,
         record.assetKind.name,
@@ -316,8 +323,11 @@ WHERE ${MediaVariantsSchema.colId} = ?;
       episodeId: rawEpId == null || rawEpId.isEmpty
           ? null
           : EpisodeId.trusted(rawEpId),
-      sourceId: SourceId.trusted(row[MediaVariantsSchema.colSourceId] as String),
+      sourceId: SourceId.trusted(
+        row[MediaVariantsSchema.colSourceId] as String,
+      ),
       relativePath: row[MediaVariantsSchema.colRelativePath] as String,
+      remoteFileId: row[MediaVariantsSchema.colRemoteFileId] as String?,
       fileName: row[MediaVariantsSchema.colFileName] as String,
       fileSize: row[MediaVariantsSchema.colFileSize] as int? ?? 0,
       assetKind: SqliteRowCodec.decodeEnum(
@@ -349,7 +359,8 @@ WHERE ${MediaVariantsSchema.colId} = ?;
         row[MediaVariantsSchema.colScopeLocked],
       ),
       updatedAtMs: row[MediaVariantsSchema.colUpdatedAtMs] as int? ?? 0,
-      sourceDeviceId: row[MediaVariantsSchema.colSourceDeviceId] as String? ?? '',
+      sourceDeviceId:
+          row[MediaVariantsSchema.colSourceDeviceId] as String? ?? '',
       deletedAtMs: row[MediaVariantsSchema.colDeletedAtMs] as int?,
     );
   }

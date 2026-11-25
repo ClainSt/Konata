@@ -19,6 +19,7 @@ class ScannedFileEntry {
     required this.fileName,
     required this.fileSize,
     required this.assetKind,
+    this.remoteFileId,
     this.externalSubtitles = const <String>[],
     this.subtitleGroupHint,
   });
@@ -34,6 +35,9 @@ class ScannedFileEntry {
 
   /// 资产类型（视频、音频 CD 或扫图）。
   final AssetKind assetKind;
+
+  /// 云盘文件的稳定标识；非云盘或旧快照未知时为空。
+  final String? remoteFileId;
 
   /// 已匹配的外挂字幕相对路径列表。
   final List<String> externalSubtitles;
@@ -699,6 +703,7 @@ class DirectoryScanner {
           fileName: entry.name,
           fileSize: entry.size,
           assetKind: kind,
+          remoteFileId: entry.remoteFileId,
           externalSubtitles: subtitleMatch?.subtitlePaths ?? const <String>[],
           subtitleGroupHint: subtitleMatch?.subtitleGroupHint,
         ),

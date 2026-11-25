@@ -15,10 +15,9 @@ import 'package:konata_storage/konata_storage.dart';
 import 'package:path/path.dart' as p;
 
 /// 抽象原图流读取回调签名（供生产媒体源网关与离线单元测试模拟流统一注入）。
-typedef ScanSourceStreamOpener = Future<({
-  Stream<List<int>> stream,
-  Future<void> Function() close,
-})> Function(MediaSourceView source, MediaVariant variant, int maxBytes);
+typedef ScanSourceStreamOpener =
+    Future<({Stream<List<int>> stream, Future<void> Function() close})>
+    Function(MediaSourceView source, MediaVariant variant, int maxBytes);
 
 /// 单个扫图微缩图加载任务的取消凭证。
 final class ScanThumbnailTicket {
@@ -399,10 +398,7 @@ final class ScanThumbnailScheduler {
     final completer = Completer<Uint8List>();
     if (_disposed || source == null) {
       completer.complete(Uint8List(0));
-      return (
-        future: completer.future,
-        ticket: ScanThumbnailTicket._(() {}),
-      );
+      return (future: completer.future, ticket: ScanThumbnailTicket._(() {}));
     }
 
     final job = _QueuedScanJob(
@@ -477,6 +473,7 @@ final class ScanThumbnailScheduler {
       case MediaSourceKind.smb:
         _smbPendingLifo.addLast(job);
         _pumpSmb();
+      case MediaSourceKind.cloudDrive:
       case MediaSourceKind.webdav:
         _webdavPendingLifo.addLast(job);
         _pumpWebDav();
@@ -567,7 +564,8 @@ final class ScanThumbnailScheduler {
     int width,
     int height,
   ) => Isolate.run(
-    () => CompactWebpEncoder.encodeRgba(rgba: rgba, width: width, height: height),
+    () =>
+        CompactWebpEncoder.encodeRgba(rgba: rgba, width: width, height: height),
   );
 
   Future<void> _runJob(_QueuedScanJob job, int epoch) async {
@@ -746,13 +744,9 @@ final class ScanThumbnailScheduler {
     return done.future;
   }
 
-  static Future<({
-    Uint8List rgba,
-    int width,
-    int height,
-    int srcWidth,
-    int srcHeight,
-  })?>
+  static Future<
+    ({Uint8List rgba, int width, int height, int srcWidth, int srcHeight})?
+  >
   _decodeDownsampledRgba(Uint8List rawBytes, int maxSide) async {
     ui.ImmutableBuffer? buffer;
     ui.ImageDescriptor? descriptor;
@@ -912,10 +906,7 @@ final class ScanThumbnailScheduler {
     }
   }
 
-  Future<({
-    Stream<List<int>> stream,
-    Future<void> Function() close,
-  })>
+  Future<({Stream<List<int>> stream, Future<void> Function() close})>
   _openWithGatewayFactory(
     MediaSourceView source,
     MediaVariant variant,

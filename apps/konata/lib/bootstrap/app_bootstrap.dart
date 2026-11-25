@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:engine_cloud_drives/engine_cloud_drives.dart';
 import 'package:engine_playback/engine_playback.dart';
 import 'package:engine_scraping/engine_scraping.dart'
     show BangumiTmdbIndex, ReleaseGroups;
@@ -298,6 +299,9 @@ final class KonataBootstrapContext {
     required this.urlOpener,
     required this.httpClient,
     required this.webDavPool,
+    required this.cloudDriveSessions,
+    required this.cloudTransport,
+    this.cloudClientId = '',
     required this.gatewayFactory,
     required this.streamBridge,
     required this.subtitleDirectoryIndex,
@@ -363,6 +367,15 @@ final class KonataBootstrapContext {
 
   /// 共享 WebDAV 连接池。
   final WebDavConnectionPool webDavPool;
+
+  /// 宿主共享的本机云盘账号会话中心。
+  final GuangYaSessionRegistry cloudDriveSessions;
+
+  /// 云盘 API 连接池的宿主生命周期。
+  final GuangYaHttpTransport cloudTransport;
+
+  /// 获准用于既有协议的应用客户端配置；默认空值禁用真实登录。
+  final String cloudClientId;
 
   /// 只读媒体源网关工厂。
   final MediaSourceGatewayFactory gatewayFactory;
@@ -451,6 +464,8 @@ final class KonataBootstrapContext {
     androidPipPort?.unbindCallbacks();
     httpClient.close();
     await streamBridge.close();
+    await cloudDriveSessions.close();
+    cloudTransport.close();
     await domainEventBus.dispose();
     await databases.close();
   }
@@ -471,6 +486,18 @@ final class KonataBootstrapContext {
       scopedPrefs: scopedPrefs,
       domainEventBus: domainEventBus,
       featureRegistry: featureRegistry,
+      listCloudAccountLocations: () async => [
+        for (final account
+            in await cloudDriveSessions.credentials.listAccounts())
+          Uri(scheme: 'guangyapan', host: account).toString(),
+      ],
+      createCloudSignIn: cloudClientId.trim().isEmpty
+          ? null
+          : (expectedLocation) => GuangYaAccountSignIn(
+              sessions: cloudDriveSessions,
+              clientId: cloudClientId.trim(),
+              expectedLocation: expectedLocation,
+            ),
       navigator: navigator,
       filePicker: filePicker,
       backupFilePort: backupFilePort,
@@ -527,6 +554,10 @@ final class KonataBootstrapContext {
     BackupFilePort? backupFilePort,
     UrlOpenerPort? urlOpener,
     KonataHttpClientPort? httpClient,
+    GuangYaRequest? cloudDriveRequest,
+    String cloudClientId = const String.fromEnvironment(
+      'KONATA_GUANGYA_LEGACY_CLIENT_ID',
+    ),
     PlaybackHostWindowPort? hostWindow,
     KonataVideoTextureBridge? desktopSurfaceBridge,
     DesktopExternalPlayerStore? externalPlayerStore,
@@ -584,9 +615,18 @@ final class KonataBootstrapContext {
         );
     final credentialStore = SourceCredentialStore(storage: secureStorage);
     final webDavPool = WebDavConnectionPool();
+    final cloudTransport = GuangYaHttpTransport(
+      config: () => resolvedHttpClient.config,
+    );
+    final cloudDriveSessions = GuangYaSessionRegistry(
+      credentials: GuangYaCredentialStore(secureStorage),
+      request: cloudDriveRequest ?? cloudTransport.request,
+      createHttpClient: cloudTransport.createClient,
+    );
     final gatewayFactory = MediaSourceGatewayFactory(
       credentialStore: credentialStore,
       webDavPool: webDavPool,
+      cloudDriveProviders: [cloudDriveSessions.contribution],
     );
     final streamBridge = LocalStreamBridge(storageRoot: storageRoot);
     final subtitleDirectoryIndex = SubtitleDirectoryIndex();
@@ -684,6 +724,9 @@ final class KonataBootstrapContext {
       urlOpener: urlOpener ?? const HostUrlOpenerAdapter(),
       httpClient: resolvedHttpClient,
       webDavPool: webDavPool,
+      cloudDriveSessions: cloudDriveSessions,
+      cloudTransport: cloudTransport,
+      cloudClientId: cloudClientId,
       gatewayFactory: gatewayFactory,
       streamBridge: streamBridge,
       subtitleDirectoryIndex: subtitleDirectoryIndex,
@@ -826,7 +869,9 @@ final class _KonataBootstrapAppState extends State<KonataBootstrapApp> {
       overrides: widget.bootstrap.toProviderOverrides(
         navigator: _navigator,
         onThemeModeChanged: (mode) {
-          _updateAppearance(_appearanceNotifier.value.copyWith(themeMode: mode));
+          _updateAppearance(
+            _appearanceNotifier.value.copyWith(themeMode: mode),
+          );
         },
         onAmbientBackdropChanged: (enabled) {
           _updateAppearance(
@@ -858,7 +903,10 @@ final class _KonataBootstrapAppState extends State<KonataBootstrapApp> {
           final nextMode = current.themeMode == ThemeMode.dark
               ? ThemeMode.light
               : ThemeMode.dark;
-          _updateAppearance(current.copyWith(themeMode: nextMode), persist: true);
+          _updateAppearance(
+            current.copyWith(themeMode: nextMode),
+            persist: true,
+          );
         },
       ),
     );
@@ -1236,10 +1284,9 @@ final class _KonataBootstrapRootState
                           desktopAmbientBackdropEnabled:
                               appearance.ambientBackdropEnabled,
                           miniKind: activeMiniKind,
-                          windowDragBackground: windowHost
-                              ?.buildDragToMoveArea(
-                                child: const SizedBox.expand(),
-                              ),
+                          windowDragBackground: windowHost?.buildDragToMoveArea(
+                            child: const SizedBox.expand(),
+                          ),
                           trailingWindowControls: windowHost
                               ?.buildWindowControls(),
                           pages: <Widget>[
@@ -1247,39 +1294,36 @@ final class _KonataBootstrapRootState
                               if (entry.contribution != null)
                                 Builder(
                                   builder: (slotBuildContext) {
-                                    final rendered = entry.contribution!
-                                        .viewBuilder(
-                                          ViewSlotContext(
-                                            platformContext: slotBuildContext,
-                                            arguments: <String, Object?>{
-                                              if (entry.id == 'library')
-                                                'searchQuery': _searchQuery,
-                                              if (entry.id == 'settings') ...<
-                                                String,
-                                                Object?
-                                              >{
-                                                'initialSectionId': widget
-                                                    .requestedSettingsSectionId
-                                                    .value,
-                                                'deepLinkPulse': widget
-                                                    .settingsDeepLinkPulse
-                                                    .value,
-                                                'onDetailVisibilityChanged':
-                                                    (bool visible) {
-                                                      if (_mobileSettingsDetailOpen !=
-                                                              visible &&
-                                                          mounted) {
-                                                        setState(
-                                                          () =>
-                                                              _mobileSettingsDetailOpen =
-                                                                  visible,
-                                                        );
-                                                      }
-                                                    },
-                                              },
-                                            },
-                                          ),
-                                        );
+                                    final rendered = entry.contribution!.viewBuilder(
+                                      ViewSlotContext(
+                                        platformContext: slotBuildContext,
+                                        arguments: <String, Object?>{
+                                          if (entry.id == 'library')
+                                            'searchQuery': _searchQuery,
+                                          if (entry.id ==
+                                              'settings') ...<String, Object?>{
+                                            'initialSectionId': widget
+                                                .requestedSettingsSectionId
+                                                .value,
+                                            'deepLinkPulse': widget
+                                                .settingsDeepLinkPulse
+                                                .value,
+                                            'onDetailVisibilityChanged':
+                                                (bool visible) {
+                                                  if (_mobileSettingsDetailOpen !=
+                                                          visible &&
+                                                      mounted) {
+                                                    setState(
+                                                      () =>
+                                                          _mobileSettingsDetailOpen =
+                                                              visible,
+                                                    );
+                                                  }
+                                                },
+                                          },
+                                        },
+                                      ),
+                                    );
                                     return rendered is Widget
                                         ? rendered
                                         : const SizedBox.shrink();

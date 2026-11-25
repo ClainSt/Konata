@@ -221,7 +221,7 @@ class _BannerDismissButtonState extends State<_BannerDismissButton> {
           )
         : visual;
 
-    return Tooltip(
+    return KonataTooltip(
       message: '关闭提示',
       child: MouseRegion(
         cursor: SystemMouseCursors.click,

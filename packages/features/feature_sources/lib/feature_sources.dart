@@ -30,7 +30,12 @@ export 'src/state/source_scope_prefs.dart'
 export 'src/state/source_scrape_controller.dart'
     show SourcePendingReviewWork, SourceScrapeController;
 export 'src/state/sources_controller.dart'
-    show SourceActionResult, SourceLibraryStats, SourceTestResult, SourcesController;
+    show
+        SourceActionResult,
+        SourceDirectoryBrowseSession,
+        SourceLibraryStats,
+        SourceTestResult,
+        SourcesController;
 export 'src/ui/delete_source_dialog.dart' show showDeleteSourceDialog;
 export 'src/ui/scan_progress_dialog.dart' show showScanProgressDialog;
 export 'src/ui/scan_progress_tabs.dart'

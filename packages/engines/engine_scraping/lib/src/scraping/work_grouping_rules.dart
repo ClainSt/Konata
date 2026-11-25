@@ -1171,6 +1171,7 @@ List<MediaVariant> _buildVariants({
         relativePath: file.relativePath,
         fileName: file.fileName,
         fileSize: file.fileSize,
+        remoteFileId: file.remoteFileId,
         assetKind: file.assetKind,
         releaseGroup: parsed?.releaseGroup,
         subtitleGroup: parsed?.subtitleGroup ?? file.subtitleGroupHint,

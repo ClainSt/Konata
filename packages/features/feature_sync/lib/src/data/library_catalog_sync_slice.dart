@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import 'package:engine_sources/engine_sources.dart'
+    show SourceLocationValidator;
 import 'package:konata_contracts/konata_contracts.dart';
 import 'package:konata_storage/konata_storage.dart';
 
@@ -26,16 +28,16 @@ final class SyncLibrarySourceItem {
     MediaSourceRecord rec, {
     String fallbackDeviceId = '',
   }) {
-    final safeLocation = rec.kind == MediaSourceKind.local
-        ? rec.location
-        : SyncSanitizer.stripUrlPassword(rec.location);
+    final safeLocation = _safeLocation(rec.kind, rec.location);
     return SyncLibrarySourceItem(
       id: rec.id.value,
-      canonicalKey: rec.canonicalKey,
+      canonicalKey: rec.kind == MediaSourceKind.cloudDrive
+          ? null
+          : rec.canonicalKey,
       kind: rec.kind,
       label: rec.label,
       location: safeLocation,
-      username: rec.username,
+      username: rec.kind == MediaSourceKind.cloudDrive ? null : rec.username,
       createdAtMs: rec.createdAtMs,
       updatedAtMs: rec.updatedAtMs,
       sourceDeviceId: rec.sourceDeviceId.isEmpty
@@ -43,6 +45,17 @@ final class SyncLibrarySourceItem {
           : rec.sourceDeviceId,
       deletedAtMs: rec.deletedAtMs,
     );
+  }
+
+  static String _safeLocation(MediaSourceKind kind, String location) {
+    if (kind == MediaSourceKind.cloudDrive) {
+      final checked = SourceLocationValidator.validate(kind, location);
+      if (!checked.isValid) throw const FormatException('云盘同步地址无效或含凭据');
+      return checked.normalizedLocation;
+    }
+    return kind == MediaSourceKind.local
+        ? location
+        : SyncSanitizer.stripUrlPassword(location);
   }
 
   final String id;
@@ -78,13 +91,15 @@ final class SyncLibrarySourceItem {
 
   Map<String, Object?> toJson() => <String, Object?>{
     'id': id,
-    if (canonicalKey != null) 'canonicalKey': canonicalKey,
+    if (kind != MediaSourceKind.cloudDrive && canonicalKey != null)
+      'canonicalKey': canonicalKey,
     'kind': kind.name,
     'label': label,
-    'location': kind == MediaSourceKind.local
-        ? location
-        : SyncSanitizer.stripUrlPassword(location),
-    if (username != null && username!.isNotEmpty) 'username': username,
+    'location': _safeLocation(kind, location),
+    if (kind != MediaSourceKind.cloudDrive &&
+        username != null &&
+        username!.isNotEmpty)
+      'username': username,
     'createdAtMs': createdAtMs,
     'updatedAtMs': updatedAtMs,
     if (sourceDeviceId.isNotEmpty) 'sourceDeviceId': sourceDeviceId,
@@ -98,17 +113,19 @@ final class SyncLibrarySourceItem {
     final rawKind = (json['kind'] ?? '').toString();
     final kind = MediaSourceKind.values.firstWhere(
       (k) => k.name == rawKind,
-      orElse: () => MediaSourceKind.local,
+      orElse: () => throw const FormatException('同步包含未知媒体源类型'),
     );
     return SyncLibrarySourceItem(
       id: id,
-      canonicalKey: json['canonicalKey']?.toString(),
+      canonicalKey: kind == MediaSourceKind.cloudDrive
+          ? null
+          : json['canonicalKey']?.toString(),
       kind: kind,
       label: (json['label'] ?? '').toString(),
-      location: kind == MediaSourceKind.local
-          ? location
-          : SyncSanitizer.stripUrlPassword(location),
-      username: json['username']?.toString(),
+      location: _safeLocation(kind, location),
+      username: kind == MediaSourceKind.cloudDrive
+          ? null
+          : json['username']?.toString(),
       createdAtMs: (json['createdAtMs'] as num?)?.toInt() ?? 0,
       updatedAtMs: (json['updatedAtMs'] as num?)?.toInt() ?? 0,
       sourceDeviceId: (json['sourceDeviceId'] ?? '').toString(),
@@ -136,7 +153,8 @@ final class SyncLibrarySeriesItem {
     SeriesGroupRecord rec, {
     String fallbackDeviceId = '',
   }) {
-    final safeHint = rec.rootFolderHint != null &&
+    final safeHint =
+        rec.rootFolderHint != null &&
             SyncSanitizer.isLocalFilesystemPath(rec.rootFolderHint!)
         ? null
         : rec.rootFolderHint;
@@ -711,7 +729,9 @@ final class SyncLibraryEpisodeItem {
       extraType: extraType,
       title: json['title']?.toString(),
       overview: json['overview']?.toString(),
-      stillPath: SyncSanitizer.sanitizeRemotePath(json['stillPath']?.toString()),
+      stillPath: SyncSanitizer.sanitizeRemotePath(
+        json['stillPath']?.toString(),
+      ),
       updatedAtMs: (json['updatedAtMs'] as num?)?.toInt() ?? 0,
       sourceDeviceId: (json['sourceDeviceId'] ?? '').toString(),
       deletedAtMs: (json['deletedAtMs'] as num?)?.toInt(),
@@ -729,6 +749,7 @@ final class SyncLibraryVariantItem {
     required this.relativePath,
     required this.fileName,
     required this.fileSize,
+    this.remoteFileId,
     this.canonicalKey,
     this.episodeId,
     this.assetKind = AssetKind.video,
@@ -761,6 +782,7 @@ final class SyncLibraryVariantItem {
       relativePath: SyncSanitizer.normalizeRelativePath(rec.relativePath),
       fileName: rec.fileName,
       fileSize: rec.fileSize,
+      remoteFileId: rec.remoteFileId,
       assetKind: rec.assetKind,
       releaseGroup: rec.releaseGroup,
       subtitleGroup: rec.subtitleGroup,
@@ -789,6 +811,7 @@ final class SyncLibraryVariantItem {
   final String relativePath;
   final String fileName;
   final int fileSize;
+  final String? remoteFileId;
   final AssetKind assetKind;
   final String? releaseGroup;
   final String? subtitleGroup;
@@ -828,6 +851,7 @@ final class SyncLibraryVariantItem {
       relativePath: relativePath,
       fileName: fileName,
       fileSize: fileSize,
+      remoteFileId: remoteFileId,
       assetKind: assetKind,
       releaseGroup: releaseGroup,
       subtitleGroup: subtitleGroup,
@@ -857,6 +881,7 @@ final class SyncLibraryVariantItem {
     relativePath: relativePath,
     fileName: fileName,
     fileSize: fileSize,
+    remoteFileId: remoteFileId,
     assetKind: assetKind,
     releaseGroup: releaseGroup,
     subtitleGroup: subtitleGroup,
@@ -883,6 +908,8 @@ final class SyncLibraryVariantItem {
     'relativePath': relativePath,
     'fileName': fileName,
     'fileSize': fileSize,
+    if (remoteFileId != null && remoteFileId!.isNotEmpty)
+      'remoteFileId': remoteFileId,
     'assetKind': assetKind.name,
     if (releaseGroup != null) 'releaseGroup': releaseGroup,
     if (subtitleGroup != null) 'subtitleGroup': subtitleGroup,
@@ -934,6 +961,11 @@ final class SyncLibraryVariantItem {
       ),
       fileName: (json['fileName'] ?? '').toString(),
       fileSize: (json['fileSize'] as num?)?.toInt() ?? 0,
+      remoteFileId:
+          json['remoteFileId'] is String &&
+              (json['remoteFileId'] as String).isNotEmpty
+          ? json['remoteFileId'] as String
+          : null,
       assetKind: assetKind,
       releaseGroup: json['releaseGroup']?.toString(),
       subtitleGroup: json['subtitleGroup']?.toString(),
@@ -1090,9 +1122,7 @@ final class LibraryCatalogSyncSlice
   });
 
   /// 创建仅用于元数据声明与纯函数合并规划的未绑定切片实例。
-  const LibraryCatalogSyncSlice.unbound()
-    : _libraryDb = null,
-      _nowMs = null;
+  const LibraryCatalogSyncSlice.unbound() : _libraryDb = null, _nowMs = null;
 
   /// 切片稳定唯一标识。
   static const String id = 'library_catalog_slice';
@@ -1128,7 +1158,9 @@ final class LibraryCatalogSyncSlice
 
     final ignored = <IgnoredFolderRecord>[];
     for (final src in sources) {
-      ignored.addAll(db.ignoredFolders.listBySource(src.id, includeDeleted: true));
+      ignored.addAll(
+        db.ignoredFolders.listBySource(src.id, includeDeleted: true),
+      );
     }
 
     final syncSources = <SyncLibrarySourceItem>[
@@ -1177,9 +1209,7 @@ final class LibraryCatalogSyncSlice
         'seriesGroups': <Map<String, Object?>>[
           for (final g in syncSeries) g.toJson(),
         ],
-        'works': <Map<String, Object?>>[
-          for (final w in syncWorks) w.toJson(),
-        ],
+        'works': <Map<String, Object?>>[for (final w in syncWorks) w.toJson()],
         'episodes': <Map<String, Object?>>[
           for (final e in syncEpisodes) e.toJson(),
         ],
@@ -1218,7 +1248,14 @@ final class LibraryCatalogSyncSlice
 
     for (final src in remoteCatalog.sources) {
       final matched =
-          localSourceById[src.id] ?? localSourceByLoc[src.normalizedLocationKey];
+          localSourceById[src.id] ??
+          localSourceByLoc[src.normalizedLocationKey];
+      if (matched != null &&
+          (matched.kind == MediaSourceKind.cloudDrive ||
+              src.kind == MediaSourceKind.cloudDrive) &&
+          matched.normalizedLocationKey != src.normalizedLocationKey) {
+        throw const FormatException('云盘媒体源身份冲突，拒绝合并');
+      }
       if (matched == null) {
         sourceRemap[src.id] = src.id;
         localSourceById[src.id] = src;
@@ -1310,7 +1347,10 @@ final class LibraryCatalogSyncSlice
     };
     final localWorkByCluster = <String, SyncLibraryWorkItem>{};
     for (final w in localCatalog.works) {
-      final cluster = aliasUnion.resolveGroupKey(w.allWorkKeys, w.canonicalWorkKey);
+      final cluster = aliasUnion.resolveGroupKey(
+        w.allWorkKeys,
+        w.canonicalWorkKey,
+      );
       if (cluster.isNotEmpty) {
         localWorkByCluster.putIfAbsent(cluster, () => w);
       }
@@ -1376,8 +1416,7 @@ final class LibraryCatalogSyncSlice
       for (final e in localCatalog.episodes) e.id: e,
     };
     final localEpBySlot = <String, SyncLibraryEpisodeItem>{
-      for (final e in localCatalog.episodes)
-        _episodeSlotKey(e.workId, e): e,
+      for (final e in localCatalog.episodes) _episodeSlotKey(e.workId, e): e,
     };
     final episodeRemap = <String, String>{};
     final episodesToUpsert = <SyncLibraryEpisodeItem>[];
@@ -1472,6 +1511,11 @@ final class LibraryCatalogSyncSlice
         continue;
       }
 
+      if (matched.remoteFileId != null &&
+          incoming.remoteFileId != null &&
+          matched.remoteFileId != incoming.remoteFileId) {
+        throw const FormatException('远端文件标识冲突，拒绝合并');
+      }
       final merged = _mergeVariant(matched, incoming);
       if (_variantChanged(matched, merged)) {
         if (!matched.isDeleted && merged.isDeleted) {
@@ -1512,7 +1556,10 @@ final class LibraryCatalogSyncSlice
       final pickIncoming =
           incoming.effectiveTimestampMs > matched.effectiveTimestampMs;
       if (pickIncoming && matched.deletedAtMs != incoming.deletedAtMs) {
-        final next = incoming.copyWith(id: matched.id, sourceId: matched.sourceId);
+        final next = incoming.copyWith(
+          id: matched.id,
+          sourceId: matched.sourceId,
+        );
         if (!matched.isDeleted && next.isDeleted) {
           deleteCount++;
         } else {
@@ -1532,8 +1579,12 @@ final class LibraryCatalogSyncSlice
       deleteCount: deleteCount,
       skippedCount: skippedCount,
       planData: LibraryCatalogMergePlan(
-        sourcesToUpsert: List<SyncLibrarySourceItem>.unmodifiable(sourcesToUpsert),
-        seriesToUpsert: List<SyncLibrarySeriesItem>.unmodifiable(seriesToUpsert),
+        sourcesToUpsert: List<SyncLibrarySourceItem>.unmodifiable(
+          sourcesToUpsert,
+        ),
+        seriesToUpsert: List<SyncLibrarySeriesItem>.unmodifiable(
+          seriesToUpsert,
+        ),
         worksToUpsert: List<SyncLibraryWorkItem>.unmodifiable(worksToUpsert),
         episodesToUpsert: List<SyncLibraryEpisodeItem>.unmodifiable(
           episodesToUpsert,
@@ -1570,7 +1621,14 @@ final class LibraryCatalogSyncSlice
     final sourcesToUpsert = <SyncLibrarySourceItem>[];
     for (final src in remoteCatalog.sources) {
       final matched =
-          localSourceById[src.id] ?? localSourceByLoc[src.normalizedLocationKey];
+          localSourceById[src.id] ??
+          localSourceByLoc[src.normalizedLocationKey];
+      if (matched != null &&
+          (matched.kind == MediaSourceKind.cloudDrive ||
+              src.kind == MediaSourceKind.cloudDrive) &&
+          matched.normalizedLocationKey != src.normalizedLocationKey) {
+        throw const FormatException('云盘媒体源身份冲突，拒绝合并');
+      }
       final targetId = matched?.id ?? src.id;
       sourceRemap[src.id] = targetId;
       sourcesToUpsert.add(
@@ -1613,7 +1671,9 @@ final class LibraryCatalogSyncSlice
       deleteCount: 0,
       skippedCount: 0,
       planData: LibraryCatalogMergePlan(
-        sourcesToUpsert: List<SyncLibrarySourceItem>.unmodifiable(sourcesToUpsert),
+        sourcesToUpsert: List<SyncLibrarySourceItem>.unmodifiable(
+          sourcesToUpsert,
+        ),
         seriesToUpsert: List<SyncLibrarySeriesItem>.unmodifiable(
           remoteCatalog.series,
         ),
@@ -1691,6 +1751,7 @@ final class LibraryCatalogSyncSlice
             relativePath: v.relativePath,
             fileName: v.fileName,
             fileSize: v.fileSize,
+            remoteFileId: v.remoteFileId,
             assetKind: v.assetKind,
             releaseGroup: v.releaseGroup,
             subtitleGroup: v.subtitleGroup,
@@ -1819,22 +1880,26 @@ final class LibraryCatalogSyncSlice
         WorkId.trusted(work.id),
         includeDeleted: true,
       );
-      final preservePoster = !data.clearExistingBeforeApply &&
+      final preservePoster =
+          !data.clearExistingBeforeApply &&
               work.posterRef == null &&
               existing?.posterRef is LocalCustomArtworkRef
           ? existing!.posterRef
           : null;
-      final preserveBackdrop = !data.clearExistingBeforeApply &&
+      final preserveBackdrop =
+          !data.clearExistingBeforeApply &&
               work.backdropRef == null &&
               existing?.backdropRef is LocalCustomArtworkRef
           ? existing!.backdropRef
           : null;
-      final preservePortraitBackdrop = !data.clearExistingBeforeApply &&
+      final preservePortraitBackdrop =
+          !data.clearExistingBeforeApply &&
               work.portraitBackdropRef == null &&
               existing?.portraitBackdropRef is LocalCustomArtworkRef
           ? existing!.portraitBackdropRef
           : null;
-      final preserveLogo = !data.clearExistingBeforeApply &&
+      final preserveLogo =
+          !data.clearExistingBeforeApply &&
               work.logoRef == null &&
               existing?.logoRef is LocalCustomArtworkRef
           ? existing!.logoRef
@@ -2118,6 +2183,7 @@ final class LibraryCatalogSyncSlice
           relativePath: local.relativePath,
           fileName: local.fileName,
           fileSize: local.fileSize,
+          remoteFileId: local.remoteFileId ?? remote.remoteFileId,
           assetKind: local.assetKind,
           releaseGroup: local.releaseGroup,
           subtitleGroup: local.subtitleGroup,
@@ -2151,6 +2217,7 @@ final class LibraryCatalogSyncSlice
       relativePath: local.relativePath,
       fileName: local.fileName.isNotEmpty ? local.fileName : remote.fileName,
       fileSize: local.fileSize > 0 ? local.fileSize : remote.fileSize,
+      remoteFileId: local.remoteFileId ?? remote.remoteFileId,
       assetKind: local.assetKind,
       releaseGroup: local.releaseGroup ?? remote.releaseGroup,
       subtitleGroup: local.subtitleGroup ?? remote.subtitleGroup,
@@ -2207,20 +2274,14 @@ final class LibraryCatalogSyncSlice
     return keys.isEmpty ? '' : keys.first;
   }
 
-  static bool _sourceChanged(
-    SyncLibrarySourceItem a,
-    SyncLibrarySourceItem b,
-  ) {
+  static bool _sourceChanged(SyncLibrarySourceItem a, SyncLibrarySourceItem b) {
     return a.label != b.label ||
         a.location != b.location ||
         a.username != b.username ||
         a.deletedAtMs != b.deletedAtMs;
   }
 
-  static bool _seriesChanged(
-    SyncLibrarySeriesItem a,
-    SyncLibrarySeriesItem b,
-  ) {
+  static bool _seriesChanged(SyncLibrarySeriesItem a, SyncLibrarySeriesItem b) {
     return a.title != b.title ||
         a.tmdbCollectionId != b.tmdbCollectionId ||
         a.rootFolderHint != b.rootFolderHint ||
@@ -2279,6 +2340,7 @@ final class LibraryCatalogSyncSlice
         a.episodeId != b.episodeId ||
         a.fileName != b.fileName ||
         a.fileSize != b.fileSize ||
+        a.remoteFileId != b.remoteFileId ||
         a.releaseGroup != b.releaseGroup ||
         a.subtitleGroup != b.subtitleGroup ||
         a.videoCodec != b.videoCodec ||

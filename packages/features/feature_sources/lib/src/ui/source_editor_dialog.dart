@@ -5,6 +5,7 @@ import 'package:konata_design_system/konata_design_system.dart';
 
 import '../providers.dart';
 import '../state/sources_controller.dart';
+import 'cloud_account_signin_dialog.dart';
 import 'source_folder_picker_dialog.dart';
 
 /// 打开新建或编辑媒体源毛玻璃弹窗；保存成功时返回落库后的 `MediaSource` 实例。
@@ -39,9 +40,47 @@ class _SourceEditorDialogState extends ConsumerState<_SourceEditorDialog> {
   bool _hasSavedPassword = false;
   bool _clearPassword = false;
   bool _testing = false;
+  bool _authorizing = false;
   bool _saving = false;
   SourceTestResult? _testResult;
   String? _formError;
+  Future<List<String>>? _cloudAccounts;
+
+  Future<void> _authorizeCloud() async {
+    if (_saving || _testing) return;
+    final deps = ref.read(featureSourcesDependenciesProvider);
+    final create = deps.createCloudSignIn;
+    if (create == null) return;
+    setState(() {
+      _testing = true;
+      _authorizing = true;
+    });
+    try {
+      final location = await showCloudAccountSignInDialog(
+        context,
+        create(widget.existingSource?.location),
+      );
+      if (!mounted || location == null) return;
+      setState(() {
+        if (widget.existingSource == null) {
+          _locationCtrl.text = location;
+          _includedFolders = const [];
+          _cloudAccounts = deps.listCloudAccountLocations?.call();
+        }
+        _formError = null;
+        _testResult = null;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _formError = '无法初始化云盘授权');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _testing = false;
+          _authorizing = false;
+        });
+      }
+    }
+  }
 
   @override
   void initState() {
@@ -56,7 +95,9 @@ class _SourceEditorDialogState extends ConsumerState<_SourceEditorDialog> {
         ? const <String>[]
         : ref.read(sourcesControllerProvider).readIncludedFolders(src.id);
 
-    if (src != null && src.kind != MediaSourceKind.local) {
+    if (src != null &&
+        src.kind != MediaSourceKind.local &&
+        src.kind != MediaSourceKind.cloudDrive) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _loadSavedPasswordFlag(src.id);
       });
@@ -205,16 +246,52 @@ class _SourceEditorDialogState extends ConsumerState<_SourceEditorDialog> {
     final p = context.palette;
     final isEdit = widget.existingSource != null;
     final isRemote = _kind != MediaSourceKind.local;
+    final isCloud = _kind == MediaSourceKind.cloudDrive;
+    final accountLoader = ref
+        .watch(featureSourcesDependenciesProvider)
+        .listCloudAccountLocations;
+    final lockedCloud =
+        widget.existingSource?.kind == MediaSourceKind.cloudDrive;
+    final allowCloud = (accountLoader != null && !isEdit) || lockedCloud;
+    void changeKind(MediaSourceKind next) {
+      if (_saving ||
+          _testing ||
+          lockedCloud ||
+          (isEdit && next == MediaSourceKind.cloudDrive)) {
+        return;
+      }
+      setState(() {
+        if (next != _kind && (next == MediaSourceKind.cloudDrive || isCloud)) {
+          _locationCtrl.clear();
+          _usernameCtrl.clear();
+          _passwordCtrl.clear();
+          _includedFolders = const [];
+          _clearPassword = false;
+        }
+        if (next == MediaSourceKind.cloudDrive) {
+          _cloudAccounts = accountLoader?.call();
+        }
+        _kind = next;
+        _testResult = null;
+        _formError = null;
+        if (next == MediaSourceKind.local) {
+          _clearPassword = false;
+        }
+      });
+    }
+
     final screen = MediaQuery.sizeOf(context);
     final maxBodyHeight = (screen.height * 0.68).clamp(200.0, 520.0);
 
     return KonataGlassDialog(
       width: 484,
       title: isEdit ? '编辑媒体源' : '添加媒体源',
-      onClose: (_saving || _testing) ? () {} : () => Navigator.of(context).pop(),
+      onClose: (_saving || _testing)
+          ? () {}
+          : () => Navigator.of(context).pop(),
       actions: [
         KonataPillButton.secondary(
-          label: _testing ? '测试中...' : '测试连通',
+          label: _testing && !_authorizing ? '测试中...' : '测试连通',
           compact: true,
           onPressed: (_saving || _testing) ? null : _runTestConnection,
         ),
@@ -238,37 +315,54 @@ class _SourceEditorDialogState extends ConsumerState<_SourceEditorDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              KonataSegmentedCapsule<MediaSourceKind>(
-                selected: _kind,
-                expand: true,
-                options: const [
-                  KonataSegmentOption(
-                    value: MediaSourceKind.local,
-                    label: '本地目录',
-                    icon: Icons.folder_outlined,
-                  ),
-                  KonataSegmentOption(
-                    value: MediaSourceKind.webdav,
-                    label: 'WebDAV',
-                    icon: Icons.cloud_outlined,
-                  ),
-                  KonataSegmentOption(
-                    value: MediaSourceKind.smb,
-                    label: 'SMB 共享',
-                    icon: Icons.dns_outlined,
-                  ),
-                ],
-                onChanged: (next) {
-                  setState(() {
-                    _kind = next;
-                    _testResult = null;
-                    _formError = null;
-                    if (next == MediaSourceKind.local) {
-                      _clearPassword = false;
-                    }
-                  });
-                },
-              ),
+              if (allowCloud)
+                KonataDropdown<MediaSourceKind>(
+                  key: const ValueKey('source_kind_dropdown'),
+                  value: _kind,
+                  enabled: !_saving && !_testing && !lockedCloud,
+                  options: const [
+                    KonataDropdownOption(
+                      value: MediaSourceKind.local,
+                      label: '本地目录',
+                    ),
+                    KonataDropdownOption(
+                      value: MediaSourceKind.webdav,
+                      label: 'WebDAV',
+                    ),
+                    KonataDropdownOption(
+                      value: MediaSourceKind.smb,
+                      label: 'SMB 共享',
+                    ),
+                    KonataDropdownOption(
+                      value: MediaSourceKind.cloudDrive,
+                      label: '光鸭云盘',
+                    ),
+                  ],
+                  onChanged: changeKind,
+                )
+              else
+                KonataSegmentedCapsule<MediaSourceKind>(
+                  selected: _kind,
+                  expand: true,
+                  options: const [
+                    KonataSegmentOption(
+                      value: MediaSourceKind.local,
+                      label: '本地目录',
+                      icon: Icons.folder_outlined,
+                    ),
+                    KonataSegmentOption(
+                      value: MediaSourceKind.webdav,
+                      label: 'WebDAV',
+                      icon: Icons.cloud_outlined,
+                    ),
+                    KonataSegmentOption(
+                      value: MediaSourceKind.smb,
+                      label: 'SMB 共享',
+                      icon: Icons.dns_outlined,
+                    ),
+                  ],
+                  onChanged: changeKind,
+                ),
               const SizedBox(height: 16),
               KonataSmoothSectionSwitcher(
                 switchKey: _kind,
@@ -284,53 +378,112 @@ class _SourceEditorDialogState extends ConsumerState<_SourceEditorDialog> {
                       prefixIcon: Icons.label_outline_rounded,
                     ),
                     const SizedBox(height: 12),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Expanded(
-                          child: Focus(
-                            onFocusChange: (hasFocus) {
-                              if (!hasFocus) {
-                                _syncDefaultLabelIfEmpty(_locationCtrl.text);
-                              }
-                            },
-                            child: KonataSoftTextField(
-                              controller: _locationCtrl,
-                              label: switch (_kind) {
-                                MediaSourceKind.local => '本地目录路径',
-                                MediaSourceKind.webdav => 'WebDAV 地址',
-                                MediaSourceKind.smb => 'SMB 共享地址',
+                    if (isCloud)
+                      if (lockedCloud)
+                        Text('已绑定云盘媒体源：${widget.existingSource!.label}')
+                      else
+                        FutureBuilder<List<String>>(
+                          future: _cloudAccounts,
+                          builder: (context, snapshot) {
+                            if (snapshot.connectionState ==
+                                ConnectionState.waiting) {
+                              return const Text('正在读取本机授权状态…');
+                            }
+                            final locations = snapshot.data ?? const <String>[];
+                            if (locations.isEmpty) {
+                              return Text(
+                                snapshot.hasError
+                                    ? '读取本机授权失败，请检查安全存储'
+                                    : '本机尚无已授权光鸭账号，请先完成客户端授权',
+                              );
+                            }
+                            return KonataDropdown<String>(
+                              value: locations.contains(_locationCtrl.text)
+                                  ? _locationCtrl.text
+                                  : null,
+                              hintText: '选择已授权账号',
+                              options: [
+                                for (var i = 0; i < locations.length; i++)
+                                  KonataDropdownOption(
+                                    value: locations[i],
+                                    label: '光鸭账号 ${i + 1}',
+                                  ),
+                              ],
+                              enabled: !_saving && !_testing,
+                              onChanged: (location) => setState(() {
+                                _locationCtrl.text = location;
+                                _includedFolders = const [];
+                                _formError = null;
+                                _testResult = null;
+                              }),
+                            );
+                          },
+                        )
+                    else
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Expanded(
+                            child: Focus(
+                              onFocusChange: (hasFocus) {
+                                if (!hasFocus) {
+                                  _syncDefaultLabelIfEmpty(_locationCtrl.text);
+                                }
                               },
-                              hintText: switch (_kind) {
-                                MediaSourceKind.local =>
-                                  KonataAdaptiveTokens.isAndroid
-                                      ? '/storage/emulated/0/Anime'
-                                      : r'D:\Anime',
-                                MediaSourceKind.webdav =>
-                                  KonataNetworkConfig.defaultWebDavHint,
-                                MediaSourceKind.smb =>
-                                  'smb://192.168.1.2/Anime',
-                              },
-                              prefixIcon: isRemote
-                                  ? Icons.link_rounded
-                                  : Icons.folder_open_rounded,
+                              child: KonataSoftTextField(
+                                controller: _locationCtrl,
+                                label: switch (_kind) {
+                                  MediaSourceKind.local => '本地目录路径',
+                                  MediaSourceKind.webdav => 'WebDAV 地址',
+                                  MediaSourceKind.smb => 'SMB 共享地址',
+                                  MediaSourceKind.cloudDrive => '云盘',
+                                },
+                                hintText: switch (_kind) {
+                                  MediaSourceKind.local =>
+                                    KonataAdaptiveTokens.isAndroid
+                                        ? '/storage/emulated/0/Anime'
+                                        : r'D:\Anime',
+                                  MediaSourceKind.webdav =>
+                                    KonataNetworkConfig.defaultWebDavHint,
+                                  MediaSourceKind.smb =>
+                                    'smb://192.168.1.2/Anime',
+                                  MediaSourceKind.cloudDrive => '由云盘登录生成',
+                                },
+                                prefixIcon: isRemote
+                                    ? Icons.link_rounded
+                                    : Icons.folder_open_rounded,
+                              ),
                             ),
                           ),
-                        ),
-                        if (!isRemote) ...[
-                          const SizedBox(width: 10),
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 2),
-                            child: KonataPillButton.secondary(
-                              label: '浏览',
-                              icon: Icons.folder_open_rounded,
-                              onPressed: _pickLocalDirectory,
+                          if (!isRemote) ...[
+                            const SizedBox(width: 10),
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 2),
+                              child: KonataPillButton.secondary(
+                                label: '浏览',
+                                icon: Icons.folder_open_rounded,
+                                onPressed: _pickLocalDirectory,
+                              ),
                             ),
-                          ),
+                          ],
                         ],
-                      ],
-                    ),
-                    if (isRemote) ...[
+                      ),
+                    if (isCloud) ...[
+                      const SizedBox(height: 12),
+                      if (ref
+                              .watch(featureSourcesDependenciesProvider)
+                              .createCloudSignIn !=
+                          null)
+                        KonataPillButton.secondary(
+                          label: lockedCloud ? '重新授权账号' : '授权光鸭账号',
+                          onPressed: (_saving || _testing)
+                              ? null
+                              : _authorizeCloud,
+                        )
+                      else
+                        const Text('尚未配置获准使用的客户端 ID，首次授权暂不可用'),
+                    ],
+                    if (isRemote && !isCloud) ...[
                       const SizedBox(height: 12),
                       KonataSoftTextField(
                         controller: _usernameCtrl,
@@ -425,7 +578,7 @@ class _SourceEditorDialogState extends ConsumerState<_SourceEditorDialog> {
                         onPressed: _openScopePicker,
                       ),
                     ),
-                    if (_testing) ...[
+                    if (_testing && !_authorizing) ...[
                       const SizedBox(height: 12),
                       Row(
                         children: [

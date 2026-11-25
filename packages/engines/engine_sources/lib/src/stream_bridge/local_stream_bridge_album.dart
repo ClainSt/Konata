@@ -170,13 +170,7 @@ extension _LocalStreamBridgeAlbumImpl on LocalStreamBridge {
       throw ArgumentError('虚拟专辑至少需要包含一个音频文件条目');
     }
     final server = await ensureStarted();
-    _tokenCounter += 1;
-    final rawSeed =
-        '${DateTime.now().microsecondsSinceEpoch}_${_tokenCounter}_$manifestName';
-    final albumToken = sha1
-        .convert(utf8.encode(rawSeed))
-        .toString()
-        .substring(0, 16);
+    final albumToken = _newSessionToken();
 
     final audioByLower = <String, _RegisteredStreamSession>{};
     final audioUrls = <Uri>[];

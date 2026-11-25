@@ -16,3 +16,7 @@ Konata v3 媒体源管理与扫库触发纵向全栈自治业务包。
 - 响应式数据流：`mediaSourcesStreamProvider`、`sourceStatsStreamProvider`、`ignoredFoldersStreamProvider`
 - 零 Riverpod 状态控制器：`SourcesController`、`SourceScrapeController`、统计摘要 `SourceLibraryStats` 与密封阶段状态机 `ScrapeTaskPhase`
 - 视图与毛玻璃弹窗：`SourcesPage`、`ScrapeProgressBanner`、`TmdbScrapeGuardBanner`、`ScanProgressStatChip`、`ScanVisitedFoldersPane`、`ScanPendingReviewTab`、`SourceBrowserEntryRow`、`SourceBrowserFormatters`、`SourceSelectedScopePanel`、`showSourceBrowserHelpDialog`、`showSourceEditorDialog`、`showSourceFolderPickerDialog`、`showScanProgressDialog`、`showDeleteSourceDialog`
+
+- 云盘媒体源由宿主注入无凭据账号地址及 CloudAccountSignInPort；新增源须连通，既有绑定不可改写。授权与连通性检测状态分离，未配置客户端时不开放短信入口。
+
+- 云盘目录选择弹窗持有独立浏览网关，复用已读取目录的有界内存 LRU（32 个目录、12000 个显示条目），显式刷新重新打开网关；关闭弹窗释放缓存，不用于正式扫库。

@@ -68,9 +68,11 @@ class RemoteWindowReader {
     required this.gateway,
     required this.relativePath,
     required this.totalLength,
-    this.maxRetries = SourceRetryPolicy.maxRetries,
+    int? maxRetries,
     this.maxRetryWallClock = SourceRetryPolicy.maxWallClockBudget,
-  });
+  }) : maxRetries =
+           maxRetries ??
+           (gateway is CloudDriveGateway ? 3 : SourceRetryPolicy.maxRetries);
 
   /// 底层字节范围可读网关。
   final ByteRangeReadableGateway gateway;
@@ -126,7 +128,8 @@ class RemoteWindowReader {
   }
 
   bool _isNonRetryableError(Object error) {
-    if (error is TerminalSourceAuthException ||
+    if (error is RiskControlled ||
+        error is TerminalSourceAuthException ||
         error is UpstreamRangeMismatchException ||
         error is PathNotFoundException) {
       return true;
@@ -165,9 +168,7 @@ class RemoteWindowReader {
       // 已交付前段字节后的断流续传必须具备强验证器，否则禁止拼接。
       if (isMidStreamResume &&
           (expectedValidator == null || expectedValidator.isEmpty)) {
-        throw const UpstreamRangeMismatchException(
-          '上游缺少强 ETag 验证器，拒绝断流后继续拼接',
-        );
+        throw const UpstreamRangeMismatchException('上游缺少强 ETag 验证器，拒绝断流后继续拼接');
       }
       final validated = await validatedGw.openValidatedByteRange(
         relativePath,
@@ -175,12 +176,16 @@ class RemoteWindowReader {
         endInclusive: windowEnd,
         expectedStrongValidator: expectedValidator,
       );
-      if (isMidStreamResume &&
-          (!validated.isPartialContent || validated.start != segmentStart)) {
+      if ((gateway is CloudDriveGateway &&
+              (!validated.isPartialContent ||
+                  validated.start != segmentStart ||
+                  validated.endInclusive != windowEnd ||
+                  validated.totalLength != totalLength)) ||
+          (isMidStreamResume &&
+              (!validated.isPartialContent ||
+                  validated.start != segmentStart))) {
         await validated.stream.listen(null).cancel();
-        throw const UpstreamRangeMismatchException(
-          '断流续传未返回精确 206 续接起点，拒绝错位拼接',
-        );
+        throw const UpstreamRangeMismatchException('断流续传未返回精确 206 续接起点，拒绝错位拼接');
       }
       final incomingValidator = validated.strongValidator;
       if (_lockedStrongValidator == null &&
@@ -191,16 +196,12 @@ class RemoteWindowReader {
           incomingValidator != null &&
           incomingValidator != _lockedStrongValidator) {
         await validated.stream.listen(null).cancel();
-        throw const UpstreamRangeMismatchException(
-          '远程文件版本已变更，终止当前流并重新装载',
-        );
+        throw const UpstreamRangeMismatchException('远程文件版本已变更，终止当前流并重新装载');
       }
       return validated.stream;
     }
     if (isMidStreamResume) {
-      throw const UpstreamRangeMismatchException(
-        '当前网关不支持强验证器 206 一致性续传',
-      );
+      throw const UpstreamRangeMismatchException('当前网关不支持强验证器 206 一致性续传');
     }
     return gateway.openByteRange(
       relativePath,
@@ -341,7 +342,8 @@ class RemoteWindowReader {
               return;
             }
             final nextStart = windowEnd + 1;
-            if (_lookup(nextStart) != null || _inflight.containsKey(nextStart)) {
+            if (_lookup(nextStart) != null ||
+                _inflight.containsKey(nextStart)) {
               return;
             }
             final nextSize = _resolveWindowSize(
@@ -434,9 +436,7 @@ class RemoteWindowReader {
                 await done.future;
                 if (canceled) break;
                 if (received < requested) {
-                  throw HttpException(
-                    '远程分块提前结束：收到 $received / $requested 字节',
-                  );
+                  throw HttpException('远程分块提前结束：收到 $received / $requested 字节');
                 }
               } catch (error) {
                 await activeUpstream?.cancel();

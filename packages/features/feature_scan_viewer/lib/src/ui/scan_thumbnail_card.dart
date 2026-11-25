@@ -321,7 +321,7 @@ class _ScanThumbnailCardState extends State<ScanThumbnailCard> {
     );
 
     final Widget content = widget.galleryOverlayCaption
-        ? Tooltip(message: v.relativePath, child: frame)
+        ? KonataTooltip(message: v.relativePath, child: frame)
         : Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

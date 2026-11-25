@@ -16,12 +16,17 @@ class _FakeGateway implements MediaSourceGateway {
 
   final String? testConnectionError;
   final List<RemoteEntry> entries;
+  int listCalls = 0;
+  int closeCalls = 0;
 
   @override
-  Future<void> close() async {}
+  Future<void> close() async {
+    closeCalls++;
+  }
 
   @override
   Future<List<RemoteEntry>> listDirectory(String relativePath) async {
+    listCalls++;
     return entries;
   }
 
@@ -76,6 +81,80 @@ void main() {
   tearDown(() async {
     await eventBus.dispose();
     await db.close();
+  });
+
+  test('1246 项大目录往返复用同一浏览网关，关闭后重新读取', () async {
+    final gateways = <_FakeGateway>[];
+    final entries = List.generate(
+      1246,
+      (i) => RemoteEntry(
+        name: 'Anime $i',
+        relativePath: 'Anime $i',
+        isDirectory: true,
+        size: 0,
+      ),
+    );
+    final controller = SourcesController(
+      databases: db,
+      credentialStore: credentialStore,
+      eventBus: eventBus,
+      scopedPrefs: prefs,
+      gatewayFactory: _FakeGatewayFactory((source, pwd, clear) {
+        final gateway = _FakeGateway(entries: entries);
+        gateways.add(gateway);
+        return gateway;
+      }),
+    );
+    addTearDown(controller.dispose);
+    Future<SourceDirectoryBrowseSession> open() =>
+        controller.openDirectoryBrowseSession(
+          kind: MediaSourceKind.cloudDrive,
+          location: 'guangyapan://account_fixture',
+        );
+    final session = await open();
+    addTearDown(session.close);
+    final first = await session.listDirectory('Anime', includeFiles: true);
+    await session.listDirectory('', includeFiles: true);
+    final cached = await session.listDirectory('Anime', includeFiles: true);
+    expect(first.length, 1246);
+    expect(identical(first, cached), isTrue);
+    expect(gateways.length, 1);
+    expect(gateways.single.listCalls, 2);
+    await session.close();
+    expect(gateways.single.closeCalls, 1);
+    await expectLater(session.listDirectory('Anime'), throwsStateError);
+    final refreshed = await open();
+    addTearDown(refreshed.close);
+    expect(
+      (await refreshed.listDirectory('Anime', includeFiles: true)).length,
+      1246,
+    );
+    expect(gateways.length, 2);
+    expect(gateways.last.listCalls, 1);
+  });
+
+  test('目录浏览缓存受条目和目录数量限制', () async {
+    final gateway = _FakeGateway(
+      entries: List.generate(
+        1246,
+        (i) => RemoteEntry(
+          name: 'Anime $i',
+          relativePath: 'Anime $i',
+          isDirectory: true,
+          size: 0,
+        ),
+      ),
+    );
+    final session = SourceDirectoryBrowseSession(gateway);
+    addTearDown(session.close);
+    for (var i = 0; i < 10; i++) {
+      await session.listDirectory('folder$i', includeFiles: true);
+    }
+    expect(gateway.listCalls, 10);
+    await session.listDirectory('folder9', includeFiles: true);
+    expect(gateway.listCalls, 10);
+    await session.listDirectory('folder0', includeFiles: true);
+    expect(gateway.listCalls, 11);
   });
 
   test('媒体源校验拒绝无效地址并隔离凭据（密码绝不写入 SQLite）', () async {
@@ -168,6 +247,66 @@ void main() {
     expect(events.map((e) => e.reason), ['created', 'updated', 'updated']);
   });
 
+  test('光鸭新源需授权且不保存普通密码，编辑禁止替换绑定', () async {
+    var authorized = false;
+    final gatewayFactory = _FakeGatewayFactory((source, pwd, clear) {
+      expect(source.username, isNull);
+      expect(pwd, isNull);
+      return _FakeGateway(testConnectionError: authorized ? null : '本机未授权');
+    });
+    final controller = SourcesController(
+      databases: db,
+      credentialStore: credentialStore,
+      gatewayFactory: gatewayFactory,
+      eventBus: eventBus,
+      scopedPrefs: prefs,
+    );
+    addTearDown(controller.dispose);
+    final denied = await controller.saveSource(
+      kind: MediaSourceKind.cloudDrive,
+      label: '光鸭',
+      location: 'guangyapan://account_a',
+    );
+    expect(denied.success, isFalse);
+    expect(await StorageScrapeRepository(db).getMediaSources(), isEmpty);
+    authorized = true;
+    final added = await controller.saveSource(
+      kind: MediaSourceKind.cloudDrive,
+      label: '光鸭',
+      location: 'guangyapan://account_a',
+      username: 'should-not-save',
+      password: 'should-not-save',
+      includedFolders: const ['Anime'],
+    );
+    expect(added.success, isTrue);
+    final id = added.source!.id;
+    expect(added.source!.username, isNull);
+    expect(await controller.readSavedPassword(id), isNull);
+    expect(controller.readIncludedFolders(id), ['Anime']);
+    final rebound = await controller.saveSource(
+      existingId: id,
+      kind: MediaSourceKind.cloudDrive,
+      label: '替换绑定',
+      location: 'guangyapan://account_b',
+    );
+    expect(rebound.success, isFalse);
+    final converted = await controller.saveSource(
+      existingId: id,
+      kind: MediaSourceKind.local,
+      label: '替换类型',
+      location: 'D:/Anime',
+    );
+    expect(converted.success, isFalse);
+    final edited = await controller.saveSource(
+      existingId: id,
+      kind: MediaSourceKind.cloudDrive,
+      label: '新名称',
+      location: 'guangyapan://account_a',
+    );
+    expect(edited.success, isTrue);
+    expect(edited.source!.label, '新名称');
+  });
+
   test('目录列举使用本地自然排序且忽略隐藏目录，连通测试自动脱敏密码', () async {
     final gatewayFactory = _FakeGatewayFactory(
       (source, pwd, clear) => _FakeGateway(
@@ -224,7 +363,11 @@ void main() {
       location: 'https://dav.example.com/anime',
       includeFiles: true,
     );
-    expect(allEntries.map((e) => e.name), ['Season 2', 'Season 10', 'readme.txt']);
+    expect(allEntries.map((e) => e.name), [
+      'Season 2',
+      'Season 10',
+      'readme.txt',
+    ]);
   });
 
   test('媒体源统计流准确聚合关联作品数、视频数与待复核条目数', () async {

@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import '../tokens/konata_adaptive_tokens.dart';
 import '../tokens/konata_palette.dart';
 import '../tokens/konata_theme.dart';
+import 'konata_tooltip.dart';
 
 /// 播控胶囊、导航胶囊与流光浮层共用的无边框纯图标按钮（零水波纹残留）。
 class KonataCapsuleIconButton extends StatefulWidget {
@@ -88,7 +89,7 @@ class _KonataCapsuleIconButtonState extends State<KonataCapsuleIconButton> {
               ? baseColor
               : baseColor.withValues(alpha: 0.88));
 
-    return Tooltip(
+    return KonataTooltip(
       message: widget.tooltip,
       waitDuration: KonataTheme.tooltipSlowWaitDuration,
       triggerMode: widget.onLongPress != null

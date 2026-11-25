@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as developer;
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
@@ -105,7 +106,10 @@ class LocalStreamBridge implements LocalStreamBridgePort {
       <String, SourceAccessProblemKind>{};
   final Map<String, SourceAccessProblemKind> _recentKindsByToken =
       <String, SourceAccessProblemKind>{};
-  int _tokenCounter = 0;
+  String _newSessionToken() {
+    final random = Random.secure();
+    return base64UrlEncode(List<int>.generate(24, (_) => random.nextInt(256)));
+  }
 
   void _recordDiagnostic(_RegisteredStreamSession session, Object error) {
     final classified = SourceAccessErrorClassifier.classify(
@@ -214,13 +218,7 @@ class LocalStreamBridge implements LocalStreamBridgePort {
     MediaSourceKind sourceKind = MediaSourceKind.webdav,
   }) async {
     final server = await ensureStarted();
-    _tokenCounter += 1;
-    final rawSeed =
-        '${DateTime.now().microsecondsSinceEpoch}_${_tokenCounter}_$relativePath';
-    final token = sha1
-        .convert(utf8.encode(rawSeed))
-        .toString()
-        .substring(0, 16);
+    final token = _newSessionToken();
 
     final sanitizedLength = (knownLength != null && knownLength > 0)
         ? knownLength

@@ -53,6 +53,30 @@ class SourceLocationValidator {
 
       case MediaSourceKind.smb:
         return _validateSmb(trimmed);
+      case MediaSourceKind.cloudDrive:
+        final uri = Uri.tryParse(trimmed);
+        if (uri == null ||
+            !{'guangyapan', 'openlist'}.contains(uri.scheme) ||
+            !RegExp(r'^[a-z0-9_-]{8,128}$').hasMatch(uri.host) ||
+            uri.userInfo.isNotEmpty ||
+            uri.hasQuery ||
+            uri.hasFragment ||
+            uri.hasPort ||
+            uri.pathSegments.length > 1 ||
+            uri.pathSegments.any(
+              (s) =>
+                  s.isEmpty ||
+                  s == '.' ||
+                  s == '..' ||
+                  s.contains('/') ||
+                  s.contains('\\'),
+            )) {
+          return const ValidatedSourceLocation(
+            normalizedLocation: '',
+            errorMessage: '云盘地址必须由登录及目录选择生成，不能包含凭据',
+          );
+        }
+        return ValidatedSourceLocation(normalizedLocation: uri.toString());
     }
   }
 
@@ -79,7 +103,8 @@ class SourceLocationValidator {
     if (uri == null || uri.scheme != 'smb' || uri.host.trim().isEmpty) {
       return ValidatedSourceLocation(
         normalizedLocation: raw,
-        errorMessage: 'SMB 地址格式无效，示例：smb://192.168.1.2/Anime 或 \\\\192.168.1.2\\Anime',
+        errorMessage:
+            'SMB 地址格式无效，示例：smb://192.168.1.2/Anime 或 \\\\192.168.1.2\\Anime',
       );
     }
 

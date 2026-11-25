@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/widgets.dart';
@@ -84,6 +85,7 @@ class _SourceFolderPickerDialogState
   String _currentPath = '';
   String _searchQuery = '';
   List<RemoteEntry> _entries = const <RemoteEntry>[];
+  SourceDirectoryBrowseSession? _cloudBrowse;
   bool _loading = true;
   bool _busy = false;
   String? _errorText;
@@ -106,6 +108,7 @@ class _SourceFolderPickerDialogState
 
   @override
   void dispose() {
+    unawaited(_cloudBrowse?.close());
     _listScrollCtrl.dispose();
     _searchFocusNode.dispose();
     _searchController.dispose();
@@ -116,7 +119,7 @@ class _SourceFolderPickerDialogState
     return raw.trim().replaceAll('\\', '/').replaceAll(_edgeSlashes, '');
   }
 
-  Future<void> _loadDirectory(String relPath) async {
+  Future<void> _loadDirectory(String relPath, {bool refresh = false}) async {
     final normalized = _normalizeRel(relPath);
     setState(() {
       _loading = true;
@@ -127,16 +130,39 @@ class _SourceFolderPickerDialogState
     });
     try {
       final controller = ref.read(sourcesControllerProvider);
-      final list = await controller.listDirectory(
-        sourceId: widget.sourceId,
-        kind: widget.kind,
-        location: widget.location,
-        username: widget.username,
-        password: widget.password,
-        clearPassword: widget.clearPassword,
-        relativePath: normalized,
-        includeFiles: true,
-      );
+      final List<RemoteEntry> list;
+      if (widget.kind == MediaSourceKind.cloudDrive) {
+        if (refresh) {
+          final previous = _cloudBrowse;
+          _cloudBrowse = null;
+          await previous?.close();
+        }
+        var session = _cloudBrowse;
+        if (session == null) {
+          session = await controller.openDirectoryBrowseSession(
+            sourceId: widget.sourceId,
+            kind: widget.kind,
+            location: widget.location,
+          );
+          if (!mounted) {
+            await session.close();
+            return;
+          }
+          _cloudBrowse = session;
+        }
+        list = await session.listDirectory(normalized, includeFiles: true);
+      } else {
+        list = await controller.listDirectory(
+          sourceId: widget.sourceId,
+          kind: widget.kind,
+          location: widget.location,
+          username: widget.username,
+          password: widget.password,
+          clearPassword: widget.clearPassword,
+          relativePath: normalized,
+          includeFiles: true,
+        );
+      }
       if (!mounted) return;
       setState(() {
         _entries = list;
@@ -147,7 +173,8 @@ class _SourceFolderPickerDialogState
       setState(() {
         _entries = const <RemoteEntry>[];
         _loading = false;
-        _errorText = '读取目录失败: ${DiagnosticTextSanitizer.redactSecrets('$error')}';
+        _errorText =
+            '读取目录失败: ${DiagnosticTextSanitizer.redactSecrets('$error')}';
       });
     }
   }
@@ -256,9 +283,11 @@ class _SourceFolderPickerDialogState
         screen.width > screen.height;
     final sortedSelected = _sortedSelected;
     final filtered = _filteredEntries;
-    final title = (widget.sourceLabel != null &&
-            widget.sourceLabel!.trim().isNotEmpty)
+    final title =
+        (widget.sourceLabel != null && widget.sourceLabel!.trim().isNotEmpty)
         ? widget.sourceLabel!.trim()
+        : widget.kind == MediaSourceKind.cloudDrive
+        ? '光鸭云盘 · 选择目录'
         : '选择扫库目录作用域';
 
     return KonataGlassDialog(
@@ -284,7 +313,9 @@ class _SourceFolderPickerDialogState
           KonataPillButton.secondary(
             label: '仅保存范围',
             compact: true,
-            onPressed: _busy ? null : () => Navigator.of(context).pop(sortedSelected),
+            onPressed: _busy
+                ? null
+                : () => Navigator.of(context).pop(sortedSelected),
           ),
           KonataPillButton.primary(
             label: sortedSelected.isNotEmpty
@@ -344,7 +375,8 @@ class _SourceFolderPickerDialogState
                         showBackButton: false,
                         onBackToBrowse: () {},
                         onRemovePathsBatch: _removePathsBatch,
-                        onShowHelp: () => showSourceBrowserHelpDialog(dialogCtx),
+                        onShowHelp: () =>
+                            showSourceBrowserHelpDialog(dialogCtx),
                       ),
                     ),
                   ],
@@ -402,10 +434,7 @@ class _SourceFolderPickerDialogState
     );
   }
 
-  Widget _buildSelectedEntryBar(
-    KonataPalette p, {
-    required int selectedCount,
-  }) {
+  Widget _buildSelectedEntryBar(KonataPalette p, {required int selectedCount}) {
     final minH = KonataAdaptiveTokens.isAndroid
         ? KonataAdaptiveTokens.touchTarget
         : 40.0;
@@ -498,9 +527,7 @@ class _SourceFolderPickerDialogState
     } else if (rootDirPaths.isEmpty) {
       checkboxValue = false;
     } else {
-      final selectedInRoot = rootDirPaths
-          .where(_selectedPaths.contains)
-          .length;
+      final selectedInRoot = rootDirPaths.where(_selectedPaths.contains).length;
       if (selectedInRoot == 0) {
         checkboxValue = false;
       } else if (selectedInRoot == rootDirPaths.length) {
@@ -519,10 +546,8 @@ class _SourceFolderPickerDialogState
           onPressed: _loading || _currentPath.isEmpty ? null : _navigateUp,
         ),
         const SizedBox(width: 6),
-        Tooltip(
-          message: _currentPath.isEmpty
-              ? '全选或取消全选根路径下的全部目录'
-              : '勾选或取消勾选当前目录',
+        KonataTooltip(
+          message: _currentPath.isEmpty ? '全选或取消全选根路径下的全部目录' : '勾选或取消勾选当前目录',
           child: Checkbox(
             tristate: _currentPath.isEmpty,
             value: checkboxValue,
@@ -580,7 +605,9 @@ class _SourceFolderPickerDialogState
               ? KonataAdaptiveTokens.touchTarget
               : 30.0,
           padding: const EdgeInsets.all(4),
-          onTap: _loading ? null : () => _loadDirectory(_currentPath),
+          onTap: _loading
+              ? null
+              : () => _loadDirectory(_currentPath, refresh: true),
         ),
         const SizedBox(width: 6),
         Text(
@@ -627,7 +654,9 @@ class _SourceFolderPickerDialogState
     required VoidCallback? onTap,
   }) {
     return MouseRegion(
-      cursor: onTap != null ? SystemMouseCursors.click : SystemMouseCursors.basic,
+      cursor: onTap != null
+          ? SystemMouseCursors.click
+          : SystemMouseCursors.basic,
       child: GestureDetector(
         key: key,
         behavior: HitTestBehavior.opaque,

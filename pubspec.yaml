@@ -10,6 +10,7 @@ workspace:
   - packages/foundation/konata_contracts
   - packages/foundation/konata_design_system
   - packages/foundation/konata_storage
+  - packages/engines/engine_cloud_drives
   - packages/engines/engine_sources
   - packages/engines/engine_scraping
   - packages/engines/engine_playback

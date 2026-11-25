@@ -442,6 +442,7 @@ void main() {
     );
 
     var cloudAuthorized = false;
+    var cloudRemovals = 0;
     final fakeSignIn = _FakeCloudSignIn(() => cloudAuthorized = true);
     final deps = FeatureSourcesDependencies(
       databases: db,
@@ -464,6 +465,11 @@ void main() {
               ),
             ]
           : const [],
+      removeCloudAccountLocation: (location) async {
+        expect(location, 'guangyapan://account_fixture');
+        cloudRemovals++;
+        cloudAuthorized = false;
+      },
       createCloudSignIn: (expectedLocation) {
         expect(expectedLocation, isNull);
         return fakeSignIn;
@@ -557,6 +563,41 @@ void main() {
     expect(fakeSignIn.finishCount, 1);
     expect(fakeSignIn.cancelled, isTrue);
     expect(find.text('光鸭账号 1 (138****1234)'), findsOneWidget);
+    final removeAccount = find.byKey(
+      const ValueKey('source_remove_cloud_account'),
+    );
+    expect(removeAccount, findsOneWidget);
+    await tester.tap(removeAccount);
+    await tester.pumpAndSettle();
+    expect(find.text('解除账号授权？'), findsOneWidget);
+    await tester.tap(find.text('取消').last);
+    await tester.pumpAndSettle();
+    expect(cloudRemovals, 0);
+    expect(find.text('光鸭账号 1 (138****1234)'), findsOneWidget);
+
+    // 已绑定源的注销不会删除媒体源或索引。
+    await repo.upsertMediaSource(
+      const MediaSource(
+        id: 'cloud_bound_fixture',
+        kind: MediaSourceKind.cloudDrive,
+        label: '已绑定云盘',
+        location: 'guangyapan://account_fixture',
+      ),
+    );
+    await tester.tap(removeAccount);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('已绑定 1 个媒体源'), findsOneWidget);
+    await tester.tap(find.text('确认解除授权'));
+    await tester.pumpAndSettle();
+    expect(cloudRemovals, 1);
+    expect(find.textContaining('本机尚无已授权光鸭账号'), findsOneWidget);
+    expect(find.text('光鸭账号 1 (138****1234)'), findsNothing);
+    expect(
+      (await repo.getMediaSources()).any(
+        (source) => source.id == 'cloud_bound_fixture',
+      ),
+      isTrue,
+    );
     expect(tester.takeException(), isNull);
 
     await tester.tap(find.byKey(const ValueKey('source_kind_dropdown')));
@@ -614,7 +655,7 @@ void main() {
     expect(find.textContaining('安全承诺'), findsOneWidget);
     await tester.tap(find.text('确认移除索引'));
     await tester.pumpAndSettle();
-    expect((await repo.getMediaSources()).length, 2);
+    expect((await repo.getMediaSources()).length, 3);
   });
 
   testWidgets('扫库进度横幅、全功能扫描进度弹窗及手机横屏双栏目录选择器正常运行', (tester) async {

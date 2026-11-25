@@ -24,6 +24,7 @@ final class FeatureSourcesDependencies {
     required this.photosStorage,
     required this.platform,
     this.listCloudAccountLocations,
+    this.removeCloudAccountLocation,
     this.createCloudSignIn,
   });
 
@@ -66,6 +67,9 @@ final class FeatureSourcesDependencies {
   /// 本机已授权云盘根地址列表，不包含令牌或账号密码。
   final Future<List<({String location, String? maskedPhone})>> Function()?
   listCloudAccountLocations;
+
+  /// 清除指定账号的本机授权，不删除媒体源及索引。
+  final Future<void> Function(String location)? removeCloudAccountLocation;
 
   /// 可选已配置客户端的用户主动授权事务。
   final CloudAccountSignInPort Function(String? expectedLocation)?

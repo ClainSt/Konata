@@ -79,6 +79,72 @@ class _SourceEditorDialogState extends ConsumerState<_SourceEditorDialog> {
     }
   }
 
+  Future<void> _removeCloudAccount(String location) async {
+    if (_saving || _testing) return;
+    final deps = ref.read(featureSourcesDependenciesProvider);
+    final remove = deps.removeCloudAccountLocation;
+    if (remove == null) return;
+    setState(() {
+      _testing = true;
+      _authorizing = true;
+      _formError = null;
+    });
+    try {
+      final account = Uri.parse(location).host;
+      final sources = await ref.read(sourcesControllerProvider).listSources();
+      if (!mounted) return;
+      final boundCount = sources
+          .where(
+            (source) =>
+                source.kind == MediaSourceKind.cloudDrive &&
+                Uri.tryParse(source.location)?.host == account,
+          )
+          .length;
+      final confirmed = await showKonataGlassDialog<bool>(
+        context: context,
+        builder: (dialogContext) => KonataGlassDialog(
+          title: '解除账号授权？',
+          width: 440,
+          actions: [
+            KonataPillButton.ghost(
+              label: '取消',
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+            ),
+            KonataPillButton.danger(
+              label: '确认解除授权',
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+            ),
+          ],
+          child: Text(
+            boundCount == 0
+                ? '将删除此账号在本机保存的登录授权，下次使用需重新登录。不会删除云盘文件。'
+                : '此账号已绑定 $boundCount 个媒体源。解除授权后将暂时无法扫描或播放这些资源，重新登录同一账号即可恢复。媒体源、索引、播放记录和云盘文件均会保留。',
+          ),
+        ),
+      );
+      if (!mounted || confirmed != true) return;
+      await remove(location);
+      if (!mounted) return;
+      setState(() {
+        if (widget.existingSource == null && _locationCtrl.text == location) {
+          _locationCtrl.clear();
+        }
+        _cloudAccounts = deps.listCloudAccountLocations?.call();
+        _testResult = null;
+      });
+      showKonataToast(context, '已解除本机账号授权');
+    } catch (_) {
+      if (mounted) setState(() => _formError = '解除授权失败，请重试');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _testing = false;
+          _authorizing = false;
+        });
+      }
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -201,9 +267,8 @@ class _SourceEditorDialogState extends ConsumerState<_SourceEditorDialog> {
     final isEdit = widget.existingSource != null;
     final isRemote = _kind != MediaSourceKind.local;
     final isCloud = _kind == MediaSourceKind.cloudDrive;
-    final accountLoader = ref
-        .watch(featureSourcesDependenciesProvider)
-        .listCloudAccountLocations;
+    final deps = ref.watch(featureSourcesDependenciesProvider);
+    final accountLoader = deps.listCloudAccountLocations;
     final lockedCloud =
         widget.existingSource?.kind == MediaSourceKind.cloudDrive;
     final allowCloud = (accountLoader != null && !isEdit) || lockedCloud;
@@ -366,29 +431,52 @@ class _SourceEditorDialogState extends ConsumerState<_SourceEditorDialog> {
                                     : '本机尚无已授权光鸭账号，请先完成客户端授权',
                               );
                             }
-                            return KonataDropdown<String>(
-                              value:
-                                  locations.any(
-                                    (account) =>
-                                        account.location == _locationCtrl.text,
-                                  )
-                                  ? _locationCtrl.text
-                                  : null,
-                              hintText: '选择已授权账号',
-                              options: [
-                                for (var i = 0; i < locations.length; i++)
-                                  KonataDropdownOption(
-                                    value: locations[i].location,
-                                    label:
-                                        '光鸭账号 ${i + 1}${locations[i].maskedPhone == null ? '' : ' (${locations[i].maskedPhone})'}',
+                            final selected =
+                                locations.any(
+                                  (account) =>
+                                      account.location == _locationCtrl.text,
+                                )
+                                ? _locationCtrl.text
+                                : null;
+                            return Row(
+                              children: [
+                                Expanded(
+                                  child: KonataDropdown<String>(
+                                    value: selected,
+                                    hintText: '选择已授权账号',
+                                    options: [
+                                      for (var i = 0; i < locations.length; i++)
+                                        KonataDropdownOption(
+                                          value: locations[i].location,
+                                          label:
+                                              '光鸭账号 ${i + 1}${locations[i].maskedPhone == null ? '' : ' (${locations[i].maskedPhone})'}',
+                                        ),
+                                    ],
+                                    enabled: !_saving && !_testing,
+                                    onChanged: (location) => setState(() {
+                                      _locationCtrl.text = location;
+                                      _formError = null;
+                                      _testResult = null;
+                                    }),
                                   ),
+                                ),
+                                if (deps.removeCloudAccountLocation !=
+                                    null) ...[
+                                  const SizedBox(width: 8),
+                                  KonataPillButton.secondary(
+                                    key: const ValueKey(
+                                      'source_remove_cloud_account',
+                                    ),
+                                    label: '解除授权',
+                                    icon: Icons.delete_outline_rounded,
+                                    compact: true,
+                                    onPressed:
+                                        _saving || _testing || selected == null
+                                        ? null
+                                        : () => _removeCloudAccount(selected),
+                                  ),
+                                ],
                               ],
-                              enabled: !_saving && !_testing,
-                              onChanged: (location) => setState(() {
-                                _locationCtrl.text = location;
-                                _formError = null;
-                                _testResult = null;
-                              }),
                             );
                           },
                         )

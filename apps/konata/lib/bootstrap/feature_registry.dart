@@ -60,6 +60,7 @@ final class FeatureRuntimeWiring {
     required this.hostWindow,
     required this.autoStartDetailWarmupAndBackfill,
     this.listCloudAccountLocations,
+    this.removeCloudAccountLocation,
     this.createCloudSignIn,
     this.desktopSurfaceBridge,
     this.desktopRelayGateway,
@@ -85,6 +86,9 @@ final class FeatureRuntimeWiring {
   /// 本机已授权云盘的无凭据根地址入口。
   final Future<List<({String location, String? maskedPhone})>> Function()?
   listCloudAccountLocations;
+
+  /// 清除指定账号的本机授权，不删除媒体源及索引。
+  final Future<void> Function(String location)? removeCloudAccountLocation;
 
   /// 可选已配置客户端的用户主动授权事务。
   final CloudAccountSignInPort Function(String? expectedLocation)?
@@ -619,6 +623,7 @@ List<Override> buildFeatureProviderOverrides(FeatureRuntimeWiring wiring) {
         photosStorage: wiring.photosStorage,
         platform: platform,
         listCloudAccountLocations: wiring.listCloudAccountLocations,
+        removeCloudAccountLocation: wiring.removeCloudAccountLocation,
         createCloudSignIn: wiring.createCloudSignIn,
       ),
     ),

@@ -496,6 +496,13 @@ final class KonataBootstrapContext {
             ),
           ),
       ],
+      removeCloudAccountLocation: (location) async {
+        final uri = Uri.parse(location);
+        if (uri.scheme != 'guangyapan' || uri.host.isEmpty) {
+          throw ArgumentError('无效的云盘账号地址');
+        }
+        await cloudDriveSessions.signOut(uri.host);
+      },
       createCloudSignIn: cloudClientId.trim().isEmpty
           ? null
           : (expectedLocation) => GuangYaAccountSignIn(

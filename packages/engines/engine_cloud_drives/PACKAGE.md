@@ -8,3 +8,5 @@ GuangYaCredentialStore 通过 SecureStoragePort 隔离本机账号凭据，串�
 GuangYaSessionRegistry 提供云盘驱动注册贡献、同账号协议会话共享及独立网关释放，重新授权和注销关闭旧会话；不启动后台服务或常驻定时器。宿主装配已接入，实际账号授权仍需验收。
 
 GuangYaAccountSignIn 通过 CloudAccountSignInPort 接入用户主动授权交互，按服务端主体生成稳定绑定标识；默认不配置客户端身份，真实登录需获准使用的应用配置。
+
+短信前置验证初始化参考 AList v3.66.0 与 OpenList v4.2.9 的公开授权流程独立实现。验证令牌仅在用户主动授权事务内使用，不持久化；服务端额外验证、未知验证响应或事务取消均停止后续请求，不自动重发短信。实际授权仍需验证。

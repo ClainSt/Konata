@@ -25,12 +25,15 @@ final class LegacyGuangYaSignIn {
   String? _verificationId;
   bool _busy = false;
   bool _risk = false;
+  int _generation = 0;
 
   Future<Map<String, dynamic>> _post(
     String path,
-    Map<String, Object?> body,
-  ) async {
+    Map<String, Object?> body, {
+    String? captchaToken,
+  }) async {
     if (_risk) throw const RiskControlled();
+    final generation = _generation;
     KonataHttpResponse response;
     try {
       response = await _request(
@@ -41,6 +44,7 @@ final class LegacyGuangYaSignIn {
           'Content-Type': 'application/json',
           'X-Client-Id': clientId,
           'X-Device-Id': deviceId,
+          'X-Captcha-Token': ?captchaToken,
           if (deviceSign case final sign? when sign.isNotEmpty)
             'X-Device-Sign': sign,
         },
@@ -54,6 +58,12 @@ final class LegacyGuangYaSignIn {
       throw const SourceAccessException(
         SourceAccessProblemKind.network,
         '光鸭授权网络请求失败',
+      );
+    }
+    if (generation != _generation) {
+      throw const SourceAccessException(
+        SourceAccessProblemKind.authentication,
+        '授权事务已取消',
       );
     }
     Map<String, dynamic>? obj;
@@ -139,6 +149,47 @@ final class LegacyGuangYaSignIn {
     return obj;
   }
 
+  /// 服务端验证初始化。仅接受明确的令牌成功响应；未知挑战必须由用户通过官方方式处理。
+  Future<String> _prepareVerification(String phone) async {
+    final obj = await _post('/v1/shield/captcha/init', {
+      'device_id': deviceId,
+      'action': 'POST:/v1/auth/verification',
+      'meta': {
+        'username': phone,
+        'phone_number': phone,
+        'VERIFICATION_PHONE': phone,
+      },
+    });
+    const knownFields = {
+      'captcha_token',
+      'expires_in',
+      'error',
+      'error_code',
+      'error_description',
+      'code',
+      'msg',
+      'message',
+    };
+    if (obj.keys.any((key) => !knownFields.contains(key))) {
+      _risk = true;
+      cancel();
+      throw const RiskControlled();
+    }
+    final token = obj['captcha_token'];
+    final expiry = obj['expires_in'];
+    if (token is! String ||
+        token.isEmpty ||
+        token.length > 8192 ||
+        token.trim() != token ||
+        token.contains(RegExp(r'[\r\n]')) ||
+        (expiry != null && (expiry is! int || expiry <= 0))) {
+      _risk = true;
+      cancel();
+      throw const RiskControlled();
+    }
+    return token;
+  }
+
   /// 仅申请一次短信验证码，手机号与验证 ID 保存在当前内存事务。
   Future<void> sendSms(String phone) async {
     if (_risk) throw const RiskControlled();
@@ -152,10 +203,11 @@ final class LegacyGuangYaSignIn {
     }
     _busy = true;
     try {
+      final token = await _prepareVerification(phone);
       final obj = await _post('/v1/auth/verification', {
         'phone_number': phone,
         'target': 'ANY',
-      });
+      }, captchaToken: token);
       final id = obj['verification_id'];
       if (id is! String || id.isEmpty) {
         throw const SourceAccessException(
@@ -261,6 +313,7 @@ final class LegacyGuangYaSignIn {
   }
 
   void cancel() {
+    _generation++;
     _phone = null;
     _verificationId = null;
   }

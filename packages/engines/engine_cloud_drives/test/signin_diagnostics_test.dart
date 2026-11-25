@@ -15,7 +15,7 @@ void main() {
       '{"code":123,"msg":"fixture-secret"}',
       SourceAccessProblemKind.authentication,
     ),
-    (200, '{}', SourceAccessProblemKind.authentication),
+    (200, '{}', SourceAccessProblemKind.permission),
   ]) {
     test('授权失败分类不泄露响应正文：HTTP ${item.$1}', () async {
       var calls = 0;
@@ -72,18 +72,24 @@ void main() {
       deviceId: '0123456789abcdef0123456789abcdef',
       request: (method, uri, headers, body) async {
         calls++;
+        if (uri.path == '/v1/shield/captcha/init') {
+          return KonataHttpResponse.text(
+            '{"captcha_token":"fixture-token","expires_in":60}',
+          );
+        }
+        expect(headers['X-Captcha-Token'], 'fixture-token');
         return KonataHttpResponse.text(
           '{"code":0,"msg":"验证码发送成功","verification_id":"fixture-id"}',
         );
       },
     );
     await signIn.sendSms('+15550101234');
-    expect(calls, 1);
+    expect(calls, 2);
     await expectLater(
       signIn.sendSms('+15550101234'),
       throwsA(isA<SourceAccessException>()),
     );
-    expect(calls, 1);
+    expect(calls, 2);
   });
 
   test('明确的额外验证提示仍停止事务', () async {
@@ -95,6 +101,35 @@ void main() {
         request: (method, uri, headers, body) async {
           calls++;
           return KonataHttpResponse.text('{"code":123,"message":"$msg"}');
+        },
+      );
+      await expectLater(
+        signIn.sendSms('+15550101234'),
+        throwsA(isA<RiskControlled>()),
+      );
+      await expectLater(
+        signIn.sendSms('+15550101234'),
+        throwsA(isA<RiskControlled>()),
+      );
+      expect(calls, 1);
+    }
+  });
+
+  test('服务端挑战或未知验证响应不触发短信', () async {
+    for (final body in [
+      '{"captcha_token":"fixture-token","captcha_url":"https://fixture.invalid/challenge"}',
+      '{"captcha_token":"fixture-token","challenge_required":true}',
+      '{"captcha_token":"fixture-token","expires_in":0}',
+      '{"captcha_token":""}',
+    ]) {
+      var calls = 0;
+      final signIn = LegacyGuangYaSignIn(
+        clientId: 'fixture-app',
+        deviceId: '0123456789abcdef0123456789abcdef',
+        request: (method, uri, headers, bodyValue) async {
+          calls++;
+          expect(uri.path, '/v1/shield/captcha/init');
+          return KonataHttpResponse.text(body);
         },
       );
       await expectLater(

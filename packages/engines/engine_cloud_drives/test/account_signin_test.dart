@@ -41,8 +41,17 @@ void main() {
       request: (method, uri, headers, body) async {
         expect(headers['X-Client-Id'], 'fixture-authorized-app');
         expect(headers['X-Device-Id'], matches(RegExp(r'^[a-f0-9]{32}$')));
+        if (uri.path == '/v1/auth/verification') {
+          expect(headers['X-Captcha-Token'], 'fixture-captcha');
+        } else {
+          expect(headers.containsKey('X-Captcha-Token'), isFalse);
+        }
         paths.add(uri.path);
         return reply(switch (uri.path) {
+          '/v1/shield/captcha/init' => {
+            'captcha_token': 'fixture-captcha',
+            'expires_in': 60,
+          },
           '/v1/auth/verification' => {'verification_id': 'fixture-id'},
           '/v1/auth/verification/verify' => {
             'verification_token': 'fixture-verification',
@@ -73,7 +82,12 @@ void main() {
     expect(Uri.parse(location).host, binding);
     expect(location, isNot(contains('fixture-subject')));
     expect(location, isNot(contains('fixture-refresh')));
-    expect(paths.length, 3);
+    expect(paths, [
+      '/v1/shield/captcha/init',
+      '/v1/auth/verification',
+      '/v1/auth/verification/verify',
+      '/v1/auth/signin',
+    ]);
     expect((await store.read(binding))!.refreshToken, 'fixture-refresh');
     await registry.signOut(binding);
     final again = GuangYaAccountSignIn(
@@ -114,7 +128,9 @@ void main() {
     );
     final sending = signIn.sendSms('+15550101234');
     signIn.cancel();
-    pending.complete(reply({'verification_id': 'fixture-id'}));
+    pending.complete(
+      reply({'captcha_token': 'fixture-captcha', 'expires_in': 60}),
+    );
     await expectLater(sending, throwsA(isA<SourceAccessException>()));
     await expectLater(
       signIn.finishSms('123456'),

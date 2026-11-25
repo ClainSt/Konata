@@ -687,6 +687,15 @@ void main() {
               reason: '${vp.name} (dark=$dark) 出现布局或溢出异常',
             );
             expect(find.text('少女终末旅行'), findsOneWidget);
+            expect(find.text('2017 · Bangumi 8.8'), findsOneWidget);
+            expect(find.text('3 集正片'), findsNothing);
+            expect(find.text('1 项特典'), findsNothing);
+            expect(find.text('1 张 CD'), findsNothing);
+            expect(
+              find.byKey(const ValueKey('detail_tab_episodes')),
+              findsOneWidget,
+            );
+            expect(find.byKey(const ValueKey('detail_tab_cd')), findsOneWidget);
           }
         });
       });

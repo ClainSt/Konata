@@ -71,9 +71,11 @@ class DetailHeroInfo extends StatelessWidget {
     final p = context.palette;
     final work = bundle.work;
     final resumePlan = bundle.resumePlan;
-    final mainCount = bundle.mainEpisodes.length;
-    final extraCount = bundle.extraEpisodes.length;
-    final cdCount = bundle.cdVariants.length;
+    final metaParts = <String>[
+      if (work.year != null && work.year! > 0) '${work.year}',
+      if (work.bangumiScore != null && work.bangumiScore! > 0)
+        'Bangumi ${work.bangumiScore!.toStringAsFixed(1)}',
+    ];
 
     final primaryActionLabel = resumePlan?.buttonLabel ?? '开始播放';
     final primarySubLabel = _buildResumeSubLabel(bundle);
@@ -100,51 +102,36 @@ class DetailHeroInfo extends StatelessWidget {
           showTitleText: displayPreferences.showTitleText,
           showTitleLogo: displayPreferences.showTitleLogo,
           onDarkBackdrop: onDarkBackdrop,
-          onTapEditLogo: () => onBuiltInAction(DetailBuiltInGearAction.editLogo),
+          onTapEditLogo: () =>
+              onBuiltInAction(DetailBuiltInGearAction.editLogo),
         ),
-        const SizedBox(height: 10),
-        Wrap(
-          spacing: 8,
-          runSpacing: 6,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            if (work.bangumiScore != null && work.bangumiScore! > 0)
-              BangumiScoreWordmarkBadge(score: work.bangumiScore!),
-            if (work.year != null && work.year! > 0)
-              _InfoMetaChip(
-                label: '${work.year}',
-                onDarkBackdrop: onDarkBackdrop,
-              ),
-            if (mainCount > 0)
-              _InfoMetaChip(
-                label: '$mainCount 集正片',
-                onDarkBackdrop: onDarkBackdrop,
-              ),
-            if (extraCount > 0)
-              _InfoMetaChip(
-                label: '$extraCount 项特典',
-                onDarkBackdrop: onDarkBackdrop,
-              ),
-            if (cdCount > 0)
-              _InfoMetaChip(
-                label: '$cdCount 张 CD',
-                onDarkBackdrop: onDarkBackdrop,
-              ),
-            if (work.isManualLocked)
-              _InfoMetaChip(
-                label: '已人工锁定',
-                icon: Icons.lock_outline_rounded,
-                onDarkBackdrop: onDarkBackdrop,
-              ),
-          ],
-        ),
+        if (metaParts.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Text(
+            metaParts.join(' · '),
+            key: const ValueKey('detail_hero_metadata'),
+            style: KonataTheme.detailHeroTitleStyle(
+              fontSize: KonataTheme.fontSizeBody,
+              weight: KonataTheme.weightH1,
+              letterSpacing: 0.4,
+              color: useLightInk
+                  ? p.textPrimary
+                  : KonataTheme.overlayWhiteTextHigh,
+              shadows: useLightInk
+                  ? KonataTheme.lightDetailTextShadows
+                  : KonataTheme.detailTextShadows,
+            ),
+          ),
+        ],
         if (showOverview &&
             displayPreferences.showOverview &&
             work.overview != null &&
             work.overview!.trim().isNotEmpty) ...[
           const SizedBox(height: 12),
           ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: compact ? double.infinity : 680),
+            constraints: BoxConstraints(
+              maxWidth: compact ? double.infinity : 680,
+            ),
             child: InlineExpandableSynopsis(
               text: work.overview!,
               collapsedMaxLines: 3,
@@ -226,63 +213,5 @@ class DetailHeroInfo extends StatelessWidget {
       return null;
     }
     return '第 ${ep.episodeNumber} 话';
-  }
-}
-
-class _InfoMetaChip extends StatelessWidget {
-  const _InfoMetaChip({
-    required this.label,
-    this.icon,
-    this.onDarkBackdrop = true,
-  });
-
-  final String label;
-  final IconData? icon;
-  final bool onDarkBackdrop;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-    final useDarkStyle = onDarkBackdrop || p.isDark;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3.5),
-      decoration: BoxDecoration(
-        color: useDarkStyle
-            ? const Color(0x30141820)
-            : KonataPlaybackTokens.glassSurface(p),
-        borderRadius: KonataTheme.borderRadiusPill,
-        border: Border.all(
-          color: useDarkStyle
-              ? KonataTheme.overlayWhiteBorderStrong
-              : KonataPlaybackTokens.glassBorder(p),
-          width: 0.9,
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (icon != null) ...[
-            Icon(
-              icon,
-              size: 12.5,
-              color: useDarkStyle
-                  ? KonataTheme.overlayWhiteTextSub
-                  : p.textSecondary,
-            ),
-            const SizedBox(width: 4),
-          ],
-          Text(
-            label,
-            style: TextStyle(
-              color: useDarkStyle
-                  ? KonataTheme.overlayWhiteTextHigh
-                  : p.textPrimary,
-              fontSize: KonataTheme.fontSizeBadge,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }

@@ -275,10 +275,25 @@ class SourceAccessException implements Exception {
   String toString() => message;
 }
 
+/// 云盘授权失败的脱敏诊断；不保存原始响应、请求地址或凭据。
+final class CloudAuthorizationDiagnostic {
+  const CloudAuthorizationDiagnostic({
+    required this.httpStatus,
+    this.serviceCode,
+  });
+
+  final int httpStatus;
+  final int? serviceCode;
+}
+
 /// 账号风控或验证码拦截。必须停止自动调用，等待用户重新授权。
 final class RiskControlled extends SourceAccessException {
-  const RiskControlled()
-    : super(SourceAccessProblemKind.permission, '云盘风控已停止自动访问，请完成官方授权后重试');
+  const RiskControlled([CloudAuthorizationDiagnostic? diagnostic])
+    : super(
+        SourceAccessProblemKind.permission,
+        '云盘风控已停止自动访问，请完成官方授权后重试',
+        diagnostic,
+      );
 }
 
 /// 根据媒体源只读视图构建只读网关的抽象工厂端口。

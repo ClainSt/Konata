@@ -42,6 +42,44 @@ class _CloudAccountSignInDialogState extends State<_CloudAccountSignInDialog> {
     super.dispose();
   }
 
+  // 只展示固定分类文案，不展示服务端原始响应、手机号、令牌或异常正文。
+  String _failureMessage(Object error, bool sent) {
+    final stage = sent ? '确认授权' : '发送验证码';
+    final detail = switch (error) {
+      RiskControlled() => '服务端要求额外验证或触发风控，请通过官方授权入口处理。',
+      SourceRateLimitException() => '服务端限制请求频率，请遵循服务方的冷却要求。',
+      SourceAccessException(kind: SourceAccessProblemKind.permission) =>
+        '客户端权限或认证入口被拒绝，请核对获准使用的客户端配置。',
+      SourceAccessException(kind: SourceAccessProblemKind.network) =>
+        '网络连接或授权服务异常，请检查网络及代理设置。',
+      SourceAccessException(kind: SourceAccessProblemKind.timeout) => '授权请求超时。',
+      SourceAccessException(kind: SourceAccessProblemKind.tls) => '安全连接校验失败。',
+      SourceAccessException(kind: SourceAccessProblemKind.unknown) =>
+        '授权接口或响应格式不兼容，需确认服务方支持的接口。',
+      SourceAccessException(kind: SourceAccessProblemKind.authentication) =>
+        '服务端未接受授权请求或未返回必要的验证会话。',
+      _ => '授权发生未知错误，请检查客户端配置。',
+    };
+    final diagnostic = error is SourceAccessException ? error.cause : null;
+    final status = switch (error) {
+      SourceRateLimitException(:final statusCode) => statusCode,
+      _ =>
+        diagnostic is CloudAuthorizationDiagnostic
+            ? diagnostic.httpStatus
+            : null,
+    };
+    final code = diagnostic is CloudAuthorizationDiagnostic
+        ? diagnostic.serviceCode
+        : null;
+    final statusText = status != null && status >= 100 && status <= 599
+        ? ' HTTP $status'
+        : '';
+    final codeText = code != null && code >= 0 && code <= 999999
+        ? ' 服务端代码 $code'
+        : '';
+    return '$stage失败：$detail$statusText$codeText';
+  }
+
   Future<void> _submit() async {
     if (_busy || _failed) return;
     final sent = _sent;
@@ -64,11 +102,11 @@ class _CloudAccountSignInDialogState extends State<_CloudAccountSignInDialog> {
         await widget.session.sendSms(input);
         if (mounted) setState(() => _sent = true);
       }
-    } catch (_) {
+    } catch (error) {
       if (mounted) {
         setState(() {
           _failed = true;
-          _error = '授权未完成，请关闭本次授权后检查客户端配置或按服务方提示操作。';
+          _error = _failureMessage(error, sent);
         });
       }
     } finally {

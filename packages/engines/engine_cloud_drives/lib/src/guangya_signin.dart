@@ -48,6 +48,8 @@ final class LegacyGuangYaSignIn {
       );
     } on SourceAccessException {
       rethrow;
+    } on SourceRateLimitException {
+      rethrow;
     } catch (_) {
       throw const SourceAccessException(
         SourceAccessProblemKind.network,
@@ -61,24 +63,77 @@ final class LegacyGuangYaSignIn {
         if (parsed is Map<String, dynamic>) obj = parsed;
       } catch (_) {}
     }
+    final status = response.statusCode;
+    final rawCode = obj?['code'] ?? obj?['error_code'];
+    final code = rawCode is int && rawCode >= 0 && rawCode <= 999999
+        ? rawCode
+        : null;
+    final diagnostic = CloudAuthorizationDiagnostic(
+      httpStatus: status,
+      serviceCode: code,
+    );
     final error = [
       obj?['error'],
       obj?['error_code'],
       obj?['error_description'],
       obj?['msg'],
+      obj?['message'],
     ].whereType<String>().join(' ').toLowerCase();
+    // 普通短信发送成功提示也可能包含验证码字样，不应视为风控。
+    // 仅按明确的额外验证或风控提示停止事务，不跳过挑战。
     if (error.contains('captcha') ||
-        error.contains('验证码') ||
+        error.contains('图形验证码') ||
+        error.contains('人机验证') ||
+        error.contains('额外验证') ||
+        error.contains('安全验证') ||
         error.contains('风控') ||
         error.contains('risk_control')) {
       _risk = true;
       cancel();
-      throw const RiskControlled();
+      throw RiskControlled(diagnostic);
     }
-    if (response.statusCode != 200 || obj == null || obj['error'] != null) {
-      throw const SourceAccessException(
+    if (status == 429 ||
+        error.contains('rate_limit') ||
+        error.contains('too_many_requests')) {
+      _risk = true;
+      throw const SourceRateLimitException(
+        statusCode: 429,
+        message: '光鸭授权请求受到频率限制',
+      );
+    }
+    if (status == 401 ||
+        status == 403 ||
+        error.contains('invalid_client') ||
+        error.contains('unauthorized_client') ||
+        error.contains('client_id not registered')) {
+      _risk = true;
+      throw SourceAccessException(
+        SourceAccessProblemKind.permission,
+        '服务端拒绝客户端或授权权限（HTTP $status）',
+        diagnostic,
+      );
+    }
+    if (status >= 500 && status <= 599) {
+      throw SourceAccessException(
+        SourceAccessProblemKind.network,
+        '光鸭授权服务异常（HTTP $status）',
+        diagnostic,
+      );
+    }
+    if (status == 404 || status == 405 || obj == null) {
+      throw SourceAccessException(
+        SourceAccessProblemKind.unknown,
+        '光鸭授权接口或响应格式不兼容（HTTP $status）',
+        diagnostic,
+      );
+    }
+    if (status != 200 ||
+        obj['error'] != null ||
+        (obj['code'] != null && obj['code'] != 0)) {
+      throw SourceAccessException(
         SourceAccessProblemKind.authentication,
-        '光鸭授权失败，请检查应用凭据或验证码',
+        '光鸭授权请求未获接受（HTTP $status）',
+        diagnostic,
       );
     }
     return obj;

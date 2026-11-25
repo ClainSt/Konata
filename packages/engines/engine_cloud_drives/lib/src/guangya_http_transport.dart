@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -105,6 +106,16 @@ final class GuangYaHttpTransport {
       );
     } on SourceAccessException {
       rethrow;
+    } on TimeoutException {
+      throw const SourceAccessException(
+        SourceAccessProblemKind.timeout,
+        '云盘接口请求超时',
+      );
+    } on HandshakeException {
+      throw const SourceAccessException(
+        SourceAccessProblemKind.tls,
+        '云盘接口安全连接校验失败',
+      );
     } catch (_) {
       throw const SourceAccessException(
         SourceAccessProblemKind.network,

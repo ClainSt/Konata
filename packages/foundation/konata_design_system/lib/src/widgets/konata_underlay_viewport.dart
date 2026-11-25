@@ -1,4 +1,3 @@
-import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 
 /// 透明底层视口的物理像素矩形及圆角。
@@ -21,18 +20,15 @@ class KonataUnderlayViewport extends LeafRenderObjectWidget {
   @override
   RenderObject createRenderObject(BuildContext context) =>
       _RenderUnderlayViewport(
-        owner: owner,
-        onGeometryChanged: onGeometryChanged,
-        dpr: MediaQuery.devicePixelRatioOf(context),
-        radius: cornerRadius,
+        owner,
+        onGeometryChanged,
+        MediaQuery.devicePixelRatioOf(context),
+        cornerRadius,
       );
 
   @override
-  void updateRenderObject(
-    BuildContext context,
-    covariant _RenderUnderlayViewport renderObject,
-  ) {
-    renderObject.update(
+  void updateRenderObject(BuildContext context, RenderObject renderObject) {
+    (renderObject as _RenderUnderlayViewport).update(
       owner: owner,
       onGeometryChanged: onGeometryChanged,
       dpr: MediaQuery.devicePixelRatioOf(context),
@@ -42,16 +38,12 @@ class KonataUnderlayViewport extends LeafRenderObjectWidget {
 }
 
 class _RenderUnderlayViewport extends RenderBox {
-  _RenderUnderlayViewport({
-    required Object owner,
-    required ValueChanged<KonataUnderlayGeometry?> onGeometryChanged,
-    required double dpr,
-    required double radius,
-  }) : _owner = owner,
-       _onGeometryChanged = onGeometryChanged,
-       _dpr = dpr,
-       _radius = radius;
-
+  _RenderUnderlayViewport(
+    this._owner,
+    this._onGeometryChanged,
+    this._dpr,
+    this._radius,
+  );
   static final Paint _clear = Paint()..blendMode = BlendMode.clear;
   Object _owner;
   ValueChanged<KonataUnderlayGeometry?> _onGeometryChanged;

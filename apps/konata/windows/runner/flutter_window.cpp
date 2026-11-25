@@ -88,8 +88,14 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
   // 窗口最小化时在无活跃视频会话的前提下即时回收闲置 D3D11 设备与系统工作集。
-  if (message == WM_SIZE && wparam == SIZE_MINIMIZED && d3d11_bridge_) {
-    d3d11_bridge_->TrimMemoryOnMinimize();
+  if (message == WM_SIZE && wparam == SIZE_MINIMIZED) {
+    if (d3d11_bridge_) {
+      d3d11_bridge_->TrimMemoryOnMinimize();
+    }
+    if (resize_channel_) {
+      resize_channel_->InvokeMethod(
+          "windowMinimized", std::make_unique<flutter::EncodableValue>());
+    }
   } else if (message == WM_ENTERSIZEMOVE) {
     if (!is_live_resizing_) {
       is_live_resizing_ = true;

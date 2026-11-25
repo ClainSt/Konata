@@ -14,8 +14,11 @@ abstract interface class KonataDesktopWindowHostPort {
   /// 重新隐藏系统原生标题栏三键，防止与无框自绘三键重叠。
   Future<void> hideWindowControls();
 
-  /// 绑定原生窗口实时拖拽缩放通知通道（驱动毛玻璃降级防卡顿），返回解绑释放回调。
-  void Function() bindLiveResizeChannel(ValueNotifier<bool> resizingNotifier);
+  /// 监听原生窗口拖拽缩放与最小化，返回解绑回调。
+  void Function() bindLiveResizeChannel(
+    ValueNotifier<bool> resizingNotifier, {
+    required VoidCallback onMinimized,
+  });
 
   /// 构建无框窗口控制三键（最小化 / 最大化还原 / 关闭）。
   Widget buildWindowControls({

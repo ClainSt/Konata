@@ -348,21 +348,27 @@ extension VideoPlaybackControllerWindowAndPersistence on VideoPlaybackController
     _currentSubtitleHudLiftPercent = 0.0;
     _session?.setSubtitleHudLiftPercent(0.0);
     _setState(_state.copyWith(isClosing: true, isPlaying: false));
-    await persistProgressNow();
-    if (_state.isMiniPlayer) {
-      await env.pipRecoveryStore.clear();
-    }
-    if (env.platform == KonataPlatform.windows && _state.isMiniPlayer) {
-      await env.hostWindow.setAlwaysOnTop(false);
-      await env.hostWindow.exitDesktopMiniWindow();
-    }
-    await env.hostWindow.setKeepScreenOn(false);
-    await env.hostWindow.setPreferredLandscape(false);
-    env.audiophileCoordinator.detachSession(this);
-    _session?.silenceAndDetachForClose();
-    await _session?.dispose();
+    final session = _session;
     _session = null;
-    await thumbnailService.release();
-    env.playbackEngine.resetSession();
+    session?.silenceAndDetachForClose();
+    env.audiophileCoordinator.detachSession(this);
+    try {
+      await Future.wait([
+        persistProgressNow(),
+        thumbnailService.release(),
+        if (session != null) session.dispose(),
+      ]);
+    } finally {
+      env.playbackEngine.resetSession();
+      if (_state.isMiniPlayer) {
+        await env.pipRecoveryStore.clear();
+        if (env.platform == KonataPlatform.windows) {
+          await env.hostWindow.setAlwaysOnTop(false);
+          await env.hostWindow.exitDesktopMiniWindow();
+        }
+      }
+      await env.hostWindow.setKeepScreenOn(false);
+      await env.hostWindow.setPreferredLandscape(false);
+    }
   }
 }

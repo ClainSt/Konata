@@ -137,6 +137,37 @@ void main() {
       expect(controller.hasPreviousEpisode, isTrue);
     });
 
+    test('关闭播放会话时取消缩略图预热并等待两个播放器客户端释放', () async {
+      final harness = await VideoTestHarness.create();
+      addTearDown(harness.dispose);
+      final seeded = await harness.seedSampleAnime();
+      final clients = <FakeLibMpvClient>[];
+      final controller = harness.createController(
+        libMpvClientFactory: () {
+          final client = FakeLibMpvClient();
+          clients.add(client);
+          return client;
+        },
+        enablePeriodicTimers: false,
+      );
+      addTearDown(controller.dispose);
+      await controller.initialize(VideoLaunchRequest(workId: seeded.work.id));
+
+      final thumbnails = controller.thumbnailService;
+      await Future<void>.delayed(Duration.zero);
+      expect(thumbnails.hasActiveNativeClient, isTrue);
+      final mediaClients = clients.where(
+        (client) => client.commands.any((command) => command.first == 'loadfile'),
+      ).toList();
+      expect(mediaClients, hasLength(2));
+
+      await controller.closeSession().timeout(const Duration(seconds: 6));
+      expect(thumbnails.hasActiveNativeClient, isFalse);
+      expect(thumbnails.isWarmingUp, isFalse);
+      expect(mediaClients.every((client) => client.isDisposed), isTrue);
+      expect(harness.hostWindow.keepScreenOn, isFalse);
+    });
+
     test('全屏与悬浮小窗切换及画中画快照写入恢复与外部播放器接力回写', () async {
       final harness = await VideoTestHarness.create();
       addTearDown(harness.dispose);

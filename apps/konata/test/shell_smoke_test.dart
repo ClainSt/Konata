@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -10,15 +11,49 @@ import 'package:feature_library/feature_library.dart';
 import 'package:feature_scan_viewer/feature_scan_viewer.dart';
 import 'package:feature_settings/feature_settings.dart';
 import 'package:feature_sources/feature_sources.dart';
+import 'package:flutter/services.dart' show MethodCall, StandardMethodCodec;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:konata/bootstrap/app_bootstrap.dart';
 import 'package:konata/bootstrap/feature_registry.dart';
+import 'package:konata/bootstrap/windows_window_host.dart';
 import 'package:konata_contracts/konata_contracts.dart';
 import 'package:konata_design_system/konata_design_system.dart';
 import 'package:konata_storage/konata_storage.dart';
 
 void main() {
+  testWidgets('Windows 原生通道转发缩放与最小化并支持解绑', (tester) async {
+    final resizing = ValueNotifier(false);
+    addTearDown(resizing.dispose);
+    var minimized = 0;
+    final unbind = WindowsWindowHost().bindLiveResizeChannel(
+      resizing,
+      onMinimized: () => minimized++,
+    );
+    addTearDown(unbind);
+
+    Future<void> send(String method, [Object? arguments]) async {
+      final message = const StandardMethodCodec().encodeMethodCall(
+        MethodCall(method, arguments),
+      );
+      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+        konataWindowResizeChannelName,
+        message,
+        null,
+      );
+    }
+
+    await send('resizeStateChanged', true);
+    expect(resizing.value, isTrue);
+    await send('windowMinimized');
+    expect(minimized, 1);
+    await send('resizeStateChanged', false);
+    expect(resizing.value, isFalse);
+    unbind();
+    await send('windowMinimized');
+    expect(minimized, 1);
+  }, variant: const TargetPlatformVariant({TargetPlatform.windows}));
+
   group('apps/konata 双端极薄组装壳与全量 11 业务包端到端闭环', () {
     testWidgets('挂载全部 11 大扩展模块、保持 cache.db 惰性，并打通四主分区、详情扫图与跨包设置聚合全链路', (
       tester,
@@ -225,6 +260,19 @@ void main() {
         ),
       );
       await _pumpFrames(tester);
+
+      final imageKey = Object();
+      final imageCache = PaintingBinding.instance.imageCache;
+      imageCache.putIfAbsent(
+        imageKey,
+        () => OneFrameImageStreamCompleter(Completer<ImageInfo>().future),
+      );
+      konataSharedThumbnailByteLru.put(imageKey, Uint8List.fromList([42]));
+      expect(imageCache.containsKey(imageKey), isTrue);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      expect(imageCache.containsKey(imageKey), isFalse);
+      expect(konataSharedThumbnailByteLru.get(imageKey), isNull);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
 
       // 1. 海报墙默认挂载真实 LibraryPage。
       expect(find.byType(KonataAdaptiveShell), findsOneWidget);

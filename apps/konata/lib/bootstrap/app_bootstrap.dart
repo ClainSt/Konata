@@ -932,6 +932,7 @@ final class _KonataBootstrapRootState
 
     _unbindResizeChannel = widget.windowHost?.bindLiveResizeChannel(
       _windowLiveResizing,
+      onMinimized: _trimImageCaches,
     );
     _diagnosticsBridge = HostDiagnosticsRuntimeBridge(
       diagnosticLog: widget.bootstrap.diagnosticLog,
@@ -982,10 +983,22 @@ final class _KonataBootstrapRootState
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused) {
+      _trimImageCaches();
+    }
     if (state == AppLifecycleState.resumed &&
         widget.bootstrap.autoStartDetailWarmupAndBackfill) {
       triggerOngoingWorksAutoSync(ref, widget.bootstrap.featureRegistry);
     }
+  }
+
+  @override
+  void didHaveMemoryPressure() => _trimImageCaches();
+
+  void _trimImageCaches() {
+    konataSharedThumbnailByteLru.clear();
+    PaintingBinding.instance.imageCache.clear();
   }
 
   @override

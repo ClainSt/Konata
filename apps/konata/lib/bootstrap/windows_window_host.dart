@@ -125,8 +125,9 @@ final class WindowsWindowHost implements KonataDesktopWindowHostPort {
 
   @override
   void Function() bindLiveResizeChannel(
-    ValueNotifier<bool> resizingNotifier,
-  ) {
+    ValueNotifier<bool> resizingNotifier, {
+    required VoidCallback onMinimized,
+  }) {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.windows) {
       return () {};
     }
@@ -134,7 +135,12 @@ final class WindowsWindowHost implements KonataDesktopWindowHostPort {
     Timer? guardTimer;
     var disposed = false;
     resizeChannel.setMethodCallHandler((call) async {
-      if (disposed || call.method != 'resizeStateChanged') return null;
+      if (disposed) return null;
+      if (call.method == 'windowMinimized') {
+        onMinimized();
+        return null;
+      }
+      if (call.method != 'resizeStateChanged') return null;
       final resizing = call.arguments == true;
       guardTimer?.cancel();
       guardTimer = null;

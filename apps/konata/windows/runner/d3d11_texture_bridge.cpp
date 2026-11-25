@@ -26,7 +26,7 @@ constexpr size_t kMaxSurfaceExtent = 8192;
 constexpr size_t kTripleBufferSlots = 3;
 constexpr size_t kPrimaryBufferSlots = 2;
 constexpr size_t kMetricsWindowCapacity = 512;
-constexpr DWORD kIdleD3D11DeviceTtlMs = 8000;
+constexpr DWORD kIdleD3D11DeviceTtlMs = 5000;
 
 using FnRenderContextCreate = int (*)(mpv_render_context** res,
                                       mpv_handle* mpv,

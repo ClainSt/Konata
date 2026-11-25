@@ -177,6 +177,8 @@ class MpvThumbnailService extends ChangeNotifier {
   bool _isExtracting = false;
   bool _isUserHovering = false;
   bool _disposed = false;
+  bool _notifierDisposed = false;
+  Future<void>? _releaseFuture;
   int _generation = 0;
 
   double? _pendingUserBucket;
@@ -647,17 +649,16 @@ class MpvThumbnailService extends ChangeNotifier {
   }
 
   /// 立即释放当前缩略图解码实例、软件渲染上下文并注销网络流会话。
-  Future<void> release() async {
-    if (_disposed) return;
+  Future<void> release() {
     _disposed = true;
-    await _resetSessionOnly();
+    return _releaseFuture ??= _resetSessionOnly();
   }
 
   @override
   void dispose() {
-    if (_disposed) return;
-    _disposed = true;
-    unawaited(_resetSessionOnly());
+    if (_notifierDisposed) return;
+    _notifierDisposed = true;
+    if (_releaseFuture == null) unawaited(release());
     super.dispose();
   }
 }

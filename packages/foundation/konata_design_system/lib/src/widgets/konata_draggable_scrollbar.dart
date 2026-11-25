@@ -1,5 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
+import '../tokens/konata_theme.dart';
+
 /// 显式绑定独立生命周期 `ScrollController` 的桌面端可拖拽滚动条容器。
 class KonataDraggableScrollbar extends StatefulWidget {
   /// 创建可拖拽滚动条包裹组件。
@@ -79,19 +81,30 @@ class _KonataDraggableScrollbarState extends State<KonataDraggableScrollbar> {
           )
         : widget.builder(context, controller);
 
+    final media = MediaQuery.of(context);
+    final trackPadding = widget.trackInsets ?? media.padding;
+    final theme = ScrollbarTheme.of(context);
+    // 按滑块最宽状态预留轨道，滚动条显隐和悬停均不改变正文约束。
+    final gutter =
+        KonataTheme.scrollbarMaxThickness +
+        KonataTheme.scrollbarContentGap +
+        (theme.crossAxisMargin ?? 0.0) +
+        trackPadding.right;
     Widget bar = Scrollbar(
       controller: controller,
       thumbVisibility: widget.thumbVisibility,
       trackVisibility: widget.trackVisibility,
       interactive: true,
       scrollbarOrientation: ScrollbarOrientation.right,
-      child: inner,
+      child: Padding(
+        padding: EdgeInsets.only(right: gutter),
+        child: MediaQuery(data: media, child: inner),
+      ),
     );
 
     if (widget.trackInsets != null) {
-      final mq = MediaQuery.of(context);
       bar = MediaQuery(
-        data: mq.copyWith(padding: widget.trackInsets!),
+        data: media.copyWith(padding: trackPadding),
         child: bar,
       );
     }

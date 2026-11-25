@@ -158,6 +158,10 @@ abstract final class KonataTheme {
     Radius.circular(radiusPill),
   );
 
+  /// 滚动条最大滑块宽度及其与正文之间的独立留白。
+  static const double scrollbarMaxThickness = 8.0;
+  static const double scrollbarContentGap = 6.0;
+
   /// 全站标准排版字号阶梯。
   static const double fontSizeMicro = 10.0;
   static const double fontSizeBadge = 10.5;
@@ -720,7 +724,7 @@ abstract final class KonataTheme {
         thickness: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.hovered) ||
               states.contains(WidgetState.dragged)) {
-            return 8.0;
+            return scrollbarMaxThickness;
           }
           return 5.5;
         }),

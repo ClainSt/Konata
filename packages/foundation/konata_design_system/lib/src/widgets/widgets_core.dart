@@ -16,4 +16,5 @@ export 'konata_managed_image.dart';
 export 'konata_osd_stroked_text.dart';
 export 'konata_page_header.dart';
 export 'konata_pill_button.dart';
+export 'konata_secondary_filter_bar.dart';
 export 'konata_segmented_capsule.dart';

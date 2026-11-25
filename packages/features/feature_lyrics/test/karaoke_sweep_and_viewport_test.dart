@@ -89,6 +89,80 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets('切换到无可靠曲名的曲目清空上一曲歌词并停止逐字时钟', (tester) async {
+    final db = KonataDatabaseBundle.openInMemory();
+    addTearDown(db.close);
+    var requests = 0;
+    final controller = LyricDisplayController(
+      resolver: LyricsResolver(
+        cacheRepository: StorageLyricCacheRepository.fromBundle(db),
+        sourcesFactory: () async {
+          requests++;
+          return const [];
+        },
+      ),
+      preferencesStore: LyricsPreferencesStore(ScopedPrefsStore(db.userState)),
+    );
+    addTearDown(controller.dispose);
+    await controller.resolveForTrack(
+      const LyricTrackQuery(
+        trackKey: 'named',
+        albumKey: 'fixture',
+        title: '有歌词曲目',
+        durationSeconds: 32,
+        embeddedLrcText: '[00:00.00]第一行\n[00:08.00]第二行\n[00:16.00]第三行',
+      ),
+    );
+    await tester.pumpWidget(
+      wrapLyricsTestApp(
+        child: SizedBox(
+          width: 500,
+          height: 460,
+          child: ImmersiveLyricsViewport(
+            itemId: 'named',
+            controller: controller,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('immersive_lyrics_list')), findsOneWidget);
+    await controller.resolveForTrack(
+      const LyricTrackQuery(
+        trackKey: 'weak',
+        albumKey: 'fixture',
+        title: '01',
+        durationSeconds: 45,
+      ),
+    );
+    await tester.pumpWidget(
+      wrapLyricsTestApp(
+        child: SizedBox(
+          width: 500,
+          height: 460,
+          child: ImmersiveLyricsViewport(
+            itemId: 'weak',
+            controller: controller,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('当前曲目暂无同步歌词'), findsOneWidget);
+    expect(find.byKey(const ValueKey('immersive_lyrics_list')), findsNothing);
+    expect(controller.state.lrcDocument, isNull);
+    expect(controller.state.activeLyricIndex, -1);
+    expect(controller.state.isLookupInFlight, isFalse);
+    controller.updatePlaybackPosition(
+      const Duration(seconds: 19),
+      isPlaying: true,
+    );
+    await tester.pumpAndSettle();
+    expect(SchedulerBinding.instance.transientCallbackCount, 0);
+    expect(requests, 0);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+  });
   group('ImmersiveLyricLineLeaf 帧时钟启停与渲染隔离', () {
     testWidgets('直连播放叶子监听在暂停、不可见与行播完后立即停摆 Ticker', (tester) async {
       final pos = ValueNotifier<Duration>(const Duration(milliseconds: 10300));

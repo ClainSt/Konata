@@ -20,7 +20,9 @@ void main() {
       expect(parsed.lrcContent, contains('<00:11.300-00:13.000>海'));
       expect(parsed.lrcContent, contains('<00:16.000-00:16.000>吹く'));
 
-      final spanLines = LyricVersionMatcher.parseActiveSpanLines(parsed.lrcContent);
+      final spanLines = LyricVersionMatcher.parseActiveSpanLines(
+        parsed.lrcContent,
+      );
       expect(spanLines.length, 3);
       expect(spanLines.first.spans.first.text, '光');
       expect(spanLines.first.spans.first.endSeconds, closeTo(10.5, 0.001));
@@ -94,7 +96,10 @@ void main() {
       final activeLines = LyricVersionMatcher.parseActiveSpanLines(conv.lrc);
       expect(activeLines.length, 3);
       expect(
-        activeLines.first.spans.where((s) => !s.isHarmony).map((s) => s.text).join(),
+        activeLines.first.spans
+            .where((s) => !s.isHarmony)
+            .map((s) => s.text)
+            .join(),
         '青空',
       );
       expect(activeLines.first.spans.where((s) => s.isHarmony).length, 1);
@@ -186,7 +191,10 @@ void main() {
         LyricOffsetResolver.classifyAudioRoute(deviceName: 'USB DAC Audio'),
         LyricAudioRouteKind.wired,
       );
-      expect(LyricOffsetResolver.classifyAudioRoute(), LyricAudioRouteKind.wired);
+      expect(
+        LyricOffsetResolver.classifyAudioRoute(),
+        LyricAudioRouteKind.wired,
+      );
 
       const snapshot = LyricOffsetSnapshot(
         trackOffsetMillis: 200,
@@ -203,6 +211,49 @@ void main() {
       expect(LyricOffsetResolver.formatOffsetSeconds(0), '0.0s');
     });
 
+    test('弱标题遇到不匹配专辑或重复轨号时拒绝猜测', () {
+      const tracks = [
+        BangumiMusicTrack(
+          subjectId: 1,
+          subjectTitle: '专辑甲',
+          trackNumber: 1,
+          title: '曲目甲',
+        ),
+        BangumiMusicTrack(
+          subjectId: 1,
+          subjectTitle: '专辑甲',
+          trackNumber: 1,
+          title: '曲目乙',
+        ),
+      ];
+      expect(
+        BangumiTrackEnricher.enrich(
+          title: '01',
+          album: '完全不同的专辑',
+          trackNumber: 1,
+          musicTracks: [tracks.first],
+        ).hasEnhancement,
+        isFalse,
+      );
+      expect(
+        BangumiTrackEnricher.enrich(
+          title: '01',
+          album: '专辑甲',
+          trackNumber: 1,
+          musicTracks: tracks,
+        ).hasEnhancement,
+        isFalse,
+      );
+      expect(
+        BangumiTrackEnricher.enrich(
+          title: '01',
+          album: '专辑甲',
+          trackNumber: 1,
+          musicTracks: [tracks.first],
+        ).recoveredTitle,
+        '曲目甲',
+      );
+    });
     test('BangumiTrackEnricher 恢复 Track 01 真实日文原名并附加跨语种别名', () {
       const tracks = [
         BangumiMusicTrack(

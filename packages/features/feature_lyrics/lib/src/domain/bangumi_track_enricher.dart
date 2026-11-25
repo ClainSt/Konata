@@ -53,6 +53,9 @@ abstract final class BangumiTrackEnricher {
 
     BangumiMusicTrack? matched;
     var bestScore = 0.0;
+    var weakAmbiguous = false;
+    final singleSubject =
+        musicTracks.map((t) => t.subjectId).toSet().length == 1;
 
     for (final track in musicTracks) {
       final candidateTitle = track.title.trim();
@@ -63,14 +66,21 @@ abstract final class BangumiTrackEnricher {
         // 弱标题仅在轨号一致且专辑名吻合（或仅关联单张单曲/专辑）时安全恢复，防止张冠李戴。
         if (trackNumber == null || track.trackNumber != trackNumber) continue;
         final albumSim = _albumSimilarity(album, track);
-        final singleSubject =
-            musicTracks.map((t) => t.subjectId).toSet().length == 1;
-        final score = albumSim > 0
-            ? albumSim
-            : (singleSubject ? 0.65 : 0.0);
-        if (score >= 0.60 && score > bestScore) {
+        // 仅在专辑信息缺失且关联专辑唯一时允许以轨号兜底。
+        final score = album.trim().isEmpty
+            ? (singleSubject ? 0.65 : 0.0)
+            : albumSim;
+        if (score < 0.60) continue;
+        if (score > bestScore + 1e-6) {
           bestScore = score;
           matched = track;
+          weakAmbiguous = false;
+        } else if ((score - bestScore).abs() <= 1e-6 &&
+            matched != null &&
+            (matched.subjectId != track.subjectId ||
+                matched.title != track.title ||
+                matched.titleCn != track.titleCn)) {
+          weakAmbiguous = true;
         }
       } else {
         final simOrig = candidateTitle.isEmpty
@@ -90,7 +100,7 @@ abstract final class BangumiTrackEnricher {
       }
     }
 
-    if (matched == null) return const BangumiTrackEnrichment();
+    if (matched == null || weakAmbiguous) return const BangumiTrackEnrichment();
 
     final aliases = <String>[];
     final seen = <String>{

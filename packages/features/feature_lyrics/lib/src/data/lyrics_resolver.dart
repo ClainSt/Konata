@@ -164,7 +164,9 @@ class LyricsResolver {
     required int fileSize,
     double? cueStartSeconds,
   }) {
-    final cue = cueStartSeconds == null ? '' : cueStartSeconds.toStringAsFixed(3);
+    final cue = cueStartSeconds == null
+        ? ''
+        : cueStartSeconds.toStringAsFixed(3);
     return '$physicalFileKey|$fileSize|$cue';
   }
 
@@ -339,6 +341,14 @@ class LyricsResolver {
         if (embeddedOutcome != null) return embeddedOutcome;
       }
 
+      // 占位曲名无法建立可靠歌曲身份，不采用旧自动缓存或跨文件复用。
+      if (BangumiTrackEnricher.isWeakTrackTitle(query.title)) {
+        return LyricResolveOutcome(
+          trackOffsetMillis: preservedOffset,
+          userOffsetLocked: preservedLock,
+        );
+      }
+
       final cached = await _readCache(
         request.trackKey,
         query.songKey,
@@ -371,11 +381,24 @@ class LyricsResolver {
       }
     }
 
+    // 重试仍属于自动匹配，用户可以通过独立手动检索提供真实曲名。
+    if (BangumiTrackEnricher.isWeakTrackTitle(query.title)) {
+      return LyricResolveOutcome(
+        trackOffsetMillis: preservedOffset,
+        userOffsetLocked: preservedLock,
+      );
+    }
+
     final List<LyricCandidateSource> sources;
     try {
       sources = await sourcesFactory();
     } on Object catch (e, st) {
-      _logWarn('LYRIC_TRANSPORT_INIT', '歌词检索网络传输初始化失败', error: e, stackTrace: st);
+      _logWarn(
+        'LYRIC_TRANSPORT_INIT',
+        '歌词检索网络传输初始化失败',
+        error: e,
+        stackTrace: st,
+      );
       return LyricResolveOutcome(
         trackOffsetMillis: preservedOffset,
         userOffsetLocked: preservedLock,
@@ -486,7 +509,11 @@ class LyricsResolver {
             })
             .timeout(LyricLookupConfig.raceDeadline)
             .catchError((Object e) {
-              _logWarn('LYRIC_MANUAL_SOURCE', '${source.label} 手动检索降级忽略', error: e);
+              _logWarn(
+                'LYRIC_MANUAL_SOURCE',
+                '${source.label} 手动检索降级忽略',
+                error: e,
+              );
             }),
     ]);
 
@@ -511,11 +538,7 @@ class LyricsResolver {
               borrowedTranslation: false,
               borrowedRomaji: false,
             )
-          : LyricMerger.enrichWithCrossSource(
-              raw,
-              others,
-              cache: crossCache,
-            );
+          : LyricMerger.enrichWithCrossSource(raw, others, cache: crossCache);
       final fullScore = LyricCandidateScorer.score(
         query,
         enriched.candidate,
@@ -621,14 +644,20 @@ class LyricsResolver {
   }
 
   /// 读取单曲与所属专辑的持久化偏移（同时适用于本地外挂与在线歌词）。
-  Future<({int trackOffsetMillis, bool userOffsetLocked, int albumOffsetMillis})>
+  Future<
+    ({int trackOffsetMillis, bool userOffsetLocked, int albumOffsetMillis})
+  >
   readPersistedOffsets({
     required String trackKey,
     required String albumKey,
   }) async {
     final repo = cacheRepository;
     if (repo == null) {
-      return (trackOffsetMillis: 0, userOffsetLocked: false, albumOffsetMillis: 0);
+      return (
+        trackOffsetMillis: 0,
+        userOffsetLocked: false,
+        albumOffsetMillis: 0,
+      );
     }
     try {
       final entry = await repo.findByTrackKey(trackKey);
@@ -642,7 +671,11 @@ class LyricsResolver {
       );
     } on Object catch (e) {
       _logWarn('LYRIC_READ_OFFSETS', '读取歌词偏移降级忽略', error: e);
-      return (trackOffsetMillis: 0, userOffsetLocked: false, albumOffsetMillis: 0);
+      return (
+        trackOffsetMillis: 0,
+        userOffsetLocked: false,
+        albumOffsetMillis: 0,
+      );
     }
   }
 
@@ -715,7 +748,8 @@ class LyricsResolver {
       )) {
         continue;
       }
-      if ((req.embeddedLrcText ?? '').trim().isNotEmpty) {
+      if (BangumiTrackEnricher.isWeakTrackTitle(query.title) ||
+          (req.embeddedLrcText ?? '').trim().isNotEmpty) {
         continue;
       }
 

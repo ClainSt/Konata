@@ -13,11 +13,19 @@ void main() {
   group('多源歌词适配器与传输端口适配', () {
     test('AMLL 镜像对冲竞速在主镜像超时后采纳备用镜像，明确 404 时立即短路', () async {
       final slowHits = <String>[];
-      final transport = FakeLyricHttpTransport((method, uri, headers, body) async {
+      final transport = FakeLyricHttpTransport((
+        method,
+        uri,
+        headers,
+        body,
+      ) async {
         slowHits.add(uri.toString());
         if (uri.host == 'mirror1.example') {
           await Future<void>.delayed(const Duration(milliseconds: 250));
-          return FakeLyricHttpTransport.utf8Response('not found', statusCode: 404);
+          return FakeLyricHttpTransport.utf8Response(
+            'not found',
+            statusCode: 404,
+          );
         }
         return FakeLyricHttpTransport.utf8Response(kSampleAmllTtml);
       });
@@ -34,11 +42,19 @@ void main() {
       expect(candidate, isNotNull);
       expect(candidate!.source, LyricSource.amll);
       expect(candidate.hasWordTiming, isTrue);
-      expect(slowHits.any((u) => u.contains('mirror2.example/1001.ttml')), isTrue);
+      expect(
+        slowHits.any((u) => u.contains('mirror2.example/1001.ttml')),
+        isTrue,
+      );
 
       // 明确 404 时直接返回空，不启动延迟后的下一镜像请求。
       final fast404Hits = <String>[];
-      final fast404Transport = FakeLyricHttpTransport((method, uri, headers, body) {
+      final fast404Transport = FakeLyricHttpTransport((
+        method,
+        uri,
+        headers,
+        body,
+      ) {
         fast404Hits.add(uri.toString());
         return FakeLyricHttpTransport.utf8Response('', statusCode: 404);
       });
@@ -88,7 +104,11 @@ void main() {
 
       final provider = LrclibLyricProvider(transport);
       final results = await provider.fetchCandidates(
-        LyricSearchQuery(title: '空の彼方', artist: 'Tester', durationSeconds: 210.0),
+        LyricSearchQuery(
+          title: '空の彼方',
+          artist: 'Tester',
+          durationSeconds: 210.0,
+        ),
       );
       expect(uris.length, 2);
       expect(uris.first.path, '/api/get');
@@ -408,6 +428,83 @@ void main() {
       expect(sourceCalls, 0);
     });
 
+    test('未补全数字轨名不使用旧自动缓存或联网，手选与内嵌歌词仍优先', () async {
+      final bundle = KonataDatabaseBundle.openInMemory();
+      addTearDown(bundle.close);
+      final repo = StorageLyricCacheRepository.fromBundle(bundle);
+      var networkCalls = 0;
+      final resolver = LyricsResolver(
+        cacheRepository: repo,
+        sourcesFactory: () async {
+          networkCalls++;
+          return [
+            FakeLyricCandidateSource(
+              label: 'Mock',
+              streamBuilder: (_) => Stream.value(
+                const LyricCandidate(
+                  source: LyricSource.netease,
+                  sourceId: 'unrelated',
+                  title: '01',
+                  durationSeconds: 45,
+                  lrcContent: kSampleJapaneseLrc,
+                ),
+              ),
+            ),
+          ];
+        },
+      );
+      await repo.save(
+        LyricCacheEntry(
+          trackKey: 'numeric',
+          songKey: '01||15',
+          status: LyricCacheStatus.found,
+          source: LyricSource.netease,
+          sourceId: 'unrelated',
+          lrcContent: kSampleJapaneseLrc,
+          score: 0.95,
+          engineVersion: LyricLookupConfig.engineVersion,
+          updatedAt: DateTime.now(),
+        ),
+      );
+      final req = LyricResolveRequest(
+        trackKey: 'numeric',
+        query: LyricSearchQuery(title: '01', durationSeconds: 45),
+      );
+      expect((await resolver.resolve(req)).lrcDocument, isNull);
+      expect(
+        (await resolver.resolve(req, bypassCache: true)).lrcDocument,
+        isNull,
+      );
+      expect(await resolver.prefetchUpcomingTracks([req]), 0);
+      expect(networkCalls, 0);
+      final embedded = await resolver.resolve(
+        LyricResolveRequest(
+          trackKey: 'embedded-numeric',
+          query: LyricSearchQuery(title: 'Track 01'),
+          embeddedLrcText: kSampleBilingualLrc,
+        ),
+      );
+      expect(embedded.source, LyricSource.local);
+      expect(embedded.lrcDocument, isNotNull);
+      await resolver.applyManualCandidate(
+        trackKey: req.trackKey,
+        selected: const ScoredLyricCandidate(
+          LyricCandidate(
+            source: LyricSource.amll,
+            sourceId: 'manual',
+            title: '已确认曲目',
+            lrcContent: kSampleBilingualLrc,
+          ),
+          1.0,
+        ),
+      );
+      await resolver.saveTrackOffset(req.trackKey, offsetMillis: 350);
+      final manual = await resolver.resolve(req);
+      expect(manual.userEdited, isTrue);
+      expect(manual.trackOffsetMillis, 350);
+      expect(manual.lrcDocument, isNotNull);
+      expect(networkCalls, 0);
+    });
     test('跨文件 songKey 复用、真实失败不写负缓存与渐进升级回调', () async {
       final bundle = KonataDatabaseBundle.openInMemory();
       addTearDown(bundle.close);
@@ -566,7 +663,9 @@ void main() {
       );
       expect(emptyCalls, 1);
 
-      now = now.add(LyricLookupConfig.notFoundRetryAfter + const Duration(hours: 1));
+      now = now.add(
+        LyricLookupConfig.notFoundRetryAfter + const Duration(hours: 1),
+      );
       await emptyResolver.resolve(
         LyricResolveRequest(
           trackKey: 'notfound-track',
@@ -606,7 +705,10 @@ void main() {
       final pendingFuture = cancelResolver.resolve(
         LyricResolveRequest(
           trackKey: 'track-cancel',
-          query: LyricSearchQuery(title: 'StalledTrack', durationSeconds: 190.0),
+          query: LyricSearchQuery(
+            title: 'StalledTrack',
+            durationSeconds: 190.0,
+          ),
         ),
       );
       await Future<void>.delayed(const Duration(milliseconds: 20));

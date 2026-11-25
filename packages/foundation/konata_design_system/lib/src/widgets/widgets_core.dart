@@ -18,3 +18,4 @@ export 'konata_page_header.dart';
 export 'konata_pill_button.dart';
 export 'konata_secondary_filter_bar.dart';
 export 'konata_segmented_capsule.dart';
+export 'konata_underlay_viewport.dart';

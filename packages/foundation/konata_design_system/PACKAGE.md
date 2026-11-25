@@ -17,3 +17,5 @@
 - 全局 Toast 支持位于 Navigator Overlay 外部；关闭按钮保留语义标签与触控交互，仅在可用 Overlay 内启用 Tooltip。
 
 - 全站显式悬停提示统一使用 KonataTooltip：存在 Overlay 时保留原生样式与交互，否则仅保留语义与子控件，不创建 RawTooltip。
+
+- `KonataUnderlayViewport`：底层视频视口透明挖空，按绘制实际位置和 DPI 帧末同步，卸载通知隐藏。禁止将其置于独立离屏绘制层。

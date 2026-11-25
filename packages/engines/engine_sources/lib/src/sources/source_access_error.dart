@@ -95,7 +95,9 @@ class SourceAccessErrorClassifier {
     }
     if (error is PathAccessException) return SourceAccessProblemKind.permission;
     if (error is PathNotFoundException) return SourceAccessProblemKind.path;
-    if (error is SmbAuthException) return SourceAccessProblemKind.authentication;
+    if (error is SmbAuthException) {
+      return SourceAccessProblemKind.authentication;
+    }
 
     final statusText = error is SmbException ? error.message : error.toString();
     final lower = statusText.toLowerCase();
@@ -145,23 +147,22 @@ class SourceAccessErrorClassifier {
     MediaSourceKind sourceKind, [
     Object? rawError,
   ]) {
+    if (rawError is RiskControlled) return rawError.message;
     final protocol = switch (sourceKind) {
       MediaSourceKind.local => '本地目录',
       MediaSourceKind.webdav => 'WebDAV',
       MediaSourceKind.smb => 'SMB 共享',
+      MediaSourceKind.cloudDrive => '云盘',
     };
     return switch (kind) {
       SourceAccessProblemKind.authentication =>
         '$protocol 认证失败：用户名或密码不正确，请检查凭据配置',
-      SourceAccessProblemKind.permission =>
-        '$protocol 权限不足：当前账号无权读取该目录或共享资源',
+      SourceAccessProblemKind.permission => '$protocol 权限不足：当前账号无权读取该目录或共享资源',
       SourceAccessProblemKind.path => '$protocol 路径不存在：未找到目标目录或共享名称，请核对地址',
       SourceAccessProblemKind.timeout =>
         '$protocol 连接超时：服务器响应超过 15 秒，请检查网络或防火墙设置',
-      SourceAccessProblemKind.network =>
-        '$protocol 网络不可达：无法连接目标主机或端口，请确认设备在线',
-      SourceAccessProblemKind.tls =>
-        '$protocol TLS 证书握手失败：HTTPS 证书不受信任或协议不匹配',
+      SourceAccessProblemKind.network => '$protocol 网络不可达：无法连接目标主机或端口，请确认设备在线',
+      SourceAccessProblemKind.tls => '$protocol TLS 证书握手失败：HTTPS 证书不受信任或协议不匹配',
       SourceAccessProblemKind.rateLimited =>
         '$protocol 触发云盘限流：请求过于频繁，请稍后重试或等待风控冷却',
       SourceAccessProblemKind.unknown => '$protocol 读取失败：${rawError ?? '未知异常'}',

@@ -138,6 +138,7 @@ String? _formatSourceBadgeLabel(MediaSourceKind? kind, String? label) {
     MediaSourceKind.local => '本地',
     MediaSourceKind.webdav => 'WebDAV',
     MediaSourceKind.smb => 'SMB',
+    MediaSourceKind.cloudDrive => '云盘',
     null => null,
   };
 }

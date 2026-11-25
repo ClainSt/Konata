@@ -211,7 +211,9 @@ class _SourceEditorDialogState extends ConsumerState<_SourceEditorDialog> {
     return KonataGlassDialog(
       width: 484,
       title: isEdit ? '编辑媒体源' : '添加媒体源',
-      onClose: (_saving || _testing) ? () {} : () => Navigator.of(context).pop(),
+      onClose: (_saving || _testing)
+          ? () {}
+          : () => Navigator.of(context).pop(),
       actions: [
         KonataPillButton.secondary(
           label: _testing ? '测试中...' : '测试连通',
@@ -300,6 +302,7 @@ class _SourceEditorDialogState extends ConsumerState<_SourceEditorDialog> {
                                 MediaSourceKind.local => '本地目录路径',
                                 MediaSourceKind.webdav => 'WebDAV 地址',
                                 MediaSourceKind.smb => 'SMB 共享地址',
+                                MediaSourceKind.cloudDrive => '云盘',
                               },
                               hintText: switch (_kind) {
                                 MediaSourceKind.local =>
@@ -310,6 +313,7 @@ class _SourceEditorDialogState extends ConsumerState<_SourceEditorDialog> {
                                   KonataNetworkConfig.defaultWebDavHint,
                                 MediaSourceKind.smb =>
                                   'smb://192.168.1.2/Anime',
+                                MediaSourceKind.cloudDrive => '由云盘登录生成',
                               },
                               prefixIcon: isRemote
                                   ? Icons.link_rounded

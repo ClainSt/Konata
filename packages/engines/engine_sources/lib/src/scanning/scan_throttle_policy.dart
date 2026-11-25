@@ -76,15 +76,35 @@ class DirectoryScanProfile {
     maxRateLimitCooldown: Duration(seconds: 30),
   );
 
+  /// 云盘目录请求固定串行；限频和风控由驱动统一处理，不叠加重试。
+  static const DirectoryScanProfile cloudDrive = DirectoryScanProfile(
+    initialConcurrency: 1,
+    minConcurrency: 1,
+    maxConcurrency: 1,
+    warmPacing: Duration.zero,
+    coldPacing: Duration.zero,
+    maxPacing: Duration.zero,
+    warmRttThreshold: Duration(milliseconds: 45),
+    coldRttThreshold: Duration(milliseconds: 120),
+    aimdIncreaseThreshold: 12,
+    maxTransientRetries: 0,
+    maxRateLimitRetries: 0,
+    minRateLimitCooldown: Duration(seconds: 2),
+    maxRateLimitCooldown: Duration(seconds: 30),
+  );
+
   /// 按已知媒体源种类选择档案，支持包装后的网关。
-  static DirectoryScanProfile forSourceKind(MediaSourceKind kind) => switch (kind) {
-    MediaSourceKind.local => local,
-    MediaSourceKind.smb => smb,
-    MediaSourceKind.webdav => webdav,
-  };
+  static DirectoryScanProfile forSourceKind(MediaSourceKind kind) =>
+      switch (kind) {
+        MediaSourceKind.local => local,
+        MediaSourceKind.smb => smb,
+        MediaSourceKind.cloudDrive => cloudDrive,
+        MediaSourceKind.webdav => webdav,
+      };
 
   /// 根据网关实际类型自动选择扫描档案。
   static DirectoryScanProfile forGateway(MediaSourceGateway gateway) {
+    if (gateway is CloudDriveGateway) return cloudDrive;
     if (gateway is WebDavSourceGateway) return webdav;
     if (gateway is SmbSourceGateway) return smb;
     if (gateway is LocalSourceGateway) return local;
@@ -134,15 +154,13 @@ class DirectoryScanProfile {
 /// 自适应加增乘减拥塞控制与令牌起搏扫描调度控制器。
 class AdaptiveScanController {
   /// 创建自适应扫描控制器。
-  AdaptiveScanController(
-    this.profile, {
-    DateTime Function()? nowProvider,
-  }) : _now = nowProvider ?? DateTime.now,
-       _currentConcurrency = profile.initialConcurrency.clamp(
-         profile.minConcurrency,
-         profile.maxConcurrency,
-       ),
-       _currentPacing = profile.warmPacing;
+  AdaptiveScanController(this.profile, {DateTime Function()? nowProvider})
+    : _now = nowProvider ?? DateTime.now,
+      _currentConcurrency = profile.initialConcurrency.clamp(
+        profile.minConcurrency,
+        profile.maxConcurrency,
+      ),
+      _currentPacing = profile.warmPacing;
 
   /// 当前生效的协议扫描档案。
   final DirectoryScanProfile profile;
@@ -192,8 +210,7 @@ class AdaptiveScanController {
       final step = Duration(
         milliseconds: (basePacingMs * jitterFactor).round().clamp(1, 30000),
       );
-      final scheduled =
-          (_nextSlotAt != null && _nextSlotAt!.isAfter(now))
+      final scheduled = (_nextSlotAt != null && _nextSlotAt!.isAfter(now))
           ? _nextSlotAt!
           : now;
       _nextSlotAt = scheduled.add(step);

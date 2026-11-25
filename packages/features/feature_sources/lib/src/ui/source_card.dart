@@ -194,10 +194,7 @@ class MediaSourceCard extends ConsumerWidget {
                                     folder: folder,
                                     onRestore: () => ref
                                         .read(sourcesControllerProvider)
-                                        .removeIgnoredFolder(
-                                          source.id,
-                                          folder,
-                                        ),
+                                        .removeIgnoredFolder(source.id, folder),
                                   ),
                               ],
                             ),
@@ -323,7 +320,7 @@ class _ProtocolIconBadge extends StatelessWidget {
         p.hairline,
         p.textPrimary,
       ),
-      MediaSourceKind.webdav => (
+      MediaSourceKind.webdav || MediaSourceKind.cloudDrive => (
         Icons.cloud_outlined,
         p.accentBadge.bg,
         p.accentBadge.border,
@@ -363,6 +360,7 @@ class _ProtocolLabelChip extends StatelessWidget {
       MediaSourceKind.local => ('本地磁盘', null),
       MediaSourceKind.webdav => ('WebDAV', p.accentBadge),
       MediaSourceKind.smb => ('SMB 共享', p.successBadge),
+      MediaSourceKind.cloudDrive => ('云盘', p.accentBadge),
     };
     return ScanProgressStatChip(label: label, badge: badge);
   }
@@ -411,10 +409,7 @@ class _SourceStatusPill extends StatelessWidget {
           Container(
             width: 6,
             height: 6,
-            decoration: BoxDecoration(
-              color: dotColor,
-              shape: BoxShape.circle,
-            ),
+            decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
           ),
           const SizedBox(width: 5),
           Text(
@@ -432,10 +427,7 @@ class _SourceStatusPill extends StatelessWidget {
 }
 
 class _IgnoredFolderChip extends StatefulWidget {
-  const _IgnoredFolderChip({
-    required this.folder,
-    required this.onRestore,
-  });
+  const _IgnoredFolderChip({required this.folder, required this.onRestore});
 
   final String folder;
   final VoidCallback onRestore;
@@ -465,9 +457,7 @@ class _IgnoredFolderChipState extends State<_IgnoredFolderChip> {
             decoration: BoxDecoration(
               color: _hovered ? p.surfaceHover : p.softFill,
               borderRadius: KonataTheme.borderRadiusPill,
-              border: Border.all(
-                color: _hovered ? p.hoverBorder : p.hairline,
-              ),
+              border: Border.all(color: _hovered ? p.hoverBorder : p.hairline),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -485,11 +475,7 @@ class _IgnoredFolderChipState extends State<_IgnoredFolderChip> {
                   ),
                 ),
                 const SizedBox(width: 4),
-                Icon(
-                  Icons.close_rounded,
-                  size: 13,
-                  color: p.textMuted,
-                ),
+                Icon(Icons.close_rounded, size: 13, color: p.textMuted),
               ],
             ),
           ),

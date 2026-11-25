@@ -95,6 +95,7 @@ abstract final class MediaDisplayFormatter {
       MediaSourceKind.local => '本地',
       MediaSourceKind.webdav => 'WebDAV',
       MediaSourceKind.smb => 'SMB',
+      MediaSourceKind.cloudDrive => '云盘',
     };
   }
 
@@ -104,6 +105,7 @@ abstract final class MediaDisplayFormatter {
       MediaSourceKind.local => '本地磁盘',
       MediaSourceKind.webdav => 'WebDAV 网盘',
       MediaSourceKind.smb => 'SMB 局域网共享',
+      MediaSourceKind.cloudDrive => '云盘',
     };
   }
 

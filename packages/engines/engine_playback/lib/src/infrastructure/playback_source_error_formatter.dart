@@ -42,6 +42,7 @@ abstract final class PlaybackSourceErrorFormatter {
       MediaSourceKind.local => '本地媒体源',
       MediaSourceKind.webdav => 'WebDAV 媒体源',
       MediaSourceKind.smb => 'SMB 共享媒体源',
+      MediaSourceKind.cloudDrive => '云盘',
     };
     return '$kindLabel访问失败：$error';
   }

@@ -11,6 +11,7 @@ class RemoteEntry {
     this.size = 0,
     this.modifiedAt,
     this.etag,
+    this.remoteFileId,
   });
 
   /// 文件或子目录名称。
@@ -30,6 +31,9 @@ class RemoteEntry {
 
   /// 协议返回的资源版本标识。
   final String? etag;
+
+  /// 服务端稳定文件标识，不包含令牌或下载地址。
+  final String? remoteFileId;
 
   /// 生成用于缓存版本隔离的真实源验证器（优先版本标签，其次修改时间）。
   String? get cacheValidator {
@@ -177,6 +181,29 @@ abstract interface class ValidatedByteRangeGateway
   });
 }
 
+/// 有时效性的文件直链；鉴权头仅用于该次请求。
+final class RenewableLink {
+  const RenewableLink(this.uri, {this.headers = const {}});
+
+  final Uri uri;
+  final Map<String, String> headers;
+}
+
+/// 以文件标识刷新下载地址，不改变文件身份或总大小。
+abstract interface class RenewableUpstream {
+  int get totalSize;
+  String? get strongValidator;
+  Future<RenewableLink> current();
+  Future<RenewableLink> renew();
+}
+
+/// 云盘网关标识；扫描调度按严格串行处理。
+abstract interface class CloudDriveGateway
+    implements
+        MediaSourceGateway,
+        ValidatedByteRangeGateway,
+        FileValidatorProbeGateway {}
+
 /// 媒体源连接与读取故障精确分类。
 enum SourceAccessProblemKind {
   /// 用户名或密码认证失败。
@@ -246,6 +273,12 @@ class SourceAccessException implements Exception {
 
   @override
   String toString() => message;
+}
+
+/// 账号风控或验证码拦截。必须停止自动调用，等待用户重新授权。
+final class RiskControlled extends SourceAccessException {
+  const RiskControlled()
+    : super(SourceAccessProblemKind.permission, '云盘风控已停止自动访问，请完成官方授权后重试');
 }
 
 /// 根据媒体源只读视图构建只读网关的抽象工厂端口。
@@ -421,10 +454,7 @@ abstract interface class LocalStreamBridgePort {
   String? describeLastError({String? token, String? relativePath});
 
   /// 查询最近一次捕获的上游故障分类。
-  SourceAccessProblemKind? lastErrorKind({
-    String? token,
-    String? relativePath,
-  });
+  SourceAccessProblemKind? lastErrorKind({String? token, String? relativePath});
 
   /// 回收超过空闲阈值且无活跃传输流的历史会话。
   Future<int> pruneIdleSessions({Duration? maxIdle, DateTime? now});

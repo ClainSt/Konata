@@ -152,8 +152,12 @@ class PlaybackFormatters {
   static String formatCodecShortLabel(String? codec) {
     final raw = (codec ?? '').trim().toUpperCase();
     if (raw.isEmpty) return '';
-    if (raw == 'H265' || raw == 'HEVC') return 'HEVC';
-    if (raw == 'H264' || raw == 'AVC') return 'AVC';
+    if (raw == 'H265' || raw == 'H.265' || RegExp(r'\bHEVC\b').hasMatch(raw)) {
+      return 'HEVC';
+    }
+    if (raw == 'H264' || raw == 'H.264' || RegExp(r'\bAVC\b').hasMatch(raw)) {
+      return 'AVC';
+    }
     if (raw.startsWith('PCM_S24')) return 'PCM 24-bit';
     if (raw.startsWith('PCM_S16')) return 'PCM 16-bit';
     if (raw.startsWith('PCM_S32') || raw.startsWith('PCM_F32')) {
@@ -183,7 +187,11 @@ class PlaybackFormatters {
       parts.add('24-bit');
     } else if (fmt == 's16' || fmt == 's16p') {
       parts.add('16-bit');
-    } else if (fmt == 's32' || fmt == 's32p' || fmt == 'float' || fmt == 'flt' || fmt == 'fltp') {
+    } else if (fmt == 's32' ||
+        fmt == 's32p' ||
+        fmt == 'float' ||
+        fmt == 'flt' ||
+        fmt == 'fltp') {
       parts.add('32-bit');
     }
     final rateLabel = formatSampleRate(sampleRateHz);

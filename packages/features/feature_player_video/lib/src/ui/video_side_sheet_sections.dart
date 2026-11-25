@@ -103,7 +103,8 @@ class _EpisodesSection extends StatelessWidget {
                       : null,
                   selected: ep.id == state.currentEpisode.id,
                   trailing: KonataCapsuleIconButton(
-                    icon: (ep.id == state.currentEpisode.id
+                    icon:
+                        (ep.id == state.currentEpisode.id
                             ? state.isCompletedCurrentEpisode
                             : (bundle
                                       ?.playbackByEpisodeId[ep.id.value]
@@ -115,7 +116,8 @@ class _EpisodesSection extends StatelessWidget {
                     size: 18,
                     color: p.accent,
                     onTap: () {
-                      final currentlyCompleted = ep.id == state.currentEpisode.id
+                      final currentlyCompleted =
+                          ep.id == state.currentEpisode.id
                           ? state.isCompletedCurrentEpisode
                           : (bundle
                                     ?.playbackByEpisodeId[ep.id.value]
@@ -373,7 +375,8 @@ class _AudioSection extends StatelessWidget {
                     title: dev.description.isEmpty ? dev.name : dev.description,
                     subtitle: dev.name,
                     selected: dev.name == currentAudioDevice,
-                    onTap: () => unawaited(controller.selectAudioDevice(dev.name)),
+                    onTap: () =>
+                        unawaited(controller.selectAudioDevice(dev.name)),
                   ),
                 ),
             ],
@@ -389,11 +392,13 @@ class _VideoAndShadersSection extends StatelessWidget {
     required this.controller,
     required this.state,
     required this.activeShaderPaths,
+    required this.quality,
   });
 
   final VideoPlaybackController controller;
   final VideoPlaybackState state;
   final List<String> activeShaderPaths;
+  final PlaybackQualityConfig quality;
 
   @override
   Widget build(BuildContext context) {
@@ -404,28 +409,72 @@ class _VideoAndShadersSection extends StatelessWidget {
           controller: scrollController,
           padding: const EdgeInsets.only(right: 8),
           children: [
-            Text(
-              '画面填充比例',
-              style: TextStyle(
-                color: p.textSecondary,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
+            Text('渲染画质与解码策略', style: KonataTheme.bodyLabelStyle(p)),
+            const SizedBox(height: 8),
+            KonataDropdown<VideoQualityPreset>(
+              value: quality.preset,
+              options: [
+                for (final preset in VideoQualityPreset.values)
+                  KonataDropdownOption(value: preset, label: preset.label),
+              ],
+              onChanged: (preset) => controller.env.preferencesStore
+                  .updateQualityConfig((c) => c.copyWith(preset: preset)),
             ),
             const SizedBox(height: 8),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                for (final mode in VideoAspectMode.values)
-                  KonataPillButton.secondary(
-                    compact: true,
-                    label: mode.label,
-                    borderColor: state.aspectMode == mode ? p.accent : null,
-                    onPressed: () => controller.setAspectMode(mode),
-                  ),
-              ],
+            AdaptiveSettingTile(
+              title: '硬件视频解码',
+              subtitle: '自动启用硬件加速，异常源回退软解',
+              trailing: KonataSwitch(
+                value: quality.hardwareDecode,
+                onChanged: (v) => controller.env.preferencesStore
+                    .updateQualityConfig((c) => c.copyWith(hardwareDecode: v)),
+              ),
             ),
+            AdaptiveSettingTile(
+              title: '去色带滤镜 (Deband)',
+              subtitle: '平滑低码率动漫暗场渐变色块',
+              trailing: KonataSwitch(
+                value: quality.debandEnabled,
+                onChanged: (v) => controller.env.preferencesStore
+                    .updateQualityConfig((c) => c.copyWith(debandEnabled: v)),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text('画面比例', style: KonataTheme.bodyLabelStyle(p)),
+            const SizedBox(height: 8),
+            for (final mode in VideoAspectMode.values)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: state.aspectMode == mode
+                    ? KonataPillButton.primary(
+                        compact: true,
+                        label: mode.label,
+                        onPressed: () => controller.setAspectMode(mode),
+                      )
+                    : KonataPillButton.secondary(
+                        compact: true,
+                        label: mode.label,
+                        onPressed: () => controller.setAspectMode(mode),
+                      ),
+              ),
+            const SizedBox(height: 12),
+            Text('播放倍速', style: KonataTheme.bodyLabelStyle(p)),
+            const SizedBox(height: 8),
+            for (final speed in [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0])
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: (state.speed - speed).abs() < 0.01
+                    ? KonataPillButton.primary(
+                        compact: true,
+                        label: '${speed}x',
+                        onPressed: () => controller.setPlaybackSpeed(speed),
+                      )
+                    : KonataPillButton.secondary(
+                        compact: true,
+                        label: '${speed}x',
+                        onPressed: () => controller.setPlaybackSpeed(speed),
+                      ),
+              ),
             const SizedBox(height: 12),
             AdaptiveSettingTile(
               title: '仅听声音省电模式',
@@ -495,7 +544,7 @@ class _SelectableOptionRow extends StatelessWidget {
         decoration: BoxDecoration(
           color: selected
               ? p.accent.withValues(alpha: 0.16)
-              : p.softFill.withValues(alpha: 0.30),
+              : p.hairline.withValues(alpha: 0.10),
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
             color: selected ? p.accent.withValues(alpha: 0.55) : p.hairline,

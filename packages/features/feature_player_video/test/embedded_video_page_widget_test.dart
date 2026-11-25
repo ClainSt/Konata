@@ -11,9 +11,7 @@ import 'support/video_test_harness.dart';
 
 void main() {
   group('EmbeddedVideoPage 舞台渲染、控制层自隐与动态侧栏贡献', () {
-    testWidgets('未注入自定义画面构建器时优雅展示占位舞台并在 3 秒播放无操作后隐藏控制层', (
-      tester,
-    ) async {
+    testWidgets('未注入自定义画面构建器时优雅展示占位舞台并在 3 秒播放无操作后隐藏控制层', (tester) async {
       tester.view.physicalSize = const Size(1280, 720);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -137,24 +135,16 @@ void main() {
       );
       await tester.pump();
 
-      expect(
-        find.byKey(const ValueKey('custom_host_surface')),
-        findsOneWidget,
-      );
+      expect(find.byKey(const ValueKey('custom_host_surface')), findsOneWidget);
       expect(
         find.byKey(const ValueKey('embedded_video_placeholder_stage')),
         findsNothing,
       );
 
       // 切换探针浮层开关验证技术信息浮层显隐。
-      await tester.tap(
-        find.byKey(const ValueKey('video_probe_toggle_button')),
-      );
+      await tester.tap(find.byKey(const ValueKey('video_probe_toggle_button')));
       await tester.pump();
-      expect(
-        find.byKey(const ValueKey('video_probe_overlay')),
-        findsOneWidget,
-      );
+      expect(find.byKey(const ValueKey('video_probe_overlay')), findsOneWidget);
 
       // 打开右侧栏，验证仅挂载了支持 video 模式的贡献，过滤掉 audio 贡献。
       await tester.tap(
@@ -163,6 +153,14 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byKey(const ValueKey('video_side_sheet')), findsOneWidget);
+      expect(find.text('播放控制台'), findsOneWidget);
+      expect(find.byType(KonataSegmentedCapsule<String>), findsOneWidget);
+      await tester.tap(find.text('画面'));
+      await tester.pumpAndSettle();
+      expect(find.text('渲染画质与解码策略'), findsOneWidget);
+      expect(find.text('硬件视频解码'), findsOneWidget);
+      expect(find.text('去色带滤镜 (Deband)'), findsOneWidget);
+      expect(tester.takeException(), isNull);
       expect(
         find.byKey(const ValueKey('side_sheet_tab_contrib_mock_video_danmaku')),
         findsOneWidget,
@@ -239,9 +237,7 @@ void main() {
   });
 
   group('Wave 2 第十节视频精修契约与三端横屏零溢出回归', () {
-    testWidgets('顶底单层毛玻璃胶囊保留桌面窗口三键且底栏显隐联动字幕 sub-pos 避让', (
-      tester,
-    ) async {
+    testWidgets('顶底单层毛玻璃胶囊保留桌面窗口三键且底栏显隐联动字幕 sub-pos 避让', (tester) async {
       tester.view.physicalSize = const Size(1280, 720);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -269,17 +265,15 @@ void main() {
 
       await tester.pumpWidget(
         KonataDesktopWindowChromeScope(
-          windowControlsBuilder: ({
-            bool forceLightIcons = false,
-            bool showGlassPill = false,
-          }) {
-            capturedForceLightIcons = forceLightIcons;
-            return const SizedBox(
-              key: ValueKey('mock_desktop_window_controls'),
-              width: 96,
-              height: 30,
-            );
-          },
+          windowControlsBuilder:
+              ({bool forceLightIcons = false, bool showGlassPill = false}) {
+                capturedForceLightIcons = forceLightIcons;
+                return const SizedBox(
+                  key: ValueKey('mock_desktop_window_controls'),
+                  width: 96,
+                  height: 30,
+                );
+              },
           dragToMoveBuilder: ({required Widget child}) {
             dragWrapCalled = true;
             return child;
@@ -317,7 +311,7 @@ void main() {
       final capsuleRect = tester.getRect(
         find.byKey(const ValueKey('embedded_video_bottom_capsule')),
       );
-      expect(capsuleRect.height, closeTo(52.0, 0.5));
+      expect(capsuleRect.height, closeTo(60.0, 0.5));
 
       final centerTransportRect = tester.getRect(
         find.byKey(const ValueKey('video_capsule_center_transport')),
@@ -327,8 +321,8 @@ void main() {
         lessThan(1.0),
       );
 
-      // 底部胶囊可见时，按 20dp 底边距 + 52dp 胶囊高 + 16dp 留白自动抬升常规字幕。
-      const expectedLift = (20.0 + 52.0 + 16.0) / 720.0 * 100.0;
+      // 底部胶囊可见时，按 20dp 底边距 + 60dp 胶囊高 + 16dp 留白自动抬升常规字幕。
+      const expectedLift = (20.0 + 60.0 + 16.0) / 720.0 * 100.0;
       expect(
         controller.currentSubtitleHudLiftPercent,
         closeTo(expectedLift, 0.25),
@@ -356,9 +350,7 @@ void main() {
       await tester.pump();
     });
 
-    testWidgets('顶边平齐 y=0 圆角倒三角章节点、居中播放头圆点与磁吸预览浮泡对齐', (
-      tester,
-    ) async {
+    testWidgets('顶边平齐 y=0 圆角倒三角章节点、居中播放头圆点与磁吸预览浮泡对齐', (tester) async {
       tester.view.physicalSize = const Size(1280, 720);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -476,10 +468,7 @@ void main() {
 
       // 磁吸放大后倒三角顶边仍严格锁定在 y=0。
       final scaledWidget = tester.widget<AnimatedScale>(
-        find.ancestor(
-          of: chapter2Finder,
-          matching: find.byType(AnimatedScale),
-        ),
+        find.ancestor(of: chapter2Finder, matching: find.byType(AnimatedScale)),
       );
       expect(scaledWidget.scale, closeTo(1.28, 0.01));
       expect(scaledWidget.alignment, Alignment.topCenter);
@@ -528,7 +517,9 @@ void main() {
 
         final harness = await VideoTestHarness.create(platform: entry.platform);
         final seeded = await harness.seedSampleAnime();
-        final controller = harness.createController(enablePeriodicTimers: false);
+        final controller = harness.createController(
+          enablePeriodicTimers: false,
+        );
         await controller.initialize(VideoLaunchRequest(workId: seeded.work.id));
         controller.handleDurationUpdate(1000.0);
 
@@ -546,13 +537,10 @@ void main() {
 
         if (entry.platform != KonataPlatform.windows) {
           expect(harness.hostWindow.preferredLandscape, isTrue);
-          expect(
-            orientationCalls.last,
-            <String>[
-              'DeviceOrientation.landscapeLeft',
-              'DeviceOrientation.landscapeRight',
-            ],
-          );
+          expect(orientationCalls.last, <String>[
+            'DeviceOrientation.landscapeLeft',
+            'DeviceOrientation.landscapeRight',
+          ]);
 
           // 验证触屏左侧防误触锁钮仅在触屏端显示，并控制底栏与字幕抬升。
           final lockFinder = find.byKey(
@@ -590,7 +578,9 @@ void main() {
         expect(sheetFinder, findsOneWidget, reason: 'viewport=${entry.size}');
         await tester.pumpAndSettle();
         final sheetRect = tester.getRect(
-          find.descendant(of: sheetFinder, matching: find.byType(ClipRRect)).first,
+          find
+              .descendant(of: sheetFinder, matching: find.byType(ClipRRect))
+              .first,
         );
         final capsuleRect = tester.getRect(
           find.byKey(const ValueKey('embedded_video_bottom_capsule')),

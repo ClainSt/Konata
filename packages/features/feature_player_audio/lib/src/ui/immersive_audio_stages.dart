@@ -157,17 +157,19 @@ class DesktopAudioDualStage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final current = snapshot.currentItem;
     return LayoutBuilder(
       builder: (context, constraints) {
         final effectiveStageH = stageHeight ?? constraints.maxHeight;
-        final desiredCover = effectiveStageH * 0.48;
+        final desiredCover = effectiveStageH * 0.42;
         final maxByWidth = constraints.maxWidth * 0.38;
         final maxByAvailH = math.max(120.0, constraints.maxHeight - 156.0);
         final coverSize = desiredCover
             .clamp(
               math.min(160.0, maxByAvailH),
-              math.max(160.0, math.min(440.0, math.min(maxByWidth, maxByAvailH))),
+              math.max(
+                160.0,
+                math.min(340.0, math.min(maxByWidth, maxByAvailH)),
+              ),
             )
             .toDouble();
         final reflectionH = (coverSize * 0.24).clamp(32.0, 92.0);
@@ -180,7 +182,7 @@ class DesktopAudioDualStage extends StatelessWidget {
             children: [
               // 左侧：大占比无硬白边专辑封面 + 水面倒影 + 精炼元数据。
               Expanded(
-                flex: 44,
+                flex: 46,
                 child: Center(
                   child: SingleChildScrollView(
                     child: Column(
@@ -191,64 +193,9 @@ class DesktopAudioDualStage extends StatelessWidget {
                           coverKey: snapshot.coverVariantTag,
                           alignmentCache: alignmentCache,
                           size: coverSize,
-                          borderRadius: 22.0,
+                          borderRadius: 14.0,
                           reflectionHeight: reflectionH,
-                          showBorder: false,
-                        ),
-                        const SizedBox(height: 14),
-                        ConstrainedBox(
-                          constraints: BoxConstraints(
-                            maxWidth: math.max(coverSize + 40, 260.0),
-                          ),
-                          child: Column(
-                            children: [
-                              Text(
-                                current?.title ?? '未选择音轨',
-                                textAlign: TextAlign.center,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: Colors.white.withValues(alpha: 0.96),
-                                  fontSize: 21,
-                                  fontWeight: FontWeight.w700,
-                                  height: 1.24,
-                                ),
-                              ),
-                              if (current != null &&
-                                  (current.artist.isNotEmpty ||
-                                      current.album.isNotEmpty)) ...[
-                                const SizedBox(height: 5),
-                                Text(
-                                  [
-                                    if (current.artist.isNotEmpty)
-                                      current.artist,
-                                    if (current.album.isNotEmpty) current.album,
-                                  ].join(' · '),
-                                  textAlign: TextAlign.center,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: Colors.white.withValues(alpha: 0.62),
-                                    fontSize: 13.5,
-                                  ),
-                                ),
-                              ],
-                              if (snapshot.formattedAudioSpec.isNotEmpty) ...[
-                                const SizedBox(height: 10),
-                                GestureDetector(
-                                  onTap: onOpenSafetyDialog,
-                                  child: KonataSpecBadge(
-                                    label: snapshot.formattedAudioSpec,
-                                    icon: Icons.high_quality_rounded,
-                                    darkOverlay: true,
-                                    highlighted: snapshot
-                                        .audiophilePlan
-                                        .safetyLimiterEngaged,
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
+                          showBorder: true,
                         ),
                       ],
                     ),
@@ -258,30 +205,9 @@ class DesktopAudioDualStage extends StatelessWidget {
               SizedBox(width: hGap),
               // 右侧：大空气感纯白逐字歌词与一键切换播放队列。
               Expanded(
-                flex: 56,
+                flex: 54,
                 child: Column(
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        _StageSwitchChip(
-                          key: const ValueKey('desktop_tab_lyrics_chip'),
-                          label: '歌词',
-                          selected: rightTab == AudioStageRightTab.lyrics,
-                          onTap: () =>
-                              onRightTabChanged(AudioStageRightTab.lyrics),
-                        ),
-                        const SizedBox(width: 8),
-                        _StageSwitchChip(
-                          key: const ValueKey('desktop_tab_queue_chip'),
-                          label: '队列 (${snapshot.queue.length})',
-                          selected: rightTab == AudioStageRightTab.queue,
-                          onTap: () =>
-                              onRightTabChanged(AudioStageRightTab.queue),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
                     Expanded(
                       child: rightTab == AudioStageRightTab.lyrics
                           ? AudioLyricsSlotPane(
@@ -394,7 +320,7 @@ class PortraitPhoneAudioStage extends StatelessWidget {
                               coverKey: snapshot.coverVariantTag,
                               alignmentCache: alignmentCache,
                               size: math.max(132.0, coverSize),
-                              borderRadius: 22.0,
+                              borderRadius: 14.0,
                               reflectionHeight: reflectionH,
                               showBorder: false,
                             ),
@@ -466,51 +392,6 @@ class PortraitPhoneAudioStage extends StatelessWidget {
                 ),
         );
       },
-    );
-  }
-}
-
-class _StageSwitchChip extends StatelessWidget {
-  const _StageSwitchChip({
-    super.key,
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-        decoration: BoxDecoration(
-          color: selected
-              ? Colors.white.withValues(alpha: 0.22)
-              : Colors.white.withValues(alpha: 0.06),
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(
-            color: selected
-                ? Colors.white.withValues(alpha: 0.36)
-                : Colors.white.withValues(alpha: 0.12),
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: selected
-                ? Colors.white
-                : Colors.white.withValues(alpha: 0.68),
-            fontSize: 12.5,
-            fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-          ),
-        ),
-      ),
     );
   }
 }

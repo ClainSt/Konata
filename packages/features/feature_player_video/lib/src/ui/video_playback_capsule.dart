@@ -52,7 +52,7 @@ class VideoPlaybackCapsule extends StatefulWidget {
   });
 
   /// 胶囊主体固定高度（单层 `52px` 悬浮圆角胶囊）。
-  static const double capsuleHeight = 52.0;
+  static const double capsuleHeight = KonataPlaybackTokens.capsuleHeight;
 
   /// 顶边进度条水平内缩距离（严格对齐 `52px` 胶囊 `26px` 半圆角切点）。
   static const double progressHorizontalInset = 26.0;
@@ -234,7 +234,9 @@ class _VideoPlaybackCapsuleState extends State<VideoPlaybackCapsule> {
     final subFg = p.isDark
         ? KonataPlaybackTokens.osdTextSecondary
         : p.textSecondary;
-    final maxWidth = widget.isTouchPlatform ? 650.0 : 740.0;
+    final maxWidth = widget.isTouchPlatform
+        ? 650.0
+        : KonataPlaybackTokens.capsuleMaxWidth;
     final transportButtonSize = widget.isTouchPlatform ? 36.0 : 32.0;
     final playButtonSize = widget.isTouchPlatform ? 42.0 : 38.0;
     final actionButtonSize = widget.isTouchPlatform ? 34.0 : 32.0;
@@ -272,12 +274,7 @@ class _VideoPlaybackCapsuleState extends State<VideoPlaybackCapsule> {
                                 ? KonataPlaybackTokens.osdSurfaceDark
                                 : null,
                             child: Padding(
-                              padding: const EdgeInsets.fromLTRB(
-                                16,
-                                4,
-                                16,
-                                0,
-                              ),
+                              padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
                               child: _buildThreeZoneControls(
                                 context: context,
                                 capsuleWidth: capsuleWidth,
@@ -298,9 +295,8 @@ class _VideoPlaybackCapsuleState extends State<VideoPlaybackCapsule> {
                                   p,
                                 ),
                                 omitTopRailSpan: hasProgressRail,
-                                railHorizontalInset:
-                                    VideoPlaybackCapsule
-                                        .progressHorizontalInset,
+                                railHorizontalInset: VideoPlaybackCapsule
+                                    .progressHorizontalInset,
                               ),
                             ),
                           ),
@@ -617,10 +613,7 @@ class _VideoPlaybackCapsuleState extends State<VideoPlaybackCapsule> {
         centerGroup,
         const SizedBox(width: 6),
         Expanded(
-          child: Align(
-            alignment: Alignment.centerRight,
-            child: rightControls,
-          ),
+          child: Align(alignment: Alignment.centerRight, child: rightControls),
         ),
       ],
     );
@@ -762,11 +755,8 @@ class _VideoTopProgressRailState extends State<_VideoTopProgressRail> {
     final maxX = math.max(minX, railWidth - halfTri);
 
     double centerXFor(int index) {
-      final ratio =
-          (widget.chapters[index].startSeconds / widget.totalSeconds).clamp(
-            0.0,
-            1.0,
-          );
+      final ratio = (widget.chapters[index].startSeconds / widget.totalSeconds)
+          .clamp(0.0, 1.0);
       return (ratio * railWidth).clamp(minX, maxX);
     }
 
@@ -1060,12 +1050,11 @@ class _VideoTopProgressRailState extends State<_VideoTopProgressRail> {
                                       child: DecoratedBox(
                                         decoration: BoxDecoration(
                                           color: widget.fillColor,
-                                          borderRadius:
-                                              BorderRadius.horizontal(
-                                                right: Radius.circular(
-                                                  animatedRailHeight,
-                                                ),
-                                              ),
+                                          borderRadius: BorderRadius.horizontal(
+                                            right: Radius.circular(
+                                              animatedRailHeight,
+                                            ),
+                                          ),
                                           boxShadow: widget.isDark
                                               ? [
                                                   BoxShadow(
@@ -1124,8 +1113,8 @@ class _VideoTopProgressRailState extends State<_VideoTopProgressRail> {
                         builder: (ratio, _) {
                           const thumbSize =
                               VideoPlaybackCapsule.playheadThumbSize;
-                          final thumbLeft =
-                              (ratio * railWidth - thumbSize / 2).clamp(
+                          final thumbLeft = (ratio * railWidth - thumbSize / 2)
+                              .clamp(
                                 -thumbSize * 0.5,
                                 railWidth - thumbSize * 0.5,
                               );
@@ -1401,11 +1390,7 @@ class _ThumbnailHoverBubble extends StatelessWidget {
                 ),
               )
             : Center(
-                child: Icon(
-                  Icons.movie_outlined,
-                  size: 22,
-                  color: secondaryFg,
-                ),
+                child: Icon(Icons.movie_outlined, size: 22, color: secondaryFg),
               ),
       ),
     );
@@ -1425,7 +1410,10 @@ class _ThumbnailHoverBubble extends StatelessWidget {
       decoration: BoxDecoration(
         color: KonataPlaybackTokens.popoverSurface(p),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: KonataPlaybackTokens.glassBorder(p), width: 1),
+        border: Border.all(
+          color: KonataPlaybackTokens.glassBorder(p),
+          width: 1,
+        ),
         boxShadow: [
           BoxShadow(
             color: KonataPlaybackTokens.shadowColor(p),

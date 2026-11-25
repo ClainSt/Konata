@@ -334,12 +334,13 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
                                       24,
                                       4,
                                       24,
-                                      18,
+                                      KonataPlaybackTokens.capsuleBottomOffset,
                                     ),
                                     child: Center(
                                       child: ConstrainedBox(
                                         constraints: const BoxConstraints(
-                                          maxWidth: 880.0,
+                                          maxWidth: KonataPlaybackTokens
+                                              .capsuleAudioMaxWidth,
                                         ),
                                         child: AudioPlaybackCapsule(
                                           controller: widget.controller,
@@ -359,13 +360,6 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
                                             ),
                                           ),
                                           onOpenSidePanel: _handleSidePanelTap,
-                                          onRelayToDesktop:
-                                              widget.desktopRelayAvailable
-                                              ? () => unawaited(
-                                                  widget.controller
-                                                      .relayActiveToDesktop(),
-                                                )
-                                              : null,
                                         ),
                                       ),
                                     ),
@@ -377,7 +371,8 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
                             !isVertical)
                           Positioned.fill(
                             child: KonataGlassSideSheet(
-                              title: _activeSidePanel?.label ??
+                              title:
+                                  _activeSidePanel?.label ??
                                   '播放队列 (${snap.queue.length})',
                               width: math.min(420.0, width * 0.46),
                               bottomInset: 96.0,
@@ -440,11 +435,10 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
     final quickPanels = sidePanels
         .where((p) => p.id != 'lyrics_control')
         .toList(growable: false);
-    final windowControls =
-        KonataDesktopWindowChromeScope.buildWindowControls(
-          context,
-          forceLightIcons: true,
-        );
+    final windowControls = KonataDesktopWindowChromeScope.buildWindowControls(
+      context,
+      forceLightIcons: true,
+    );
 
     return MouseRegion(
       onEnter: (_) => setState(() => _topChromeHovered = true),
@@ -452,7 +446,7 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
       child: AnimatedOpacity(
         duration: const Duration(milliseconds: 220),
         curve: Curves.easeOutCubic,
-        opacity: activeChrome ? 0.92 : 0.36,
+        opacity: activeChrome ? 1.0 : 0.85,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(18, 10, 16, 4),
           child: Row(
@@ -486,22 +480,26 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
                 ),
                 const SizedBox(width: 8),
               ],
+              if (widget.onClosePage != null) ...[
+                const SizedBox(width: 4),
+                KonataCapsuleIconButton(
+                  icon: Icons.close_rounded,
+                  tooltip: '关闭音频播放会话',
+                  color: Colors.white.withValues(alpha: 0.88),
+                  size: 20,
+                  fixedSize: 36.0,
+                  onTap: () {
+                    unawaited(widget.controller.stopAndClose());
+                    widget.onClosePage?.call();
+                  },
+                ),
+              ],
               Expanded(
                 child: KonataDesktopWindowChromeScope.wrapDragToMove(
                   context,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        currentItem?.album ?? '沉浸式 CD 音乐舞台',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.84),
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
                       if (snap.errorMessage != null)
                         Text(
                           snap.errorMessage!,
@@ -548,16 +546,6 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
                 const SizedBox(width: 4),
               ],
               KonataCapsuleIconButton(
-                icon: Icons.queue_music_rounded,
-                tooltip: '播放队列 (${snap.queue.length})',
-                color: Colors.white.withValues(alpha: 0.90),
-                highlighted: _sideQueueOpen || _rightTab == AudioStageRightTab.queue,
-                size: 19,
-                fixedSize: 36.0,
-                onTap: () => _handleToggleQueue(false),
-              ),
-              const SizedBox(width: 4),
-              KonataCapsuleIconButton(
                 key: const ValueKey('audio_top_menu_button'),
                 icon: Icons.tune_rounded,
                 tooltip: '歌词控制与无损输出菜单',
@@ -571,20 +559,16 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
                   _menuOpen = !_menuOpen;
                 }),
               ),
-              if (widget.onClosePage != null) ...[
-                const SizedBox(width: 4),
+              if (widget.desktopRelayAvailable)
                 KonataCapsuleIconButton(
-                  icon: Icons.close_rounded,
-                  tooltip: '关闭音频播放会话',
-                  color: Colors.white.withValues(alpha: 0.88),
-                  size: 20,
-                  fixedSize: 36.0,
-                  onTap: () {
-                    unawaited(widget.controller.stopAndClose());
-                    widget.onClosePage?.call();
-                  },
+                  icon: Icons.open_in_new_rounded,
+                  tooltip: '接力到外部发烧播放器',
+                  color: Colors.white,
+                  fixedSize: 36,
+                  size: 19,
+                  onTap: () =>
+                      unawaited(widget.controller.relayActiveToDesktop()),
                 ),
-              ],
               if (windowControls != null) ...[
                 const SizedBox(width: 8),
                 windowControls,
@@ -991,12 +975,7 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
           // 动态渲染所有与音频舞台协作的扩展控制面板（如 feature_lyrics 的歌词控制面板）。
           for (final panel in sidePanels) ...[
             const SizedBox(height: 12),
-            _buildSidePanelContent(
-              context,
-              panel,
-              currentItem,
-              embedded: true,
-            ),
+            _buildSidePanelContent(context, panel, currentItem, embedded: true),
           ],
         ],
       ),

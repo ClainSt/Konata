@@ -71,15 +71,14 @@ class _AudioLeafDurationScrubberState extends State<AudioLeafDurationScrubber> {
             valueListenable: widget.positionListenable,
             builder: (context, position, _) {
               final rawPosSec = position.inMilliseconds / 1000.0;
-              final displaySec = _draggingSeconds ??
+              final displaySec =
+                  _draggingSeconds ??
                   (totalSec > 0 ? rawPosSec.clamp(0.0, totalSec) : 0.0);
               final fraction = totalSec > 0.1
                   ? (displaySec / totalSec).clamp(0.0, 1.0)
                   : 0.0;
               final isActive = _hovering || _draggingSeconds != null;
-              final trackHeight = isActive
-                  ? 4.0
-                  : (widget.compact ? 3.0 : 3.5);
+              final trackHeight = isActive ? 4.0 : (widget.compact ? 3.0 : 3.5);
               final thumbSize = isActive ? 12.0 : 9.0;
               final timeStyle = TextStyle(
                 color: Colors.white.withValues(alpha: 0.72),
@@ -100,10 +99,9 @@ class _AudioLeafDurationScrubberState extends State<AudioLeafDurationScrubber> {
                     child: LayoutBuilder(
                       builder: (context, constraints) {
                         final trackW = math.max(1.0, constraints.maxWidth);
-                        final thumbLeft =
-                            (trackW * fraction - thumbSize * 0.5)
-                                .clamp(0.0, math.max(0.0, trackW - thumbSize))
-                                .toDouble();
+                        final thumbLeft = (trackW * fraction - thumbSize * 0.5)
+                            .clamp(0.0, math.max(0.0, trackW - thumbSize))
+                            .toDouble();
                         return GestureDetector(
                           key: const ValueKey('audio_leaf_scrubber_track'),
                           behavior: HitTestBehavior.opaque,
@@ -173,9 +171,7 @@ class _AudioLeafDurationScrubberState extends State<AudioLeafDurationScrubber> {
                                 Positioned(
                                   left: thumbLeft,
                                   child: AnimatedContainer(
-                                    duration: const Duration(
-                                      milliseconds: 120,
-                                    ),
+                                    duration: const Duration(milliseconds: 120),
                                     width: thumbSize,
                                     height: thumbSize,
                                     decoration: BoxDecoration(
@@ -205,9 +201,7 @@ class _AudioLeafDurationScrubberState extends State<AudioLeafDurationScrubber> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          PlaybackRecordHelper.formatClock(
-                            displaySec.round(),
-                          ),
+                          PlaybackRecordHelper.formatClock(displaySec.round()),
                           style: timeStyle,
                         ),
                         Text(
@@ -279,7 +273,8 @@ class _TopEdgeGlowProgressBarState extends State<_TopEdgeGlowProgressBar> {
             valueListenable: widget.positionListenable,
             builder: (context, position, _) {
               final rawPosSec = position.inMilliseconds / 1000.0;
-              final displaySec = _draggingSeconds ??
+              final displaySec =
+                  _draggingSeconds ??
                   (totalSec > 0 ? rawPosSec.clamp(0.0, totalSec) : 0.0);
               final fraction = totalSec > 0.1
                   ? (displaySec / totalSec).clamp(0.0, 1.0)
@@ -529,9 +524,7 @@ class AudioPlaybackCapsule extends StatelessWidget {
               decoration: BoxDecoration(
                 color: Colors.white.withValues(alpha: 0.085),
                 borderRadius: BorderRadius.circular(24),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.14),
-                ),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -604,7 +597,7 @@ class AudioPlaybackCapsule extends StatelessWidget {
           final maxW = constraints.maxWidth.isFinite
               ? constraints.maxWidth
               : 880.0;
-          final showVolume = maxW >= 780.0;
+          final showVolume = maxW >= 600.0;
           final showSpecPill =
               maxW >= 680.0 && snapshot.formattedAudioSpec.isNotEmpty;
           final showShuffleInBar = maxW >= 620.0;
@@ -627,7 +620,7 @@ class AudioPlaybackCapsule extends StatelessWidget {
                 filter: KonataTheme.blurFilterOverlay,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.085),
+                    color: Colors.black.withValues(alpha: 0.30),
                     borderRadius: BorderRadius.circular(999),
                     border: Border.all(
                       color: Colors.white.withValues(alpha: 0.14),
@@ -637,7 +630,7 @@ class AudioPlaybackCapsule extends StatelessWidget {
                   child: Stack(
                     children: [
                       Padding(
-                        padding: const EdgeInsets.fromLTRB(22, 11, 18, 11),
+                        padding: const EdgeInsets.fromLTRB(20, 10, 18, 10),
                         child: Row(
                           children: [
                             // 左侧：精简曲名 + 叶子实时进度时钟。
@@ -680,7 +673,7 @@ class AudioPlaybackCapsule extends StatelessWidget {
                                   color: Colors.white.withValues(
                                     alpha: loopActive ? 0.96 : 0.68,
                                   ),
-                                  highlighted: loopActive,
+                                  highlighted: false,
                                   onTap: controller.cycleLoopMode,
                                   size: 18,
                                   fixedSize: 34.0,
@@ -713,24 +706,43 @@ class AudioPlaybackCapsule extends StatelessWidget {
                                   fixedSize: 38.0,
                                 ),
                                 const SizedBox(width: 6),
-                                _FrostedPlayPauseCircle(
-                                  playingListenable:
-                                      controller.playingListenable,
-                                  onTap: () =>
-                                      unawaited(controller.togglePlayPause()),
-                                  diameter: 44,
-                                  iconSize: 25,
+                                ValueListenableBuilder<bool>(
+                                  valueListenable: controller.playingListenable,
+                                  builder: (context, playing, _) =>
+                                      KonataCapsuleIconButton(
+                                        icon: playing
+                                            ? Icons.pause_rounded
+                                            : Icons.play_arrow_rounded,
+                                        tooltip: playing ? '暂停' : '播放',
+                                        color: Colors.white,
+                                        fixedSize: 40,
+                                        size: 24,
+                                        onTap: () => unawaited(
+                                          controller.togglePlayPause(),
+                                        ),
+                                      ),
                                 ),
                                 const SizedBox(width: 6),
                                 KonataCapsuleIconButton(
                                   icon: Icons.skip_next_rounded,
                                   tooltip: '下一曲',
                                   color: Colors.white.withValues(alpha: 0.92),
-                                  onTap: () => unawaited(
-                                    controller.next(manual: true),
-                                  ),
+                                  onTap: () =>
+                                      unawaited(controller.next(manual: true)),
                                   size: 22,
                                   fixedSize: 38.0,
+                                ),
+                                KonataCapsuleIconButton(
+                                  key: const ValueKey(
+                                    'audio_desktop_queue_button',
+                                  ),
+                                  icon: Icons.queue_music_rounded,
+                                  tooltip: '播放队列 (${snapshot.queue.length})',
+                                  color: Colors.white,
+                                  highlighted: isQueueOpen,
+                                  fixedSize: 34,
+                                  size: 19,
+                                  onTap: onToggleQueue,
                                 ),
                               ],
                             ),

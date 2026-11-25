@@ -72,68 +72,65 @@ void main() {
     );
   }
 
-  testWidgets(
-    'ImmersiveAudioPage 桌面双栏无歌词视口时优雅降级，并隔离叶子进度时钟更新',
-    (tester) async {
-      await tester.binding.setSurfaceSize(const Size(1280, 800));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
+  testWidgets('ImmersiveAudioPage 桌面双栏无歌词视口时优雅降级，并隔离叶子进度时钟更新', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      final spyWindow = SpyHostWindowPort();
-      final h = createHarness(windowPort: spyWindow);
-      h.prefsRepo.update((p) => p.copyWith(exclusiveAudioOutput: true));
-      addTearDown(() async {
-        h.controller.dispose();
-        await h.db.close();
-      });
+    final spyWindow = SpyHostWindowPort();
+    final h = createHarness(windowPort: spyWindow);
+    h.prefsRepo.update((p) => p.copyWith(exclusiveAudioOutput: true));
+    addTearDown(() async {
+      h.controller.dispose();
+      await h.db.close();
+    });
 
-      await h.controller.playCdCollection(
-        work: makeTestWork(),
-        variants: [
-          makeTestCdVariant(id: 'v1', relativePath: 'CD/01. First Song.flac'),
-          makeTestCdVariant(id: 'v2', relativePath: 'CD/02. Second Song.flac'),
-        ],
-        sources: [makeTestSource()],
-      );
+    await h.controller.playCdCollection(
+      work: makeTestWork(),
+      variants: [
+        makeTestCdVariant(id: 'v1', relativePath: 'CD/01. First Song.flac'),
+        makeTestCdVariant(id: 'v2', relativePath: 'CD/02. Second Song.flac'),
+      ],
+      sources: [makeTestSource()],
+    );
 
-      var outerBuilds = 0;
-      await tester.pumpWidget(
-        _wrapWithApp(
-          Builder(
-            builder: (context) {
-              outerBuilds++;
-              return ImmersiveAudioPage(
-                controller: h.controller,
-                paletteCache: ArtworkPaletteCache(),
-                alignmentCache: SmartCoverAlignmentCache(),
-                desktopMiniWindowSupported: true,
-                lyricsViewportBuilder: null,
-              );
-            },
-          ),
+    var outerBuilds = 0;
+    await tester.pumpWidget(
+      _wrapWithApp(
+        Builder(
+          builder: (context) {
+            outerBuilds++;
+            return ImmersiveAudioPage(
+              controller: h.controller,
+              paletteCache: ArtworkPaletteCache(),
+              alignmentCache: SmartCoverAlignmentCache(),
+              desktopMiniWindowSupported: true,
+              lyricsViewportBuilder: null,
+            );
+          },
         ),
-      );
-      await tester.pump(const Duration(milliseconds: 200));
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 200));
 
-      expect(outerBuilds, 1);
-      expect(find.text('First Song'), findsWidgets);
-      expect(find.textContaining('未接入实时歌词视图插件'), findsOneWidget);
-      expect(find.text('-12 dBFS'), findsOneWidget);
+    expect(outerBuilds, 1);
+    expect(find.text('First Song'), findsWidgets);
+    expect(find.textContaining('未接入实时歌词视图插件'), findsOneWidget);
+    expect(find.text('-12 dBFS'), findsOneWidget);
 
-      // 高频推进叶子时钟仅局部重绘进度条，严禁引起外部宿主重建。
-      final mpv = h.clients.single;
-      mpv.emitDuration(240.0);
-      mpv.emitTimePos(65.0);
-      await tester.pump(Duration.zero);
-      await tester.pump();
-      expect(find.text('01:05'), findsOneWidget);
-      expect(outerBuilds, 1);
+    // 高频推进叶子时钟仅局部重绘进度条，严禁引起外部宿主重建。
+    final mpv = h.clients.single;
+    mpv.emitDuration(240.0);
+    mpv.emitTimePos(65.0);
+    await tester.pump(Duration.zero);
+    await tester.pump();
+    expect(find.text('01:05'), findsOneWidget);
+    expect(outerBuilds, 1);
 
-      // 点击桌面迷你窗切换按钮触发宿主窗口端口。
-      await tester.tap(find.byIcon(Icons.picture_in_picture_alt_rounded));
-      await tester.pump();
-      expect(spyWindow.enterMiniCount, 1);
-    },
-  );
+    // 点击桌面迷你窗切换按钮触发宿主窗口端口。
+    await tester.tap(find.byIcon(Icons.picture_in_picture_alt_rounded));
+    await tester.pump();
+    expect(spyWindow.enterMiniCount, 1);
+  });
 
   testWidgets(
     'ImmersiveAudioPage 支持外挂歌词视口注入、过滤 PlayerMediaMode.audio 扩展侧栏及竖屏封面切换',
@@ -193,7 +190,10 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.byKey(const ValueKey('custom_lyrics_viewport')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('custom_lyrics_viewport')),
+        findsOneWidget,
+      );
       // 验证只渲染 audio 侧栏图标按钮，video 侧栏已被过滤。
       expect(find.byIcon(KonataIconRegistry.resolve('lyrics')), findsOneWidget);
       expect(find.byIcon(KonataIconRegistry.resolve('player')), findsNothing);
@@ -217,75 +217,74 @@ void main() {
     },
   );
 
-  testWidgets(
-    'MiniAudioBar 拖拽直连叶子 ValueNotifier<Offset> 且支持点击展开胶囊控制与暂停止钟',
-    (tester) async {
-      await tester.binding.setSurfaceSize(const Size(900, 700));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
+  testWidgets('MiniAudioBar 拖拽直连叶子 ValueNotifier<Offset> 且支持点击展开胶囊控制与暂停止钟', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(900, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      final h = createHarness();
-      addTearDown(() async {
-        h.controller.dispose();
-        await h.db.close();
-      });
+    final h = createHarness();
+    addTearDown(() async {
+      h.controller.dispose();
+      await h.db.close();
+    });
 
-      await h.controller.playCdCollection(
-        work: makeTestWork(),
-        variants: [
-          makeTestCdVariant(id: 'v1', relativePath: 'CD/01. First Song.flac'),
-          makeTestCdVariant(id: 'v2', relativePath: 'CD/02. Second Song.flac'),
-        ],
-        sources: [makeTestSource()],
-      );
+    await h.controller.playCdCollection(
+      work: makeTestWork(),
+      variants: [
+        makeTestCdVariant(id: 'v1', relativePath: 'CD/01. First Song.flac'),
+        makeTestCdVariant(id: 'v2', relativePath: 'CD/02. Second Song.flac'),
+      ],
+      sources: [makeTestSource()],
+    );
 
-      final dragOffset = ValueNotifier<Offset>(const Offset(180, 180));
-      addTearDown(dragOffset.dispose);
+    final dragOffset = ValueNotifier<Offset>(const Offset(180, 180));
+    addTearDown(dragOffset.dispose);
 
-      var outerBuilds = 0;
-      var expandCalled = 0;
-      await tester.pumpWidget(
-        _wrapWithApp(
-          Builder(
-            builder: (context) {
-              outerBuilds++;
-              return MiniAudioBar(
-                controller: h.controller,
-                dragOffsetNotifier: dragOffset,
-                onExpandFullStage: () => expandCalled++,
-              );
-            },
-          ),
+    var outerBuilds = 0;
+    var expandCalled = 0;
+    await tester.pumpWidget(
+      _wrapWithApp(
+        Builder(
+          builder: (context) {
+            outerBuilds++;
+            return MiniAudioBar(
+              controller: h.controller,
+              dragOffsetNotifier: dragOffset,
+              onExpandFullStage: () => expandCalled++,
+            );
+          },
         ),
-      );
-      await tester.pump(const Duration(milliseconds: 100));
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
 
-      final discFinder = find.byKey(const ValueKey('mini_audio_disc_surface'));
-      expect(discFinder, findsOneWidget);
+    final discFinder = find.byKey(const ValueKey('mini_audio_disc_surface'));
+    expect(discFinder, findsOneWidget);
 
-      // 拖拽悬浮唱片：坐标直接写入叶子 ValueNotifier<Offset> 且外层不重建。
-      await tester.drag(discFinder, const Offset(80, 50));
-      await tester.pump();
-      expect(dragOffset.value.dx, greaterThan(180));
-      expect(outerBuilds, 1);
+    // 拖拽悬浮唱片：坐标直接写入叶子 ValueNotifier<Offset> 且外层不重建。
+    await tester.drag(discFinder, const Offset(80, 50));
+    await tester.pump();
+    expect(dragOffset.value.dx, greaterThan(180));
+    expect(outerBuilds, 1);
 
-      // 点击圆盘展开胶囊播控条并验证切歌与进入全屏舞台。
-      await tester.tap(discFinder);
-      await tester.pump();
-      expect(
-        find.byKey(const ValueKey('mini_audio_expanded_capsule')),
-        findsOneWidget,
-      );
-      expect(find.text('First Song'), findsOneWidget);
+    // 点击圆盘展开胶囊播控条并验证切歌与进入全屏舞台。
+    await tester.tap(discFinder);
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('mini_audio_expanded_capsule')),
+      findsOneWidget,
+    );
+    expect(find.text('First Song'), findsOneWidget);
 
-      await tester.tap(find.text('First Song'));
-      await tester.pump();
-      expect(expandCalled, 1);
+    await tester.tap(find.text('First Song'));
+    await tester.pump();
+    expect(expandCalled, 1);
 
-      // 暂停后重新渲染确保平稳无残留挂起动画。
-      await h.controller.setPlaying(false);
-      await tester.pump();
-    },
-  );
+    // 暂停后重新渲染确保平稳无残留挂起动画。
+    await h.controller.setPlaying(false);
+    await tester.pump();
+  });
 
   testWidgets('SettingsAudioPanel 与 featurePlayerAudioManifest 正确协同持久化和装配', (
     tester,
@@ -317,7 +316,10 @@ void main() {
     // 校验声明式清单与 Riverpod Provider 正常注入解析。
     expect(featurePlayerAudioManifest.id, 'feature_player_audio');
     expect(featurePlayerAudioManifest.settingsSections.length, 1);
-    expect(featurePlayerAudioManifest.settingsSections.first.id, 'audio_playback');
+    expect(
+      featurePlayerAudioManifest.settingsSections.first.id,
+      'audio_playback',
+    );
 
     final container = ProviderContainer(
       overrides: [
@@ -340,54 +342,262 @@ void main() {
     expect(providedCtrl, isA<AudioPlaybackController>());
   });
 
-  testWidgets(
-    'Salt 级舞台在浅色系统主题下保持恒定深邃暗底、纯白发光排版、无白边倒影与烟熏顶边胶囊',
-    (tester) async {
-      await tester.binding.setSurfaceSize(const Size(1440, 900));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
+  testWidgets('Salt 级舞台在浅色系统主题下保持恒定深邃暗底、纯白发光排版、无白边倒影与烟熏顶边胶囊', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1440, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      final h = createHarness();
-      addTearDown(() async {
-        h.controller.dispose();
-        await h.db.close();
-      });
+    final h = createHarness();
+    addTearDown(() async {
+      h.controller.dispose();
+      await h.db.close();
+    });
 
-      await h.controller.playCdCollection(
-        work: makeTestWork(),
-        variants: [
-          makeTestCdVariant(id: 'v1', relativePath: 'CD/01. First Song.flac'),
-          makeTestCdVariant(id: 'v2', relativePath: 'CD/02. Second Song.flac'),
-        ],
-        sources: [makeTestSource()],
-      );
+    await h.controller.playCdCollection(
+      work: makeTestWork(),
+      variants: [
+        makeTestCdVariant(id: 'v1', relativePath: 'CD/01. First Song.flac'),
+        makeTestCdVariant(id: 'v2', relativePath: 'CD/02. Second Song.flac'),
+      ],
+      sources: [makeTestSource()],
+    );
 
-      final mpv = h.clients.single;
-      mpv.emitEvent(
-        const MpvPropertyChangeEvent(
-          name: 'audio-codec-name',
-          replyUserdata: 14,
-          format: MpvFormat.string,
-          stringValue: 'flac',
+    final mpv = h.clients.single;
+    mpv.emitEvent(
+      const MpvPropertyChangeEvent(
+        name: 'audio-codec-name',
+        replyUserdata: 14,
+        format: MpvFormat.string,
+        stringValue: 'flac',
+      ),
+    );
+    mpv.emitEvent(
+      const MpvPropertyChangeEvent(
+        name: 'audio-params/samplerate',
+        replyUserdata: 12,
+        format: MpvFormat.int64,
+        intValue: 96000,
+      ),
+    );
+    mpv.emitEvent(
+      const MpvPropertyChangeEvent(
+        name: 'audio-params/format',
+        replyUserdata: 13,
+        format: MpvFormat.string,
+        stringValue: 's24',
+      ),
+    );
+    await tester.pump();
+
+    await tester.pumpWidget(
+      _wrapWithApp(
+        theme: KonataTheme.lightTheme(),
+        ImmersiveAudioPage(
+          controller: h.controller,
+          paletteCache: ArtworkPaletteCache(),
+          alignmentCache: SmartCoverAlignmentCache(),
+          desktopRelayAvailable: true,
+          onMinimizeToMiniBar: () {},
         ),
-      );
-      mpv.emitEvent(
-        const MpvPropertyChangeEvent(
-          name: 'audio-params/samplerate',
-          replyUserdata: 12,
-          format: MpvFormat.int64,
-          intValue: 96000,
-        ),
-      );
-      mpv.emitEvent(
-        const MpvPropertyChangeEvent(
-          name: 'audio-params/format',
-          replyUserdata: 13,
-          format: MpvFormat.string,
-          stringValue: 's24',
-        ),
-      );
-      await tester.pump();
+      ),
+    );
+    await tester.pump();
 
+    // 1. 外部传入浅色主题时，背景基底仍锁定恒定深邃暗光域，绝不漂白成浅灰底墙。
+    final backdrop = tester.widget<AnimatedContainer>(
+      find.byKey(const ValueKey('salt_audio_aurora_backdrop')),
+    );
+    final bgColor = (backdrop.decoration as BoxDecoration?)?.color;
+    expect(bgColor, isNotNull);
+    expect(bgColor!.computeLuminance(), lessThan(0.04));
+
+    // 2. 封面默认关闭硬白边，水面倒影具备高斯模糊层。
+    final coverArt = tester.widget<AudioCoverArtworkView>(
+      find.byType(AudioCoverArtworkView).first,
+    );
+    expect(coverArt.showBorder, isTrue);
+    expect(find.byType(ImageFiltered), findsWidgets);
+
+    // 3. 宽屏底部呈现超轻烟熏玻璃顶边发光进度胶囊，右侧一键切换歌词/队列。
+    expect(
+      find.byKey(const ValueKey('salt_smoke_playback_capsule')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('salt_smoke_top_progress_line')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('desktop_tab_queue_chip')), findsNothing);
+    final queue = find.byKey(const ValueKey('audio_desktop_queue_button'));
+    expect(queue, findsOneWidget);
+    await tester.tap(queue);
+    await tester.pumpAndSettle();
+    expect(find.text('Second Song'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Android 手机锁纯竖屏、无作品详情、格式徽标紧贴曲名右侧、顶栏极简且右上菜单统筹歌词与无损信息', (
+    tester,
+  ) async {
+    final recordedOrientations = <Object?>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+          if (call.method == 'SystemChrome.setPreferredOrientations') {
+            recordedOrientations.add(call.arguments);
+          }
+          return null;
+        });
+    addTearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null);
+    });
+
+    await tester.binding.setSurfaceSize(const Size(390, 780));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final h = createHarness();
+    addTearDown(() async {
+      h.controller.dispose();
+      await h.db.close();
+    });
+
+    await h.controller.playCdCollection(
+      work: makeTestWork(),
+      variants: [
+        makeTestCdVariant(id: 'v1', relativePath: 'CD/01. First Song.flac'),
+        makeTestCdVariant(id: 'v2', relativePath: 'CD/02. Second Song.flac'),
+      ],
+      sources: [makeTestSource()],
+    );
+
+    final mpv = h.clients.single;
+    mpv.emitEvent(
+      const MpvPropertyChangeEvent(
+        name: 'audio-codec-name',
+        replyUserdata: 14,
+        format: MpvFormat.string,
+        stringValue: 'flac',
+      ),
+    );
+    mpv.emitEvent(
+      const MpvPropertyChangeEvent(
+        name: 'audio-params/samplerate',
+        replyUserdata: 12,
+        format: MpvFormat.int64,
+        intValue: 96000,
+      ),
+    );
+    mpv.emitEvent(
+      const MpvPropertyChangeEvent(
+        name: 'audio-params/format',
+        replyUserdata: 13,
+        format: MpvFormat.string,
+        stringValue: 's24',
+      ),
+    );
+    await tester.pump();
+
+    final extraPanels = <PlayerSidePanelContribution>[
+      PlayerSidePanelContribution(
+        id: 'lyrics_control',
+        label: '歌词换源与校准',
+        iconKey: 'lyrics',
+        order: 10,
+        supportedModes: const <PlayerMediaMode>{PlayerMediaMode.audio},
+        viewBuilder: (ctx) => Column(
+          key: const ValueKey('embedded_lyrics_menu_slot'),
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('已内嵌:${ctx.arguments['embedded']}'),
+            const Text('双语开关 / -0.2s / 归零 / +0.2s'),
+          ],
+        ),
+      ),
+    ];
+
+    await tester.pumpWidget(
+      _wrapWithApp(
+        theme: KonataTheme.lightTheme(),
+        ImmersiveAudioPage(
+          controller: h.controller,
+          paletteCache: ArtworkPaletteCache(),
+          alignmentCache: SmartCoverAlignmentCache(),
+          platform: KonataPlatform.androidPhone,
+          extraSidePanels: extraPanels,
+          onMinimizeToMiniBar: () {},
+          lyricsViewportBuilder: (_, viewport) => Center(
+            child: Text(
+              'Pure Lyrics:${viewport.trackKey}',
+              key: const ValueKey('pure_portrait_lyrics_view'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    // 1. 进入 Android 手机舞台即锁定纯竖屏 DeviceOrientation.portraitUp。
+    expect(
+      recordedOrientations,
+      contains(equals(const ['DeviceOrientation.portraitUp'])),
+    );
+
+    // 2. 封面态顶栏中央留空，彻底移除「作品详情」按钮，格式徽标直接位于曲名右侧。
+    expect(
+      find.byKey(const ValueKey('portrait_top_empty_center')),
+      findsOneWidget,
+    );
+    expect(find.textContaining('作品详情'), findsNothing);
+    final titleRect = tester.getRect(find.text('First Song'));
+    final badgeFinder = find.byKey(
+      const ValueKey('audio_portrait_format_badge'),
+    );
+    expect(badgeFinder, findsOneWidget);
+    final badgeRect = tester.getRect(badgeFinder);
+    expect(badgeRect.left, greaterThanOrEqualTo(titleRect.right - 2.0));
+    expect((badgeRect.center.dy - titleRect.center.dy).abs(), lessThan(24.0));
+
+    // 3. 轻触封面切入歌词态：顶部中央淡入迷你封面返回胶囊，轻触返回封面。
+    await tester.tap(find.byKey(const ValueKey('portrait_cover')));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(
+      find.byKey(const ValueKey('pure_portrait_lyrics_view')),
+      findsOneWidget,
+    );
+    final miniPillFinder = find.byKey(
+      const ValueKey('portrait_top_mini_cover_pill'),
+    );
+    expect(miniPillFinder, findsOneWidget);
+    await tester.tap(miniPillFinder);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byKey(const ValueKey('portrait_cover')), findsOneWidget);
+
+    // 4. 点击右上角菜单：统一呈现无损输出链路信息及 embedded=true 动态歌词面板。
+    await tester.tap(find.byKey(const ValueKey('audio_top_menu_button')));
+    await tester.pump(const Duration(milliseconds: 220));
+    expect(
+      find.byKey(const ValueKey('audio_unified_menu_overlay')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('audio_lossless_chain_card')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('embedded_lyrics_menu_slot')),
+      findsOneWidget,
+    );
+    expect(find.text('已内嵌:true'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    // 5. 四档多视口与横屏尺寸验证零溢出、停用手机横屏妥协布局并最终恢复系统方向。
+    for (final scenario in <({Size size, KonataPlatform platform})>[
+      (size: const Size(390, 780), platform: KonataPlatform.androidPhone),
+      (size: const Size(780, 380), platform: KonataPlatform.androidPhone),
+      (size: const Size(768, 1024), platform: KonataPlatform.androidTablet),
+      (size: const Size(1024, 700), platform: KonataPlatform.androidTablet),
+      (size: const Size(1440, 900), platform: KonataPlatform.windows),
+    ]) {
+      await tester.binding.setSurfaceSize(scenario.size);
       await tester.pumpWidget(
         _wrapWithApp(
           theme: KonataTheme.lightTheme(),
@@ -395,232 +605,20 @@ void main() {
             controller: h.controller,
             paletteCache: ArtworkPaletteCache(),
             alignmentCache: SmartCoverAlignmentCache(),
+            platform: scenario.platform,
+            extraSidePanels: extraPanels,
             desktopRelayAvailable: true,
             onMinimizeToMiniBar: () {},
           ),
         ),
       );
-      await tester.pump();
-
-      // 1. 外部传入浅色主题时，背景基底仍锁定恒定深邃暗光域，绝不漂白成浅灰底墙。
-      final backdrop = tester.widget<AnimatedContainer>(
-        find.byKey(const ValueKey('salt_audio_aurora_backdrop')),
-      );
-      final bgColor = (backdrop.decoration as BoxDecoration?)?.color;
-      expect(bgColor, isNotNull);
-      expect(bgColor!.computeLuminance(), lessThan(0.04));
-
-      // 2. 封面默认关闭硬白边，水面倒影具备高斯模糊层。
-      final coverArt = tester.widget<AudioCoverArtworkView>(
-        find.byType(AudioCoverArtworkView).first,
-      );
-      expect(coverArt.showBorder, isFalse);
-      expect(find.byType(ImageFiltered), findsWidgets);
-
-      // 3. 宽屏底部呈现超轻烟熏玻璃顶边发光进度胶囊，右侧一键切换歌词/队列。
-      expect(
-        find.byKey(const ValueKey('salt_smoke_playback_capsule')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const ValueKey('salt_smoke_top_progress_line')),
-        findsOneWidget,
-      );
-      expect(find.byKey(const ValueKey('desktop_tab_queue_chip')), findsOneWidget);
-      await tester.tap(find.byKey(const ValueKey('desktop_tab_queue_chip')));
-      await tester.pump();
-      expect(find.text('Second Song'), findsOneWidget);
-      await tester.tap(find.byKey(const ValueKey('desktop_tab_lyrics_chip')));
-      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
       expect(tester.takeException(), isNull);
-    },
-  );
+    }
 
-  testWidgets(
-    'Android 手机锁纯竖屏、无作品详情、格式徽标紧贴曲名右侧、顶栏极简且右上菜单统筹歌词与无损信息',
-    (tester) async {
-      final recordedOrientations = <Object?>[];
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
-            if (call.method == 'SystemChrome.setPreferredOrientations') {
-              recordedOrientations.add(call.arguments);
-            }
-            return null;
-          });
-      addTearDown(() {
-        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-            .setMockMethodCallHandler(SystemChannels.platform, null);
-      });
-
-      await tester.binding.setSurfaceSize(const Size(390, 780));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-
-      final h = createHarness();
-      addTearDown(() async {
-        h.controller.dispose();
-        await h.db.close();
-      });
-
-      await h.controller.playCdCollection(
-        work: makeTestWork(),
-        variants: [
-          makeTestCdVariant(id: 'v1', relativePath: 'CD/01. First Song.flac'),
-          makeTestCdVariant(id: 'v2', relativePath: 'CD/02. Second Song.flac'),
-        ],
-        sources: [makeTestSource()],
-      );
-
-      final mpv = h.clients.single;
-      mpv.emitEvent(
-        const MpvPropertyChangeEvent(
-          name: 'audio-codec-name',
-          replyUserdata: 14,
-          format: MpvFormat.string,
-          stringValue: 'flac',
-        ),
-      );
-      mpv.emitEvent(
-        const MpvPropertyChangeEvent(
-          name: 'audio-params/samplerate',
-          replyUserdata: 12,
-          format: MpvFormat.int64,
-          intValue: 96000,
-        ),
-      );
-      mpv.emitEvent(
-        const MpvPropertyChangeEvent(
-          name: 'audio-params/format',
-          replyUserdata: 13,
-          format: MpvFormat.string,
-          stringValue: 's24',
-        ),
-      );
-      await tester.pump();
-
-      final extraPanels = <PlayerSidePanelContribution>[
-        PlayerSidePanelContribution(
-          id: 'lyrics_control',
-          label: '歌词换源与校准',
-          iconKey: 'lyrics',
-          order: 10,
-          supportedModes: const <PlayerMediaMode>{PlayerMediaMode.audio},
-          viewBuilder: (ctx) => Column(
-            key: const ValueKey('embedded_lyrics_menu_slot'),
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('已内嵌:${ctx.arguments['embedded']}'),
-              const Text('双语开关 / -0.2s / 归零 / +0.2s'),
-            ],
-          ),
-        ),
-      ];
-
-      await tester.pumpWidget(
-        _wrapWithApp(
-          theme: KonataTheme.lightTheme(),
-          ImmersiveAudioPage(
-            controller: h.controller,
-            paletteCache: ArtworkPaletteCache(),
-            alignmentCache: SmartCoverAlignmentCache(),
-            platform: KonataPlatform.androidPhone,
-            extraSidePanels: extraPanels,
-            onMinimizeToMiniBar: () {},
-            lyricsViewportBuilder: (_, viewport) => Center(
-              child: Text(
-                'Pure Lyrics:${viewport.trackKey}',
-                key: const ValueKey('pure_portrait_lyrics_view'),
-              ),
-            ),
-          ),
-        ),
-      );
-      await tester.pump();
-
-      // 1. 进入 Android 手机舞台即锁定纯竖屏 DeviceOrientation.portraitUp。
-      expect(
-        recordedOrientations,
-        contains(equals(const ['DeviceOrientation.portraitUp'])),
-      );
-
-      // 2. 封面态顶栏中央留空，彻底移除「作品详情」按钮，格式徽标直接位于曲名右侧。
-      expect(
-        find.byKey(const ValueKey('portrait_top_empty_center')),
-        findsOneWidget,
-      );
-      expect(find.textContaining('作品详情'), findsNothing);
-      final titleRect = tester.getRect(find.text('First Song'));
-      final badgeFinder = find.byKey(
-        const ValueKey('audio_portrait_format_badge'),
-      );
-      expect(badgeFinder, findsOneWidget);
-      final badgeRect = tester.getRect(badgeFinder);
-      expect(badgeRect.left, greaterThanOrEqualTo(titleRect.right - 2.0));
-      expect((badgeRect.center.dy - titleRect.center.dy).abs(), lessThan(24.0));
-
-      // 3. 轻触封面切入歌词态：顶部中央淡入迷你封面返回胶囊，轻触返回封面。
-      await tester.tap(find.byKey(const ValueKey('portrait_cover')));
-      await tester.pump(const Duration(milliseconds: 300));
-      expect(
-        find.byKey(const ValueKey('pure_portrait_lyrics_view')),
-        findsOneWidget,
-      );
-      final miniPillFinder = find.byKey(
-        const ValueKey('portrait_top_mini_cover_pill'),
-      );
-      expect(miniPillFinder, findsOneWidget);
-      await tester.tap(miniPillFinder);
-      await tester.pump(const Duration(milliseconds: 300));
-      expect(find.byKey(const ValueKey('portrait_cover')), findsOneWidget);
-
-      // 4. 点击右上角菜单：统一呈现无损输出链路信息及 embedded=true 动态歌词面板。
-      await tester.tap(find.byKey(const ValueKey('audio_top_menu_button')));
-      await tester.pump(const Duration(milliseconds: 220));
-      expect(
-        find.byKey(const ValueKey('audio_unified_menu_overlay')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const ValueKey('audio_lossless_chain_card')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const ValueKey('embedded_lyrics_menu_slot')),
-        findsOneWidget,
-      );
-      expect(find.text('已内嵌:true'), findsOneWidget);
-      expect(tester.takeException(), isNull);
-
-      // 5. 四档多视口与横屏尺寸验证零溢出、停用手机横屏妥协布局并最终恢复系统方向。
-      for (final scenario in <({Size size, KonataPlatform platform})>[
-        (size: const Size(390, 780), platform: KonataPlatform.androidPhone),
-        (size: const Size(780, 380), platform: KonataPlatform.androidPhone),
-        (size: const Size(768, 1024), platform: KonataPlatform.androidTablet),
-        (size: const Size(1024, 700), platform: KonataPlatform.androidTablet),
-        (size: const Size(1440, 900), platform: KonataPlatform.windows),
-      ]) {
-        await tester.binding.setSurfaceSize(scenario.size);
-        await tester.pumpWidget(
-          _wrapWithApp(
-            theme: KonataTheme.lightTheme(),
-            ImmersiveAudioPage(
-              controller: h.controller,
-              paletteCache: ArtworkPaletteCache(),
-              alignmentCache: SmartCoverAlignmentCache(),
-              platform: scenario.platform,
-              extraSidePanels: extraPanels,
-              desktopRelayAvailable: true,
-              onMinimizeToMiniBar: () {},
-            ),
-          ),
-        );
-        await tester.pump(const Duration(milliseconds: 100));
-        expect(tester.takeException(), isNull);
-      }
-
-      // 销毁页面后恢复系统旋转方向为空列表。
-      await tester.pumpWidget(const SizedBox.shrink());
-      await tester.pump();
-      expect(recordedOrientations.last, isEmpty);
-    },
-  );
+    // 销毁页面后恢复系统旋转方向为空列表。
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    expect(recordedOrientations.last, isEmpty);
+  });
 }

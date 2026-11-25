@@ -12,6 +12,8 @@ import '../data/video_session_models.dart';
 import '../state/video_playback_controller.dart';
 import '../state/video_playback_state.dart';
 
+import 'video_playback_capsule.dart';
+
 part 'video_side_sheet_sections.dart';
 
 /// 右滑视频设置与剧集选择侧栏默认内置页签枚举。
@@ -113,9 +115,10 @@ class _VideoSideSheetState extends State<VideoSideSheet> {
     final capsuleBottomMargin = isTouch
         ? math.max(mq.padding.bottom, 14.0)
         : KonataPlaybackTokens.capsuleBottomOffset;
-    final desiredBottomInset = capsuleBottomMargin + 52.0 + 14.0;
-    final effectiveMq = isShortLandscape &&
-            mq.padding.bottom + 8.0 < desiredBottomInset
+    final desiredBottomInset =
+        capsuleBottomMargin + VideoPlaybackCapsule.capsuleHeight + 14.0;
+    final effectiveMq =
+        isShortLandscape && mq.padding.bottom + 8.0 < desiredBottomInset
         ? mq.copyWith(
             padding: mq.padding.copyWith(bottom: desiredBottomInset - 8.0),
           )
@@ -131,46 +134,67 @@ class _VideoSideSheetState extends State<VideoSideSheet> {
           data: effectiveMq,
           child: KonataGlassSideSheet(
             key: const ValueKey('video_side_sheet'),
-            title: '播放面板',
+            title: '播放控制台',
             width: KonataPlaybackTokens.videoSideSheetWidth,
             bottomInset: desiredBottomInset,
             onClose: widget.onClose,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      for (final tab in VideoSideSheetTab.values)
-                        Padding(
-                          padding: const EdgeInsets.only(right: 6),
-                          child: _SheetTabButton(
-                            key: ValueKey('side_sheet_tab_${tab.name}'),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: MediaQuery.withClampedTextScaling(
+                    maxScaleFactor: 1.15,
+                    child: KonataSegmentedCapsule<String>(
+                      expand: true,
+                      compact: true,
+                      selected: _selectedKey,
+                      options: [
+                        for (final tab in VideoSideSheetTab.values)
+                          KonataSegmentOption(
+                            value: tab.name,
                             label: tab.label,
-                            selected: _selectedKey == tab.name,
-                            onTap: () => setState(() => _selectedKey = tab.name),
                           ),
-                        ),
-                      for (final panel in panels)
-                        Padding(
-                          padding: const EdgeInsets.only(right: 6),
-                          child: _SheetTabButton(
-                            key: ValueKey('side_sheet_tab_contrib_${panel.id}'),
-                            label: panel.label,
-                            icon: KonataIconRegistry.resolve(panel.iconKey),
-                            selected: _selectedKey == '$_contribPrefix${panel.id}',
-                            onTap: () => setState(
-                              () => _selectedKey = '$_contribPrefix${panel.id}',
-                            ),
-                          ),
-                        ),
-                    ],
+                      ],
+                      onChanged: (key) => setState(() => _selectedKey = key),
+                    ),
                   ),
                 ),
+                if (panels.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          for (final panel in panels)
+                            Padding(
+                              padding: const EdgeInsets.only(right: 6),
+                              child: _SheetTabButton(
+                                key: ValueKey(
+                                  'side_sheet_tab_contrib_${panel.id}',
+                                ),
+                                label: panel.label,
+                                icon: KonataIconRegistry.resolve(panel.iconKey),
+                                selected:
+                                    _selectedKey ==
+                                    '$_contribPrefix${panel.id}',
+                                onTap: () => setState(
+                                  () => _selectedKey =
+                                      '$_contribPrefix${panel.id}',
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
                 const SizedBox(height: 12),
                 Expanded(
-                  child: _buildSelectedBody(context, p, state, prefs, panels),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 8, 8),
+                    child: _buildSelectedBody(context, p, state, prefs, panels),
+                  ),
                 ),
               ],
             ),
@@ -230,6 +254,7 @@ class _VideoSideSheetState extends State<VideoSideSheet> {
           controller: widget.controller,
           state: state,
           activeShaderPaths: prefs.qualityConfig.activeShaderPaths,
+          quality: prefs.qualityConfig,
         );
     }
   }

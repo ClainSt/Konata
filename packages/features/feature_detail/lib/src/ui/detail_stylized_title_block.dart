@@ -8,7 +8,7 @@ import 'package:konata_design_system/konata_design_system.dart';
 
 import '../data/clear_logo_legibility.dart';
 import '../data/detail_title_typography.dart';
-import 'detail_managed_image.dart';
+import 'detail_artwork_view.dart';
 
 /// 详情页主舞台标题区：
 /// - 若存在官方透明标题徽标（ClearLogo），结合像素亮度采样自适应托底高对比渲染；

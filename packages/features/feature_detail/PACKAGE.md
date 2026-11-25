@@ -8,6 +8,7 @@ Konata v3 番剧详情页、正片 / 特典 / CD 编排、正片单并发流式�
 - **0 Riverpod 状态与数据层**：`lib/src/data/` 与 `lib/src/state/` 严格保持纯 Dart 构造函数注入，仅 `lib/src/providers.dart`、`lib/src/manifest.dart` 与 `lib/src/ui/` 使用 Riverpod。
 - **跨包扩展挂载**：外部详情标签页（例如扫图画廊）通过注入的 `List<DetailTabContribution> detailTabs`（调用 `isVisibleForWork` 与 `viewBuilder(ViewSlotContext)`）动态挂载；外部动作按钮与菜单项通过 `List<DetailActionContribution> detailActions` 动态聚合；跨页播放与系列切换通过 `AppNavigator` 执行。
 - **艺术图与只读媒体源边界**：严格遵循远程艺术图保存 `RemoteArtworkRef`、本机自定义/裁切保存 `LocalCustomArtworkRef`（写入 `PhotosStorage` 分目录），绝不向媒体源写回任何文件。
+- 海报、背景、徽标与缩略图经薄适配统一使用 `KonataManagedImage`。媒体库经宿主复用本包的手动匹配、源文件复核与合并弹窗。
 
 ## 核心模块与公开出口
 

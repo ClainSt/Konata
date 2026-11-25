@@ -8,7 +8,7 @@ import 'package:konata_design_system/konata_design_system.dart';
 import '../data/work_artwork_options.dart';
 import '../state/work_detail_controller.dart';
 import 'artwork_crop_dialog.dart';
-import 'detail_managed_image.dart';
+import 'detail_artwork_view.dart';
 import 'video_frame_candidates_grid.dart';
 
 /// 作品艺术图编辑目标类型。

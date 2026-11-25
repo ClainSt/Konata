@@ -4,7 +4,7 @@ import 'package:konata_design_system/konata_design_system.dart';
 
 import '../data/library_models.dart';
 import '../providers.dart';
-import 'managed_image.dart';
+import 'library_artwork_view.dart';
 
 /// 媒体库作品网格的单张 2:3 海报卡片组件。
 class PosterCard extends StatefulWidget {

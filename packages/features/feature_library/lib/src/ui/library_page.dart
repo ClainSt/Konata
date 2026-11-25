@@ -13,11 +13,8 @@ import '../state/library_controller.dart';
 import 'delete_work_dialog.dart';
 import 'hidden_works_dialog.dart';
 import 'library_header_bar.dart';
-import 'manual_match_dialog.dart';
 import 'poster_card.dart';
 import 'review_dialog.dart';
-import 'source_files_review_dialog.dart';
-import 'work_merge_target_dialog.dart';
 
 /// 媒体库全部作品海报墙页面组件。
 class LibraryPage extends ConsumerStatefulWidget {
@@ -219,31 +216,17 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
           showKonataToast(context, '重新匹配失败：$err', isError: true);
         }
       case 'files':
-        await showSourceFilesReviewDialog(context, work: work);
+        final changed = await ref.read(workManageDialogPortProvider)
+            .showSourceFilesReviewDialog(context, workId: WorkId.trusted(work.id));
+        if (changed && mounted) await libraryController.reload();
       case 'match':
-        await showManualMatchDialog(context, work: work);
+        final changed = await ref.read(workManageDialogPortProvider)
+            .showManualMatchDialog(context, workId: WorkId.trusted(work.id));
+        if (changed && mounted) await libraryController.reload();
       case 'merge':
-        final selection = await showWorkMergeSelectionDialog(
-          context,
-          sourceWork: work,
-        );
-        if (!mounted || selection == null) return;
-        try {
-          final outcome = await mgmt.mergeWorkIntoTarget(
-            sourceWorkId: work.id,
-            targetWorkId: selection.targetWork.id,
-            categoryMode: selection.categoryMode,
-          );
-          await libraryController.reload();
-          if (!mounted) return;
-          showKonataToast(
-            context,
-            '已并入「${outcome.targetWork.title}」（迁移 ${outcome.movedVariantCount} 个文件）',
-          );
-        } catch (err) {
-          if (!mounted) return;
-          showKonataToast(context, '合并作品失败：$err', isError: true);
-        }
+        final changed = await ref.read(workManageDialogPortProvider)
+            .showWorkMergeDialog(context, sourceWorkId: WorkId.trusted(work.id));
+        if (changed && mounted) await libraryController.reload();
       case 'hide':
         await mgmt.setWorkHidden(work.id, hidden: true);
         await libraryController.reload();

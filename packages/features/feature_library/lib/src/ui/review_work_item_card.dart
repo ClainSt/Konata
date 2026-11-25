@@ -3,7 +3,7 @@ import 'package:flutter/widgets.dart';
 import 'package:konata_design_system/konata_design_system.dart';
 
 import '../data/library_models.dart';
-import 'managed_image.dart';
+import 'library_artwork_view.dart';
 
 /// 待复核队列中单个待确认作品的交互卡片组件。
 class ReviewWorkItemCard extends StatefulWidget {

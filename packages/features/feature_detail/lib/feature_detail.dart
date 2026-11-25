@@ -71,13 +71,12 @@ export 'src/state/work_rescrape_state.dart'
         WorkRescrapeState,
         WorkRescrapeSucceeded;
 export 'src/ui/artwork_crop_dialog.dart' show ArtworkCropDialog;
+export 'src/ui/detail_artwork_view.dart' show DetailManagedImage;
 export 'src/ui/detail_bottom_drawer.dart' show DetailBottomDrawer;
 export 'src/ui/detail_full_list_dialog.dart' show DetailFullListDialog;
 export 'src/ui/detail_gear_menu.dart'
     show DetailBuiltInGearAction, DetailGearMenu;
 export 'src/ui/detail_hero_info.dart' show DetailHeroInfo;
-export 'src/ui/detail_managed_image.dart'
-    show DetailManagedImage, DetailManagedImageProvider, DetailSmartCoverFraming;
 export 'src/ui/detail_rescrape_progress_pill.dart'
     show DetailRescrapeProgressPill;
 export 'src/ui/detail_secondary_filter_bar.dart'

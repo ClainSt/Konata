@@ -4,7 +4,7 @@ import 'package:engine_scraping/engine_scraping.dart';
 import 'package:flutter/widgets.dart';
 import 'package:konata_design_system/konata_design_system.dart';
 
-import 'detail_managed_image.dart';
+import 'detail_artwork_view.dart';
 
 /// 详情页顶部漂浮返回按钮条（严格 0 实心原生壳，仅保留毛玻璃圆形返回胶囊与可选右侧扩展槽）。
 class WorkDetailTopBar extends StatelessWidget {
@@ -385,7 +385,7 @@ class DetailPortraitHeroHeader extends StatelessWidget {
                       artwork: ManagedArtwork.poster,
                       imageSize: TmdbImageSize.original,
                       fit: BoxFit.cover,
-                      alignment: DetailSmartCoverFraming.defaultPosterAlignment,
+                      alignment: KonataSmartCoverFraming.defaultPosterAlignment,
                       errorBuilder: (_, _, _) => ColoredBox(color: baseCanvas),
                     )
                   : ColoredBox(color: baseCanvas),
@@ -401,7 +401,7 @@ class DetailPortraitHeroHeader extends StatelessWidget {
               artwork: ManagedArtwork.poster,
               imageSize: TmdbImageSize.original,
               fit: BoxFit.cover,
-              alignment: DetailSmartCoverFraming.defaultPosterAlignment,
+              alignment: KonataSmartCoverFraming.defaultPosterAlignment,
               errorBuilder: (_, _, _) => ColoredBox(color: baseCanvas),
             )
           else

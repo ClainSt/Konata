@@ -1,15 +1,13 @@
 import 'package:engine_scraping/engine_scraping.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:konata_contracts/konata_contracts.dart' show WorkId;
 import 'package:konata_design_system/konata_design_system.dart';
 
 import '../data/library_models.dart';
 import '../providers.dart';
 import 'delete_work_dialog.dart';
-import 'manual_match_dialog.dart';
 import 'review_work_item_card.dart';
-import 'source_files_review_dialog.dart';
-import 'work_merge_target_dialog.dart';
 
 /// 弹出待复核中心对话框，集中核对模糊匹配、跨季歧义及网络波动条目。
 Future<void> showReviewDialog(BuildContext context) {
@@ -191,30 +189,25 @@ class _ReviewDialogState extends ConsumerState<_ReviewDialog> {
   }
 
   Future<void> _handleManualMatch(Work work) async {
-    final matched = await showManualMatchDialog(context, work: work);
+    final matched = await ref.read(workManageDialogPortProvider)
+        .showManualMatchDialog(context, workId: WorkId.trusted(work.id));
     if (matched && mounted) {
       await ref.read(libraryControllerProvider).reload();
     }
   }
 
   Future<void> _handleMerge(Work work) async {
-    final selection = await showWorkMergeSelectionDialog(
-      context,
-      sourceWork: work,
-    );
-    if (!mounted || selection == null) return;
     await _runForWork(work.id, () async {
-      final outcome = await ref
-          .read(workManagementControllerProvider)
-          .mergeWorkIntoTarget(
-            sourceWorkId: work.id,
-            targetWorkId: selection.targetWork.id,
-            categoryMode: selection.categoryMode,
-          );
-      await ref.read(libraryControllerProvider).reload();
-      if (!mounted) return;
-      showKonataToast(context, '已并入「${outcome.targetWork.title}」');
+      final changed = await ref.read(workManageDialogPortProvider)
+          .showWorkMergeDialog(context, sourceWorkId: WorkId.trusted(work.id));
+      if (changed && mounted) await ref.read(libraryControllerProvider).reload();
     });
+  }
+
+  Future<void> _handleSourceFiles(Work work) async {
+    final changed = await ref.read(workManageDialogPortProvider)
+        .showSourceFilesReviewDialog(context, workId: WorkId.trusted(work.id));
+    if (changed && mounted) await ref.read(libraryControllerProvider).reload();
   }
 
   Future<void> _handleDismiss(Work work) async {
@@ -384,11 +377,7 @@ class _ReviewDialogState extends ConsumerState<_ReviewDialog> {
                                   _ensureCandidatesLoaded(work.id),
                               onRematch: () => _handleRematch(work),
                               onManualMatch: () => _handleManualMatch(work),
-                              onInspectSourceFiles: () =>
-                                  showSourceFilesReviewDialog(
-                                    context,
-                                    work: work,
-                                  ),
+                              onInspectSourceFiles: () => _handleSourceFiles(work),
                               onMergeIntoExisting: () => _handleMerge(work),
                               onDismissReview: () => _handleDismiss(work),
                               onHideWork: () => _handleHide(work),

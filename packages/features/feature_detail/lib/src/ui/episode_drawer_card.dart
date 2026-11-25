@@ -6,7 +6,7 @@ import 'package:konata_design_system/konata_design_system.dart';
 
 import '../data/media_display_formatter.dart';
 import '../state/detail_supplementary_view_data.dart';
-import 'detail_managed_image.dart';
+import 'detail_artwork_view.dart';
 
 /// 详情页底部抽屉与完整选集页共用的 `16:9` 单集 / 特典卡片。
 class EpisodeDrawerCard extends StatefulWidget {
@@ -323,11 +323,15 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
   Widget _buildPosterOrNeutralFallback(KonataPalette p) {
     final poster = widget.workPosterFallbackPath?.trim() ?? '';
     if (poster.isNotEmpty) {
-      return ManagedCoverAlignmentBuilder(
+      final owner = widget.workPosterOwnerId ?? widget.episode.workId;
+      return KonataCoverAlignmentBuilder(
         url: poster,
-        loader: widget.imageLoader,
-        owner: widget.workPosterOwnerId ?? widget.episode.workId,
-        artwork: ManagedArtwork.poster,
+        loader: detailArtworkLoader(
+          widget.imageLoader,
+          owner: owner,
+          imageSize: TmdbImageSize.w342,
+        ),
+        owner: owner,
         isPosterFallback: true,
         targetAspectRatio: 16 / 9,
         builder: (_, align) => Stack(
@@ -336,7 +340,7 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
             DetailManagedImage(
               poster,
               loader: widget.imageLoader,
-              owner: widget.workPosterOwnerId ?? widget.episode.workId,
+              owner: owner,
               artwork: ManagedArtwork.poster,
               imageSize: TmdbImageSize.w500,
               decodeWidth: 512,

@@ -10,7 +10,7 @@ import 'package:konata_design_system/konata_design_system.dart';
 import '../data/detail_edit_models.dart';
 import '../state/detail_supplementary_view_data.dart';
 import '../state/work_detail_controller.dart';
-import 'detail_managed_image.dart';
+import 'detail_artwork_view.dart';
 
 enum _ManualMatchMode { tmdb, bangumiHybrid, bangumiOnly }
 
@@ -56,6 +56,7 @@ class _ManualMatchDialogState extends State<ManualMatchDialog> {
   TmdbMediaType _directMediaType = TmdbMediaType.tv;
   bool _writeFolderTag = false;
   bool _searchingTmdb = false;
+  bool _searchedTmdb = false;
   bool _searchingBgm = false;
   bool _submitting = false;
 
@@ -95,7 +96,10 @@ class _ManualMatchDialogState extends State<ManualMatchDialog> {
   Future<void> _searchTmdb(String rawQuery) async {
     final q = rawQuery.trim();
     if (q.isEmpty || _searchingTmdb) return;
-    setState(() => _searchingTmdb = true);
+    setState(() {
+      _searchingTmdb = true;
+      _searchedTmdb = true;
+    });
     try {
       final results = await widget.controller.searchTmdbAnime(q);
       if (mounted) {
@@ -147,9 +151,7 @@ class _ManualMatchDialogState extends State<ManualMatchDialog> {
       }
       final defaultSeason = detail.seasons.any((s) => s.seasonNumber == 1)
           ? 1
-          : (detail.seasons.isNotEmpty
-                ? detail.seasons.first.seasonNumber
-                : 1);
+          : (detail.seasons.isNotEmpty ? detail.seasons.first.seasonNumber : 1);
       setState(() {
         _selectedHybridTmdbDetail = detail;
         _selectedHybridSeason = defaultSeason;
@@ -284,7 +286,9 @@ class _ManualMatchDialogState extends State<ManualMatchDialog> {
         KonataPillButton.ghost(
           label: '取消',
           compact: true,
-          onPressed: _submitting ? null : () => Navigator.of(context).pop(false),
+          onPressed: _submitting
+              ? null
+              : () => Navigator.of(context).pop(false),
         ),
         if (_mode == _ManualMatchMode.bangumiHybrid)
           KonataPillButton.primary(
@@ -301,25 +305,34 @@ class _ManualMatchDialogState extends State<ManualMatchDialog> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          KonataSegmentedCapsule<_ManualMatchMode>(
-            expand: true,
-            compact: true,
-            selected: _mode,
-            onChanged: (next) => setState(() => _mode = next),
-            options: const [
-              KonataSegmentOption(
-                value: _ManualMatchMode.tmdb,
-                label: 'TMDB 搜索 / ID 直绑',
-              ),
-              KonataSegmentOption(
-                value: _ManualMatchMode.bangumiHybrid,
-                label: 'Bangumi + TMDB 混合',
-              ),
-              KonataSegmentOption(
-                value: _ManualMatchMode.bangumiOnly,
-                label: '纯 Bangumi 绑定',
-              ),
-            ],
+          Builder(
+            builder: (dialogContext) {
+              if (KonataGlassDialog.isLandscapeCompactInputActive(
+                dialogContext,
+              )) {
+                return const SizedBox.shrink();
+              }
+              return KonataSegmentedCapsule<_ManualMatchMode>(
+                expand: true,
+                compact: true,
+                selected: _mode,
+                onChanged: (next) => setState(() => _mode = next),
+                options: const [
+                  KonataSegmentOption(
+                    value: _ManualMatchMode.tmdb,
+                    label: 'TMDB',
+                  ),
+                  KonataSegmentOption(
+                    value: _ManualMatchMode.bangumiHybrid,
+                    label: '双源混合',
+                  ),
+                  KonataSegmentOption(
+                    value: _ManualMatchMode.bangumiOnly,
+                    label: 'Bangumi',
+                  ),
+                ],
+              );
+            },
           ),
           const SizedBox(height: 12),
           Expanded(
@@ -360,43 +373,56 @@ class _ManualMatchDialogState extends State<ManualMatchDialog> {
           ],
         ),
         const SizedBox(height: 8),
-        Row(
-          children: [
-            SizedBox(
-              width: 150,
-              child: KonataSoftTextField(
-                controller: _tmdbIdCtrl,
-                dense: true,
-                hintText: '直接输入 TMDB ID',
-              ),
-            ),
-            const SizedBox(width: 8),
-            KonataSegmentedCapsule<TmdbMediaType>(
-              compact: true,
-              selected: _directMediaType,
-              onChanged: (v) => setState(() => _directMediaType = v),
-              options: const [
-                KonataSegmentOption(value: TmdbMediaType.tv, label: '剧集'),
-                KonataSegmentOption(value: TmdbMediaType.movie, label: '电影'),
+        Builder(
+          builder: (dialogContext) {
+            if (KonataGlassDialog.isLandscapeCompactInputActive(
+              dialogContext,
+            )) {
+              return const SizedBox.shrink();
+            }
+            return Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                SizedBox(
+                  width: 150,
+                  child: KonataSoftTextField(
+                    controller: _tmdbIdCtrl,
+                    dense: true,
+                    hintText: '直接输入 TMDB ID',
+                  ),
+                ),
+                KonataSegmentedCapsule<TmdbMediaType>(
+                  compact: true,
+                  selected: _directMediaType,
+                  onChanged: (v) => setState(() => _directMediaType = v),
+                  options: const [
+                    KonataSegmentOption(value: TmdbMediaType.tv, label: '剧集'),
+                    KonataSegmentOption(
+                      value: TmdbMediaType.movie,
+                      label: '电影',
+                    ),
+                  ],
+                ),
+                KonataPillButton.secondary(
+                  label: '直绑 ID',
+                  compact: true,
+                  onPressed: _submitting ? null : _applyDirectTmdbId,
+                ),
+                Text(
+                  '写入文件夹标签',
+                  style: KonataTheme.captionStyle(
+                    p,
+                  ).copyWith(color: p.textSecondary),
+                ),
+                KonataSwitch(
+                  value: _writeFolderTag,
+                  onChanged: (v) => setState(() => _writeFolderTag = v),
+                ),
               ],
-            ),
-            const SizedBox(width: 8),
-            KonataPillButton.secondary(
-              label: '直绑 ID',
-              compact: true,
-              onPressed: _submitting ? null : _applyDirectTmdbId,
-            ),
-            const Spacer(),
-            Text(
-              '写入文件夹标签',
-              style: KonataTheme.captionStyle(p).copyWith(color: p.textSecondary),
-            ),
-            const SizedBox(width: 6),
-            KonataSwitch(
-              value: _writeFolderTag,
-              onChanged: (v) => setState(() => _writeFolderTag = v),
-            ),
-          ],
+            );
+          },
         ),
         const SizedBox(height: 10),
         Expanded(child: _buildTmdbResultList(p)),
@@ -411,7 +437,24 @@ class _ManualMatchDialogState extends State<ManualMatchDialog> {
     if (_searchingTmdb) {
       return const Center(child: CircularProgressIndicator());
     }
-    if (_tmdbResults.isEmpty) {
+    final recommended =
+        !_searchedTmdb && !widget._isSplitMode && onPickOverride == null
+        ? widget.bundle.scrapeCandidates
+        : const <ScrapeCandidateSummary>[];
+    final items = recommended.isEmpty
+        ? _tmdbResults
+        : [
+            for (final candidate in recommended)
+              TmdbSearchResult(
+                tmdbId: candidate.tmdbId,
+                mediaType: candidate.mediaType,
+                title: candidate.title,
+                originalTitle: candidate.originalTitle,
+                year: candidate.year,
+                posterPath: candidate.posterPath,
+              ),
+          ];
+    if (items.isEmpty) {
       return Center(
         child: Text(
           '输入标题并点击搜索，或直接填入已知 TMDB ID 绑定',
@@ -419,14 +462,15 @@ class _ManualMatchDialogState extends State<ManualMatchDialog> {
         ),
       );
     }
-    return KonataDraggableScrollbar(
+    final results = KonataDraggableScrollbar(
       controller: _resultsScrollCtrl,
       builder: (_, ctrl) => ListView.separated(
         controller: ctrl,
-        itemCount: _tmdbResults.length,
+        itemCount: items.length,
         separatorBuilder: (_, _) => const SizedBox(height: 8),
         itemBuilder: (_, index) {
-          final item = _tmdbResults[index];
+          final item = items[index];
+          final candidate = recommended.isEmpty ? null : recommended[index];
           return KonataSurfaceCard(
             enableHover: true,
             padding: const EdgeInsets.all(10),
@@ -473,9 +517,13 @@ class _ManualMatchDialogState extends State<ManualMatchDialog> {
                       const SizedBox(height: 2),
                       Text(
                         [
-                          item.mediaType == TmdbMediaType.tv ? 'TV 剧集' : '剧场版/电影',
+                          item.mediaType == TmdbMediaType.tv
+                              ? 'TV 剧集'
+                              : '剧场版/电影',
                           if (item.year != null) '${item.year}',
-                          'ID: ${item.tmdbId}',
+                          'TMDB #${item.tmdbId}',
+                          if (candidate != null)
+                            '匹配度 ${(candidate.score <= 1 ? candidate.score * 100 : candidate.score).round()}%',
                         ].join(' · '),
                         style: KonataTheme.captionStyle(
                           p,
@@ -498,7 +546,9 @@ class _ManualMatchDialogState extends State<ManualMatchDialog> {
                 ),
                 const SizedBox(width: 10),
                 KonataPillButton.secondary(
-                  label: onPickOverride != null ? '选择作为底图源' : '绑定',
+                  label: onPickOverride != null
+                      ? '选择作为底图源'
+                      : (candidate != null ? '采纳绑定' : '绑定'),
                   compact: true,
                   onPressed: _submitting
                       ? null
@@ -515,6 +565,15 @@ class _ManualMatchDialogState extends State<ManualMatchDialog> {
           );
         },
       ),
+    );
+    if (recommended.isEmpty) return results;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('自动刮削推荐候选（点击可直接采纳绑定）', style: KonataTheme.captionStyle(p)),
+        const SizedBox(height: 8),
+        Expanded(child: results),
+      ],
     );
   }
 
@@ -583,7 +642,9 @@ class _ManualMatchDialogState extends State<ManualMatchDialog> {
               if (_selectedHybridTmdbDetail != null) ...[
                 Text(
                   '季号：S${_selectedHybridSeason.toString().padLeft(2, '0')}',
-                  style: KonataTheme.captionStyle(p).copyWith(color: p.textPrimary),
+                  style: KonataTheme.captionStyle(
+                    p,
+                  ).copyWith(color: p.textPrimary),
                 ),
                 SizedBox(
                   width: 96,

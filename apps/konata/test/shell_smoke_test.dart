@@ -174,6 +174,29 @@ void main() {
           updatedAtMs: nowMs,
         ),
       );
+      bootstrap.databases.library.mediaVariants.upsert(
+        MediaVariantRecord(
+          id: VariantId('var-cd-01'),
+          workId: workId,
+          sourceId: sourceId,
+          relativePath: 'Frieren/CD/01.flac',
+          fileName: '01.flac',
+          fileSize: 2048,
+          assetKind: AssetKind.cdAlbum,
+          updatedAtMs: nowMs,
+        ),
+      );
+      bootstrap.databases.cache.scrapeCandidates.replaceForWork(workId, [
+        ScrapeCandidateRecord(
+          workId: workId,
+          rank: 1,
+          tmdbId: 209867,
+          mediaType: TmdbMediaType.tv,
+          title: '模拟刮削候选',
+          score: 92,
+          cachedAtMs: nowMs,
+        ),
+      ]);
       bootstrap.databases.userState.playbackRecords.upsert(
         PlaybackRecordEntity(
           id: 'rec-e2e-1',
@@ -200,6 +223,71 @@ void main() {
       expect(find.byType(KonataAdaptiveShell), findsOneWidget);
       expect(find.byType(LibraryPage), findsOneWidget);
       expect(find.text('葬送的芙莉莲'), findsWidgets);
+
+      // 海报墙通过宿主打开详情模块的源文件复核与映射弹窗。
+      await tester.longPress(find.byType(PosterCard).first);
+      await _pumpFrames(tester);
+      await tester.tap(find.text('查看源文件与拆分'));
+      await _pumpFrames(tester, count: 8);
+      expect(find.byType(SourceFilesReviewDialog), findsOneWidget);
+      expect(find.text('音乐 CD'), findsOneWidget);
+      expect(find.text('01.flac'), findsOneWidget);
+      tester.view.physicalSize = const Size(780, 390);
+      tester.view.viewInsets = const FakeViewPadding(bottom: 120);
+      await _pumpFrames(tester);
+      expect(tester.takeException(), isNull);
+      tester.view.viewInsets = FakeViewPadding.zero;
+      tester.view.physicalSize = const Size(1440, 900);
+      await _pumpFrames(tester);
+      await tester.tap(find.text('进入编辑与文件映射'));
+      await _pumpFrames(tester, count: 8);
+      expect(find.byType(WorkManualEditDialog), findsOneWidget);
+      expect(find.byType(FileMappingPanel), findsOneWidget);
+      await tester.tap(find.text('全选可见'));
+      await _pumpFrames(tester);
+      expect(find.text('已选 1 项：'), findsOneWidget);
+      expect(find.text('拆为独立作品'), findsOneWidget);
+      await tester.tap(find.text('移至已有作品'));
+      await _pumpFrames(tester);
+      expect(find.byType(WorkMergeTargetDialog), findsOneWidget);
+      expect(find.text('归入方式：'), findsOneWidget);
+      tester.view.physicalSize = const Size(780, 390);
+      tester.view.viewInsets = const FakeViewPadding(bottom: 120);
+      await _pumpFrames(tester);
+      expect(tester.takeException(), isNull);
+      expect(find.text('归入方式：'), findsNothing);
+      tester.view.viewInsets = FakeViewPadding.zero;
+      tester.view.physicalSize = const Size(1440, 900);
+      await _pumpFrames(tester);
+      await tester.tap(find.text('取消').last);
+      await _pumpFrames(tester);
+      await tester.tap(find.text('取消').last);
+      await _pumpFrames(tester);
+      expect(find.byType(WorkManualEditDialog), findsNothing);
+
+      await tester.longPress(find.byType(PosterCard).first);
+      await _pumpFrames(tester);
+      await tester.tap(find.text('手动匹配元数据'));
+      await _pumpFrames(tester, count: 8);
+      expect(find.byType(ManualMatchDialog), findsOneWidget);
+      expect(find.text('自动刮削推荐候选（点击可直接采纳绑定）'), findsOneWidget);
+      expect(find.text('采纳绑定'), findsOneWidget);
+      expect(find.textContaining('TMDB #209867'), findsWidgets);
+      expect(find.text('Bangumi'), findsOneWidget);
+      tester.view.physicalSize = const Size(780, 390);
+      tester.view.viewInsets = const FakeViewPadding(bottom: 120);
+      await _pumpFrames(tester);
+      expect(tester.takeException(), isNull);
+      expect(find.text('TMDB'), findsNothing);
+      expect(find.text('采纳绑定'), findsOneWidget);
+      tester.view.viewInsets = FakeViewPadding.zero;
+      tester.view.physicalSize = const Size(1440, 900);
+      await _pumpFrames(tester);
+      await tester.tap(find.text('双源混合'));
+      await _pumpFrames(tester);
+      expect(find.text('搜 Bangumi'), findsOneWidget);
+      await tester.tap(find.text('取消').last);
+      await _pumpFrames(tester);
 
       // 2. 切换至顶层「媒体源」分区，挂载真实 SourcesPage。
       await tester.tap(find.text('媒体源').first);

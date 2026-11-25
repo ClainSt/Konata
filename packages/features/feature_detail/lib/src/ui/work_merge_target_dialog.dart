@@ -7,7 +7,7 @@ import 'package:konata_design_system/konata_design_system.dart';
 
 import '../data/detail_edit_models.dart';
 import '../state/work_detail_controller.dart';
-import 'detail_managed_image.dart';
+import 'detail_artwork_view.dart';
 
 /// 选择将整部作品或指定物理文件并入库内已有作品的目标选择器弹窗。
 class WorkMergeTargetDialog extends StatefulWidget {
@@ -19,6 +19,7 @@ class WorkMergeTargetDialog extends StatefulWidget {
     required this.sourceWorkTitle,
     required this.imageLoader,
     this.variantIds = const <String>[],
+    this.dialogTitle,
   });
 
   /// 详情页状态控制器。
@@ -35,6 +36,9 @@ class WorkMergeTargetDialog extends StatefulWidget {
 
   /// 若非空则仅迁移指定物理版本列表至目标作品。
   final List<String> variantIds;
+
+  /// 调用方指定的合并弹窗标题。
+  final String? dialogTitle;
 
   bool get _isPartialMove => variantIds.isNotEmpty;
 
@@ -165,9 +169,9 @@ class _WorkMergeTargetDialogState extends State<WorkMergeTargetDialog> {
     return KonataGlassDialog(
       width: 640,
       maxHeight: 590,
-      title: widget._isPartialMove
+      title: widget.dialogTitle ?? (widget._isPartialMove
           ? '移至其他库内作品 (${widget.variantIds.length} 个文件)'
-          : '并入已有作品 · ${widget.sourceWorkTitle}',
+          : '并入已有作品 · ${widget.sourceWorkTitle}'),
       onClose: _submitting ? null : () => Navigator.of(context).pop(),
       actions: [
         KonataPillButton.ghost(

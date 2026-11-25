@@ -5,7 +5,7 @@ import 'package:flutter/widgets.dart';
 import 'package:konata_design_system/konata_design_system.dart';
 
 import '../data/series_member_label_resolver.dart';
-import 'detail_managed_image.dart';
+import 'detail_artwork_view.dart';
 
 /// 展示三端自适应系列作品选择器（手机端底部全宽毛玻璃抽屉；桌面/平板端居中宽毛玻璃弹窗）。
 Future<void> showSeriesSelectorModal(

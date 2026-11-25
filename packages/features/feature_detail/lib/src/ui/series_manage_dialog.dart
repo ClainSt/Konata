@@ -6,7 +6,7 @@ import 'package:konata_design_system/konata_design_system.dart';
 
 import '../data/detail_edit_models.dart';
 import '../state/work_detail_controller.dart';
-import 'detail_managed_image.dart';
+import 'detail_artwork_view.dart';
 
 class _SeriesMemberRowState {
   _SeriesMemberRowState({required this.work, required String label})

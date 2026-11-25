@@ -10,7 +10,7 @@ import 'package:konata_design_system/konata_design_system.dart';
 import 'package:path/path.dart' as p;
 
 import '../data/media_display_formatter.dart';
-import 'detail_managed_image.dart';
+import 'detail_artwork_view.dart';
 
 String _stripAssetExtension(String fileName) {
   final trimmed = fileName.trim();

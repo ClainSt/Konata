@@ -539,7 +539,7 @@ void main() {
     expect(find.text('轻音少女'), findsNothing);
   });
 
-  testWidgets('媒体库顶栏顺序、隐藏列表、待复核中心、源文件拆包与手动三模式弹窗还原一致', (
+  testWidgets('媒体库顶栏与待复核中心经宿主分派作品管理动作', (
     tester,
   ) async {
     final tempRoot = Directory.systemTemp.createTempSync('konata_lib_modals_');
@@ -659,6 +659,7 @@ void main() {
       artworkCache: artworkCache,
       platform: KonataPlatform.windows,
     );
+    final dialogs = _RecordingWorkDialogs();
     final toastController = KonataToastController();
     addTearDown(toastController.dispose);
 
@@ -669,7 +670,10 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [featureLibraryDependenciesProvider.overrideWithValue(deps)],
+        overrides: [
+          featureLibraryDependenciesProvider.overrideWithValue(deps),
+          workManageDialogPortProvider.overrideWithValue(dialogs),
+        ],
         child: MaterialApp(
           theme: KonataTheme.darkTheme(),
           home: KonataToastScope(
@@ -739,76 +743,12 @@ void main() {
 
     await tester.tap(find.text('源文件'));
     await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull, reason: 'source files dialog');
-    expect(find.text('源文件清单：未知新番文件夹'), findsOneWidget);
-    expect(find.byType(KonataDraggableScrollbar), findsAtLeastNWidgets(3));
-    expect(find.textContaining('flac'), findsOneWidget);
-    expect(find.text('CD 音轨'), findsOneWidget);
-    await tester.tap(find.text('全选当前'));
-    await tester.pumpAndSettle();
-    expect(find.text('并入已有作品 (1)'), findsOneWidget);
-    expect(find.text('将所选绑定为独立作品 (1)'), findsOneWidget);
-
-    // 校验源文件弹窗在横屏软键盘挤压态下的折叠布局。
-    tester.view.physicalSize = const Size(780, 390);
-    tester.view.viewInsets = const FakeViewPadding(bottom: 120);
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull, reason: 'source files landscape ime');
-    tester.view.viewInsets = FakeViewPadding.zero;
-    tester.view.physicalSize = const Size(1440, 900);
-    await tester.pumpAndSettle();
-
-    // 打开并入已有作品目标选择弹窗并验证其滚动条与横屏输入折叠。
-    await tester.tap(find.text('并入已有作品 (1)'));
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull, reason: 'merge target dialog');
-    expect(find.text('归类方式：'), findsOneWidget);
-    expect(find.text('确认并入'), findsOneWidget);
-    expect(find.byType(KonataDraggableScrollbar), findsAtLeastNWidgets(4));
-    tester.view.physicalSize = const Size(780, 390);
-    tester.view.viewInsets = const FakeViewPadding(bottom: 120);
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull, reason: 'merge target landscape ime');
-    expect(find.text('归类方式：'), findsNothing);
-    expect(find.text('确认并入'), findsNothing);
-    expect(find.text('CLANNAD'), findsWidgets);
-    tester.view.viewInsets = FakeViewPadding.zero;
-    tester.view.physicalSize = const Size(1440, 900);
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('取消').last);
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('关闭').last);
-    await tester.pumpAndSettle();
-
-    // 校验手动匹配三模式弹窗自动加载推荐候选、混合面板滚动条及横屏输入折叠。
     await tester.tap(find.text('手动搜索'));
     await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull, reason: 'manual match dialog');
-    expect(find.text('TMDB 匹配'), findsOneWidget);
-    expect(find.text('Bangumi × TMDB 混合'), findsOneWidget);
-    expect(find.text('仅 Bangumi'), findsOneWidget);
-    expect(find.text('自动刮削推荐候选（点击可直接采纳绑定）'), findsOneWidget);
-    expect(find.text('TMDB #101'), findsWidgets);
-    expect(find.text('采纳绑定'), findsOneWidget);
-    expect(find.byType(KonataDraggableScrollbar), findsAtLeastNWidgets(3));
-
-    tester.view.physicalSize = const Size(780, 390);
-    tester.view.viewInsets = const FakeViewPadding(bottom: 120);
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull, reason: 'manual match landscape ime');
-    expect(find.text('TMDB 匹配'), findsNothing);
-    expect(find.text('自动刮削推荐候选（点击可直接采纳绑定）'), findsOneWidget);
-    tester.view.viewInsets = FakeViewPadding.zero;
-    tester.view.physicalSize = const Size(1440, 900);
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('Bangumi × TMDB 混合'));
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull, reason: 'hybrid match tab');
-    expect(find.byType(KonataDraggableScrollbar), findsAtLeastNWidgets(3));
-
-    await tester.tap(find.text('取消').last);
-    await tester.pumpAndSettle();
+    expect(dialogs.calls, [
+      ('源文件', const WorkId.trusted('w_review')),
+      ('手动搜索', const WorkId.trusted('w_review')),
+    ]);
     await tester.tap(find.text('关闭').last);
     await tester.pumpAndSettle();
 
@@ -827,4 +767,35 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('3 部'), findsOneWidget);
   });
+}
+
+final class _RecordingWorkDialogs implements WorkManageDialogPort {
+  final calls = <(String, WorkId)>[];
+
+  @override
+  Future<bool> showManualMatchDialog(Object platformContext, {
+    required WorkId workId,
+    List<VariantId>? splitVariantIds,
+  }) async {
+    calls.add(('手动搜索', workId));
+    return false;
+  }
+
+  @override
+  Future<bool> showSourceFilesReviewDialog(Object platformContext, {
+    required WorkId workId,
+  }) async {
+    calls.add(('源文件', workId));
+    return false;
+  }
+
+  @override
+  Future<bool> showWorkMergeDialog(Object platformContext, {
+    required WorkId sourceWorkId,
+    List<VariantId> variantIds = const [],
+    String? dialogTitle,
+  }) async {
+    calls.add(('并入', sourceWorkId));
+    return false;
+  }
 }

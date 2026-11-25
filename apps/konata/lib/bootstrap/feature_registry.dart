@@ -21,6 +21,7 @@ import 'package:konata_design_system/konata_design_system.dart';
 import 'package:konata_storage/konata_storage.dart';
 
 import 'host_storage_adapters.dart';
+import 'host_work_manage_dialogs.dart';
 
 /// 宿主向业务模块装配层传递的运行时底座与引擎句柄集合。
 ///
@@ -394,6 +395,7 @@ List<Override> buildFeatureProviderOverrides(FeatureRuntimeWiring wiring) {
         platform: platform,
       ),
     ),
+    workManageDialogPortProvider.overrideWithValue(const HostWorkManageDialogs()),
     featureLibraryDependenciesProvider.overrideWithValue(
       FeatureLibraryDependencies(
         databases: wiring.databases,

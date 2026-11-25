@@ -5,7 +5,7 @@ import 'package:konata_design_system/konata_design_system.dart';
 
 import '../data/library_models.dart';
 import '../providers.dart';
-import 'managed_image.dart';
+import 'library_artwork_view.dart';
 
 /// 打开已隐藏作品管理弹窗（取消隐藏全部后自动关闭）。
 Future<void> showHiddenWorksDialog(BuildContext context) {

@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:engine_scraping/engine_scraping.dart';
 import 'package:flutter/widgets.dart';
 import 'package:konata_design_system/konata_design_system.dart';
@@ -10,24 +8,18 @@ import '../state/work_detail_controller.dart';
 import 'manual_match_dialog.dart';
 import 'work_manual_edit_dialog.dart';
 
+enum _SourceReviewAction { manualMatch, fileMapping }
+
 /// 作品源路径与包含文件清单只读复核弹窗（帮助定位误合并或错配文件）。
 class SourceFilesReviewDialog extends StatefulWidget {
   /// 创建源文件清单复核弹窗。
   const SourceFilesReviewDialog({
     super.key,
-    required this.controller,
     required this.bundle,
-    required this.imageLoader,
   });
-
-  /// 详情页状态控制器。
-  final WorkDetailController controller;
 
   /// 当前作品详情聚合包。
   final WorkDetailBundle bundle;
-
-  /// 受管图片加载器。
-  final ManagedImageLoader imageLoader;
 
   @override
   State<SourceFilesReviewDialog> createState() =>
@@ -72,40 +64,13 @@ class _SourceFilesReviewDialogState extends State<SourceFilesReviewDialog> {
           label: '手动精确匹配 / 拆分文件',
           icon: Icons.manage_search_rounded,
           compact: true,
-          onPressed: () {
-            Navigator.of(context).pop();
-            unawaited(
-              showKonataGlassDialog<bool>(
-                context: context,
-                barrierDismissible: false,
-                builder: (_) => ManualMatchDialog(
-                  controller: widget.controller,
-                  bundle: bundle,
-                  imageLoader: widget.imageLoader,
-                ),
-              ),
-            );
-          },
+          onPressed: () => Navigator.of(context).pop(_SourceReviewAction.manualMatch),
         ),
         KonataPillButton.secondary(
           label: '进入编辑与文件映射',
           icon: Icons.edit_outlined,
           compact: true,
-          onPressed: () {
-            Navigator.of(context).pop();
-            unawaited(
-              showKonataGlassDialog<bool>(
-                context: context,
-                barrierDismissible: false,
-                builder: (_) => WorkManualEditDialog(
-                  controller: widget.controller,
-                  bundle: bundle,
-                  imageLoader: widget.imageLoader,
-                  initialSection: WorkManualEditSection.mappings,
-                ),
-              ),
-            );
-          },
+          onPressed: () => Navigator.of(context).pop(_SourceReviewAction.fileMapping),
         ),
         KonataPillButton.primary(
           label: '关闭',
@@ -222,19 +187,36 @@ class _SourceFilesReviewDialogState extends State<SourceFilesReviewDialog> {
   }
 }
 
-/// 打开作品源文件只读复核弹窗。
-Future<void> showSourceFilesReviewDialog({
+/// 打开作品源文件复核弹窗，等待选中的匹配或映射操作完成。
+Future<bool> showSourceFilesReviewDialog({
   required BuildContext context,
   required WorkDetailController controller,
   required WorkDetailBundle bundle,
   required ManagedImageLoader imageLoader,
-}) {
-  return showKonataGlassDialog<void>(
+}) async {
+  final action = await showKonataGlassDialog<_SourceReviewAction>(
     context: context,
     builder: (_) => SourceFilesReviewDialog(
-      controller: controller,
       bundle: bundle,
-      imageLoader: imageLoader,
     ),
   );
+  if (action == null || !context.mounted) return false;
+  final changed = await showKonataGlassDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => switch (action) {
+      _SourceReviewAction.manualMatch => ManualMatchDialog(
+        controller: controller,
+        bundle: bundle,
+        imageLoader: imageLoader,
+      ),
+      _SourceReviewAction.fileMapping => WorkManualEditDialog(
+        controller: controller,
+        bundle: bundle,
+        imageLoader: imageLoader,
+        initialSection: WorkManualEditSection.mappings,
+      ),
+    },
+  );
+  return changed ?? false;
 }

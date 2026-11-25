@@ -197,6 +197,31 @@ void main() {
     }
   });
 
+  test('取链兼容空主地址和带空白的备用地址，显式拒绝仍失败', () async {
+    for (final primary in [null, '', '   ']) {
+      final api = protocol((method, uri, headers, body) async {
+        if (uri.host == 'account.guangyapan.com') return response(token('one'));
+        expect(uri.path, '/nd.bizuserres.s/v1/get_res_download_url');
+        expect(body?['fileId'], 'fixture-id');
+        return response({
+          'msg': 'success',
+          'data': {
+            'signedURL': primary,
+            'downloadUrl': ' https://cdn.example.invalid/file?sig=fixture ',
+          },
+        });
+      });
+      try {
+        expect(
+          (await api.link('fixture-id')).uri,
+          Uri.parse('https://cdn.example.invalid/file?sig=fixture'),
+        );
+      } finally {
+        await api.close();
+      }
+    }
+  });
+
   test('直链必须为 HTTPS，禁止含用户凭据的 URL', () async {
     for (final url in [
       'http://cdn.example.invalid/file',

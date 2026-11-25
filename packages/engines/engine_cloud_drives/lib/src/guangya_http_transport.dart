@@ -7,13 +7,39 @@ import 'package:konata_contracts/konata_contracts.dart';
 
 /// 只向明确允许的光鸭账号及业务域发送认证数据，禁止重定向和隐式重放。
 final class GuangYaHttpTransport {
-  GuangYaHttpTransport({required this._config});
+  GuangYaHttpTransport({
+    required this._config,
+    HttpClient Function()? clientFactory,
+  }) : _clientFactory = clientFactory ?? HttpClient.new;
   final KonataNetworkConfig Function() _config;
+  final HttpClient Function() _clientFactory;
   static const _timeout = Duration(seconds: 15);
+  HttpClient? _apiClient;
+  (ProxyMode, String)? _proxyKey;
+  bool _closed = false;
 
-  HttpClient createClient() {
+  // 仅业务与认证接口复用连接；媒体流仍由各网关独立持有。
+  HttpClient _clientForApi() {
+    if (_closed) {
+      throw const SourceAccessException(
+        SourceAccessProblemKind.network,
+        '云盘传输已关闭',
+      );
+    }
     final config = _config();
-    return HttpClient()
+    final key = (config.proxyMode, config.proxyUrl);
+    if (_apiClient != null && _proxyKey != key) {
+      _apiClient!.close();
+      _apiClient = null;
+    }
+    _proxyKey = key;
+    return _apiClient ??= _createClient(config);
+  }
+
+  HttpClient createClient() => _createClient(_config());
+
+  HttpClient _createClient(KonataNetworkConfig config) {
+    return _clientFactory()
       ..autoUncompress = false
       ..connectionTimeout = _timeout
       ..findProxy = ((uri) {
@@ -58,7 +84,8 @@ final class GuangYaHttpTransport {
         '云盘认证请求目标不合法',
       );
     }
-    final http = createClient();
+    final http = _clientForApi();
+    var completed = false;
     try {
       final request = await http.openUrl(method, uri).timeout(_timeout);
       request.followRedirects = false;
@@ -99,6 +126,7 @@ final class GuangYaHttpTransport {
       final safeHeaders = <String, String>{};
       final retryAfter = response.headers.value('retry-after');
       if (retryAfter != null) safeHeaders['retry-after'] = retryAfter;
+      completed = true;
       return KonataHttpResponse(
         statusCode: response.statusCode,
         bodyBytes: bytes.takeBytes(),
@@ -122,7 +150,19 @@ final class GuangYaHttpTransport {
         '云盘接口连接或传输失败',
       );
     } finally {
-      http.close(force: true);
+      // 异常请求可能残留未消费响应，废弃对应连接池，不自动重试。
+      if (!completed) {
+        if (identical(_apiClient, http)) _apiClient = null;
+        http.close(force: true);
+      }
     }
+  }
+
+  /// 宿主退出时释放空闲或正在使用的 API 连接。
+  void close() {
+    if (_closed) return;
+    _closed = true;
+    _apiClient?.close(force: true);
+    _apiClient = null;
   }
 }

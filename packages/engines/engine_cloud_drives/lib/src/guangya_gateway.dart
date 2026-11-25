@@ -268,8 +268,13 @@ final class GuangYaGateway implements CloudDriveGateway {
       final encoding = response.headers.value(
         HttpHeaders.contentEncodingHeader,
       );
-      if (response.statusCode != 206 ||
-          range != 'bytes $start-$end/$size' ||
+      if (response.statusCode != 206) {
+        await response.listen(null).cancel();
+        throw UpstreamRangeMismatchException(
+          '云盘字节范围请求未返回 206（HTTP ${response.statusCode}）',
+        );
+      }
+      if (range != 'bytes $start-$end/$size' ||
           (encoding != null && encoding != 'identity') ||
           (expectedStrongValidator != null &&
               expectedStrongValidator != strong) ||

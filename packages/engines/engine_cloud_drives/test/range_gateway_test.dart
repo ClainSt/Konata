@@ -184,6 +184,27 @@ void main() {
     expect(client.requests.length, 2);
   });
 
+  test('非206诊断只显示状态码而不泄露直链', () async {
+    final gateway = GuangYaGateway(
+      protocol: _Protocol(),
+      rootId: 'root',
+      createHttpClient: () => _Client((_) => _partial(status: 200)),
+    );
+    addTearDown(gateway.close);
+    await expectLater(
+      read(gateway),
+      throwsA(
+        isA<UpstreamRangeMismatchException>()
+            .having((e) => e.message, 'status', contains('HTTP 200'))
+            .having(
+              (e) => e.toString(),
+              'safe',
+              isNot(contains('cdn.example.invalid')),
+            ),
+      ),
+    );
+  });
+
   test('拒绝完整响应、重定向、错误范围、错误总长和压缩响应', () async {
     for (final response in [
       () => _partial(status: 200),

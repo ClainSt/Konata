@@ -13,3 +13,5 @@
 - `lib/bootstrap/windows_app.dart` / `lib/bootstrap/android_app.dart`：双端差异化宿主装配入口。
 
 - 宿主共享 GuangYaSessionRegistry，通过现有 SecureStoragePort 管理本机云盘授权，使用独立只读网络传输并注册统一媒体源网关；启动不主动连接，退出统一关闭会话。
+
+- 宿主退出释放光鸭 API 连接池；不新增常驻后台服务。

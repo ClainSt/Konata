@@ -300,6 +300,7 @@ final class KonataBootstrapContext {
     required this.httpClient,
     required this.webDavPool,
     required this.cloudDriveSessions,
+    required this.cloudTransport,
     this.cloudClientId = '',
     required this.gatewayFactory,
     required this.streamBridge,
@@ -369,6 +370,9 @@ final class KonataBootstrapContext {
 
   /// 宿主共享的本机云盘账号会话中心。
   final GuangYaSessionRegistry cloudDriveSessions;
+
+  /// 云盘 API 连接池的宿主生命周期。
+  final GuangYaHttpTransport cloudTransport;
 
   /// 获准用于既有协议的应用客户端配置；默认空值禁用真实登录。
   final String cloudClientId;
@@ -461,6 +465,7 @@ final class KonataBootstrapContext {
     httpClient.close();
     await streamBridge.close();
     await cloudDriveSessions.close();
+    cloudTransport.close();
     await domainEventBus.dispose();
     await databases.close();
   }
@@ -720,6 +725,7 @@ final class KonataBootstrapContext {
       httpClient: resolvedHttpClient,
       webDavPool: webDavPool,
       cloudDriveSessions: cloudDriveSessions,
+      cloudTransport: cloudTransport,
       cloudClientId: cloudClientId,
       gatewayFactory: gatewayFactory,
       streamBridge: streamBridge,

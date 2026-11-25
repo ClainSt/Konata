@@ -419,8 +419,13 @@ final class LegacyGuangYaProtocol implements GuangYaProtocol {
     final data = await _business('/nd.bizuserres.s/v1/get_res_download_url', {
       'fileId': fileId,
     });
-    final raw = data['signedURL'] ?? data['downloadUrl'];
-    final uri = raw is String ? Uri.tryParse(raw) : null;
+    final primary = data['signedURL'];
+    final fallback = data['downloadUrl'];
+    final signed = primary is String ? primary.trim() : '';
+    final raw = signed.isNotEmpty
+        ? signed
+        : (fallback is String ? fallback.trim() : '');
+    final uri = Uri.tryParse(raw);
     if (uri == null ||
         uri.scheme != 'https' ||
         uri.host.isEmpty ||

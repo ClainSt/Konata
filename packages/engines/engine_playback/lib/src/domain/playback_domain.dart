@@ -1,4 +1,3 @@
-export 'matching/episode_title_formatter.dart';
 export 'matching/playback_resume_resolver.dart';
 export 'models/playback_models.dart';
 export 'playback/playback_core_domain.dart';

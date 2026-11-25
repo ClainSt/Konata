@@ -723,8 +723,8 @@ void main() {
         exportedAtMs: 6000,
         sourceDeviceId: 'dev-legacy',
         data: <String, Object?>{
-          'sources': const <Object?>[],
-          'seriesGroups': const <Object?>[],
+          'sources': <Object?>[],
+          'seriesGroups': <Object?>[],
           'works': <Map<String, Object?>>[
             <String, Object?>{
               'id': 'work-legacy-no-portrait',
@@ -736,8 +736,8 @@ void main() {
               'updatedAtMs': 6000,
             },
           ],
-          'episodes': const <Object?>[],
-          'variants': const <Object?>[],
+          'episodes': <Object?>[],
+          'variants': <Object?>[],
         },
       );
       final localBeforeLegacy = await sliceB.exportSlice(

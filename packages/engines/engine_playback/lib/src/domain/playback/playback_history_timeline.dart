@@ -1,7 +1,6 @@
 import 'package:konata_contracts/konata_contracts.dart';
 import 'package:konata_storage/konata_storage.dart';
 
-import '../matching/episode_title_formatter.dart';
 import '../models/playback_record_helpers.dart';
 
 /// 播放记录时间轴的单日分组（日记模式）。
@@ -83,8 +82,7 @@ abstract final class PlaybackHistoryTimelineBuilder {
     final dayOrder = <String>[];
     final dayDateByKey = <String, DateTime>{};
     final dayWorkOrder = <String, List<WorkId>>{};
-    final dayWorkRecords =
-        <String, Map<WorkId, List<PlaybackRecordEntity>>>{};
+    final dayWorkRecords = <String, Map<WorkId, List<PlaybackRecordEntity>>>{};
 
     for (final rec in sorted) {
       final localTime = rec.playedAt.toLocal();
@@ -192,21 +190,25 @@ abstract final class PlaybackHistoryTimelineBuilder {
     int? mainEpisodeCount,
   }) {
     if (isAudio || record.isAudioRecord) {
-      return EpisodeTitleFormatter.formatHistorySubtitle(
-        record: record,
-        work: work,
-        workTitle: workTitle,
-        workMediaType: workMediaType,
+      return EpisodeTitleFormatter.formatHistorySubtitleFields(
+        episodeTitle: record.episodeTitle,
+        isAudioRecord: record.isAudioRecord,
+        seasonNumber: record.seasonNumber,
+        episodeNumber: record.episodeNumber,
+        workTitle: work?.title ?? workTitle,
+        workMediaType: work?.tmdbMediaType ?? workMediaType,
         mainEpisodeCount: mainEpisodeCount,
       );
     }
 
     if (record.seasonNumber == 0) {
-      return EpisodeTitleFormatter.formatHistorySubtitle(
-        record: record,
-        work: work,
-        workTitle: workTitle,
-        workMediaType: workMediaType,
+      return EpisodeTitleFormatter.formatHistorySubtitleFields(
+        episodeTitle: record.episodeTitle,
+        isAudioRecord: record.isAudioRecord,
+        seasonNumber: record.seasonNumber,
+        episodeNumber: record.episodeNumber,
+        workTitle: work?.title ?? workTitle,
+        workMediaType: work?.tmdbMediaType ?? workMediaType,
         mainEpisodeCount: mainEpisodeCount,
       );
     }
@@ -223,11 +225,13 @@ abstract final class PlaybackHistoryTimelineBuilder {
     if (epNum != null) {
       return '第 $epNum 集';
     }
-    return EpisodeTitleFormatter.formatHistorySubtitle(
-      record: record,
-      work: work,
-      workTitle: workTitle,
-      workMediaType: workMediaType,
+    return EpisodeTitleFormatter.formatHistorySubtitleFields(
+      episodeTitle: record.episodeTitle,
+      isAudioRecord: record.isAudioRecord,
+      seasonNumber: record.seasonNumber,
+      episodeNumber: record.episodeNumber,
+      workTitle: work?.title ?? workTitle,
+      workMediaType: work?.tmdbMediaType ?? workMediaType,
       mainEpisodeCount: mainEpisodeCount,
     );
   }

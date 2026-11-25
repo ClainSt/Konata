@@ -29,6 +29,11 @@ final secureStoragePortProvider = Provider<SecureStoragePort>((ref) {
   throw UnimplementedError('secureStoragePortProvider 必须由宿主启动壳覆盖注入');
 });
 
+/// 全局只读内置资产字节读取端口提供器。
+final assetDataLoaderPortProvider = Provider<AssetDataLoaderPort>((ref) {
+  return const HostAssetDataLoader();
+});
+
 /// 全局统一脱敏诊断日志端口提供器。
 final diagnosticLogPortProvider = Provider<DiagnosticLogPort>((ref) {
   throw UnimplementedError('diagnosticLogPortProvider 必须由宿主启动壳覆盖注入');

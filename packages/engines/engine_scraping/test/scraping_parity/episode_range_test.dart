@@ -1,4 +1,11 @@
 import 'package:engine_scraping/engine_scraping.dart';
+import 'package:konata_contracts/konata_contracts.dart'
+    show
+        EpisodeCategory,
+        EpisodeId,
+        EpisodeSummaryView,
+        EpisodeTitleFormatter,
+        WorkId;
 import 'package:test/test.dart';
 
 const _mb = 1024 * 1024;
@@ -51,10 +58,7 @@ void main() {
       '[Group] Title S01E01E02.mkv': (1, 2),
       '[Group] Title S01E05~E06 [1080p].mkv': (5, 6),
       '[Group] Title 07～08 [1080p].mkv': (7, 8),
-      '[ANK-Raws] ももくり 01+02 (BDrip 1920x1080 HEVC-YUV420P10 FLAC).mkv': (
-        1,
-        2,
-      ),
+      '[ANK-Raws] ももくり 01+02 (BDrip 1920x1080 HEVC-YUV420P10 FLAC).mkv': (1, 2),
       '[Group] Title [03+04][1080p].mkv': (3, 4),
     };
     positives.forEach((name, range) {
@@ -230,9 +234,7 @@ void main() {
           remappedSlots: {},
           referencedSeasons: {1},
           specialSlots: {
-            '1:4': InterspersedSpecialMapping(
-              tmdbSpecialEpisodeNumber: 1,
-            ),
+            '1:4': InterspersedSpecialMapping(tmdbSpecialEpisodeNumber: 1),
           },
         ).resolveEpisodeEnd(1, 3, 4),
         isNull,
@@ -241,10 +243,11 @@ void main() {
   });
 
   group('多集合并文件：标题格式化', () {
-    const range = Episode(
-      id: 'e',
-      workId: 'w',
+    const range = EpisodeSummaryView(
+      id: EpisodeId.trusted('e'),
+      workId: WorkId.trusted('w'),
       seasonNumber: 1,
+      category: EpisodeCategory.main,
       episodeNumber: 1,
       episodeNumberEnd: 2,
       title: 'A / B',
@@ -262,10 +265,11 @@ void main() {
 
     test('占位标题显示 第 01-02 话', () {
       for (final placeholder in ['第 1-2 话', '第 01-02 话', null]) {
-        final ep = Episode(
-          id: 'e',
-          workId: 'w',
+        final ep = EpisodeSummaryView(
+          id: const EpisodeId.trusted('e'),
+          workId: const WorkId.trusted('w'),
           seasonNumber: 1,
+          category: EpisodeCategory.main,
           episodeNumber: 1,
           episodeNumberEnd: 2,
           title: placeholder,
@@ -282,10 +286,11 @@ void main() {
     });
 
     test('单集保持原样，集号标签补零', () {
-      const single = Episode(
-        id: 'e',
-        workId: 'w',
+      const single = EpisodeSummaryView(
+        id: EpisodeId.trusted('e'),
+        workId: WorkId.trusted('w'),
         seasonNumber: 1,
+        category: EpisodeCategory.main,
         episodeNumber: 3,
         title: 'C',
       );
@@ -302,11 +307,8 @@ void main() {
     test('外部播放器标题同样带区间', () {
       expect(
         EpisodeTitleFormatter.formatPlayerMediaTitle(
-          work: const Work(
-            id: 'w',
-            title: '作品',
-            tmdbMediaType: TmdbMediaType.tv,
-          ),
+          workTitle: '作品',
+          workMediaType: TmdbMediaType.tv,
           episode: range,
           mainEpisodeCount: 12,
         ),

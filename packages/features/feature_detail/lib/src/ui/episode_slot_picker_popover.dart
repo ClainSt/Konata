@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'package:engine_scraping/engine_scraping.dart';
 import 'package:flutter/widgets.dart';
+import 'package:konata_contracts/konata_contracts.dart'
+    show EpisodeTitleFormatter;
 import 'package:konata_design_system/konata_design_system.dart';
 
 import '../data/detail_edit_models.dart';

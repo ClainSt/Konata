@@ -58,9 +58,6 @@ flutter:
     - assets/data/bangumi_tmdb_map.bin
     - assets/data/bangumi_tmdb_manifest.json
   fonts:
-    - family: KonataInter
-      fonts:
-        - asset: assets/fonts/InterVariable.ttf
     - family: KonataNotoCJK
       fonts:
-        - asset: assets/fonts/NotoSansCJKsc-VF.ttf
+        - asset: assets/fonts/KonataNotoCJK-VF.ttf

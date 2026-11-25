@@ -1,8 +1,11 @@
 import 'package:engine_scraping/engine_scraping.dart';
 import 'package:flutter/widgets.dart';
+import 'package:konata_contracts/konata_contracts.dart'
+    show EpisodeTitleFormatter;
 import 'package:konata_design_system/konata_design_system.dart';
 
 import '../data/media_display_formatter.dart';
+import '../state/detail_supplementary_view_data.dart';
 import 'detail_managed_image.dart';
 
 /// 详情页底部抽屉与完整选集页共用的 `16:9` 单集 / 特典卡片。
@@ -92,7 +95,7 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
     final p = context.palette;
     final ep = widget.episode;
     final title = EpisodeTitleFormatter.formatCardTitle(
-      episode: ep,
+      episode: DetailSupplementaryHelper.toEpisodeSummaryView(ep),
       workTitle: widget.workTitle,
       workMediaType: widget.workMediaType,
       mainEpisodeCount: widget.mainEpisodeCount,

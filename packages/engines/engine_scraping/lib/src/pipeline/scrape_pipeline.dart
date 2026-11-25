@@ -7,7 +7,6 @@ import 'package:path/path.dart' as p;
 
 import '../matching/directory_grouper.dart';
 import '../matching/episode_remapper.dart';
-import '../matching/episode_title_formatter.dart';
 import '../matching/work_matcher.dart';
 import '../models/episode.dart';
 import '../models/fanart_models.dart';
@@ -311,7 +310,10 @@ class ScrapePipeline {
         // 断点记录的待扫目录可能已被移除，重新列举父目录以确认当前拓扑。
         if (previousSnapshot == null ||
             previousSnapshot.isComplete ||
-            ScrapeSourceAccessErrorClassifier.classify(error, source.kind).kind !=
+            ScrapeSourceAccessErrorClassifier.classify(
+                  error,
+                  source.kind,
+                ).kind !=
                 SourceAccessProblemKind.path) {
           rethrow;
         }
@@ -607,11 +609,7 @@ class ScrapePipeline {
         return cancelled;
       }
 
-      emit(
-        tracker.advance(
-          currentItemName: '正在整理系列归组与收尾...',
-        ),
-      );
+      emit(tracker.advance(currentItemName: '正在整理系列归组与收尾...'));
 
       // 支持全量与局部 scanRoots 范围修剪：非空 scopedRoots 仅清理对应目录前缀下的失联条目，绝不误删未选目录作品。
       // 断点续扫期间已完成目录可能被单作品自动同步更新，留待后续校验确认缺失项。
@@ -2114,8 +2112,8 @@ class ScrapePipeline {
         bangumiCandidates: bgmRescue,
         mappingIndex: _mappingIndex,
       );
-      final effectiveBangumi = (preserveExistingBangumi &&
-              existingBgmDetail != null)
+      final effectiveBangumi =
+          (preserveExistingBangumi && existingBgmDetail != null)
           ? (matchDecision.bestBangumi?.subject.id == existingBgmDetail.id
                 ? ScoredBangumiCandidate(
                     subject: existingBgmDetail,
@@ -2218,7 +2216,8 @@ class ScrapePipeline {
               fanartPortraitBackdropOverride:
                   sliceEnrich.portraitBackdropOverride,
               fanartLogoOverride: sliceEnrich.logoOverride,
-              fallbackYear: slice.bangumiCandidate.subject.year ?? existing.year,
+              fallbackYear:
+                  slice.bangumiCandidate.subject.year ?? existing.year,
               folderTmdbHint: tmdbId,
               isManualLocked: slice.workId == existing.id
                   ? nextManualLocked
@@ -2441,9 +2440,7 @@ class ScrapePipeline {
         bangumiService: _bangumiService,
         tmdbService: _tmdbService,
         tmdbCollectionIdByTmdbId: _tmdbCollectionIdByTmdbId,
-        focusBangumiIds: {
-          if ((updated.bangumiId ?? 0) > 0) updated.bangumiId!,
-        },
+        focusBangumiIds: {if ((updated.bangumiId ?? 0) > 0) updated.bangumiId!},
         focusWorkIds: {updated.id},
         relationCache: _bangumiRelationCache,
       );
@@ -2509,9 +2506,7 @@ class ScrapePipeline {
       bangumiService: _bangumiService,
       tmdbService: _tmdbService,
       tmdbCollectionIdByTmdbId: _tmdbCollectionIdByTmdbId,
-      focusBangumiIds: {
-        if ((updated.bangumiId ?? 0) > 0) updated.bangumiId!,
-      },
+      focusBangumiIds: {if ((updated.bangumiId ?? 0) > 0) updated.bangumiId!},
       focusWorkIds: {updated.id},
       relationCache: _bangumiRelationCache,
     );
@@ -2561,7 +2556,8 @@ class ScrapePipeline {
     if (bundle.episodes.isEmpty) return false;
 
     final tmdbByKey = <String, TmdbEpisodeDetail>{
-      for (final e in bundle.episodes) '${e.seasonNumber}:${e.episodeNumber}': e,
+      for (final e in bundle.episodes)
+        '${e.seasonNumber}:${e.episodeNumber}': e,
     };
     final toUpsert = <Episode>[];
     final staleAutoStills = <String>[];
@@ -2988,9 +2984,7 @@ class ScrapePipeline {
         bangumiService: _bangumiService,
         tmdbService: _tmdbService,
         tmdbCollectionIdByTmdbId: _tmdbCollectionIdByTmdbId,
-        focusBangumiIds: {
-          if ((updated.bangumiId ?? 0) > 0) updated.bangumiId!,
-        },
+        focusBangumiIds: {if ((updated.bangumiId ?? 0) > 0) updated.bangumiId!},
         focusWorkIds: {updated.id},
         relationCache: _bangumiRelationCache,
       );
@@ -3476,10 +3470,7 @@ class ScrapePipeline {
       if (promoted) {
         await _repository.clearScrapeCandidates(workId);
         final bgmEpisodes = await _interactiveCandidateFetcher
-            .fetchBangumiEpisodes(
-              fallbackBgmCandidate.subject.id,
-              type: null,
-            );
+            .fetchBangumiEpisodes(fallbackBgmCandidate.subject.id, type: null);
         await _persister.syncEpisodesAndVariants(
           work: updated,
           folder: effectiveFolder,
@@ -3931,7 +3922,6 @@ class ScrapePipeline {
       stackTrace: stackTrace,
     );
   }
-
 }
 
 /// 单部作品目录刮削处理的内部返回值。

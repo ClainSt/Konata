@@ -12,6 +12,7 @@ export 'konata_capsule_icon_button.dart';
 export 'konata_cd_disc_placeholder.dart';
 export 'konata_draggable_scrollbar.dart';
 export 'konata_keep_alive_tab_switcher.dart';
+export 'konata_managed_image.dart';
 export 'konata_osd_stroked_text.dart';
 export 'konata_page_header.dart';
 export 'konata_pill_button.dart';

@@ -94,7 +94,9 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
   @override
   void dispose() {
     if (_lockedPortraitOrientation) {
-      unawaited(SystemChrome.setPreferredOrientations(DeviceOrientation.values));
+      unawaited(
+        SystemChrome.setPreferredOrientations(DeviceOrientation.values),
+      );
     }
     _portraitScrollCtrl.dispose();
     _wideHeroScrollCtrl.dispose();
@@ -127,7 +129,9 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
       final epId = plan.targetEpisode.id;
       final epVariants = bundle.variantsForEpisode(epId.value);
       if (epVariants.length > 1) {
-        final targetEp = bundle.episodes.where((e) => e.id == epId.value).firstOrNull;
+        final targetEp = bundle.episodes
+            .where((e) => e.id == epId.value)
+            .firstOrNull;
         if (targetEp != null) {
           await _handleTapEpisode(controller, bundle, targetEp);
           return;
@@ -164,7 +168,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
     final variants = bundle.variantsForEpisode(ep.id);
     if (variants.length > 1) {
       final episodeTitle = EpisodeTitleFormatter.formatCardTitle(
-        episode: ep,
+        episode: DetailSupplementaryHelper.toEpisodeSummaryView(ep),
         workTitle: bundle.work.title,
         workMediaType: bundle.work.tmdbMediaType,
         mainEpisodeCount: bundle.mainEpisodes.length,
@@ -207,7 +211,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
     Episode ep,
   ) async {
     final heading = EpisodeTitleFormatter.formatCardTitle(
-      episode: ep,
+      episode: DetailSupplementaryHelper.toEpisodeSummaryView(ep),
       workTitle: bundle.work.title,
       workMediaType: bundle.work.tmdbMediaType,
       mainEpisodeCount: bundle.mainEpisodes.length,
@@ -389,7 +393,9 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
       workTitle: work.title,
     );
     if (result != null && result.confirmed && mounted) {
-      await controller.deleteWorkFromLibrary(addToIgnoreList: result.addToIgnore);
+      await controller.deleteWorkFromLibrary(
+        addToIgnoreList: result.addToIgnore,
+      );
       if (mounted) {
         await _handleBack(controller);
       }
@@ -492,7 +498,9 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
               ),
             )
             .then((color) {
-              if (!mounted || _sampledDissolveKey != requestKey || color == null) {
+              if (!mounted ||
+                  _sampledDissolveKey != requestKey ||
+                  color == null) {
                 return;
               }
               setState(() => _sampledDissolveColor = color);
@@ -602,8 +610,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                     title: '加载作品详情失败',
                     subtitle: '${controller.loadError}',
                     isError: true,
-                    onReturnToLibrary: () =>
-                        unawaited(_handleBack(controller)),
+                    onReturnToLibrary: () => unawaited(_handleBack(controller)),
                   ),
                 );
               }
@@ -611,8 +618,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                 return ColoredBox(
                   color: p.canvas,
                   child: MissingWorkFallbackView(
-                    onReturnToLibrary: () =>
-                        unawaited(_handleBack(controller)),
+                    onReturnToLibrary: () => unawaited(_handleBack(controller)),
                   ),
                 );
               }
@@ -639,8 +645,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                   final isTabletPortrait =
                       platform == KonataPlatform.androidTablet &&
                       size.height > size.width;
-                  final isNarrowWindowFallback =
-                      !isPhone && size.width < 760;
+                  final isNarrowWindowFallback = !isPhone && size.width < 760;
                   final isShortLandscapeFallback =
                       !isPhone && size.height < 540 && size.width >= 480;
 
@@ -696,8 +701,9 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                         onInvokeExternalAction: (action) => unawaited(
                           _handleInvokeExternalAction(bundle, action),
                         ),
-                        onTapEpisode: (ep) =>
-                            unawaited(_handleTapEpisode(controller, bundle, ep)),
+                        onTapEpisode: (ep) => unawaited(
+                          _handleTapEpisode(controller, bundle, ep),
+                        ),
                         onTapCdVariant: (variant) =>
                             unawaited(_handleTapCdVariant(controller, variant)),
                         onInspectEpisodeInfo: (ep) =>

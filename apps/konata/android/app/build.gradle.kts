@@ -98,6 +98,12 @@ android {
             applicationIdSuffix = "$laneIdSuffix.profile"
         }
         release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
             if (isolatedReleaseValidation) {
                 val validationSuffix = if (scraperPackage) ".scrapervalidation" else ".acceptance"
                 applicationIdSuffix = "$laneIdSuffix$validationSuffix"

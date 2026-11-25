@@ -8,7 +8,6 @@ import 'package:konata_contracts/konata_contracts.dart';
 import 'package:konata_storage/konata_storage.dart';
 import 'package:path/path.dart' as p;
 
-import '../../domain/matching/episode_title_formatter.dart';
 import '../../domain/models/external_player_config.dart';
 import '../../domain/models/playback_record_helpers.dart';
 import '../../domain/playback/cue_and_lrc_parser.dart';
@@ -52,13 +51,18 @@ class RealExternalPlayerLauncher implements ExternalPlayerLauncher {
   final StorageRootPort storageRoot;
 
   /// 可选外部影子 .cue 写入回调覆盖。
-  final Future<String> Function({required String seedKey, required String normalizedCueText})? shadowCueWriter;
+  final Future<String> Function({
+    required String seedKey,
+    required String normalizedCueText,
+  })?
+  shadowCueWriter;
 
   /// 可选外部专辑会话心跳保活回调。
   final void Function(String albumToken)? onTouchAlbumSession;
 
   /// 可选底层源访问异常翻译回调。
-  final String Function(Object error, MediaSourceKind sourceKind)? sourceErrorFormatter;
+  final String Function(Object error, MediaSourceKind sourceKind)?
+  sourceErrorFormatter;
 
   /// MPV 命名管道查询客户端。
   final MpvPipeClient mpvPipeClient;
@@ -93,7 +97,9 @@ class RealExternalPlayerLauncher implements ExternalPlayerLauncher {
     if (beefwebBaseUrlOverride != null &&
         FoobarBeefwebTracker.isFoobarExecutable(player.executablePath)) {
       final parsed = Uri.tryParse(beefwebBaseUrlOverride!);
-      final effectivePort = parsed?.hasPort == true ? parsed!.port : beefwebPort;
+      final effectivePort = parsed?.hasPort == true
+          ? parsed!.port
+          : beefwebPort;
       return FoobarBeefwebTracker.inspectStatus(
         executablePath: player.executablePath,
         port: effectivePort,
@@ -127,10 +133,7 @@ class RealExternalPlayerLauncher implements ExternalPlayerLauncher {
     ExternalAudioProgressCallback? onTrackProgress,
   }) async {
     if (request.tracks.isEmpty) {
-      return const LaunchPlaybackResult(
-        launched: false,
-        message: '当前专辑无可播放曲目',
-      );
+      return const LaunchPlaybackResult(launched: false, message: '当前专辑无可播放曲目');
     }
     final effectivePlayer = await _resolvePlayerConfig(player);
     if (effectivePlayer == null) {
@@ -241,13 +244,13 @@ class RealExternalPlayerLauncher implements ExternalPlayerLauncher {
 
     try {
       if (source.kind == MediaSourceKind.local) {
-        
         final cueSheet = request.parsedCueSheet;
         if (cueSheet != null && cueSheet.tracks.isNotEmpty) {
           final resolvedByTrack = <int, String>{};
           String? firstAbsAudio;
           for (final t in request.tracks) {
-            final absAudio = PlaybackSidecarHelpers.resolveLocalSafePath(source.location, 
+            final absAudio = PlaybackSidecarHelpers.resolveLocalSafePath(
+              source.location,
               t.variant.relativePath,
             );
             if (!File(absAudio).existsSync()) {
@@ -279,13 +282,17 @@ class RealExternalPlayerLauncher implements ExternalPlayerLauncher {
         } else {
           final absTrackPaths = <String>[];
           for (final t in request.tracks) {
-            final abs = PlaybackSidecarHelpers.resolveLocalSafePath(source.location, t.variant.relativePath);
+            final abs = PlaybackSidecarHelpers.resolveLocalSafePath(
+              source.location,
+              t.variant.relativePath,
+            );
             if (File(abs).existsSync()) {
               absTrackPaths.add(abs);
             }
           }
           if (absTrackPaths.isEmpty) {
-            final expected = PlaybackSidecarHelpers.resolveLocalSafePath(source.location, 
+            final expected = PlaybackSidecarHelpers.resolveLocalSafePath(
+              source.location,
               initialTrack.variant.relativePath,
             );
             return LaunchPlaybackResult(
@@ -579,8 +586,10 @@ class RealExternalPlayerLauncher implements ExternalPlayerLauncher {
 
     try {
       if (source.kind == MediaSourceKind.local) {
-        
-        final absMediaPath = PlaybackSidecarHelpers.resolveLocalSafePath(source.location, variant.relativePath);
+        final absMediaPath = PlaybackSidecarHelpers.resolveLocalSafePath(
+          source.location,
+          variant.relativePath,
+        );
         if (!File(absMediaPath).existsSync()) {
           return LaunchPlaybackResult(
             launched: false,
@@ -641,7 +650,8 @@ class RealExternalPlayerLauncher implements ExternalPlayerLauncher {
         : '';
 
     final displayTitle = EpisodeTitleFormatter.formatPlayerMediaTitle(
-      work: work,
+      workTitle: work.title,
+      workMediaType: work.tmdbMediaType,
       episode: episode,
       mainEpisodeCount: mainEpisodeCount,
       fallbackFileName: variant.fileName,

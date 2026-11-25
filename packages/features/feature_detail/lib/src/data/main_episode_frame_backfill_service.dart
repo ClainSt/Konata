@@ -3,6 +3,8 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:engine_scraping/engine_scraping.dart';
+import 'package:konata_contracts/konata_contracts.dart'
+    show EpisodeTitleFormatter;
 import 'package:konata_storage/konata_storage.dart';
 import 'package:path/path.dart' as p;
 
@@ -287,8 +289,7 @@ final class MainEpisodeFrameBackfillService {
         final stillFileName =
             'video_still_v2_${PhotosStorage.shortDigest(ep.id)}.png';
         final cachedStillFile = File(p.join(thumbDir.path, stillFileName));
-        if (cachedStillFile.existsSync() &&
-            cachedStillFile.lengthSync() > 0) {
+        if (cachedStillFile.existsSync() && cachedStillFile.lengthSync() > 0) {
           if (needBackdrop && sharedBackdropPath == null) {
             final bytes = await cachedStillFile.readAsBytes();
             await persistBackdropIfNeeded(bytes);

@@ -10,7 +10,7 @@ import '../subtitles/subtitle_font_pool_manager.dart';
 /// Android 便携 `mpv` 配置目录 CJK 兜底字体准备助手（纯 Dart，零 `flutter/services` 依赖）。
 abstract final class AndroidCjkFontHelper {
   static const String _bundledFallbackCjkFontAsset =
-      'assets/fonts/NotoSansCJKsc-VF.ttf';
+      'assets/fonts/KonataNotoCJK-VF.ttf';
   static const String _bundledFallbackFontFileName = 'KonataFallbackCJK.ttf';
 
   /// 为 Android 端便携 `mpv` 配置目录准备 `fonts/` 与 `subfont.ttf` 兜底字体。

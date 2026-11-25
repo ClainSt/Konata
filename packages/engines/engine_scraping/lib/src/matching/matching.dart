@@ -3,7 +3,6 @@ library;
 
 export 'directory_grouper.dart';
 export 'episode_remapper.dart';
-export 'episode_title_formatter.dart';
 export 'season_zero_main_matcher.dart';
 export 'supplementary_folder_rules.dart';
 export 'supplementary_subclassifier.dart';

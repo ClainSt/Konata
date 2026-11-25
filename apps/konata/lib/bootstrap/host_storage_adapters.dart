@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart'
     hide WindowsOptions;
 import 'package:konata_contracts/konata_contracts.dart';
@@ -165,6 +166,22 @@ final class HostFilePickerAdapter implements FilePickerPort, BackupFilePort {
       return path;
     }
     return outputUri.toString();
+  }
+}
+
+/// 基于 Flutter `rootBundle` 的跨端只读内置资产字节读取适配器（实现 [AssetDataLoaderPort]）。
+final class HostAssetDataLoader implements AssetDataLoaderPort {
+  /// 创建宿主内置资产读取适配器。
+  const HostAssetDataLoader();
+
+  @override
+  Future<Uint8List?> loadBytes(String assetPath) async {
+    try {
+      final data = await rootBundle.load(assetPath);
+      return data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+    } catch (_) {
+      return null;
+    }
   }
 }
 

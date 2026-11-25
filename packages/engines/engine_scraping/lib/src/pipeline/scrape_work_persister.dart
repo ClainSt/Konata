@@ -3,12 +3,13 @@ import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
+import 'package:konata_contracts/konata_contracts.dart'
+    show EpisodeTitleFormatter;
 import 'package:path/path.dart' as p;
 
 import '../formatting/video_frame_selector.dart';
 import '../matching/directory_grouper.dart';
 import '../matching/episode_remapper.dart';
-import '../matching/episode_title_formatter.dart';
 import '../matching/season_zero_main_matcher.dart';
 import '../matching/supplementary_subclassifier.dart';
 import '../matching/work_matcher.dart';
@@ -154,15 +155,18 @@ class ScrapeWorkPersister {
       effectivePosterFallback = effectiveLocalPoster;
     }
 
-    final effectiveMatchedSeason =
-        detail.mediaType == TmdbMediaType.movie ? null : matchedSeason;
+    final effectiveMatchedSeason = detail.mediaType == TmdbMediaType.movie
+        ? null
+        : matchedSeason;
     final tmdbPortraitBackdrop =
         _nonEmpty(seasonDetail?.portraitBackdropPath) ??
         _nonEmpty(detail.portraitBackdropPath) ??
         ArtworkRanker.selectBestTextlessPortraitBackdrop(
           seasonDetail?.candidatePosters ?? const <TmdbArtworkImage>[],
         ) ??
-        ArtworkRanker.selectBestTextlessPortraitBackdrop(detail.candidatePosters);
+        ArtworkRanker.selectBestTextlessPortraitBackdrop(
+          detail.candidatePosters,
+        );
     final effectivePortraitBackdrop =
         tmdbPortraitBackdrop ?? _nonEmpty(fanartPortraitBackdropOverride);
 
@@ -445,7 +449,8 @@ class ScrapeWorkPersister {
         }
       }
       if (bestWorkId == null) return null;
-      return worksById?[bestWorkId] ?? await _repository.findWorkById(bestWorkId);
+      return worksById?[bestWorkId] ??
+          await _repository.findWorkById(bestWorkId);
     }
 
     final allWorks = await _repository.getAllWorks();
@@ -479,9 +484,10 @@ class ScrapeWorkPersister {
     Map<String, Work>? worksById,
     Set<String>? excludedSplitWorkIds,
   }) async {
-    final normRoot = (folder.physicalRootFolder ?? '')
-        .trim()
-        .replaceAll('\\', '/');
+    final normRoot = (folder.physicalRootFolder ?? '').trim().replaceAll(
+      '\\',
+      '/',
+    );
     final unsplitParentId = normRoot.isEmpty
         ? null
         : deterministicId('$sourceId::$normRoot');
@@ -648,7 +654,8 @@ class ScrapeWorkPersister {
       final slotCategory = preSlot?.category ?? parsed.category;
       if (slotCategory == EpisodeCategory.extra) {
         extraVariants.add(rawVariant);
-      } else if (collectSeasonZeroMain && slotCategory == EpisodeCategory.main) {
+      } else if (collectSeasonZeroMain &&
+          slotCategory == EpisodeCategory.main) {
         seasonZeroMainVariants.add(rawVariant);
       }
     }
@@ -735,10 +742,9 @@ class ScrapeWorkPersister {
                               false) ||
                           (existingAssignedEp.title?.trim().isNotEmpty ==
                                   true &&
-                              !EpisodeTitleFormatter
-                                  .isGenericEpisodePlaceholder(
-                                    existingAssignedEp.title!,
-                                  ))))))
+                              !EpisodeTitleFormatter.isGenericEpisodePlaceholder(
+                                existingAssignedEp.title!,
+                              ))))))
           ? existingAssignedEp
           : null;
       final keptExistingEp =
@@ -943,8 +949,7 @@ class ScrapeWorkPersister {
                         : extraTagDisambiguator));
         final key =
             '${resolved.category.name}:${resolved.seasonNumber}:${resolved.episodeNumber ?? 'unnumbered'}${resolved.episodeEnd == null ? '' : '-${resolved.episodeEnd}'}:${resolved.extraType?.name ?? ''}:$stemKey';
-        final epId =
-            keptExistingEp?.id ?? deterministicId('${work.id}::$key');
+        final epId = keptExistingEp?.id ?? deterministicId('${work.id}::$key');
 
         var episode = episodeById[epId];
         final metaOverride =

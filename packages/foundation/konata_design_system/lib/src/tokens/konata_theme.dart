@@ -50,13 +50,12 @@ abstract final class KonataTheme {
   static const Color detailLightSlatePrimary = Color(0xFF0F172A);
   static const Color detailLightSlateSecondary = Color(0xEB0F172A);
 
-  /// 离线内置全语种单一体可变字体栈（由覆盖拉丁/数字与简繁日韩的 Noto Sans CJK SC
-  /// 主导排版，避免 Impeller OpenGLESSDF 在双可变字体高频跨字族回退时触发字形图集越界）。
+  /// 由内置裁剪版 Noto Sans CJK SC 主导中日英界面的排版。
+  /// 保留系统字体以补足内置字集之外的字符。
   static const String uiFontFamily = 'KonataNotoCJK';
   static const List<String> uiFontFamilyFallback = [
-    'KonataInter',
-    'Yu Gothic UI',
     'Microsoft YaHei UI',
+    'Yu Gothic UI',
   ];
 
   /// 全局顶栏与主页面边缘对齐几何 Token。

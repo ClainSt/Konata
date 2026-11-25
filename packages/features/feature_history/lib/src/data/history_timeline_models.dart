@@ -145,14 +145,15 @@ final class HistoryWorkGroupEntry {
   bool get isAudioGroup => latestItem.isAudio;
 
   /// 收起态顶部次行摘要（如 `第 12 集 - 17:52 · 共 3 集`）。
-  String get collapsedSummary => PlaybackHistoryTimelineBuilder.formatCollapsedSummary(
-    latestRecord: latestItem.record,
-    entryCount: entryCount,
-    isAudio: isAudioGroup,
-    work: work,
-    workTitle: workTitle,
-    mainEpisodeCount: mainEpisodeCount > 0 ? mainEpisodeCount : null,
-  );
+  String get collapsedSummary =>
+      PlaybackHistoryTimelineBuilder.formatCollapsedSummary(
+        latestRecord: latestItem.record,
+        entryCount: entryCount,
+        isAudio: isAudioGroup,
+        work: work,
+        workTitle: workTitle,
+        mainEpisodeCount: mainEpisodeCount > 0 ? mainEpisodeCount : null,
+      );
 }
 
 /// 播放记录时间轴的单日分区模型（支持今天 / 昨天 / 具体日期标题）。
@@ -274,12 +275,18 @@ abstract final class HistoryTimelineGrouper {
                       final ep = episodesById[rec.episodeId];
                       final variant = variantsById[rec.variantId];
                       final isAudio = resolveIsAudio(rec, variant);
-                      final subtitle = EpisodeTitleFormatter.formatHistorySubtitle(
-                        record: rec,
-                        work: work,
-                        workTitle: fallbackTitle,
-                        mainEpisodeCount: mainEpCount > 0 ? mainEpCount : null,
-                      );
+                      final subtitle =
+                          EpisodeTitleFormatter.formatHistorySubtitleFields(
+                            episodeTitle: rec.episodeTitle,
+                            isAudioRecord: rec.isAudioRecord,
+                            seasonNumber: rec.seasonNumber,
+                            episodeNumber: rec.episodeNumber,
+                            workTitle: work?.title ?? fallbackTitle,
+                            workMediaType: work?.tmdbMediaType,
+                            mainEpisodeCount: mainEpCount > 0
+                                ? mainEpCount
+                                : null,
+                          );
                       return HistoryEntryView(
                         record: rec,
                         work: work,

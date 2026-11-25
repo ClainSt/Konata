@@ -534,7 +534,9 @@ String _resolveTtfAttachmentPath(Directory repoRoot) {
   final candidates = [
     r'C:\Windows\Fonts\marlett.ttf',
     r'C:\Windows\Fonts\lucon.ttf',
-    p.join(repoRoot.path, 'assets', 'fonts', 'InterVariable.ttf'),
+    p.join(
+      repoRoot.path, 'apps', 'konata', 'assets', 'fonts', 'KonataNotoCJK-VF.ttf',
+    ),
   ];
   for (final path in candidates) {
     if (File(path).existsSync()) return path;

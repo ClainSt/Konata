@@ -93,7 +93,9 @@ try {
     if ($FanartRelayBase.Trim().Length -gt 0) {
         $extraDefineArgs += "--dart-define=KONATA_FANART_RELAY_BASE=$($FanartRelayBase.Trim())"
     }
-    & $flutter build apk --release -t lib/main_android.dart --target-platform android-arm64 --split-per-abi --build-name=$BuildName --build-number=$BuildNumber @extraDefineArgs 2>&1 |
+    $symbolsDir = Join-Path $repoRoot 'build/symbols/android'
+    $null = New-Item -ItemType Directory -Force -Path $symbolsDir
+    & $flutter build apk --release -t lib/main_android.dart --target-platform android-arm64 --split-per-abi --split-debug-info=$symbolsDir --build-name=$BuildName --build-number=$BuildNumber @extraDefineArgs 2>&1 |
         Tee-Object -FilePath (Join-Path $statusDir 'android-release-build.log')
     if ($LASTEXITCODE) { throw 'Android Release 构建失败。' }
 

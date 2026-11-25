@@ -242,7 +242,7 @@ Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,测试字幕
         isAndroidOverride: true,
         systemFontRootsOverride: [emptySystemFonts],
         assetLoaderOverride: (assetKey) async {
-          expect(assetKey, 'assets/fonts/NotoSansCJKsc-VF.ttf');
+          expect(assetKey, 'assets/fonts/KonataNotoCJK-VF.ttf');
           return ByteData.sublistView(fallbackBytes);
         },
       );

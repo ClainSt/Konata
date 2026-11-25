@@ -8,6 +8,44 @@ import 'package:konata_storage/konata_storage.dart';
 
 import 'source_scope_prefs.dart';
 
+/// 识别旧版从光鸭账号地址提取的自动名称。
+bool isLegacyCloudSourceLabel(MediaSource source) =>
+    source.kind == MediaSourceKind.cloudDrive &&
+    RegExp(r'^gya_[0-9a-f]{64}$').hasMatch(source.label) &&
+    Uri.tryParse(source.location)?.host == source.label;
+
+/// 按已占用名称分配最小可用编号。
+String nextCloudSourceLabel(Set<String> used) {
+  if (!used.contains('云盘')) return '云盘';
+  for (var i = 2; ; i++) {
+    final label = '云盘$i';
+    if (!used.contains(label)) return label;
+  }
+}
+
+/// 旧自动名称仅在展示层替换，不触碰源标识或授权信息。
+List<MediaSource> friendlySourceLabels(List<MediaSource> sources) {
+  final used = sources
+      .where((s) => !isLegacyCloudSourceLabel(s))
+      .map((s) => s.label)
+      .toSet();
+  final aliases = <String, String>{};
+  final legacy = sources.where(isLegacyCloudSourceLabel).toList()
+    ..sort((a, b) => a.id.compareTo(b.id));
+  for (final source in legacy) {
+    final label = nextCloudSourceLabel(used);
+    used.add(label);
+    aliases[source.id] = label;
+  }
+  return [
+    for (final source in sources)
+      if (aliases.containsKey(source.id))
+        source.copyWith(label: aliases[source.id])
+      else
+        source,
+  ];
+}
+
 /// 媒体源保存或编辑操作结果。
 @immutable
 class SourceActionResult {
@@ -230,8 +268,8 @@ GROUP BY mv.${MediaVariantsSchema.colSourceId};
     bool clearPassword = false,
     List<String>? includedFolders,
   }) async {
-    final trimmedLabel = label.trim();
-    if (trimmedLabel.isEmpty) {
+    var trimmedLabel = label.trim();
+    if (trimmedLabel.isEmpty && kind != MediaSourceKind.cloudDrive) {
       return const SourceActionResult(success: false, errorMessage: '请填写媒体源名称');
     }
 
@@ -248,6 +286,13 @@ GROUP BY mv.${MediaVariantsSchema.colSourceId};
       validated.normalizedLocation,
     );
     final existingSources = await _repository.getMediaSources();
+    if (kind == MediaSourceKind.cloudDrive && trimmedLabel.isEmpty) {
+      final friendly = friendlySourceLabels(existingSources);
+      trimmedLabel = nextCloudSourceLabel({
+        for (final item in friendly)
+          if (item.id != existingId) item.label,
+      });
+    }
     for (final item in existingSources) {
       if (item.id == existingId) continue;
       if (item.kind == kind &&

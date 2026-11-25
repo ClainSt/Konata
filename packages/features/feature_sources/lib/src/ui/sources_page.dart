@@ -29,8 +29,6 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
   final ScrollController _scrollController = ScrollController();
   String? _testingSourceId;
   bool _bannerDismissed = false;
-  final Map<String, SourceTestResult> _recentTestResults =
-      <String, SourceTestResult>{};
 
   @override
   void dispose() {
@@ -47,9 +45,6 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
   Future<void> _openEditSource(MediaSource source) async {
     final saved = await showSourceEditorDialog(context, existingSource: source);
     if (!mounted || saved == null) return;
-    setState(() {
-      _recentTestResults.remove(source.id);
-    });
     showKonataToast(context, '已保存媒体源「${saved.label}」');
   }
 
@@ -63,6 +58,17 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
       username: source.username,
       sourceLabel: source.label,
       initialSelected: sourcesController.readIncludedFolders(source.id),
+      onForceScanSelected: (selectedPaths) async {
+        if (!mounted) return;
+        await sourcesController.updateIncludedFolders(source.id, selectedPaths);
+        if (!mounted) return;
+        await _scanSingleSource(
+          source,
+          scanRootsOverride: selectedPaths,
+          forceFullRescan: true,
+          openProgressDialog: true,
+        );
+      },
       onScanSelected: (selectedPaths) async {
         if (!mounted) return;
         await sourcesController.updateIncludedFolders(source.id, selectedPaths);
@@ -92,7 +98,6 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
     if (!mounted) return;
     setState(() {
       _testingSourceId = null;
-      _recentTestResults[source.id] = res;
     });
     showKonataToast(
       context,
@@ -118,9 +123,8 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
       context,
       isTmdbConfigured:
           deps.httpClient.config.credentialKind != TmdbCredentialKind.none,
-      onOpenNetworkSettings: () => deps.navigator.openSettings(
-        sectionId: 'network',
-      ),
+      onOpenNetworkSettings: () =>
+          deps.navigator.openSettings(sectionId: 'network'),
     );
     if (!mounted || !proceed) return;
 
@@ -142,34 +146,8 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
         '「${source.label}」扫库完成：匹配 ${phase.matchedWorks} · 待复核 ${phase.reviewWorks}',
       );
     } else if (phase is ScrapeFailedPhase) {
-      showKonataToast(
-        context,
-        phase.errorMessage ?? '扫库失败',
-        isError: true,
-      );
+      showKonataToast(context, phase.errorMessage ?? '扫库失败', isError: true);
     }
-  }
-
-  Future<void> _scanAllSources() async {
-    final deps = ref.read(featureSourcesDependenciesProvider);
-    final scrapeController = ref.read(sourceScrapeControllerProvider);
-    if (scrapeController.isBusy) {
-      await showScanProgressDialog(context);
-      return;
-    }
-
-    final proceed = await confirmScrapeWithoutTmdbIfNeeded(
-      context,
-      isTmdbConfigured:
-          deps.httpClient.config.credentialKind != TmdbCredentialKind.none,
-      onOpenNetworkSettings: () => deps.navigator.openSettings(
-        sectionId: 'network',
-      ),
-    );
-    if (!mounted || !proceed) return;
-
-    setState(() => _bannerDismissed = false);
-    await scrapeController.scanAllSources();
   }
 
   Future<void> _deleteSource(MediaSource source) async {
@@ -177,9 +155,6 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
     if (!mounted || !confirmed) return;
     await ref.read(sourcesControllerProvider).deleteSource(source.id);
     if (!mounted) return;
-    setState(() {
-      _recentTestResults.remove(source.id);
-    });
     showKonataToast(context, '已移除媒体源「${source.label}」（原始媒体文件未受影响）');
   }
 
@@ -192,7 +167,9 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
     final statsMap =
         ref.watch(sourceStatsStreamProvider).value ??
         const <String, SourceLibraryStats>{};
-    final sources = sourcesAsync.value ?? const <MediaSource>[];
+    final sources = friendlySourceLabels(
+      sourcesAsync.value ?? const <MediaSource>[],
+    );
     final isLoading = sourcesAsync.isLoading && !sourcesAsync.hasValue;
     final bottomClearance = KonataBottomClearanceScope.of(context);
     final screenW = MediaQuery.sizeOf(context).width;
@@ -220,24 +197,7 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
           children: [
             AdaptiveActionHeader(
               title: '媒体源管理',
-              badge: sources.isEmpty
-                  ? null
-                  : KonataSpecBadge(label: '${sources.length} 个源'),
               primaryActions: [
-                if (sources.isNotEmpty)
-                  AdaptiveHeaderAction(
-                    buttonKey: const Key('sources_scan_all_button'),
-                    icon: Icons.radar_rounded,
-                    label: scrapeController.isBusy ? '查看进度' : '全部扫描',
-                    wideWidget: KonataPillButton.secondary(
-                      key: const Key('sources_scan_all_button'),
-                      label: scrapeController.isBusy ? '查看进度' : '全部扫描',
-                      icon: Icons.radar_rounded,
-                      compact: true,
-                      onPressed: _scanAllSources,
-                    ),
-                    onPressed: _scanAllSources,
-                  ),
                 AdaptiveHeaderAction(
                   buttonKey: const Key('sources_add_button'),
                   icon: Icons.add_rounded,
@@ -269,9 +229,8 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
                 showBanner: showBanner,
                 padH: padH,
                 bottomClearance: bottomClearance,
-                onOpenSettingsNetwork: () => deps.navigator.openSettings(
-                  sectionId: 'network',
-                ),
+                onOpenSettingsNetwork: () =>
+                    deps.navigator.openSettings(sectionId: 'network'),
                 onInspectProgress: () => showScanProgressDialog(
                   context,
                   focusSourceId: phase.sourceId,
@@ -314,10 +273,7 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
       return Center(
         child: Padding(
           padding: EdgeInsets.symmetric(horizontal: padH),
-          child: Text(
-            '加载媒体源失败: $loadError',
-            style: TextStyle(color: p.danger),
-          ),
+          child: Text('加载媒体源失败: $loadError', style: TextStyle(color: p.danger)),
         ),
       );
     }
@@ -361,12 +317,7 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
             )
           else
             SliverPadding(
-              padding: EdgeInsets.fromLTRB(
-                padH,
-                0,
-                padH,
-                28 + bottomClearance,
-              ),
+              padding: EdgeInsets.fromLTRB(padH, 0, padH, 28 + bottomClearance),
               sliver: SliverList.separated(
                 itemCount: sources.length,
                 separatorBuilder: (_, _) => const SizedBox(height: 12),
@@ -378,18 +329,10 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
                     source: source,
                     stats: statsMap[source.id] ?? const SourceLibraryStats(),
                     testing: _testingSourceId == source.id,
-                    testResult: _recentTestResults[source.id],
                     scanning: isScanningThis,
                     anyScanning: phase.isActive,
-                    onScan: () => _scanSingleSource(
-                      source,
-                      openProgressDialog: true,
-                    ),
-                    onForceRescan: () => _scanSingleSource(
-                      source,
-                      forceFullRescan: true,
-                      openProgressDialog: true,
-                    ),
+                    onScan: () =>
+                        _scanSingleSource(source, openProgressDialog: true),
                     onInspectPendingReview: () => showScanProgressDialog(
                       context,
                       focusSourceId: source.id,
@@ -425,11 +368,7 @@ class _EmptySourcesState extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
-                Icons.folder_open_rounded,
-                size: 48,
-                color: p.textMuted,
-              ),
+              Icon(Icons.folder_open_rounded, size: 48, color: p.textMuted),
               const SizedBox(height: 12),
               Text(
                 '尚未配置任何媒体源',

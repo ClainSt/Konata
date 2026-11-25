@@ -4,6 +4,7 @@ export 'package:konata_contracts/konata_contracts.dart' show MediaSourceKind;
 
 /// 根据媒体源协议与路径/地址自动推导友好的默认显示名称。
 String deriveDefaultSourceLabel(MediaSourceKind kind, String rawLocation) {
+  if (kind == MediaSourceKind.cloudDrive) return '云盘';
   final location = rawLocation.trim();
   if (location.isEmpty) {
     return switch (kind) {

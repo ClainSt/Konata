@@ -307,6 +307,56 @@ void main() {
     expect(edited.source!.label, '新名称');
   });
 
+  test('云盘留空自动编号，保留已有名称与账号地址', () async {
+    final repo = StorageScrapeRepository(db);
+    final legacyId = 'gya_' + List.filled(64, 'a').join();
+    await repo.upsertMediaSource(
+      MediaSource(
+        id: 'legacy_cloud',
+        kind: MediaSourceKind.cloudDrive,
+        label: legacyId,
+        location: 'guangyapan://$legacyId',
+      ),
+    );
+    final controller = SourcesController(
+      databases: db,
+      credentialStore: credentialStore,
+      gatewayFactory: _FakeGatewayFactory(
+        (source, pwd, clear) => _FakeGateway(),
+      ),
+      eventBus: eventBus,
+      scopedPrefs: prefs,
+    );
+    addTearDown(controller.dispose);
+    for (var i = 2; i <= 3; i++) {
+      final result = await controller.saveSource(
+        kind: MediaSourceKind.cloudDrive,
+        label: ' ',
+        location: 'guangyapan://account_$i',
+      );
+      expect(result.success, isTrue);
+      expect(result.source!.label, '云盘$i');
+    }
+    final custom = await controller.saveSource(
+      kind: MediaSourceKind.cloudDrive,
+      label: '收藏归档',
+      location: 'guangyapan://account_custom',
+    );
+    expect(custom.source!.label, '收藏归档');
+    final sources = await repo.getMediaSources();
+    expect(sources.firstWhere((s) => s.id == 'legacy_cloud').label, legacyId);
+    expect(
+      sources.firstWhere((s) => s.id == 'legacy_cloud').location,
+      'guangyapan://$legacyId',
+    );
+    final next = await controller.saveSource(
+      kind: MediaSourceKind.cloudDrive,
+      label: '',
+      location: 'guangyapan://account_next',
+    );
+    expect(next.source!.label, '云盘4');
+  });
+
   test('目录列举使用本地自然排序且忽略隐藏目录，连通测试自动脱敏密码', () async {
     final gatewayFactory = _FakeGatewayFactory(
       (source, pwd, clear) => _FakeGateway(

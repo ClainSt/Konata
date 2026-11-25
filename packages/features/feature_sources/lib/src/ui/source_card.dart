@@ -15,11 +15,9 @@ class MediaSourceCard extends ConsumerWidget {
     required this.source,
     required this.stats,
     required this.testing,
-    required this.testResult,
     required this.scanning,
     required this.anyScanning,
     required this.onScan,
-    required this.onForceRescan,
     required this.onInspectPendingReview,
     required this.onTest,
     required this.onPickFolders,
@@ -36,9 +34,6 @@ class MediaSourceCard extends ConsumerWidget {
   /// 是否正在探测本源连通性。
   final bool testing;
 
-  /// 本次会话内最近一次连通性测试结果。
-  final SourceTestResult? testResult;
-
   /// 是否正在对本源执行扫库刮削。
   final bool scanning;
 
@@ -47,9 +42,6 @@ class MediaSourceCard extends ConsumerWidget {
 
   /// 点击发起扫库或查看当前进度的回调。
   final VoidCallback onScan;
-
-  /// 点击忽略增量缓存强制全量重扫的回调。
-  final VoidCallback onForceRescan;
 
   /// 点击待复核角标打开本源待复核清单的回调。
   final VoidCallback onInspectPendingReview;
@@ -79,9 +71,6 @@ class MediaSourceCard extends ConsumerWidget {
     return ListenableBuilder(
       listenable: sourcesController,
       builder: (context, _) {
-        final includedFolders = sourcesController.readIncludedFolders(
-          source.id,
-        );
         final lastScannedAt = sourcesController.readLastScannedAt(source.id);
 
         return GestureDetector(
@@ -93,7 +82,7 @@ class MediaSourceCard extends ConsumerWidget {
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final infoRow = Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     _ProtocolIconBadge(kind: source.kind),
                     const SizedBox(width: 14),
@@ -101,27 +90,14 @@ class MediaSourceCard extends ConsumerWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: EllipsisTextWithTooltip(
-                                  text: source.label,
-                                  maxLines: 1,
-                                  style: TextStyle(
-                                    color: p.textPrimary,
-                                    fontSize: KonataTheme.fontSizeTitleSm,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              _SourceStatusPill(
-                                scanning: scanning,
-                                testing: testing,
-                                testResult: testResult,
-                                hasIndexed: stats.hasAnyIndexed,
-                              ),
-                            ],
+                          EllipsisTextWithTooltip(
+                            text: source.label,
+                            maxLines: 1,
+                            style: TextStyle(
+                              color: p.textPrimary,
+                              fontSize: KonataTheme.fontSizeTitleSm,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                           const SizedBox(height: 3),
                           EllipsisTextWithTooltip(
@@ -138,18 +114,11 @@ class MediaSourceCard extends ConsumerWidget {
                             runSpacing: 6,
                             crossAxisAlignment: WrapCrossAlignment.center,
                             children: [
-                              _ProtocolLabelChip(kind: source.kind),
                               KonataSpecBadge(
                                 icon: Icons.video_library_outlined,
                                 label: stats.hasAnyIndexed
                                     ? '${stats.workCount} 部 · ${stats.videoCount} 视频'
                                     : '尚未入库',
-                              ),
-                              KonataSpecBadge(
-                                icon: Icons.account_tree_outlined,
-                                label: includedFolders.isEmpty
-                                    ? '全盘根目录'
-                                    : '已限定 ${includedFolders.length} 个目录',
                               ),
                               if (stats.reviewCount > 0)
                                 MouseRegion(
@@ -161,12 +130,6 @@ class MediaSourceCard extends ConsumerWidget {
                                       badge: p.warningBadge,
                                     ),
                                   ),
-                                ),
-                              if (source.username != null &&
-                                  source.username!.trim().isNotEmpty)
-                                KonataSpecBadge(
-                                  icon: Icons.person_outline_rounded,
-                                  label: source.username!,
                                 ),
                               if (lastScannedAt != null)
                                 KonataSpecBadge(
@@ -207,22 +170,12 @@ class MediaSourceCard extends ConsumerWidget {
 
                 final actionWidgets = <Widget>[
                   KonataPillButton.primary(
-                    label: scanning ? '查看进度' : '扫库刮削',
-                    icon: scanning
-                        ? Icons.hourglass_top_rounded
-                        : Icons.radar_rounded,
+                    label: scanning ? '查看进度' : '选择目录',
+                    icon: Icons.folder_open_rounded,
                     compact: true,
                     onPressed: scanning
                         ? onScan
-                        : (anyScanning ? null : onScan),
-                  ),
-                  KonataPillButton.secondary(
-                    label: includedFolders.isEmpty
-                        ? '目录范围'
-                        : '范围 (${includedFolders.length})',
-                    icon: Icons.folder_open_rounded,
-                    compact: true,
-                    onPressed: onPickFolders,
+                        : (anyScanning ? null : onPickFolders),
                   ),
                   KonataPillButton.secondary(
                     label: testing ? '测试中...' : '测试连通',
@@ -245,17 +198,9 @@ class MediaSourceCard extends ConsumerWidget {
                     fixedSize: iconBtnSize,
                     onTap: onDelete,
                   ),
-                  _SourceMoreMenuButton(
-                    iconBtnSize: iconBtnSize,
-                    onEdit: onEdit,
-                    onPickFolders: onPickFolders,
-                    onTestConnection: onTest,
-                    onForceRescan: anyScanning ? null : onForceRescan,
-                    onDelete: onDelete,
-                  ),
                 ];
 
-                if (constraints.maxWidth >= 740) {
+                if (constraints.maxWidth >= 640) {
                   return Row(
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
@@ -264,12 +209,9 @@ class MediaSourceCard extends ConsumerWidget {
                       actionWidgets[0],
                       const SizedBox(width: 8),
                       actionWidgets[1],
-                      const SizedBox(width: 8),
-                      actionWidgets[2],
                       const SizedBox(width: 6),
+                      actionWidgets[2],
                       actionWidgets[3],
-                      actionWidgets[4],
-                      actionWidgets[5],
                     ],
                   );
                 }
@@ -313,110 +255,29 @@ class _ProtocolIconBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final (icon, bg, border, fg) = switch (kind) {
-      MediaSourceKind.local => (
-        Icons.folder_outlined,
-        p.softFill,
-        p.hairline,
-        p.textPrimary,
-      ),
-      MediaSourceKind.webdav || MediaSourceKind.cloudDrive => (
-        Icons.cloud_outlined,
-        p.accentBadge.bg,
-        p.accentBadge.border,
-        p.accentBadge.fg,
-      ),
-      MediaSourceKind.smb => (
-        Icons.dns_outlined,
-        p.successBadge.bg,
-        p.successBadge.border,
-        p.successBadge.fg,
-      ),
+    final (icon, label) = switch (kind) {
+      MediaSourceKind.local => (Icons.folder_outlined, '本地磁盘'),
+      MediaSourceKind.webdav => (Icons.cloud_outlined, 'WebDAV'),
+      MediaSourceKind.smb => (Icons.dns_outlined, 'SMB 共享'),
+      MediaSourceKind.cloudDrive => (Icons.cloud_outlined, '云盘'),
     };
-
     return Container(
-      width: 40,
-      height: 40,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: bg,
-        borderRadius: KonataTheme.borderRadiusControl,
-        border: Border.all(color: border, width: 1),
-      ),
-      alignment: Alignment.center,
-      child: Icon(icon, size: 20, color: fg),
-    );
-  }
-}
-
-class _ProtocolLabelChip extends StatelessWidget {
-  const _ProtocolLabelChip({required this.kind});
-
-  final MediaSourceKind kind;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-    final (label, badge) = switch (kind) {
-      MediaSourceKind.local => ('本地磁盘', null),
-      MediaSourceKind.webdav => ('WebDAV', p.accentBadge),
-      MediaSourceKind.smb => ('SMB 共享', p.successBadge),
-      MediaSourceKind.cloudDrive => ('云盘', p.accentBadge),
-    };
-    return ScanProgressStatChip(label: label, badge: badge);
-  }
-}
-
-class _SourceStatusPill extends StatelessWidget {
-  const _SourceStatusPill({
-    required this.scanning,
-    required this.testing,
-    required this.testResult,
-    required this.hasIndexed,
-  });
-
-  final bool scanning;
-  final bool testing;
-  final SourceTestResult? testResult;
-  final bool hasIndexed;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-    final (label, dotColor, badge) = scanning
-        ? ('扫库中', p.accent, p.accentBadge)
-        : testing
-        ? ('探测中', p.accent, p.accentBadge)
-        : testResult != null
-        ? (
-            testResult!.success ? '连通正常' : '连接异常',
-            testResult!.success ? p.success : p.danger,
-            testResult!.success ? p.successBadge : p.dangerBadge,
-          )
-        : hasIndexed
-        ? ('已索引', p.success, p.successBadge)
-        : ('就绪', p.textMuted, null);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: badge?.bg ?? p.softFill,
+        color: p.softFill,
         borderRadius: KonataTheme.borderRadiusPill,
-        border: Border.all(color: badge?.border ?? p.hairline, width: 1),
+        border: Border.all(color: p.hairline, width: 0.9),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: 6,
-            height: 6,
-            decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
-          ),
+          Icon(icon, size: 13.5, color: p.textSecondary),
           const SizedBox(width: 5),
           Text(
             label,
             style: TextStyle(
-              color: badge?.fg ?? p.textSecondary,
-              fontSize: KonataTheme.fontSizeBadge,
+              color: p.textSecondary,
+              fontSize: KonataTheme.fontSizeCaption,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -480,87 +341,6 @@ class _IgnoredFolderChipState extends State<_IgnoredFolderChip> {
             ),
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _SourceMoreMenuButton extends StatelessWidget {
-  const _SourceMoreMenuButton({
-    required this.iconBtnSize,
-    required this.onEdit,
-    required this.onPickFolders,
-    required this.onTestConnection,
-    required this.onForceRescan,
-    required this.onDelete,
-  });
-
-  final double iconBtnSize;
-  final VoidCallback onEdit;
-  final VoidCallback onPickFolders;
-  final VoidCallback onTestConnection;
-  final VoidCallback? onForceRescan;
-  final VoidCallback onDelete;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-    return Builder(
-      builder: (anchorContext) => KonataCapsuleIconButton(
-        icon: Icons.more_horiz_rounded,
-        tooltip: '更多媒体源操作',
-        color: p.textSecondary,
-        size: 18,
-        fixedSize: iconBtnSize,
-        padding: EdgeInsets.zero,
-        onTap: () async {
-          final picked = await showKonataGlassMenu<String>(
-            anchorContext: anchorContext,
-            items: [
-              const KonataGlassMenuItem(
-                value: 'edit',
-                label: '编辑配置',
-                icon: Icons.edit_outlined,
-              ),
-              const KonataGlassMenuItem(
-                value: 'scope',
-                label: '扫描目录作用域',
-                icon: Icons.account_tree_outlined,
-              ),
-              const KonataGlassMenuItem(
-                value: 'test',
-                label: '测试连通性',
-                icon: Icons.wifi_tethering_rounded,
-              ),
-              if (onForceRescan != null)
-                const KonataGlassMenuItem(
-                  value: 'force_rescan',
-                  label: '忽略增量缓存重扫',
-                  icon: Icons.refresh_rounded,
-                ),
-              const KonataGlassMenuItem(
-                value: 'delete',
-                label: '移除媒体源',
-                icon: Icons.delete_outline_rounded,
-                isDanger: true,
-              ),
-            ],
-          );
-          switch (picked) {
-            case 'edit':
-              onEdit();
-            case 'scope':
-              onPickFolders();
-            case 'test':
-              onTestConnection();
-            case 'force_rescan':
-              onForceRescan?.call();
-            case 'delete':
-              onDelete();
-            default:
-              break;
-          }
-        },
       ),
     );
   }

@@ -124,6 +124,7 @@ class _SourceEditorDialogState extends ConsumerState<_SourceEditorDialog> {
   }
 
   void _syncDefaultLabelIfEmpty(String location) {
+    if (_kind == MediaSourceKind.cloudDrive) return;
     if (_labelCtrl.text.trim().isNotEmpty) return;
     if (location.trim().isEmpty) return;
     _labelCtrl.text = deriveDefaultSourceLabel(_kind, location);
@@ -211,7 +212,9 @@ class _SourceEditorDialogState extends ConsumerState<_SourceEditorDialog> {
       return;
     }
 
-    final effectiveLabel = _labelCtrl.text.trim().isEmpty
+    final effectiveLabel = _kind == MediaSourceKind.cloudDrive
+        ? _labelCtrl.text.trim()
+        : _labelCtrl.text.trim().isEmpty
         ? deriveDefaultSourceLabel(_kind, validated.normalizedLocation)
         : _labelCtrl.text.trim();
 
@@ -373,7 +376,9 @@ class _SourceEditorDialogState extends ConsumerState<_SourceEditorDialog> {
                   children: [
                     KonataSoftTextField(
                       controller: _labelCtrl,
-                      label: '显示名称（可选，留空自动提取）',
+                      label: _kind == MediaSourceKind.cloudDrive
+                          ? '显示名称（可选，留空自动命名为云盘）'
+                          : '显示名称（可选，留空自动提取）',
                       hintText: '例如：NAS 番剧库 / BDRip 归档盘',
                       prefixIcon: Icons.label_outline_rounded,
                     ),

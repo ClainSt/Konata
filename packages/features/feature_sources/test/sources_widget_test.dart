@@ -501,6 +501,9 @@ void main() {
         expect(find.text('WebDAV'), findsOneWidget);
         expect(find.text('SMB 共享'), findsOneWidget);
         expect(find.text('1 部 · 1 视频'), findsOneWidget);
+        expect(find.text('全部扫描'), findsNothing);
+        expect(find.text('扫库刮削'), findsNothing);
+        expect(find.byTooltip('更多媒体源操作'), findsNothing);
         expect(find.text('待复核 1 ↗'), findsOneWidget);
       }
     }
@@ -561,7 +564,7 @@ void main() {
     expect(find.text('本地磁盘'), findsOneWidget);
 
     // 验证目录范围选择器与已选目录管理面板交互。
-    await tester.tap(find.text('目录范围').first);
+    await tester.tap(find.text('选择目录').first);
     await tester.pumpAndSettle();
     expect(find.text('readme.nfo'), findsOneWidget);
     expect(find.text('已选目录 · 0（点击管理）'), findsOneWidget);
@@ -580,7 +583,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('仅保存范围'));
     await tester.pumpAndSettle();
-    expect(find.text('范围 (1)'), findsOneWidget);
+    expect(find.text('选择目录'), findsWidgets);
 
     // 验证移除确认弹窗与安全承诺文案。
     await tester.tap(find.byTooltip('删除').first);

@@ -27,6 +27,7 @@ Future<List<String>?> showSourceFolderPickerDialog(
   List<String> initialSelected = const <String>[],
   String? sourceLabel,
   Future<void> Function(List<String> selectedPaths)? onScanSelected,
+  Future<void> Function(List<String> selectedPaths)? onForceScanSelected,
 }) {
   return showKonataGlassDialog<List<String>>(
     context: context,
@@ -40,6 +41,7 @@ Future<List<String>?> showSourceFolderPickerDialog(
       initialSelected: initialSelected,
       sourceLabel: sourceLabel,
       onScanSelected: onScanSelected,
+      onForceScanSelected: onForceScanSelected,
     ),
   );
 }
@@ -55,6 +57,7 @@ class _SourceFolderPickerDialog extends ConsumerStatefulWidget {
     required this.initialSelected,
     this.sourceLabel,
     this.onScanSelected,
+    this.onForceScanSelected,
   });
 
   final String? sourceId;
@@ -66,6 +69,7 @@ class _SourceFolderPickerDialog extends ConsumerStatefulWidget {
   final List<String> initialSelected;
   final String? sourceLabel;
   final Future<void> Function(List<String> selectedPaths)? onScanSelected;
+  final Future<void> Function(List<String> selectedPaths)? onForceScanSelected;
 
   @override
   ConsumerState<_SourceFolderPickerDialog> createState() =>
@@ -244,8 +248,8 @@ class _SourceFolderPickerDialogState
     return list;
   }
 
-  Future<void> _scanNow() async {
-    final callback = widget.onScanSelected;
+  Future<void> _scanNow({bool force = false}) async {
+    final callback = force ? widget.onForceScanSelected : widget.onScanSelected;
     if (callback == null) return;
     setState(() => _busy = true);
     final targets = _sortedSelected;
@@ -310,6 +314,12 @@ class _SourceFolderPickerDialogState
           onPressed: _busy ? null : () => Navigator.of(context).pop(),
         ),
         if (widget.onScanSelected != null) ...[
+          if (widget.onForceScanSelected != null)
+            KonataPillButton.ghost(
+              label: '忽略缓存重扫',
+              compact: true,
+              onPressed: _busy ? null : () => _scanNow(force: true),
+            ),
           KonataPillButton.secondary(
             label: '仅保存范围',
             compact: true,

@@ -141,6 +141,45 @@ void main() {
     );
     expect(await store.read('account_b'), isNotNull);
   });
+  test('同账号同目录跨网关合并请求且重新授权后不复用旧缓存', () async {
+    final store = GuangYaCredentialStore(_Storage());
+    var reads = 0;
+    final registry = GuangYaSessionRegistry(
+      credentials: store,
+      spacing: Duration.zero,
+      request: (method, uri, headers, body) async {
+        if (uri.host == 'account.guangyapan.com') {
+          final token = body!['refresh_token'] as String;
+          return reply({
+            'access_token': 'access-$token',
+            'refresh_token': token,
+            'sub': 'user-a',
+            'expires_in': 3600,
+          });
+        }
+        reads++;
+        return reply({
+          'code': 0,
+          'data': {'list': <Object?>[], 'total': 0},
+        });
+      },
+    );
+    addTearDown(registry.close);
+    await registry.authorize('account_a', fixture('user-a', 'a-old'));
+    final a = await registry.create(source('account_a'));
+    final b = await registry.create(source('account_a'));
+    await Future.wait([a.listDirectory(''), b.listDirectory('')]);
+    expect(reads, 1);
+    await a.close();
+    final c = await registry.create(source('account_a'));
+    await c.listDirectory('');
+    expect(reads, 1);
+    await registry.authorize('account_a', fixture('user-a', 'a-new'));
+    final d = await registry.create(source('account_a'));
+    await d.listDirectory('');
+    expect(reads, 2);
+  });
+
   test('非法媒体源地址不读取授权或发送网络请求', () async {
     final registry = GuangYaSessionRegistry(
       credentials: GuangYaCredentialStore(_Storage()),

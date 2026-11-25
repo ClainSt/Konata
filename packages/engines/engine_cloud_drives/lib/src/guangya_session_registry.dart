@@ -154,12 +154,53 @@ final class _AccountSession {
   _AccountSession(this.protocol);
   final LegacyGuangYaProtocol protocol;
   final _gateways = <GuangYaGateway>{};
+  final _clock = Stopwatch()..start();
+  final _directories = <String, ({List<GuangYaFile> files, int expiresAt})>{};
+  final _pending = <String, Future<List<GuangYaFile>>>{};
+  bool _closed = false;
+
+  // 同一账号的媒体、字幕及浏览网关共享目录快照，避免重复排队请求。
+  Future<List<GuangYaFile>> list(String parentId) async {
+    if (_closed) {
+      throw const SourceAccessException(
+        SourceAccessProblemKind.network,
+        '云盘账号会话已关闭',
+      );
+    }
+    final cached = _directories.remove(parentId);
+    if (cached != null && _clock.elapsedMilliseconds < cached.expiresAt) {
+      _directories[parentId] = cached;
+      return cached.files;
+    }
+    final pending = _pending[parentId];
+    if (pending != null) return pending;
+    final task = protocol.list(parentId).then((files) {
+      final snapshot = List<GuangYaFile>.unmodifiable(files);
+      if (!_closed) {
+        _directories[parentId] = (
+          files: snapshot,
+          expiresAt: _clock.elapsedMilliseconds + 30000,
+        );
+        if (_directories.length > 64) {
+          _directories.remove(_directories.keys.first);
+        }
+      }
+      return snapshot;
+    });
+    _pending[parentId] = task;
+    try {
+      return await task;
+    } finally {
+      unawaited(_pending.remove(parentId));
+    }
+  }
 
   GuangYaGateway open(String root, HttpClient Function()? createHttpClient) {
     late final GuangYaGateway gateway;
     gateway = GuangYaGateway(
-      protocol: _ProtocolLease(protocol, () => _gateways.remove(gateway)),
+      protocol: _ProtocolLease(this, () => _gateways.remove(gateway)),
       rootId: root,
+      directoryCacheTtl: Duration.zero,
       createHttpClient: createHttpClient,
     );
     _gateways.add(gateway);
@@ -167,6 +208,9 @@ final class _AccountSession {
   }
 
   Future<void> close() async {
+    _closed = true;
+    _directories.clear();
+    _pending.clear();
     await protocol.close();
     await Future.wait(_gateways.toList().map((g) => g.close()));
     _gateways.clear();
@@ -175,8 +219,8 @@ final class _AccountSession {
 
 /// 关闭单个媒体源仅释放其网关，不中断同账号其他活动媒体源。
 final class _ProtocolLease implements GuangYaProtocol {
-  _ProtocolLease(this._protocol, this._release);
-  final GuangYaProtocol _protocol;
+  _ProtocolLease(this._session, this._release);
+  final _AccountSession _session;
   final void Function() _release;
   bool _closed = false;
 
@@ -192,7 +236,7 @@ final class _ProtocolLease implements GuangYaProtocol {
   @override
   Future<List<GuangYaFile>> list(String parentId) async {
     _check();
-    final result = await _protocol.list(parentId);
+    final result = await _session.list(parentId);
     _check();
     return result;
   }
@@ -200,7 +244,7 @@ final class _ProtocolLease implements GuangYaProtocol {
   @override
   Future<RenewableLink> link(String fileId) async {
     _check();
-    final result = await _protocol.link(fileId);
+    final result = await _session.protocol.link(fileId);
     _check();
     return result;
   }

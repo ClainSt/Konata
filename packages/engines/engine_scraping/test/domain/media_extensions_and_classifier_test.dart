@@ -1,4 +1,5 @@
 import 'package:engine_scraping/engine_scraping.dart';
+import 'package:engine_sources/engine_sources.dart';
 import 'package:konata_contracts/konata_contracts.dart';
 import 'package:test/test.dart';
 
@@ -105,13 +106,13 @@ void main() {
       ];
       for (final ext in expectedSubtitles) {
         expect(KonataMediaExtensions.subtitle.contains(ext), isTrue, reason: ext);
-        expect(ScrapeSubtitleMatcher.isSubtitleFile('ep01$ext'), isTrue);
+        expect(SubtitleMatcher.isSubtitleFile('ep01$ext'), isTrue);
       }
 
       // 验证各模块全部直接复用权威集合引用
       expect(
         identical(
-          ScrapeSubtitleMatcher.supportedExtensions,
+          SubtitleMatcher.supportedExtensions,
           KonataMediaExtensions.subtitle,
         ),
         isTrue,

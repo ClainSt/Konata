@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:developer' as developer;
 import 'dart:io';
 
+import 'package:engine_sources/engine_sources.dart';
 import 'package:konata_contracts/konata_contracts.dart';
 import 'package:path/path.dart' as p;
 
@@ -31,14 +32,10 @@ import 'scrape_compute_worker.dart';
 import 'scrape_match_resolver.dart';
 import 'scrape_progress.dart';
 import 'scrape_progress_tracker.dart';
+import 'scrape_source_scanner.dart';
 import 'scrape_work_persister.dart';
 import 'season_zero_work_splitter.dart';
 import 'series_auto_linker.dart';
-import 'source_scan/directory_scan_snapshot.dart';
-import 'source_scan/directory_scan_snapshot_store.dart';
-import 'source_scan/directory_scanner.dart';
-import 'source_scan/scan_throttle_policy.dart';
-import 'source_scan/source_access_error.dart';
 import 'work_artwork_storage.dart';
 import 'work_directory_sync_service.dart';
 
@@ -96,17 +93,17 @@ class RematchWorkResult {
 
 /// 自定义只读目录扫描执行回调（用于集成外部协议扫描器）。
 typedef ScrapeSourceScanRunner =
-    Future<ScrapeDirectoryScanResult> Function(
+    Future<DirectoryScanResult> Function(
       MediaSource source,
       MediaSourceGateway gateway, {
       required List<String> scanRoots,
       required bool detectLocalCovers,
       required String snapshotKey,
-      ScrapeDirectoryScanSnapshot? previousSnapshot,
-      ScrapeDirectoryScanCheckpointCallback? onCheckpoint,
+      DirectoryScanSnapshot? previousSnapshot,
+      DirectoryScanCheckpointCallback? onCheckpoint,
       bool Function()? isCancelled,
-      ScrapeDirectoryFolderVisitedCallback? onFolderVisited,
-      ScrapeDirectoryScanProgressCallback? onProgress,
+      DirectoryFolderVisitedCallback? onFolderVisited,
+      DirectoryScanProgressCallback? onProgress,
     });
 
 /// 向后兼容别名（等价于 [ScrapePipeline]）。
@@ -183,10 +180,10 @@ class ScrapePipeline {
   final ClearLogoResolver? _clearLogoResolver;
   final WorkArtworkStoragePort? _photosStorage;
   final BangumiTmdbIndex? _mappingIndex;
-  final ScrapeDirectoryScanSnapshotStore? _snapshotStore;
+  final DirectoryScanSnapshotStore? _snapshotStore;
   final int _maxWorkConcurrency;
   final GatewayBuilder _gatewayBuilder;
-  final ScrapeDirectoryScanner _scanner;
+  final DirectoryScanner _scanner;
   final ScrapeSourceScanRunner? _scanRunner;
   final DiagnosticLogPort? _diagnosticLog;
   final DomainEventBus? _eventBus;
@@ -238,9 +235,15 @@ class ScrapePipeline {
           : null;
       final snapshotKey = store == null
           ? ''
-          : ScrapeDirectoryScanSnapshotStore.keyFor(
-              source,
-              ScrapeDirectoryScanner.normalizeScanRoots(effectiveRoots),
+          : DirectoryScanSnapshotStore.keyFor(
+              MediaSourceView(
+                id: SourceId.trusted(source.id),
+                kind: source.kind,
+                label: source.label,
+                location: source.location,
+                username: source.username,
+              ),
+              DirectoryScanner.normalizeScanRoots(effectiveRoots),
             );
       final previousSnapshot = store != null && !forceFullRescan
           ? await store.load(snapshotKey)
@@ -258,8 +261,8 @@ class ScrapePipeline {
         },
       );
 
-      Future<ScrapeDirectoryScanResult> scan(
-        ScrapeDirectoryScanSnapshot? previous,
+      Future<DirectoryScanResult> scan(
+        DirectoryScanSnapshot? previous,
       ) {
         void handleProgress(String dir, int dirCount, int fileCount) {
           emit(
@@ -291,7 +294,7 @@ class ScrapePipeline {
           gateway,
           scanRoots: effectiveRoots,
           detectLocalCovers: source.kind == MediaSourceKind.local,
-          profileOverride: ScrapeDirectoryScanProfile.forSourceKind(
+          profileOverride: DirectoryScanProfile.forSourceKind(
             source.kind,
           ),
           sourceId: snapshotKey,
@@ -303,14 +306,14 @@ class ScrapePipeline {
         );
       }
 
-      ScrapeDirectoryScanResult scanResult;
+      DirectoryScanResult scanResult;
       try {
         scanResult = await scan(previousSnapshot);
       } catch (error) {
         // 断点记录的待扫目录可能已被移除，重新列举父目录以确认当前拓扑。
         if (previousSnapshot == null ||
             previousSnapshot.isComplete ||
-            ScrapeSourceAccessErrorClassifier.classify(
+            SourceAccessErrorClassifier.classify(
                   error,
                   source.kind,
                 ).kind !=
@@ -3835,7 +3838,7 @@ class ScrapePipeline {
           final entries = await gateway.listDirectory(parent);
           siblings = {for (final e in entries) e.name.trim().toLowerCase()};
         } catch (err) {
-          final classified = ScrapeSourceAccessErrorClassifier.classify(
+          final classified = SourceAccessErrorClassifier.classify(
             err,
             sourceKind,
           );

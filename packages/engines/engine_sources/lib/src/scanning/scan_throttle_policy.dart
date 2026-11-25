@@ -76,7 +76,14 @@ class DirectoryScanProfile {
     maxRateLimitCooldown: Duration(seconds: 30),
   );
 
-  /// 根据网关实际类型自动选择最优防风控扫描档案。
+  /// 按已知媒体源种类选择档案，支持包装后的网关。
+  static DirectoryScanProfile forSourceKind(MediaSourceKind kind) => switch (kind) {
+    MediaSourceKind.local => local,
+    MediaSourceKind.smb => smb,
+    MediaSourceKind.webdav => webdav,
+  };
+
+  /// 根据网关实际类型自动选择扫描档案。
   static DirectoryScanProfile forGateway(MediaSourceGateway gateway) {
     if (gateway is WebDavSourceGateway) return webdav;
     if (gateway is SmbSourceGateway) return smb;

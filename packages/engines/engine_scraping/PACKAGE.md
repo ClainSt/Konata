@@ -11,4 +11,5 @@ Konata v3 纯 Dart 番剧文件解析、合集拆分、多源匹配打分与有�
   - `WorkMatcher` 多信号打分、多版本归并、系列自动串联、疑难作品救援、四通道上墙资格与艺术图优选（统一输出 `ArtworkRef`）；
   - TMDB / Bangumi / Fanart.tv 客户端、Bangumi-TMDB 离线二进制索引与纯 Dart 静默热更新器；
   - 有序 `ScrapePipeline` 与全离线评测工具 `tool/eval_scraper.dart`（准确率严禁回退）。
+- 目录枚举、断点快照、频控与字幕匹配复用 `engine_sources`，刮削入口向共享扫描器注入完整识别规则。
 - 刮削期零流探测、媒体源严格只读、绝不简化核心规则。

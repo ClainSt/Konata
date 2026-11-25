@@ -1,5 +1,6 @@
 import 'dart:developer' as developer;
 
+import 'package:engine_sources/engine_sources.dart';
 import 'package:konata_contracts/konata_contracts.dart';
 import 'package:path/path.dart' as p;
 
@@ -17,10 +18,8 @@ import '../scraping/scrape_domain_adapter.dart';
 import 'library_repository.dart';
 import 'scrape_candidate_fetcher.dart';
 import 'scrape_compute_worker.dart';
+import 'scrape_source_scanner.dart';
 import 'scrape_work_persister.dart';
-import 'source_scan/directory_scanner.dart';
-import 'source_scan/scan_throttle_policy.dart';
-import 'source_scan/source_access_error.dart';
 import 'work_artwork_storage.dart';
 
 /// 单作品目录自动同步结果。
@@ -116,7 +115,7 @@ class WorkDirectorySyncService {
   final ScrapeCandidateFetcher _candidateFetcher;
   final ScrapeWorkPersister _persister;
   final Future<MediaSourceGateway> Function(MediaSource source) _gatewayBuilder;
-  final ScrapeDirectoryScanner _scanner;
+  final DirectoryScanner _scanner;
   final ScrapeComputeWorker _computeWorker;
   final WorkArtworkStoragePort? _photosStorage;
 
@@ -554,7 +553,7 @@ class WorkDirectorySyncService {
       final res = await _scanner.scan(
         gateway,
         scanRoots: rootDir.isEmpty ? const [] : [rootDir],
-        profileOverride: ScrapeDirectoryScanProfile.forSourceKind(sourceKind),
+        profileOverride: DirectoryScanProfile.forSourceKind(sourceKind),
         detectLocalCovers: false,
         isCancelled: isCancelled,
       );
@@ -573,7 +572,7 @@ class WorkDirectorySyncService {
       }
       return (files: res.files, errorSkipped: false);
     } catch (error) {
-      final kind = ScrapeSourceAccessErrorClassifier.classify(error, sourceKind).kind;
+      final kind = SourceAccessErrorClassifier.classify(error, sourceKind).kind;
       if (kind == SourceAccessProblemKind.path && rootDir.isNotEmpty) {
         final confirmedMissing = await _confirmDirectoryRemovedOnReachableSource(
           gateway,

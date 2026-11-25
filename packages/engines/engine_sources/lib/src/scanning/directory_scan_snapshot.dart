@@ -243,6 +243,7 @@ class DirectoryScanSnapshot {
   static bool isStaticSupplementaryChildDir(
     String childName, {
     required bool parentIsStaticSupplementary,
+    bool Function(String) isSupplementary = SourcePathRules.isSupplementarySegment,
   }) {
     if (parentIsStaticSupplementary) return true;
     final trimmed = childName.trim();
@@ -252,7 +253,7 @@ class DirectoryScanSnapshot {
     if (SourcePathRules.isSeasonOrVolumeSegment(trimmed)) {
       return false;
     }
-    return SourcePathRules.isSupplementarySegment(trimmed);
+    return isSupplementary(trimmed);
   }
 
   /// 校验快照是否仍处于有效期内。

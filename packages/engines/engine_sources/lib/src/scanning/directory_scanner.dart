@@ -104,13 +104,24 @@ typedef DirectoryScanCheckpointCallback =
 /// 统一异步只读目录扫描器（支持分协议自适应并发、云盘防风控起搏与显式编号免读元数据文件）。
 class DirectoryScanner {
   /// 创建目录扫描器实例；可选注入自定义 [profile] 与精细集号解析回调 [subtitleEpisodeParser]。
-  const DirectoryScanner({this.profile, this.subtitleEpisodeParser});
+  const DirectoryScanner({
+    this.profile,
+    this.subtitleEpisodeParser,
+    this.isSupplementaryDirectory = SourcePathRules.isSupplementarySegment,
+    this.extractExplicitTmdbId = SourcePathRules.extractExplicitTmdbId,
+  });
 
   /// 可选显式扫描并发与起搏档案（为空时按网关协议自动匹配）。
   final DirectoryScanProfile? profile;
 
   /// 可选精细文件名集号解析回调（为空时使用内置轻量提取兜底）。
   final SubtitleEpisodeProbeParser? subtitleEpisodeParser;
+
+  /// 附属目录分类决定快照能否跳过目录树的完整列举。
+  final bool Function(String name) isSupplementaryDirectory;
+
+  /// 已含明确 TMDB 编号的路径不需要再下载元数据文件。
+  final int? Function(String name) extractExplicitTmdbId;
 
   static const Set<String> _ignoredDirNames = <String>{
     '@eadir',
@@ -269,6 +280,7 @@ class DirectoryScanner {
         inStatic = DirectoryScanSnapshot.isStaticSupplementaryChildDir(
           seg,
           parentIsStaticSupplementary: inStatic,
+          isSupplementary: isSupplementaryDirectory,
         );
       }
       return inStatic;
@@ -515,6 +527,7 @@ class DirectoryScanner {
                 DirectoryScanSnapshot.isStaticSupplementaryChildDir(
                   entry.name,
                   parentIsStaticSupplementary: parentIsStaticSupp,
+                  isSupplementary: isSupplementaryDirectory,
                 );
             staticSuppDirFlags[normChild] = childIsStaticSupp;
             if (!childIsStaticSupp) {
@@ -786,11 +799,11 @@ class DirectoryScanner {
     }
   }
 
-  static bool _pathHasExplicitExternalId(String normalizedFolderPath) {
+  bool _pathHasExplicitExternalId(String normalizedFolderPath) {
     if (normalizedFolderPath.isEmpty) return false;
     for (final segment in normalizedFolderPath.split('/')) {
       if (segment.isEmpty) continue;
-      if (SourcePathRules.extractExplicitTmdbId(segment) != null ||
+      if (extractExplicitTmdbId(segment) != null ||
           _explicitBangumiMarker.hasMatch(segment)) {
         return true;
       }

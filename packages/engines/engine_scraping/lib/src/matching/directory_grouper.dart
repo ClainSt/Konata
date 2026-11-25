@@ -1,3 +1,5 @@
+import 'package:engine_sources/engine_sources.dart' show ScannedFileEntry;
+
 import '../models/episode.dart';
 import '../models/media_variant.dart';
 import '../models/work.dart';
@@ -235,36 +237,8 @@ class GroupedWorkFolder {
   }
 }
 
-/// 扫描阶段发现的原始文件输入记录。
-class ScannedFileInput {
-  /// 创建文件输入记录。
-  const ScannedFileInput({
-    required this.relativePath,
-    required this.fileName,
-    required this.fileSize,
-    required this.assetKind,
-    this.externalSubtitles = const [],
-    this.subtitleGroupHint,
-  });
-
-  /// 相对于媒体源根目录的 POSIX 路径。
-  final String relativePath;
-
-  /// 纯文件名。
-  final String fileName;
-
-  /// 文件字节大小。
-  final int fileSize;
-
-  /// 资产类型（视频/音频 CD/扫图）。
-  final AssetKind assetKind;
-
-  /// 已匹配的外挂字幕相对路径列表。
-  final List<String> externalSubtitles;
-
-  /// 字幕文件名附带的字幕组提示。
-  final String? subtitleGroupHint;
-}
+/// 刮削聚合使用的共享扫描文件条目。
+typedef ScannedFileInput = ScannedFileEntry;
 
 /// 作品目录拓扑归拢器：将多压制组、多季目录、CD/Scan 附属子目录折叠为独立作品组。
 class DirectoryGrouper {

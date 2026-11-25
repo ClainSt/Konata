@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:engine_scraping/engine_scraping.dart';
+import 'package:engine_sources/engine_sources.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:konata_contracts/konata_contracts.dart';
@@ -534,19 +535,19 @@ void main() {
     test('Retry-After 头解析支持整型秒数与 HTTP-Date，且 429/503 识别为可重试限流错误', () {
       final now = DateTime.utc(2026, 11, 22, 10, 0, 0);
       expect(
-        ScrapeSourceAccessErrorClassifier.parseRetryAfterHeader(const {
+        SourceAccessErrorClassifier.parseRetryAfterHeader(const {
           'Retry-After': '7',
         }, now: now),
         const Duration(seconds: 7),
       );
       expect(
-        ScrapeSourceAccessErrorClassifier.parseRetryAfterHeader(const {
+        SourceAccessErrorClassifier.parseRetryAfterHeader(const {
           'retry-after': 'Sun, 22 Nov 2026 10:00:12 GMT',
         }, now: now),
         const Duration(seconds: 12),
       );
       expect(
-        ScrapeSourceAccessErrorClassifier.parseRetryAfterHeader(const {
+        SourceAccessErrorClassifier.parseRetryAfterHeader(const {
           'Retry-After': 'invalid-date',
         }, now: now),
         isNull,
@@ -557,34 +558,34 @@ void main() {
         message: '限流',
         retryAfter: Duration(seconds: 5),
       );
-      expect(ScrapeSourceAccessErrorClassifier.isRateLimitError(err), isTrue);
+      expect(SourceAccessErrorClassifier.isRateLimitError(err), isTrue);
       expect(
-        ScrapeSourceAccessErrorClassifier.extractRetryAfter(err),
+        SourceAccessErrorClassifier.extractRetryAfter(err),
         const Duration(seconds: 5),
       );
-      expect(ScrapeSourceAccessErrorClassifier.isNonTransientError(err), isFalse);
+      expect(SourceAccessErrorClassifier.isNonTransientError(err), isFalse);
       expect(
-        ScrapeSourceAccessErrorClassifier.classify(err, MediaSourceKind.webdav).kind,
+        SourceAccessErrorClassifier.classify(err, MediaSourceKind.webdav).kind,
         SourceAccessProblemKind.rateLimited,
       );
     });
 
 
-    test('ScrapeAdaptiveScanController 实现冷热 RTT 起搏切换、AIMD 加性增窗与 429 瞬间乘性降窗', () {
+    test('AdaptiveScanController 实现冷热 RTT 起搏切换、AIMD 加性增窗与 429 瞬间乘性降窗', () {
       final now = DateTime.utc(2026, 11, 22, 12, 0, 0);
-      final ctrl = ScrapeAdaptiveScanController(
-        ScrapeDirectoryScanProfile.webdav,
+      final ctrl = AdaptiveScanController(
+        DirectoryScanProfile.webdav,
         nowProvider: () => now,
       );
       expect(ctrl.currentConcurrency, 2);
-      expect(ctrl.currentPacing, ScrapeDirectoryScanProfile.webdav.warmPacing);
+      expect(ctrl.currentPacing, DirectoryScanProfile.webdav.warmPacing);
 
       // 连续 12 次低延迟缓存命中：保持热起搏并 AIMD 增窗至 3
       for (var i = 0; i < 12; i++) {
         ctrl.recordSuccess(const Duration(milliseconds: 10));
       }
       expect(ctrl.currentConcurrency, 3);
-      expect(ctrl.currentPacing, ScrapeDirectoryScanProfile.webdav.warmPacing);
+      expect(ctrl.currentPacing, DirectoryScanProfile.webdav.warmPacing);
 
       // 连续高 RTT 回源云盘：起搏自动抬升至冷回源安全间隔 90ms
       for (var i = 0; i < 6; i++) {
@@ -592,7 +593,7 @@ void main() {
       }
       expect(
         ctrl.currentPacing,
-        greaterThanOrEqualTo(ScrapeDirectoryScanProfile.webdav.coldPacing),
+        greaterThanOrEqualTo(DirectoryScanProfile.webdav.coldPacing),
       );
 
       // 遭遇 429 限流：瞬间乘性降窗至 1、起搏翻倍，并按上下界钳位冷静时长
@@ -608,7 +609,7 @@ void main() {
       final waitClamped = ctrl.recordRateLimit(
         retryAfter: const Duration(minutes: 30),
       );
-      expect(waitClamped, ScrapeDirectoryScanProfile.webdav.maxRateLimitCooldown);
+      expect(waitClamped, DirectoryScanProfile.webdav.maxRateLimitCooldown);
     });
 
     test('ScrapeDirectoryScanner 显式 ID 目录免读 NFO、无 ID 优先读 tvshow.nfo、剪枝 BDMV 垃圾目录并耐受 429 重试', () async {
@@ -677,7 +678,7 @@ void main() {
         },
       );
 
-      const testProfile = ScrapeDirectoryScanProfile(
+      const testProfile = DirectoryScanProfile(
         initialConcurrency: 2,
         minConcurrency: 1,
         maxConcurrency: 3,
@@ -738,7 +739,7 @@ void main() {
       );
       var cancelled = false;
       final result =
-          await const ScrapeDirectoryScanner(profile: ScrapeDirectoryScanProfile.local)
+          await const ScrapeDirectoryScanner(profile: DirectoryScanProfile.local)
               .scan(
                 gateway,
                 onProgress: (_, scanned, _) {

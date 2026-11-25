@@ -1,6 +1,9 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:engine_playback/engine_playback.dart'
+    show LegacyCodePageTables, OpenCcDictionaries;
+import 'package:engine_scraping/engine_scraping.dart' show ReleaseGroups;
 import 'package:feature_detail/feature_detail.dart';
 import 'package:feature_history/feature_history.dart';
 import 'package:feature_library/feature_library.dart';
@@ -63,6 +66,10 @@ void main() {
 
       // 冷启动阶段缓存库必须保持惰性未打开，且全部 11 个业务模块严格按字母序注册。
       expect(bootstrap.databases.isCacheOpen, isFalse);
+      expect(ReleaseGroups.isLoaded, isFalse);
+      expect(OpenCcDictionaries.isLoaded, isFalse);
+      expect(LegacyCodePageTables.isLoaded, isFalse);
+      expect(ChinesePinyinCollator.isLoaded, isFalse);
       expect(
         bootstrap.featureRegistry.manifests.map((m) => m.id).toList(),
         equals(<String>[
@@ -223,6 +230,7 @@ void main() {
       expect(find.byType(KonataAdaptiveShell), findsOneWidget);
       expect(find.byType(LibraryPage), findsOneWidget);
       expect(find.text('葬送的芙莉莲'), findsWidgets);
+      expect(ReleaseGroups.isLoaded, isTrue);
 
       // 海报墙通过宿主打开详情模块的源文件复核与映射弹窗。
       await tester.longPress(find.byType(PosterCard).first);

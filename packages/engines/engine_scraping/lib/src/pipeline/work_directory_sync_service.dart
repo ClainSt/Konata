@@ -13,6 +13,7 @@ import '../models/tmdb_models.dart';
 import '../models/work.dart';
 import '../network/tmdb_service.dart';
 import '../parsing/bdrip_parser.dart';
+import '../parsing/release_groups.dart';
 import '../scraping/bangumi_models.dart';
 import '../scraping/scrape_domain_adapter.dart';
 import 'library_repository.dart';
@@ -134,6 +135,7 @@ class WorkDirectorySyncService {
         runPersist != null ? runPersist(action) : action();
 
     if (isCancelled?.call() ?? false) return;
+    await ReleaseGroups.prepare();
 
     final existingEpisodes = await _repository.getEpisodesByWork(work.id);
     final existingMainNumbers = <int>{
@@ -305,6 +307,7 @@ class WorkDirectorySyncService {
 
     final workVariants = await _repository.getVariantsByWork(workId);
     if (workVariants.isEmpty) return SingleWorkSyncResult.unchanged;
+    await ReleaseGroups.prepare();
 
     final variantsBySource = <String, List<MediaVariant>>{};
     for (final v in workVariants) {

@@ -57,6 +57,10 @@ flutter:
     - assets/icons/konata_icon.png
     - assets/data/bangumi_tmdb_map.bin
     - assets/data/bangumi_tmdb_manifest.json
+    - assets/data/release_groups.bin.gz
+    - assets/data/opencc_dict.bin.gz
+    - assets/data/legacy_codepages.bin.gz
+    - assets/data/pinyin.bin.gz
   fonts:
     - family: KonataNotoCJK
       fonts:

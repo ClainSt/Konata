@@ -35,6 +35,7 @@ final class WorkManualBindHelper {
     if (existing == null) {
       throw StateError('作品不存在: $workId');
     }
+    await ReleaseGroups.prepare();
 
     final bgm = bangumiServiceOverride ?? BangumiService(httpClient: httpClient);
     final tmdb = tmdbServiceOverride ?? TmdbService(httpClient: httpClient);
@@ -122,6 +123,7 @@ final class WorkManualBindHelper {
     required String workId,
     required BangumiSubjectCandidate bangumiSubject,
   }) async {
+    await ReleaseGroups.prepare();
     final existing = await repository.findWorkById(workId);
     if (existing == null) {
       throw StateError('作品不存在: $workId');

@@ -320,6 +320,7 @@ abstract final class DetailWorkMergeHelper {
     required Work work,
     required List<BangumiEpisodeEntry> bgmEpisodes,
   }) async {
+    await ReleaseGroups.prepare();
     final variants = await repository.getVariantsByWork(work.id);
     final videoVariants = variants
         .where((v) => v.assetKind == AssetKind.video)
@@ -376,6 +377,7 @@ abstract final class DetailWorkMergeHelper {
     required int startEpisodeNumber,
     Map<String, ({int season, int episode})>? customSlotsByVariantId,
   }) async {
+    await ReleaseGroups.prepare();
     final variants = await repository.getVariantsByWork(work.id);
     final videoVariants = variants
         .where((v) => v.assetKind == AssetKind.video)
@@ -435,6 +437,7 @@ abstract final class DetailWorkMergeHelper {
     EpisodeCategory? forceCategory,
     required bool avoidExtraSlotCollision,
   }) async {
+    await ReleaseGroups.prepare();
     final sourceEpisodes = await repository.getEpisodesByWork(sourceWorkId);
     final targetEpisodes = await repository.getEpisodesByWork(targetWork.id);
     final targetVariants = await repository.getVariantsByWork(targetWork.id);

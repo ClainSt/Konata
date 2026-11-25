@@ -9,7 +9,7 @@ import 'package:path/path.dart' as p;
 
 import '../../domain/playback/cue_and_lrc_parser.dart';
 import '../../domain/playback/lyric_version_matcher.dart';
-
+import '../../domain/text/legacy_codepage_tables.dart';
 
 /// 从音频容器头部字节中内存解析出的内嵌专辑封面数据（零全量落盘）。
 class ExtractedAudioResources {
@@ -56,7 +56,9 @@ class AudioAssetExtractor {
     return null;
   }
 
-  static final RegExp _lrcTimestampProbe = RegExp(r'\[\d{1,2}:\d{2}(?:[.:]\d{1,3})?\]');
+  static final RegExp _lrcTimestampProbe = RegExp(
+    r'\[\d{1,2}:\d{2}(?:[.:]\d{1,3})?\]',
+  );
 
   /// 从音乐文件前缀字节提取内嵌歌词标签文本（优先带时间戳的同步歌词，其次纯文本歌词）。
   ///
@@ -569,23 +571,16 @@ class AudioAssetExtractor {
       return (cover: null, lyrics: null);
     }
 
-    final canUseIsolate = head.length >= 64 * 1024 && legacyDecoder == null;
-    final firstPass = canUseIsolate
-        ? await Isolate.run(
-            () => extractEmbeddedHeaderAssetsFromBytes(
-              head,
-              probeCover: probeCover,
-              probeLyrics: probeLyrics,
-            ),
-          )
-        : extractEmbeddedHeaderAssetsFromBytes(
-            head,
-            probeCover: probeCover,
-            probeLyrics: probeLyrics,
-            legacyDecoder: legacyDecoder,
-          );
+    final firstPass = await _extractEmbeddedHeaderAssets(
+      head,
+      probeCover: probeCover,
+      probeLyrics: probeLyrics,
+      legacyDecoder: legacyDecoder,
+      offload: head.length >= 64 * 1024 && legacyDecoder == null,
+    );
 
-    if (!probeCover || (firstPass.cover != null && firstPass.cover!.isNotEmpty)) {
+    if (!probeCover ||
+        (firstPass.cover != null && firstPass.cover!.isNotEmpty)) {
       return firstPass;
     }
 
@@ -607,24 +602,49 @@ class AudioAssetExtractor {
     merged.setRange(0, head.length, head);
     merged.setRange(head.length, merged.length, tail);
     final needLyricsRetry = probeLyrics && firstPass.lyrics == null;
-    final secondPass = legacyDecoder == null
-        ? await Isolate.run(
-            () => extractEmbeddedHeaderAssetsFromBytes(
-              merged,
-              probeCover: true,
-              probeLyrics: needLyricsRetry,
-            ),
-          )
-        : extractEmbeddedHeaderAssetsFromBytes(
-            merged,
-            probeCover: true,
-            probeLyrics: needLyricsRetry,
-            legacyDecoder: legacyDecoder,
-          );
+    final secondPass = await _extractEmbeddedHeaderAssets(
+      merged,
+      probeCover: true,
+      probeLyrics: needLyricsRetry,
+      legacyDecoder: legacyDecoder,
+      offload: legacyDecoder == null,
+    );
     return (
       cover: secondPass.cover,
       lyrics: firstPass.lyrics ?? secondPass.lyrics,
     );
+  }
+
+  static Future<({Uint8List? cover, String? lyrics})>
+  _extractEmbeddedHeaderAssets(
+    Uint8List bytes, {
+    required bool probeCover,
+    required bool probeLyrics,
+    required LegacyCodePageDecoder? legacyDecoder,
+    required bool offload,
+  }) async {
+    ({Uint8List? cover, String? lyrics}) extract(Uint8List? archive) {
+      if (archive != null) LegacyCodePageTables.usePrepared(archive);
+      return extractEmbeddedHeaderAssetsFromBytes(
+        bytes,
+        probeCover: probeCover,
+        probeLyrics: probeLyrics,
+        legacyDecoder: (raw, encoding) {
+          final text = legacyDecoder?.call(raw, encoding);
+          if ((text == null || text.isEmpty) && archive == null) {
+            throw const _LegacyLyricsNeedsTable();
+          }
+          return text;
+        },
+      );
+    }
+
+    try {
+      return offload ? await Isolate.run(() => extract(null)) : extract(null);
+    } on _LegacyLyricsNeedsTable {
+      final archive = await LegacyCodePageTables.prepare();
+      return offload ? Isolate.run(() => extract(archive)) : extract(archive);
+    }
   }
 
   /// 探测音频头部所需精确字节数：先拉取 256 KiB，仅在确有更大封面块时按需续读余段，无封面文件零冗余拉流。
@@ -789,10 +809,11 @@ class AudioAssetExtractor {
               maxBytes: 512 * 1024,
             );
             if (lrcBytes != null) {
-              final lrcText = MultibyteTextDecoder.decodeBytes(
+              final decoded = await MultibyteTextDecoder.decodeWithInfoAsync(
                 lrcBytes,
                 legacyDecoder: legacyDecoder,
               );
+              final lrcText = decoded.text;
               lrc = LrcParser.parseText(lrcText);
               if (LyricVersionMatcher.hasExplicitEnhancedTags(lrcText)) {
                 activeSpanLines = LyricVersionMatcher.parseActiveSpanLines(
@@ -893,8 +914,12 @@ class AudioAssetExtractor {
       try {
         siblings = await gateway.listDirectory(dirRel);
       } catch (error) {
-      developer.log('可恢复异常已记录', name: 'konata.audio_art_extractor', error: error);
-    }
+        developer.log(
+          '可恢复异常已记录',
+          name: 'konata.audio_art_extractor',
+          error: error,
+        );
+      }
 
       final chosenFolderCover = _pickFolderCoverPath(siblings);
       if (chosenFolderCover != null) {
@@ -966,7 +991,11 @@ class AudioAssetExtractor {
         maxBytes: effectiveMax,
       );
       if (bytes == null) return null;
-      return CueParser.parseBytes(bytes, legacyDecoder: legacyDecoder);
+      final decoded = await MultibyteTextDecoder.decodeWithInfoAsync(
+        bytes,
+        legacyDecoder: legacyDecoder,
+      );
+      return CueParser.parseText(decoded.text);
     } finally {
       await gateway.close();
     }
@@ -983,4 +1012,8 @@ class AudioAssetExtractor {
       ((b[o + 1] & 0x7F) << 14) |
       ((b[o + 2] & 0x7F) << 7) |
       (b[o + 3] & 0x7F);
+}
+
+final class _LegacyLyricsNeedsTable implements Exception {
+  const _LegacyLyricsNeedsTable();
 }

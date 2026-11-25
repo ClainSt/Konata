@@ -1,7 +1,7 @@
-import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
-import 'chinese_pinyin_table.dart';
+import 'package:konata_contracts/konata_contracts.dart';
 
 /// 纯领域中文拼音首字母与全拼分桶自然排序器（零外部依赖，覆盖全部 20902 个标准简繁汉字）。
 ///
@@ -14,9 +14,66 @@ abstract final class ChinesePinyinCollator {
   static const int _subBuckets = 11;
   static const String _initials = 'abcdefghjklmnopqrstwxyz';
 
-  static final Uint8List _pinyinRanks = base64Decode(
-    chinesePinyinRankTableBase64,
-  ).asUnmodifiableView();
+  static const _assetPath = 'assets/data/pinyin.bin.gz';
+  static AssetDataLoaderPort? _loader;
+  static Uint8List? _loadedRanks;
+  static Future<Uint8List>? _pending;
+
+  /// 配置媒体库按需读入的宿主资产。
+  static void configure(AssetDataLoaderPort? loader) => _loader = loader;
+
+  /// 汉字排序表是否已解码。
+  static bool get isLoaded => _loadedRanks != null;
+
+  /// 判断标题或发行组是否包含需要拼音表排序的汉字。
+  static bool needsTable(String value) =>
+      value.codeUnits.any((unit) => unit >= _cjkStart && unit <= _cjkEnd);
+
+  /// 在有汉字排序需求时异步读取排序表。
+  static Future<void> prepare() async {
+    if (isLoaded) return;
+    final pending = _pending ??= _readBundled();
+    try {
+      final ranks = await pending;
+      if (identical(_pending, pending)) _loadedRanks = ranks;
+    } finally {
+      if (identical(_pending, pending)) _pending = null;
+    }
+  }
+
+  /// 释放排序表。
+  static void release() {
+    _pending = null;
+    _loadedRanks = null;
+  }
+
+  static Future<Uint8List> _readBundled() async {
+    final compressed = await _loader?.loadBytes(_assetPath);
+    return compressed == null ? _readFromCheckout() : _decode(compressed);
+  }
+
+  static Uint8List get _pinyinRanks => _loadedRanks ??= _readFromCheckout();
+
+  static Uint8List _readFromCheckout() {
+    var directory = Directory.current.absolute;
+    while (true) {
+      final file = File.fromUri(
+        directory.uri.resolve('apps/konata/$_assetPath'),
+      );
+      if (file.existsSync()) return _decode(file.readAsBytesSync());
+      final parent = directory.parent;
+      if (parent.path == directory.path) throw StateError('未装载拼音词表');
+      directory = parent;
+    }
+  }
+
+  static Uint8List _decode(Uint8List compressed) {
+    final ranks = gzip.decode(compressed);
+    if (ranks.length != _cjkEnd - _cjkStart + 1) {
+      throw const FormatException('拼音词表长度不一致');
+    }
+    return Uint8List.fromList(ranks).asUnmodifiableView();
+  }
 
   /// 查询单个汉字（`U+4E00..U+9FA5`）对应的汉语拼音首字母（`a..z`），非汉字返回 `null`。
   static String? pinyinInitialOfRune(int rune) {

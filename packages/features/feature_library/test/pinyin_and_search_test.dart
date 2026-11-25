@@ -1,9 +1,45 @@
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:engine_scraping/engine_scraping.dart';
 import 'package:feature_library/feature_library.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:konata_contracts/konata_contracts.dart' show AssetDataLoaderPort;
+
+final class _FileLoader implements AssetDataLoaderPort {
+  int calls = 0;
+
+  @override
+  Future<Uint8List> loadBytes(String path) {
+    calls++;
+    expect(path, 'assets/data/pinyin.bin.gz');
+    return File('../../../apps/konata/$path').readAsBytes();
+  }
+}
 
 void main() {
   group('ChinesePinyinCollator 与 LibrarySearchMatcher 核心算法', () {
+    test('拼音表在排序需要时并发合并读取并支持释放', () async {
+      final loader = _FileLoader();
+      ChinesePinyinCollator.configure(loader);
+      addTearDown(() {
+        ChinesePinyinCollator.release();
+        ChinesePinyinCollator.configure(null);
+      });
+      expect(ChinesePinyinCollator.isLoaded, isFalse);
+      expect(ChinesePinyinCollator.compareNames('Air 2', 'Air 10'), lessThan(0));
+      expect(loader.calls, 0);
+
+      await Future.wait([
+        ChinesePinyinCollator.prepare(),
+        ChinesePinyinCollator.prepare(),
+      ]);
+      expect(ChinesePinyinCollator.pinyinInitialOfRune('轻'.runes.first), 'q');
+      expect(loader.calls, 1);
+      ChinesePinyinCollator.release();
+      expect(ChinesePinyinCollator.isLoaded, isFalse);
+    });
+
     test('完整覆盖 20902 个标准基本汉字并输出有效拼音首字母与排位', () {
       var covered = 0;
       for (var cp = 0x4E00; cp <= 0x9FA5; cp++) {

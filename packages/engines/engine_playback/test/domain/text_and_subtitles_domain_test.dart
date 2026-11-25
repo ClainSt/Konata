@@ -1,14 +1,95 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:charset/charset.dart' as cs;
 import 'package:engine_playback/engine_playback.dart';
+import 'package:konata_contracts/konata_contracts.dart'
+    show AssetDataLoaderPort;
 import 'package:test/test.dart';
 
 import '../support/playback_test_fixtures.dart';
 
+final class _PlaybackTableLoader implements AssetDataLoaderPort {
+  final calls = <String>[];
+
+  @override
+  Future<Uint8List> loadBytes(String assetPath) {
+    calls.add(assetPath);
+    return File('../../../apps/konata/$assetPath').readAsBytes();
+  }
+}
+
 void main() {
   group('全仓唯一多编码解码模块与码表覆盖验证', () {
+    test('读取 CP932 时保持未使用的 GBK 压缩成员未解码', () async {
+      LegacyCodePageTables.release();
+      addTearDown(LegacyCodePageTables.release);
+      final data = await _PlaybackTableLoader().loadBytes(
+        'assets/data/legacy_codepages.bin.gz',
+      );
+      // 破坏第一成员的压缩体，保留三个成员的边界。
+      data[20] = 0x07;
+      LegacyCodePageTables.usePrepared(data);
+      final sample = Uint8List.fromList(cs.shiftJis.encode('第一話'));
+      expect(ShiftJisCp932Table.decode(sample), '第一話');
+      expect(LegacyCodePageTables.loadedPageCount, 1);
+      expect(() => GbkCp936Table.lookup(0xb0, 0xa1), throwsFormatException);
+    });
+
+    test('词表仅在需要时加载，旧编码按页初始化，结束后释放', () async {
+      final loader = _PlaybackTableLoader();
+      PlaybackTableAssets.configure(loader);
+      OpenCcDictionaries.release();
+      LegacyCodePageTables.release();
+      addTearDown(() {
+        PlaybackTableAssets.configure(null);
+        OpenCcDictionaries.release();
+        LegacyCodePageTables.release();
+      });
+      expect(OpenCcDictionaries.isLoaded, isFalse);
+      expect(LegacyCodePageTables.isLoaded, isFalse);
+      final unicode = Uint8List.fromList(utf8.encode('默认字幕'));
+      expect(
+        (await MultibyteTextDecoder.decodeWithInfoAsync(unicode)).text,
+        '默认字幕',
+      );
+      expect(loader.calls, isEmpty);
+
+      const japanese = '葬送のフリーレン 第一話';
+      final sjis = Uint8List.fromList(cs.shiftJis.encode(japanese));
+      expect(
+        (await MultibyteTextDecoder.decodeWithInfoAsync(sjis)).text,
+        japanese,
+      );
+      expect(LegacyCodePageTables.loadedPageCount, 1);
+      expect(
+        (await MultibyteTextDecoder.decodeWithInfoAsync(
+          sjis,
+          offload: true,
+        )).text,
+        japanese,
+      );
+      expect(loader.calls, ['assets/data/legacy_codepages.bin.gz']);
+      expect(OpenCcDictionaries.isLoaded, isFalse);
+      await Future.wait([
+        OpenCcDictionaries.prepare(),
+        OpenCcDictionaries.prepare(),
+      ]);
+      expect(OpenCcDictionaries.convert('頭髮', toSimplified: true), '头发');
+      expect(OpenCcDictionaries.convert('头发', toSimplified: false), '頭髮');
+      expect(loader.calls, [
+        'assets/data/legacy_codepages.bin.gz',
+        'assets/data/opencc_dict.bin.gz',
+      ]);
+
+      OpenCcDictionaries.release();
+      LegacyCodePageTables.release();
+      expect(OpenCcDictionaries.isLoaded, isFalse);
+      expect(LegacyCodePageTables.loadedPageCount, 0);
+      expect(LegacyCodePageTables.isLoaded, isFalse);
+    });
+
     test('精准识别 UTF-8(无/含BOM)、UTF-16LE/BE、Shift-JIS、GBK 与 Big5', () {
       final utf8NoBom = Uint8List.fromList(utf8.encode('简体中文与日本語テスト'));
       final resUtf8 = MultibyteTextDecoder.decodeWithInfo(utf8NoBom);
@@ -85,7 +166,10 @@ void main() {
       final resBig5 = MultibyteTextDecoder.decodeWithInfo(big5Bytes);
       expect(resBig5.charset, equals(DetectedTextCharset.big5));
       expect(resBig5.text, equals('繁體字幕測試'));
-      expect(PlaybackTextDecoder.decodeBytes(gbkBytes), equals('葬送的芙莉莲 第一话 简体字幕'));
+      expect(
+        PlaybackTextDecoder.decodeBytes(gbkBytes),
+        equals('葬送的芙莉莲 第一话 简体字幕'),
+      );
     });
 
     test('Big5/GBK/Shift-JIS 内置紧凑码表全量映射数校验', () {
@@ -174,7 +258,8 @@ Dialogue: 0,0:00:02.00,0:00:05.00,Default,,0,0,0,,{\b1}後{\b0}面的{\i1}動畫
         50,
         (i) => i.isEven ? r'{\kf17}音' : r'{\ko17}节',
       ).join();
-      final ass = '''
+      final ass =
+          '''
 [Script Info]
 ScriptType: v4.00+
 [Events]
@@ -187,7 +272,9 @@ Dialogue: 0,0:00:00.50,0:00:01.00,Default,,0,0,0,,钳位下界测试
         transform: transform,
         format: SubtitleTextFormat.ass,
       );
-      final kMatches = RegExp(r'\\(?:kf|ko)(\d+)').allMatches(remapped).toList();
+      final kMatches = RegExp(
+        r'\\(?:kf|ko)(\d+)',
+      ).allMatches(remapped).toList();
       expect(kMatches, hasLength(50));
       final sumCs = kMatches.fold<int>(
         0,
@@ -231,7 +318,8 @@ Hello <00:02.500>world <00:00:03.500>!
         familyName: 'KonataUueProbe',
       );
       final uueBlock = AssUueFontDecoder.encode(ttfBytes);
-      final assWithFonts = '''
+      final assWithFonts =
+          '''
 [Script Info]
 ScriptType: v4.00+
 [Events]

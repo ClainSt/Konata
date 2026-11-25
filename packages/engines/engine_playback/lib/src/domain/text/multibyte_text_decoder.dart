@@ -1,9 +1,10 @@
 import 'dart:convert';
-import 'dart:developer' as developer;
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'big5_cp950_table.dart';
 import 'gbk_cp936_table.dart';
+import 'legacy_codepage_tables.dart';
 import 'shift_jis_cp932_table.dart';
 
 /// 传统东亚多字节文本编码类型（全仓唯一，供字幕、CUE 与 LRC 共用）。
@@ -77,6 +78,36 @@ class MultibyteTextDecoder {
     Uint8List bytes, {
     LegacyCodePageDecoder? legacyDecoder,
   }) {
+    final unicode = decodeUnicode(bytes);
+    if (unicode != null) return unicode;
+    final encoding = detectLegacyEncoding(bytes);
+    return _tryPlatformDecode(bytes, encoding, legacyDecoder) ??
+        _decodeLegacy(bytes, encoding);
+  }
+
+  /// 异步文本入口只在确实需要传统代码页时调用宿主加载资产。
+  static Future<DecodedTextResult> decodeWithInfoAsync(
+    Uint8List bytes, {
+    LegacyCodePageDecoder? legacyDecoder,
+    bool offload = false,
+  }) async {
+    final unicode = offload
+        ? await Isolate.run(() => decodeUnicode(bytes))
+        : decodeUnicode(bytes);
+    if (unicode != null) return unicode;
+    final encoding = detectLegacyEncoding(bytes);
+    final platform = _tryPlatformDecode(bytes, encoding, legacyDecoder);
+    if (platform != null) return platform;
+    final archive = await LegacyCodePageTables.prepare();
+    if (!offload) return _decodeLegacy(bytes, encoding);
+    return Isolate.run(() {
+      LegacyCodePageTables.usePrepared(archive);
+      return _decodeLegacy(bytes, encoding);
+    });
+  }
+
+  /// 读取 UTF 编码文本，确实需要传统代码页时返回空值。
+  static DecodedTextResult? decodeUnicode(Uint8List bytes) {
     if (bytes.isEmpty) {
       return const DecodedTextResult(
         text: '',
@@ -129,23 +160,25 @@ class MultibyteTextDecoder {
         text: strictUtf8,
         charset: DetectedTextCharset.utf8,
       );
-    } on FormatException catch (error) {
-  // 非合法 UTF-8 字节流，进入多字节传统代码页文法判定分支。
-  developer.log('可恢复异常已记录', name: 'konata.multibyte_text_decoder', error: error);
-}
-
-    // 4. 基于多字节文法得分区分 CP932 (Shift-JIS) / GB18030 (GBK) / Big5。
-    final legacy = detectLegacyEncoding(bytes);
-    if (legacyDecoder != null) {
-      final platformDecoded = legacyDecoder(bytes, legacy);
-      if (platformDecoded != null && platformDecoded.isNotEmpty) {
-        return DecodedTextResult(
-          text: platformDecoded,
-          charset: _toDetectedCharset(legacy),
-        );
-      }
+    } on FormatException {
+      return null;
     }
+  }
 
+  static DecodedTextResult? _tryPlatformDecode(
+    Uint8List bytes,
+    LegacyTextEncoding legacy,
+    LegacyCodePageDecoder? decoder,
+  ) {
+    final text = decoder?.call(bytes, legacy);
+    if (text == null || text.isEmpty) return null;
+    return DecodedTextResult(text: text, charset: _toDetectedCharset(legacy));
+  }
+
+  static DecodedTextResult _decodeLegacy(
+    Uint8List bytes,
+    LegacyTextEncoding legacy,
+  ) {
     return switch (legacy) {
       LegacyTextEncoding.shiftJis => DecodedTextResult(
         text: _decodeShiftJisPureDart(bytes),

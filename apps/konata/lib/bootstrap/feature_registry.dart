@@ -23,6 +23,11 @@ import 'package:konata_storage/konata_storage.dart';
 import 'host_storage_adapters.dart';
 import 'host_work_manage_dialogs.dart';
 
+/// 注册媒体库词表入口，保留首次排序时的延迟读取。
+void configureFeatureDataAssets(AssetDataLoaderPort loader) {
+  ChinesePinyinCollator.configure(loader);
+}
+
 /// 宿主向业务模块装配层传递的运行时底座与引擎句柄集合。
 ///
 /// 所有可选业务模块的包级导入与依赖覆写均集中收口于本文件，

@@ -166,20 +166,11 @@ class LibraryController extends ChangeNotifier {
       final allEpisodes = results[3] as List<Episode>;
       final sources = results[4] as List<MediaSource>;
       final visibleRecords = databases.library.works.listVisible();
-
-      _updatedAtByWorkId = <String, int>{
-        for (final rec in visibleRecords) rec.id.value: rec.updatedAtMs,
-      };
-      _sources = List<MediaSource>.unmodifiable(sources);
-      _hiddenWorks = _sortWorksByTitle(hidden);
-      _reviewWorks = _sortWorksByTitle(
-        allWorks.where(
-          (w) =>
-              !w.isHidden &&
-              !w.isManualLocked &&
-              w.scrapeStatus == ScrapeStatus.needsReview,
-        ),
-      );
+      if (!ReleaseGroups.isLoaded &&
+          allVariants.any((variant) => variant.assetKind == AssetKind.video)) {
+        await ReleaseGroups.prepare();
+        if (_disposed) return;
+      }
 
       final sourcesById = <String, MediaSource>{
         for (final s in sources) s.id: s,
@@ -215,6 +206,25 @@ class LibraryController extends ChangeNotifier {
         );
       }
 
+      if (!ChinesePinyinCollator.isLoaded &&
+          (_hasPinyinTitles(allWorks, hidden) ||
+              rawWall.any((item) => item.releaseGroups.any(ChinesePinyinCollator.needsTable)))) {
+        await ChinesePinyinCollator.prepare();
+        if (_disposed) return;
+      }
+      _updatedAtByWorkId = <String, int>{
+        for (final rec in visibleRecords) rec.id.value: rec.updatedAtMs,
+      };
+      _sources = List<MediaSource>.unmodifiable(sources);
+      _hiddenWorks = _sortWorksByTitle(hidden);
+      _reviewWorks = _sortWorksByTitle(
+        allWorks.where(
+          (w) =>
+              !w.isHidden &&
+              !w.isManualLocked &&
+              w.scrapeStatus == ScrapeStatus.needsReview,
+        ),
+      );
       _allVisibleItems = annotateCrossSourceBadges(rawWall);
       _isLoading = false;
       _recomputeDisplayedItems();
@@ -246,6 +256,10 @@ class LibraryController extends ChangeNotifier {
       if (_disposed) return;
       final allWorks = results[0] as List<Work>;
       final hidden = results[1] as List<Work>;
+      if (!ChinesePinyinCollator.isLoaded && _hasPinyinTitles(allWorks, hidden)) {
+        await ChinesePinyinCollator.prepare();
+        if (_disposed) return;
+      }
       _hiddenWorks = _sortWorksByTitle(hidden);
       _reviewWorks = _sortWorksByTitle(
         allWorks.where(
@@ -517,6 +531,10 @@ class LibraryController extends ChangeNotifier {
       );
     return List<Work>.unmodifiable(list);
   }
+
+  static bool _hasPinyinTitles(List<Work> works, List<Work> hidden) =>
+      (works.length > 1 && works.any((work) => ChinesePinyinCollator.needsTable(work.title))) ||
+      (hidden.length > 1 && hidden.any((work) => ChinesePinyinCollator.needsTable(work.title)));
 
   @override
   void dispose() {

@@ -18,6 +18,7 @@ import '../models/work.dart';
 import '../network/bangumi_service.dart';
 import '../network/fanart_service.dart';
 import '../network/tmdb_service.dart';
+import '../parsing/release_groups.dart';
 import '../scraping/bangumi_models.dart';
 import '../scraping/bangumi_tmdb_index.dart';
 import '../scraping/match_difficulty_classifier.dart';
@@ -230,6 +231,7 @@ class ScrapePipeline {
     final computeSession = _computeWorker.openSession();
     _tmdbService.beginSessionCache();
     try {
+      await ReleaseGroups.prepare();
       final store = source.kind == MediaSourceKind.webdav
           ? _snapshotStore
           : null;
@@ -2030,6 +2032,7 @@ class ScrapePipeline {
     bool forceRefreshArtwork = false,
     WorkRescrapeProgressListener? onProgress,
   }) async {
+    await ReleaseGroups.prepare();
     void reportStep(int step, String label, {String? detail}) {
       onProgress?.call(
         WorkRescrapeProgress(
@@ -2630,6 +2633,7 @@ class ScrapePipeline {
     bool interactive = false,
     WorkRescrapeProgressListener? onProgress,
   }) async {
+    await ReleaseGroups.prepare();
     void reportStep(int step, String label, {String? detail}) {
       onProgress?.call(
         WorkRescrapeProgress(
@@ -3259,6 +3263,7 @@ class ScrapePipeline {
   /// 复用完整在线匹配流水线（显式 TMDB 编号直连 + Bangumi/TMDB 联合打分），
   /// 命中高置信度时自动升级为已匹配并清理复核原因；存在候选或仍遇网络异常时如实写回最新状态与原因。
   Future<RematchWorkResult> rematchReviewWork(String workId) async {
+    await ReleaseGroups.prepare();
     final existing = await _repository.findWorkById(workId);
     if (existing == null) {
       return const RematchWorkResult(

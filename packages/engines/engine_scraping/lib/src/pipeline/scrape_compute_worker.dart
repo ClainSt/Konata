@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:isolate';
+import 'dart:typed_data';
 
 import '../matching/directory_grouper.dart';
 import '../matching/work_matcher.dart';
 import '../models/tmdb_models.dart';
+import '../parsing/release_groups.dart';
 import '../scraping/bangumi_models.dart';
 import '../scraping/bangumi_tmdb_index.dart';
 import '../scraping/scrape_domain_adapter.dart';
@@ -30,7 +32,8 @@ class ScrapeComputeWorker {
     required List<ScannedFileInput> files,
     Map<String, String> nfoByFolder = const {},
     Map<String, String> localCoverByFolder = const {},
-  }) {
+  }) async {
+    final groups = await ReleaseGroups.prepare();
     if (!useIsolate) {
       return Future.value(
         ScrapeDomainAdapter.groupAndSplitFiles(
@@ -41,14 +44,15 @@ class ScrapeComputeWorker {
         ),
       );
     }
-    return Isolate.run(
-      () => ScrapeDomainAdapter.groupAndSplitFiles(
+    return Isolate.run(() {
+      ReleaseGroups.usePrepared(groups);
+      return ScrapeDomainAdapter.groupAndSplitFiles(
         sourceId: sourceId,
         files: files,
         nfoByFolder: nfoByFolder,
         localCoverByFolder: localCoverByFolder,
-      ),
-    );
+      );
+    });
   }
 
   /// 在后台 Isolate 中执行 Bangumi 候选多维打分。
@@ -61,6 +65,7 @@ class ScrapeComputeWorker {
     GroupedWorkFolder folder,
     List<BangumiSubjectCandidate> candidates,
   ) async {
+    final groups = await ReleaseGroups.prepare();
     if (!useIsolate) {
       final res = ScrapeDomainAdapter.evaluateBangumiMatch(folder, candidates);
       return (
@@ -70,6 +75,7 @@ class ScrapeComputeWorker {
       );
     }
     return Isolate.run(() {
+      ReleaseGroups.usePrepared(groups);
       final res = ScrapeDomainAdapter.evaluateBangumiMatch(folder, candidates);
       return (
         tier: res.tier,
@@ -85,25 +91,28 @@ class ScrapeComputeWorker {
     List<TmdbWorkDetail> candidates, {
     List<BangumiSubjectCandidate> bangumiCandidates = const [],
     BangumiTmdbIndex? mappingIndex,
-  }) {
+  }) async {
+    final groups = await ReleaseGroups.prepare();
+    final activeMapping = mappingIndex ?? BangumiTmdbIndex.bundledSnapshot?.index;
     if (!useIsolate) {
       return Future.value(
         ScrapeDomainAdapter.evaluateMatch(
           folder,
           candidates,
           bangumiCandidates: bangumiCandidates,
-          mappingIndex: mappingIndex,
+          mappingIndex: activeMapping,
         ),
       );
     }
-    return Isolate.run(
-      () => ScrapeDomainAdapter.evaluateMatch(
+    return Isolate.run(() {
+      ReleaseGroups.usePrepared(groups);
+      return ScrapeDomainAdapter.evaluateMatch(
         folder,
         candidates,
         bangumiCandidates: bangumiCandidates,
-        mappingIndex: mappingIndex,
-      ),
-    );
+        mappingIndex: activeMapping,
+      );
+    });
   }
 }
 
@@ -136,6 +145,7 @@ class ScrapeComputeSession implements ScrapeComputeWorker {
     Map<String, String> localCoverByFolder = const {},
   }) async {
     if (!useIsolate) {
+      await ReleaseGroups.prepare();
       return ScrapeDomainAdapter.groupAndSplitFiles(
         sourceId: sourceId,
         files: files,
@@ -165,6 +175,7 @@ class ScrapeComputeSession implements ScrapeComputeWorker {
     List<BangumiSubjectCandidate> candidates,
   ) async {
     if (!useIsolate) {
+      await ReleaseGroups.prepare();
       final res = ScrapeDomainAdapter.evaluateBangumiMatch(folder, candidates);
       return (
         tier: res.tier,
@@ -189,12 +200,14 @@ class ScrapeComputeSession implements ScrapeComputeWorker {
     List<BangumiSubjectCandidate> bangumiCandidates = const [],
     BangumiTmdbIndex? mappingIndex,
   }) async {
+    final activeMapping = mappingIndex ?? BangumiTmdbIndex.bundledSnapshot?.index;
     if (!useIsolate) {
+      await ReleaseGroups.prepare();
       return ScrapeDomainAdapter.evaluateMatch(
         folder,
         candidates,
         bangumiCandidates: bangumiCandidates,
-        mappingIndex: mappingIndex,
+        mappingIndex: activeMapping,
       );
     }
     final res = await _dispatch(
@@ -202,17 +215,18 @@ class ScrapeComputeSession implements ScrapeComputeWorker {
         folder: folder,
         candidates: candidates,
         bangumiCandidates: bangumiCandidates,
-        mappingIndex: mappingIndex,
+        mappingIndex: activeMapping,
       ),
     );
     return res as MatchDecision;
   }
 
   Future<Object?> _dispatch(_ComputeTask task) async {
+    final groups = await ReleaseGroups.prepare();
     if (_disposed) {
       return _executeTaskSync(task);
     }
-    final port = await _ensureWorkerPort();
+    final port = await _ensureWorkerPort(groups);
     if (_disposed) {
       return _executeTaskSync(task);
     }
@@ -223,7 +237,7 @@ class ScrapeComputeSession implements ScrapeComputeWorker {
     return completer.future;
   }
 
-  Future<SendPort> _ensureWorkerPort() {
+  Future<SendPort> _ensureWorkerPort(Uint8List groups) {
     if (_workerPort != null) return Future.value(_workerPort!);
     if (_starting != null) return _starting!;
 
@@ -247,7 +261,7 @@ class ScrapeComputeSession implements ScrapeComputeWorker {
 
     Isolate.spawn(
       _persistentWorkerMain,
-      (handshake: handshakePort.sendPort, reply: responsePort.sendPort),
+      (handshake: handshakePort.sendPort, reply: responsePort.sendPort, groups: groups),
       debugName: 'konata_scrape_compute',
     ).then((iso) async {
       _isolate = iso;
@@ -376,7 +390,10 @@ Object? _executeTaskSync(_ComputeTask task) {
   }
 }
 
-void _persistentWorkerMain(({SendPort handshake, SendPort reply}) ports) {
+void _persistentWorkerMain(
+  ({SendPort handshake, SendPort reply, Uint8List groups}) ports,
+) {
+  ReleaseGroups.usePrepared(ports.groups);
   final inbox = ReceivePort();
   ports.handshake.send(inbox.sendPort);
   inbox.listen((message) {

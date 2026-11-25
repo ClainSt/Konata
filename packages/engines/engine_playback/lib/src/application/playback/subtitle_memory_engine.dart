@@ -8,9 +8,11 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
+import '../../domain/playback/opencc_dictionaries.dart';
 import '../../domain/playback/subtitle_content_processor.dart';
 import '../../domain/playback/subtitle_timeline_remapper.dart';
 import '../../domain/playback/track_preferences.dart';
+import '../../domain/text/legacy_codepage_tables.dart';
 import '../../domain/text/multibyte_text_decoder.dart';
 import '../../infrastructure/players/libmpv_ffi.dart';
 import 'unified_playback_engine.dart';
@@ -18,17 +20,15 @@ import 'unified_playback_engine.dart';
 /// 单个字幕槽位（主字幕或副字幕）的权威挂载目标描述。
 class SubtitleSlotRequest {
   /// 创建基于现有底层轨道编号的字幕槽位请求（无需内存直注）。
-  const SubtitleSlotRequest.existingTrack(
-    int trackId, {
-    this.displayTitle,
-  }) : existingTrackId = trackId,
-       localFilePath = null,
-       loadBytes = null,
-       fileName = null,
-       openCcMode = SubtitleOpenCcMode.none,
-       forceOverrideSubsetGuard = false,
-       timelineTransform = SubtitleTimelineTransform.identity,
-       enableCloudSubset = false;
+  const SubtitleSlotRequest.existingTrack(int trackId, {this.displayTitle})
+    : existingTrackId = trackId,
+      localFilePath = null,
+      loadBytes = null,
+      fileName = null,
+      openCcMode = SubtitleOpenCcMode.none,
+      forceOverrideSubsetGuard = false,
+      timelineTransform = SubtitleTimelineTransform.identity,
+      enableCloudSubset = false;
 
   /// 创建基于本地文件或异步原始字节加载器的内存直注字幕槽位请求。
   const SubtitleSlotRequest.memory({
@@ -589,7 +589,9 @@ class SubtitleMemoryEngine {
       // 回收已被替换且主/副字幕均不再使用的派生内存轨（如旧 OpenCC 繁简转换或旧调轴轨），防止轨道无限累积。
       final activeSecondaryId = intent.updateSecondary
           ? secondaryTrackId
-          : int.tryParse(client.getPropertyString('secondary-sid')?.trim() ?? '');
+          : int.tryParse(
+              client.getPropertyString('secondary-sid')?.trim() ?? '',
+            );
       _pruneSupersededDerivedTracks(
         client,
         activePrimaryId: primaryTrackId,
@@ -623,6 +625,8 @@ class SubtitleMemoryEngine {
   void dispose() {
     _disposed = true;
     _latestIntentVersion += 1;
+    OpenCcDictionaries.release();
+    LegacyCodePageTables.release();
     _mountedMemoryTracksBySha1.clear();
     _mountedTrackIdBySourcePath.clear();
     _originalTrackIdBySourcePath.clear();
@@ -687,8 +691,10 @@ class SubtitleMemoryEngine {
     required bool forceOverrideSubsetGuard,
     required SubtitleTimelineTransform timelineTransform,
     required SubtitleTextFormat detectedFormat,
+    required Uint8List? openCcArchive,
     String? fileName,
   }) {
+    if (openCcArchive != null) OpenCcDictionaries.usePrepared(openCcArchive);
     final processed = SubtitleContentProcessor.process(
       content: workingText,
       mode: openCcMode,
@@ -729,6 +735,9 @@ class SubtitleMemoryEngine {
 
     final useIsolate = rawBytes.length >= _isolateOffloadBytes;
     final fileNameHint = request.fileName ?? trimmedLocalPath;
+    final openCcArchive = request.openCcMode == SubtitleOpenCcMode.none
+        ? null
+        : await OpenCcDictionaries.prepare();
     final needsCloudOrEmbeddedFontHook =
         cloudSubsetTransform != null || onAssContentPrepared != null;
 
@@ -740,30 +749,51 @@ class SubtitleMemoryEngine {
       final openCcMode = request.openCcMode;
       final forceOverride = request.forceOverrideSubsetGuard;
       final transform = request.timelineTransform;
-      final transferable = TransferableTypedData.fromList([rawBytes]);
-      final result = await Isolate.run(() {
-        final bytes = transferable.materialize().asUint8List();
-        final decoded = MultibyteTextDecoder.decodeWithInfo(bytes);
-        final format = SubtitleTimelineRemapper.detectFormat(
-          decoded.text,
-          fileName: fileNameHint,
-        );
-        final out = _processAndRemapText(
-          workingText: decoded.text,
-          openCcMode: openCcMode,
-          forceOverrideSubsetGuard: forceOverride,
-          timelineTransform: transform,
-          detectedFormat: format,
-          fileName: fileNameHint,
-        );
-        return (
-          charset: decoded.charset,
-          content: out.content,
-          sha1Hex: out.sha1Hex,
-          subsetState: out.subsetState,
-          openCcSkipReason: out.openCcSkipReason,
-        );
-      });
+      Future<
+        ({
+          DetectedTextCharset charset,
+          String content,
+          String sha1Hex,
+          SubtitleSubsetState subsetState,
+          String? openCcSkipReason,
+        })?
+      >
+      processInWorker(Uint8List? legacyArchive) {
+        final transferable = TransferableTypedData.fromList([rawBytes]);
+        return Isolate.run(() {
+          final bytes = transferable.materialize().asUint8List();
+          final unicode = MultibyteTextDecoder.decodeUnicode(bytes);
+          if (unicode == null && legacyArchive == null) return null;
+          if (legacyArchive != null) {
+            LegacyCodePageTables.usePrepared(legacyArchive);
+          }
+          final decoded = unicode ?? MultibyteTextDecoder.decodeWithInfo(bytes);
+          final format = SubtitleTimelineRemapper.detectFormat(
+            decoded.text,
+            fileName: fileNameHint,
+          );
+          final out = _processAndRemapText(
+            workingText: decoded.text,
+            openCcMode: openCcMode,
+            forceOverrideSubsetGuard: forceOverride,
+            timelineTransform: transform,
+            detectedFormat: format,
+            openCcArchive: openCcArchive,
+            fileName: fileNameHint,
+          );
+          return (
+            charset: decoded.charset,
+            content: out.content,
+            sha1Hex: out.sha1Hex,
+            subsetState: out.subsetState,
+            openCcSkipReason: out.openCcSkipReason,
+          );
+        });
+      }
+
+      final result =
+          await processInWorker(null) ??
+          (await processInWorker(await LegacyCodePageTables.prepare()))!;
       return _PreparedMemorySlot(
         sourceFilePath: trimmedLocalPath,
         processedContent: result.content,
@@ -780,17 +810,11 @@ class SubtitleMemoryEngine {
       );
     }
 
-    final DecodedTextResult decoded;
-    if (useIsolate && legacyCodePageDecoder == null) {
-      decoded = await Isolate.run(
-        () => MultibyteTextDecoder.decodeWithInfo(rawBytes),
-      );
-    } else {
-      decoded = MultibyteTextDecoder.decodeWithInfo(
-        rawBytes,
-        legacyDecoder: legacyCodePageDecoder,
-      );
-    }
+    final decoded = await MultibyteTextDecoder.decodeWithInfoAsync(
+      rawBytes,
+      legacyDecoder: legacyCodePageDecoder,
+      offload: useIsolate && legacyCodePageDecoder == null,
+    );
     var workingText = decoded.text;
     var cloudApplied = false;
 
@@ -829,6 +853,7 @@ class SubtitleMemoryEngine {
               forceOverrideSubsetGuard: forceOverride,
               timelineTransform: transform,
               detectedFormat: detectedFormat,
+              openCcArchive: openCcArchive,
               fileName: fileNameHint,
             ),
           )
@@ -838,6 +863,7 @@ class SubtitleMemoryEngine {
             forceOverrideSubsetGuard: forceOverride,
             timelineTransform: transform,
             detectedFormat: detectedFormat,
+            openCcArchive: openCcArchive,
             fileName: fileNameHint,
           );
 
@@ -879,7 +905,9 @@ class SubtitleMemoryEngine {
         (slot.sourceFilePath != null && slot.sourceFilePath!.isNotEmpty)
         ? _normalizePathKey(slot.sourceFilePath!)
         : '';
-    final cacheKey = sourceKey.isEmpty ? contentSha1 : '$sourceKey::$contentSha1';
+    final cacheKey = sourceKey.isEmpty
+        ? contentSha1
+        : '$sourceKey::$contentSha1';
 
     // 命中当前物理周期已挂载且仍在 track-list 中的同源同内容内存轨，直接去重复用。
     final cachedId = _mountedMemoryTracksBySha1[cacheKey];
@@ -969,7 +997,10 @@ class SubtitleMemoryEngine {
         _originalTrackIdBySourcePath[sourceKey] = resolvedTrackId;
         _mountedTrackIdBySourcePath[sourceKey] = resolvedTrackId;
       } else {
-        _mountedTrackIdBySourcePath.putIfAbsent(sourceKey, () => resolvedTrackId);
+        _mountedTrackIdBySourcePath.putIfAbsent(
+          sourceKey,
+          () => resolvedTrackId,
+        );
       }
       _sourcePathByMountedTrackId[resolvedTrackId] = slot.sourceFilePath!;
     }

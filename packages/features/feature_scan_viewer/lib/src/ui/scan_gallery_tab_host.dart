@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:engine_scraping/engine_scraping.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:konata_contracts/konata_contracts.dart';
@@ -12,6 +13,7 @@ import '../providers.dart';
 import '../state/scan_gallery_controller.dart';
 import 'scan_gallery_view.dart';
 import 'scan_lightbox_dialog.dart';
+import 'scan_thumbnail_card.dart';
 
 /// 详情页「扫图」扩展标签页挂载宿主组件（供 `DetailTabContribution.viewBuilder` 直接返回）。
 class ScanGalleryTabHost extends ConsumerStatefulWidget {
@@ -22,6 +24,8 @@ class ScanGalleryTabHost extends ConsumerStatefulWidget {
     this.initialVolumeKey,
     this.scrollController,
     this.onScanTap,
+    this.inlineRail = false,
+    this.searchQuery = '',
   });
 
   /// 目标作品强类型标识。
@@ -36,6 +40,12 @@ class ScanGalleryTabHost extends ConsumerStatefulWidget {
   /// 可选覆写点击扫图条目的动作（缺省自动弹出内置毛玻璃原图灯箱）。
   final ScanTapCallback? onScanTap;
 
+  /// 详情页内嵌横向轨道，而非完整画廊。
+  final bool inlineRail;
+
+  /// 完整列表搜索词。
+  final String searchQuery;
+
   @override
   ConsumerState<ScanGalleryTabHost> createState() => _ScanGalleryTabHostState();
 }
@@ -49,7 +59,8 @@ class _ScanGalleryTabHostState extends ConsumerState<ScanGalleryTabHost> {
   bool _initialized = false;
 
   ScrollController get _effectiveScrollController =>
-      widget.scrollController ?? (_ownedScrollController ??= ScrollController());
+      widget.scrollController ??
+      (_ownedScrollController ??= ScrollController());
 
   @override
   void initState() {
@@ -141,6 +152,59 @@ class _ScanGalleryTabHostState extends ConsumerState<ScanGalleryTabHost> {
     );
   }
 
+  Widget _buildInlineRail(ScanGalleryState state, List<MediaVariant> items) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = (constraints.maxHeight - 48).clamp(60.0, 186.0);
+        return Listener(
+          onPointerSignal: (event) {
+            final ctrl = _effectiveScrollController;
+            if (event is! PointerScrollEvent ||
+                !ctrl.hasClients ||
+                event.scrollDelta.dy.abs() < event.scrollDelta.dx.abs()) {
+              return;
+            }
+            final pos = ctrl.position;
+            GestureBinding.instance.pointerSignalResolver.register(event, (_) {
+              pos.jumpTo(
+                (pos.pixels + event.scrollDelta.dy).clamp(
+                  pos.minScrollExtent,
+                  pos.maxScrollExtent,
+                ),
+              );
+            });
+          },
+          child: ListView.separated(
+            key: const ValueKey('scan_gallery_inline_rail'),
+            controller: _effectiveScrollController,
+            scrollDirection: Axis.horizontal,
+            addAutomaticKeepAlives: false,
+            itemCount: items.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 12),
+            itemBuilder: (_, index) {
+              final v = items[index];
+              return ScanThumbnailCard(
+                key: ValueKey('scan_inline_tile_${v.id}'),
+                variant: v,
+                source: state.sourceViewsById[v.sourceId],
+                scheduler: _scheduler,
+                workId: widget.workId.value,
+                workTitle: state.workTitle,
+                showSeriesSharedBadge: state.showSeriesSharedBadge,
+                onDarkBackdrop: true,
+                cardWidth: width,
+                fillAvailableWidth: false,
+                frameAspectRatio: 4 / 3,
+                galleryOverlayCaption: false,
+                onTap: () => unawaited(_openLightbox(state, v)),
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = _controller;
@@ -168,10 +232,7 @@ class _ScanGalleryTabHostState extends ConsumerState<ScanGalleryTabHost> {
                   Text(
                     state.errorMessage!,
                     textAlign: TextAlign.center,
-                    style: KonataTheme.bodyLabelStyle(
-                      p,
-                      color: p.danger,
-                    ),
+                    style: KonataTheme.bodyLabelStyle(p, color: p.danger),
                   ),
                   const SizedBox(height: 14),
                   KonataPillButton.primary(
@@ -211,6 +272,16 @@ class _ScanGalleryTabHostState extends ConsumerState<ScanGalleryTabHost> {
           );
         }
 
+        final query = widget.searchQuery.trim().toLowerCase();
+        final visibleScans = query.isEmpty
+            ? state.visibleScans
+            : state.visibleScans
+                  .where(
+                    (v) =>
+                        v.fileName.toLowerCase().contains(query) ||
+                        v.relativePath.toLowerCase().contains(query),
+                  )
+                  .toList();
         final volumeChips = state.scanSummary.chips;
         final showVolumeBar = volumeChips.length >= 2;
 
@@ -232,28 +303,30 @@ class _ScanGalleryTabHostState extends ConsumerState<ScanGalleryTabHost> {
               const SizedBox(height: 10),
             ],
             Expanded(
-              child: ScanGalleryView(
-                workId: widget.workId,
-                workTitle: state.workTitle,
-                items: state.visibleScans,
-                sourcesById: state.sourceViewsById,
-                scanSummary: state.scanSummary,
-                scheduler: _scheduler,
-                scrollController: _effectiveScrollController,
-                selectedVolumeKey: state.selectedVolumeKey,
-                showSeriesSharedBadge: state.showSeriesSharedBadge,
-                mode: state.mode,
-                density: state.density,
-                onModeChanged: controller.setMode,
-                onDensityChanged: controller.setDensity,
-                onScanTap: (variant, {volumeKey}) {
-                  unawaited(
-                    _openLightbox(state, variant, volumeKey: volumeKey),
-                  );
-                },
-                bottomPadding: bottomClearance + 12.0,
-                prewarmOnMount: false,
-              ),
+              child: widget.inlineRail
+                  ? _buildInlineRail(state, visibleScans)
+                  : ScanGalleryView(
+                      workId: widget.workId,
+                      workTitle: state.workTitle,
+                      items: visibleScans,
+                      sourcesById: state.sourceViewsById,
+                      scanSummary: state.scanSummary,
+                      scheduler: _scheduler,
+                      scrollController: _effectiveScrollController,
+                      selectedVolumeKey: state.selectedVolumeKey,
+                      showSeriesSharedBadge: state.showSeriesSharedBadge,
+                      mode: state.mode,
+                      density: state.density,
+                      onModeChanged: controller.setMode,
+                      onDensityChanged: controller.setDensity,
+                      onScanTap: (variant, {volumeKey}) {
+                        unawaited(
+                          _openLightbox(state, variant, volumeKey: volumeKey),
+                        );
+                      },
+                      bottomPadding: bottomClearance + 12.0,
+                      prewarmOnMount: false,
+                    ),
             ),
           ],
         );

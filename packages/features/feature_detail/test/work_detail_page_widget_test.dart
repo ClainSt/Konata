@@ -324,6 +324,27 @@ void main() {
       expect(find.byIcon(Icons.keyboard_arrow_up_rounded), findsNothing);
       expect(find.byKey(const Key('detail_drawer_expanded_body')), findsOneWidget);
 
+      expect(find.byType(Scrollbar), findsNothing);
+      await tester.tap(find.byKey(const Key('detail_drawer_view_all_button')));
+      await tester.pumpAndSettle();
+      expect(find.text('少女终末旅行 · 完整列表'), findsOneWidget);
+      expect(find.byKey(const ValueKey('full_list_episode_ep_ui_1')), findsOneWidget);
+      final dialog = find.byType(KonataGlassDialog);
+      await tester.tap(find.descendant(of: dialog,
+          matching: find.byKey(const ValueKey('detail_tab_extras'))));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('full_list_episode_ep_ui_sp1')), findsOneWidget);
+      await tester.tap(find.descendant(of: dialog,
+          matching: find.byKey(const ValueKey('detail_tab_cd'))));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('full_list_cd_var_ui_cd1')), findsOneWidget);
+      await tester.enterText(find.descendant(of: dialog, matching: find.byType(EditableText)), '不存在的文件');
+      await tester.pumpAndSettle();
+      expect(find.text('没有符合当前筛选条件的文件'), findsOneWidget);
+      Navigator.of(tester.element(dialog)).pop();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('detail_drawer_view_all_button')), findsOneWidget);
+
       // 再次点击当前高亮「正片」分类 -> 收起抽屉并收回 `⊞`
       await tester.tap(find.byKey(const ValueKey<String>('detail_tab_episodes')));
       await tester.pump();

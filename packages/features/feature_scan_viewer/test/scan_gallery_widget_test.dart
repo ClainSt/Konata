@@ -246,6 +246,50 @@ void main() {
         await tester.sendKeyEvent(LogicalKeyboardKey.escape);
         await tester.pumpAndSettle();
         expect(find.byType(ScanLightboxDialog), findsNothing);
+        blockThumbnailStreams = true;
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              featureScanViewerDependenciesProvider.overrideWithValue(deps),
+            ],
+            child: MaterialApp(
+              theme: KonataTheme.darkTheme(),
+              home: Scaffold(
+                body: Align(
+                  alignment: Alignment.bottomCenter,
+                  child: SizedBox(
+                    height: 256,
+                    child: ScanGalleryTabHost(
+                      workId: workId,
+                      inlineRail: true,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 30)),
+        );
+        await tester.pump();
+        final rail = find.byKey(const ValueKey('scan_gallery_inline_rail'));
+        expect(rail, findsOneWidget);
+        expect(tester.widget<ListView>(rail).scrollDirection, Axis.horizontal);
+        expect(find.text('保序画框'), findsNothing);
+        expect(find.byType(KonataDraggableScrollbar), findsNothing);
+        await tester.drag(rail, const Offset(-600, 0));
+        await tester.pumpAndSettle();
+        expect(tester.widget<ListView>(rail).controller!.offset, greaterThan(0));
+        expect(tester.takeException(), isNull);
+
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpAndSettle();
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 100)),
+        );
       },
     );
 

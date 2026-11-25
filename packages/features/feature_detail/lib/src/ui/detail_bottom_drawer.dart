@@ -147,7 +147,9 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
     final visibleTabs = _visibleExternalTabs();
     if (tabId == DetailDrawerTabIds.episodes) {
       return b.mainEpisodes.isNotEmpty ||
-          (b.extraEpisodes.isEmpty && visibleCds.isEmpty && visibleTabs.isEmpty);
+          (b.extraEpisodes.isEmpty &&
+              visibleCds.isEmpty &&
+              visibleTabs.isEmpty);
     }
     if (tabId == DetailDrawerTabIds.extras) {
       return b.extraEpisodes.isNotEmpty;
@@ -263,7 +265,7 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
         for (final entry in byKind.entries) {
           subFilters.add((
             id: entry.key.name,
-            label: entry.key.name.toUpperCase(),
+            label: DetailSupplementaryHelper.extraKindLabel(entry.key),
             count: entry.value.length,
           ));
         }
@@ -272,11 +274,12 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
     }
 
     final isExternal = _findExternalTab(_activeTabId) != null;
-    final canOpenFullList =
-        !isExternal &&
-        ((_activeTabId == DetailDrawerTabIds.episodes && mains.isNotEmpty) ||
-            (_activeTabId == DetailDrawerTabIds.extras && extras.isNotEmpty) ||
-            (_activeTabId == DetailDrawerTabIds.cd && cds.isNotEmpty));
+    final canOpenFullList = (isExternal
+        ? _activeTabId == 'scan_viewer'
+        : ((_activeTabId == DetailDrawerTabIds.episodes && mains.isNotEmpty) ||
+              (_activeTabId == DetailDrawerTabIds.extras &&
+                  extras.isNotEmpty) ||
+              (_activeTabId == DetailDrawerTabIds.cd && cds.isNotEmpty)));
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -288,6 +291,7 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
           extraEpisodeCount: extras.length,
           cdCount: cds.length,
           externalTabs: externalTabs,
+          scanCount: b.visibleScanCount,
           expanded: _isExpanded,
           canOpenFullList: canOpenFullList,
           onOpenFullList: canOpenFullList
@@ -329,9 +333,7 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
                     ),
                   ],
                 )
-              : const SizedBox.shrink(
-                  key: Key('detail_drawer_collapsed_body'),
-                ),
+              : const SizedBox.shrink(key: Key('detail_drawer_collapsed_body')),
         ),
       ],
     );
@@ -353,6 +355,7 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
           arguments: <String, Object?>{
             'workTitle': widget.bundle.work.title,
             'seriesId': widget.bundle.work.seriesId,
+            'inlineRail': true,
           },
         ),
       );
@@ -425,45 +428,38 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
       onPointerSignal: _handleTrackPointerSignal,
       child: SizedBox(
         height: cardHeight,
-        child: Scrollbar(
+        child: ListView.separated(
           controller: _trackScrollCtrl,
-          thumbVisibility: !widget.compact,
-          interactive: true,
-          scrollbarOrientation: ScrollbarOrientation.bottom,
-          child: ListView.separated(
-            controller: _trackScrollCtrl,
-            scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(),
-            padding: const EdgeInsets.only(bottom: 10),
-            itemCount: episodes.length,
-            separatorBuilder: (_, _) => const SizedBox(width: 14),
-            itemBuilder: (_, index) {
-              final ep = episodes[index];
-              return EpisodeDrawerCard(
-                key: ValueKey<String>('episode_card_${ep.id}'),
-                episode: ep,
-                variants: b.variantsForEpisode(ep.id),
-                playback: b.playbackByEpisodeId[ep.id],
-                imageLoader: widget.imageLoader,
-                workTitle: b.work.title,
-                workMediaType: b.work.tmdbMediaType,
-                mainEpisodeCount: mainCount,
-                showSeasonPrefix:
-                    multiSeason && ep.category == EpisodeCategory.main,
-                showStillThumbnail:
-                    widget.displayPreferences.showEpisodeStillThumbnails,
-                showOriginalFileName: showRawFileName,
-                workBackdropFallbackPath: b.effectiveHeroBackdropPath,
-                workPosterFallbackPath:
-                    b.work.posterPath ?? b.work.bangumiPosterPath,
-                workPosterOwnerId: b.effectiveHeroBackdropOwnerId,
-                onDarkBackdrop: widget.onDarkBackdrop,
-                cardWidth: cardWidth,
-                onTap: () => widget.onTapEpisode(ep),
-                onShowMediaInfo: () => widget.onInspectEpisodeInfo(ep),
-              );
-            },
-          ),
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          itemCount: episodes.length,
+          separatorBuilder: (_, _) => const SizedBox(width: 14),
+          itemBuilder: (_, index) {
+            final ep = episodes[index];
+            return EpisodeDrawerCard(
+              key: ValueKey<String>('episode_card_${ep.id}'),
+              episode: ep,
+              variants: b.variantsForEpisode(ep.id),
+              playback: b.playbackByEpisodeId[ep.id],
+              imageLoader: widget.imageLoader,
+              workTitle: b.work.title,
+              workMediaType: b.work.tmdbMediaType,
+              mainEpisodeCount: mainCount,
+              showSeasonPrefix:
+                  multiSeason && ep.category == EpisodeCategory.main,
+              showStillThumbnail:
+                  widget.displayPreferences.showEpisodeStillThumbnails,
+              showOriginalFileName: showRawFileName,
+              workBackdropFallbackPath: b.effectiveHeroBackdropPath,
+              workPosterFallbackPath:
+                  b.work.posterPath ?? b.work.bangumiPosterPath,
+              workPosterOwnerId: b.effectiveHeroBackdropOwnerId,
+              onDarkBackdrop: widget.onDarkBackdrop,
+              cardWidth: cardWidth,
+              onTap: () => widget.onTapEpisode(ep),
+              onShowMediaInfo: () => widget.onInspectEpisodeInfo(ep),
+            );
+          },
         ),
       ),
     );
@@ -483,36 +479,29 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
       onPointerSignal: _handleTrackPointerSignal,
       child: SizedBox(
         height: cardHeight,
-        child: Scrollbar(
+        child: ListView.separated(
           controller: _trackScrollCtrl,
-          thumbVisibility: !widget.compact,
-          interactive: true,
-          scrollbarOrientation: ScrollbarOrientation.bottom,
-          child: ListView.separated(
-            controller: _trackScrollCtrl,
-            scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(),
-            padding: const EdgeInsets.only(bottom: 10),
-            itemCount: cds.length,
-            separatorBuilder: (_, _) => const SizedBox(width: 14),
-            itemBuilder: (_, index) {
-              final v = cds[index];
-              return CdDrawerCard(
-                key: ValueKey<String>('cd_card_${v.id}'),
-                variant: v,
-                source: b.sourcesById[v.sourceId],
-                workId: b.work.id,
-                workPosterPath: b.work.posterPath ?? b.work.bangumiPosterPath,
-                imageLoader: widget.imageLoader,
-                showSeriesSharedBadge: b.seriesMembers.length >= 2,
-                directSubdirLabel: subdirHints[v.id],
-                showRawFileName: showRawFileName,
-                onDarkBackdrop: widget.onDarkBackdrop,
-                cardWidth: cardWidth,
-                onTap: () => widget.onTapCdVariant(v),
-              );
-            },
-          ),
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          itemCount: cds.length,
+          separatorBuilder: (_, _) => const SizedBox(width: 14),
+          itemBuilder: (_, index) {
+            final v = cds[index];
+            return CdDrawerCard(
+              key: ValueKey<String>('cd_card_${v.id}'),
+              variant: v,
+              source: b.sourcesById[v.sourceId],
+              workId: b.work.id,
+              workPosterPath: b.work.posterPath ?? b.work.bangumiPosterPath,
+              imageLoader: widget.imageLoader,
+              showSeriesSharedBadge: b.seriesMembers.length >= 2,
+              directSubdirLabel: subdirHints[v.id],
+              showRawFileName: showRawFileName,
+              onDarkBackdrop: widget.onDarkBackdrop,
+              cardWidth: cardWidth,
+              onTap: () => widget.onTapCdVariant(v),
+            );
+          },
         ),
       ),
     );

@@ -90,16 +90,26 @@ class WorkDetailBundle {
       if (ep.category == EpisodeCategory.extra) ep,
   ];
 
+  /// 可见扫图数量，按与画廊一致的路径与共享范围去重。
+  int get visibleScanCount => {
+    for (final item in editableSupplementaryItems)
+      if (item.variant.assetKind == AssetKind.scanGallery &&
+          (item.variant.workId == work.id ||
+              item.variant.assetScope == SupplementaryAssetScope.seriesShared))
+        '${item.variant.sourceId}::${item.variant.relativePath.toLowerCase()}',
+  }.length;
+
   /// 取得指定逻辑分集的物理文件变体列表。
   List<MediaVariant> variantsForEpisode(String episodeId) =>
       variantsByEpisodeId[episodeId] ?? const <MediaVariant>[];
 
   /// 详情页实际展示的 `16:9` 横版背景来源（自身优先，缺失时借用同系列母剧横图）。
   ({String path, String ownerWorkId, bool isShared})?
-  get effectiveHeroBackdrop => SeriesSeasonFormatter.resolveEffectiveHeroBackdrop(
-    work: work,
-    seriesMembers: seriesMembers,
-  );
+  get effectiveHeroBackdrop =>
+      SeriesSeasonFormatter.resolveEffectiveHeroBackdrop(
+        work: work,
+        seriesMembers: seriesMembers,
+      );
 
   /// 详情页实际展示的 `16:9` 横版背景路径。
   String? get effectiveHeroBackdropPath => effectiveHeroBackdrop?.path;

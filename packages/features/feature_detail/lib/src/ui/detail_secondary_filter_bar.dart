@@ -36,6 +36,7 @@ class DetailSecondaryFilterBar extends StatelessWidget {
     this.trailingGear,
     this.onDarkBackdrop = true,
     this.compact = false,
+    this.scanCount,
   });
 
   /// 当前高亮或上次选中的标签页唯一标识。
@@ -83,38 +84,25 @@ class DetailSecondaryFilterBar extends StatelessWidget {
   /// 是否紧凑排布。
   final bool compact;
 
+  /// 扫图分类的可见数量。
+  final int? scanCount;
+
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final options = <({String id, String label, IconData icon, int? count})>[
+    final options = <({String id, String label, int? count})>[
       if (mainEpisodeCount > 0 ||
           (extraEpisodeCount == 0 && cdCount == 0 && externalTabs.isEmpty))
-        (
-          id: DetailDrawerTabIds.episodes,
-          label: '正片',
-          icon: KonataIconRegistry.resolve('episodes'),
-          count: mainEpisodeCount,
-        ),
+        (id: DetailDrawerTabIds.episodes, label: '正片', count: mainEpisodeCount),
       if (extraEpisodeCount > 0)
-        (
-          id: DetailDrawerTabIds.extras,
-          label: '特典',
-          icon: KonataIconRegistry.resolve('extras'),
-          count: extraEpisodeCount,
-        ),
-      if (cdCount > 0)
-        (
-          id: DetailDrawerTabIds.cd,
-          label: 'CD',
-          icon: KonataIconRegistry.resolve('cd'),
-          count: cdCount,
-        ),
+        (id: DetailDrawerTabIds.extras, label: '特典', count: extraEpisodeCount),
+      if (cdCount > 0) (id: DetailDrawerTabIds.cd, label: 'CD', count: cdCount),
       for (final ext in externalTabs)
         (
           id: ext.id,
-          label: ext.label,
-          icon: KonataIconRegistry.resolve(ext.iconKey),
-          count: null,
+          label: ext.id == 'scan_viewer' ? 'Scan' : ext.label,
+
+          count: ext.id == 'scan_viewer' ? scanCount : null,
         ),
     ];
 
@@ -166,7 +154,7 @@ class DetailSecondaryFilterBar extends StatelessWidget {
                               label: options[i].count != null
                                   ? '${options[i].label} ${options[i].count}'
                                   : options[i].label,
-                              icon: options[i].icon,
+
                               selected:
                                   expanded && activeTabId == options[i].id,
                               onDarkBackdrop: useDarkGlass,
@@ -249,7 +237,7 @@ class _TabSegmentButton extends StatefulWidget {
   const _TabSegmentButton({
     super.key,
     required this.label,
-    required this.icon,
+
     required this.selected,
     required this.onDarkBackdrop,
     required this.compact,
@@ -257,7 +245,7 @@ class _TabSegmentButton extends StatefulWidget {
   });
 
   final String label;
-  final IconData icon;
+
   final bool selected;
   final bool onDarkBackdrop;
   final bool compact;
@@ -276,7 +264,7 @@ class _TabSegmentButtonState extends State<_TabSegmentButton> {
     final selected = widget.selected;
     final bg = selected
         ? (widget.onDarkBackdrop
-              ? KonataTheme.pureWhite.withValues(alpha: 0.92)
+              ? KonataTheme.pureWhite.withValues(alpha: 0.20)
               : p.primaryButtonBg)
         : (_hovered
               ? (widget.onDarkBackdrop
@@ -285,7 +273,7 @@ class _TabSegmentButtonState extends State<_TabSegmentButton> {
               : const Color(0x00000000));
     final fg = selected
         ? (widget.onDarkBackdrop
-              ? KonataTheme.cinemaObsidian
+              ? KonataTheme.overlayWhiteTextHigh
               : p.primaryButtonFg)
         : (widget.onDarkBackdrop
               ? KonataTheme.overlayWhiteTextMid
@@ -311,8 +299,6 @@ class _TabSegmentButtonState extends State<_TabSegmentButton> {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(widget.icon, size: widget.compact ? 13.5 : 14.5, color: fg),
-              const SizedBox(width: 5),
               Text(
                 widget.label,
                 style: TextStyle(

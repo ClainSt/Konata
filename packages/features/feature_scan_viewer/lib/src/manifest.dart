@@ -40,6 +40,10 @@ abstract final class ScanViewerAvailability {
 
     return ScanGalleryTabHost(
       workId: workId,
+      inlineRail: context.arguments['inlineRail'] == true,
+      searchQuery: context.arguments['searchQuery'] is String
+          ? context.arguments['searchQuery'] as String
+          : '',
       initialVolumeKey: volumeKey,
       scrollController: scrollController,
       onScanTap: onScanTap,

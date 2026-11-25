@@ -3,6 +3,7 @@ import 'dart:io';
 import '../engine/konata_sqlite_engine.dart';
 import 'cache_migrations.dart';
 import 'dao/artwork_negative_cache_dao.dart';
+import 'dao/cloud_drive_entry_dao.dart';
 import 'dao/lyric_cache_dao.dart';
 import 'dao/scrape_candidate_dao.dart';
 
@@ -11,13 +12,11 @@ final class CacheDatabase {
   CacheDatabase._(this.engine)
     : scrapeCandidates = ScrapeCandidateDao(engine),
       lyricCache = LyricCacheDao(engine),
-      artworkNegativeCache = ArtworkNegativeCacheDao(engine);
+      artworkNegativeCache = ArtworkNegativeCacheDao(engine),
+      cloudDriveEntries = CloudDriveEntryDao(engine);
 
   /// 打开物理文件型 `cache.db`（默认分配紧凑 2 MiB 页缓存）。
-  factory CacheDatabase.openFile(
-    String filePath, {
-    int cacheSizeKib = 2048,
-  }) {
+  factory CacheDatabase.openFile(String filePath, {int cacheSizeKib = 2048}) {
     final engine = KonataSqliteEngine.openFile(
       filePath: filePath,
       databaseName: 'cache',
@@ -49,6 +48,9 @@ final class CacheDatabase {
 
   /// 艺术图无图负缓存冷却 DAO。
   final ArtworkNegativeCacheDao artworkNegativeCache;
+
+  /// 云盘目录元数据快照缓存。
+  final CloudDriveEntryDao cloudDriveEntries;
 
   /// 关闭当前缓存库连接。
   Future<void> close() => engine.close();

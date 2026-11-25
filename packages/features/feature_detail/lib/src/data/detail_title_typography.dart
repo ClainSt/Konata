@@ -71,15 +71,14 @@ abstract final class DetailTitleTypographyResolver {
     final cleanTitle = title.trim().isEmpty ? '未命名作品' : title.trim();
     final rawOrig = originalTitle?.trim() ?? '';
     final secondary =
-        rawOrig.isNotEmpty &&
-            rawOrig.toLowerCase() != cleanTitle.toLowerCase()
+        rawOrig.isNotEmpty && rawOrig.toLowerCase() != cleanTitle.toLowerCase()
         ? rawOrig
         : null;
 
     final safeMaxWidth = math.max(140.0, maxWidth);
     final baseMaxFont = isCompactViewport
         ? 30.0
-        : (safeMaxWidth >= 520 ? 44.0 : 38.0);
+        : (safeMaxWidth >= 520 ? 34.0 : 32.0);
     final baseMinFont = isCompactViewport ? 20.0 : 24.0;
     final units = estimateDisplayUnits(cleanTitle);
     final maxLines = isCompactViewport ? 2 : 2;

@@ -167,10 +167,16 @@ void main() {
     await pumpEventQueue();
     expect(spyLyrics.resolvedQueries.length, 1);
     expect(controller.positionListenable.value.inSeconds, 10);
+    expect(spyLyrics.lyricPosition.inSeconds, 10);
+    await controller.seekToTrackPosition(const Duration(seconds: 19));
+    expect(spyLyrics.lyricPosition.inSeconds, 19);
+    await controller.seekToTrackPosition(const Duration(seconds: 3));
+    expect(spyLyrics.lyricPosition.inSeconds, 3);
 
     // 暂停或舞台隐藏时立刻退订底层 `time-pos` 观察。
     await controller.setPlaying(false);
     expect(mpv.isObserving('time-pos'), isFalse);
+    expect(spyLyrics.lyricPlaying, isFalse);
 
     // 切换至下一曲时再次低频触发歌词解析。
     await controller.next();

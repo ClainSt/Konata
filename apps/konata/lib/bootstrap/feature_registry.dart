@@ -246,7 +246,7 @@ final class HostAppearanceState {
   /// 创建宿主外观状态快照。
   const HostAppearanceState({
     this.themeMode = ThemeMode.dark,
-    this.ambientBackdropEnabled = true,
+    this.ambientBackdropEnabled = false,
     this.windowMaterial = KonataWindowMaterial.acrylic,
   });
 

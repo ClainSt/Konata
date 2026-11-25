@@ -58,12 +58,34 @@ void main() {
     expect({
       for (final v in group.variants) v.relativePath: v.remoteFileId,
     }, expected);
+    // 模拟旧库或审计测试库已有非确定性 ID：重扫必须沿用物理文件身份。
+    await repo.upsertMediaVariant(
+      const MediaVariant(
+        id: 'imported-episode-id',
+        sourceId: source,
+        workId: 'work-fixture',
+        relativePath: '86/86 - 01.mkv',
+        fileName: '86 - 01.mkv',
+        fileSize: 100,
+      ),
+    );
     await ScrapeWorkPersister(repo).syncEpisodesAndVariants(
       work: work,
       folder: group,
       tmdbEpisodes: const [],
     );
     final loaded = await repo.getVariantsByWork(work.id);
+    expect(loaded.length, files.length);
+    expect(
+      loaded.singleWhere((v) => v.relativePath == files.first.relativePath).id,
+      'imported-episode-id',
+    );
+    await ScrapeWorkPersister(repo).syncEpisodesAndVariants(
+      work: work,
+      folder: group,
+      tmdbEpisodes: const [],
+    );
+    expect((await repo.getVariantsByWork(work.id)).length, files.length);
     expect({for (final v in loaded) v.relativePath: v.remoteFileId}, expected);
     final records = db.bundle.library.mediaVariants.listBySource(
       const SourceId.trusted(source),

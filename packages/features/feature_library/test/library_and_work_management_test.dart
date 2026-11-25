@@ -231,6 +231,11 @@ void main() {
     await controller.reload();
 
     expect(controller.allVisibleItems.length, 2);
+    expect(controller.prefs.sortMode, LibrarySortMode.libraryOrder);
+    expect(controller.displayedItems.map((e) => e.work.id), [
+      'w_frieren_local',
+      'w_frieren_dav',
+    ]);
     expect(
       controller.allVisibleItems.every((e) => e.crossSourceBadgeLabel != null),
       isTrue,
@@ -456,13 +461,13 @@ void main() {
         'ambiguous_candidates',
         'network_error',
       ]),
-      equals(<String>[
-        '元数据网络请求异常',
-        '存在多个近似候选，需人工确认唯一条目',
-      ]),
+      equals(<String>['元数据网络请求异常', '存在多个近似候选，需人工确认唯一条目']),
     );
     expect(ReviewReasonLabels.isNetworkDegradedReason('api_timeout'), isTrue);
-    expect(ReviewReasonLabels.isNetworkDegradedReason('title_conflict'), isFalse);
+    expect(
+      ReviewReasonLabels.isNetworkDegradedReason('title_conflict'),
+      isFalse,
+    );
 
     final folderLabel = MediaDisplayFormatter.summarizeWorkFolderLabel(
       const <MediaVariant>[
@@ -592,10 +597,7 @@ void main() {
     expect(partialOutcome.movedVariantCount, 1);
     expect(await repo.findWorkById('w_mix'), isNotNull);
     final keepEps = await repo.getEpisodesByWork('w_keep');
-    expect(
-      keepEps.any((e) => e.category == EpisodeCategory.extra),
-      isTrue,
-    );
+    expect(keepEps.any((e) => e.category == EpisodeCategory.extra), isTrue);
 
     // 拆出选中文件为独立待绑定作品。
     final splitWorkId = await mgmt.splitVariantsToIndependentWork(

@@ -11,7 +11,7 @@ final class SettingsDisplayPrefs {
     this.showTitleText = true,
     this.showTitleLogo = true,
     this.showOverview = true,
-    this.showRawVideoFilename = false,
+    this.showRawVideoFilename = true,
     this.showCdTab = true,
     this.showScanTab = true,
     this.showMainHeroBackdrop = true,
@@ -72,12 +72,10 @@ final class SettingsDisplayPrefs {
       showTitleText: showTitleText ?? this.showTitleText,
       showTitleLogo: showTitleLogo ?? this.showTitleLogo,
       showOverview: showOverview ?? this.showOverview,
-      showRawVideoFilename:
-          showRawVideoFilename ?? this.showRawVideoFilename,
+      showRawVideoFilename: showRawVideoFilename ?? this.showRawVideoFilename,
       showCdTab: showCdTab ?? this.showCdTab,
       showScanTab: showScanTab ?? this.showScanTab,
-      showMainHeroBackdrop:
-          showMainHeroBackdrop ?? this.showMainHeroBackdrop,
+      showMainHeroBackdrop: showMainHeroBackdrop ?? this.showMainHeroBackdrop,
       showEpisodeStillThumbnails:
           showEpisodeStillThumbnails ?? this.showEpisodeStillThumbnails,
       showOriginalSubtitlesOnCards:
@@ -128,7 +126,7 @@ final class SettingsDisplayPrefs {
       showTitleText: _readBool(json, 'showTitleText', true),
       showTitleLogo: _readBool(json, 'showTitleLogo', true),
       showOverview: _readBool(json, 'showOverview', true),
-      showRawVideoFilename: _readBool(json, 'showRawVideoFilename', false),
+      showRawVideoFilename: _readBool(json, 'showRawVideoFilename', true),
       showCdTab: _readBool(json, 'showCdTab', true),
       showScanTab: _readBool(json, 'showScanTab', true),
       showMainHeroBackdrop: _readBool(json, 'showMainHeroBackdrop', true),
@@ -147,11 +145,7 @@ final class SettingsDisplayPrefs {
     );
   }
 
-  static bool _readBool(
-    Map<String, Object?> json,
-    String key,
-    bool fallback,
-  ) {
+  static bool _readBool(Map<String, Object?> json, String key, bool fallback) {
     final value = json[key];
     return value is bool ? value : fallback;
   }

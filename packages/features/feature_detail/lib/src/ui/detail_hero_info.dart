@@ -73,6 +73,7 @@ class DetailHeroInfo extends StatelessWidget {
     final resumePlan = bundle.resumePlan;
     final metaParts = <String>[
       if (work.year != null && work.year! > 0) '${work.year}',
+      if (bundle.mainEpisodes.isNotEmpty) '${bundle.mainEpisodes.length} 话',
       if (work.bangumiScore != null && work.bangumiScore! > 0)
         'Bangumi ${work.bangumiScore!.toStringAsFixed(1)}',
     ];
@@ -130,7 +131,7 @@ class DetailHeroInfo extends StatelessWidget {
           const SizedBox(height: 12),
           ConstrainedBox(
             constraints: BoxConstraints(
-              maxWidth: compact ? double.infinity : 680,
+              maxWidth: compact ? double.infinity : 496,
             ),
             child: InlineExpandableSynopsis(
               text: work.overview!,

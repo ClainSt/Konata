@@ -182,8 +182,8 @@ SELECT
     WHEN w.${WorksSchema.colScrapeStatus} = ? AND w.${WorksSchema.colIsHidden} = 0
     THEN mv.${MediaVariantsSchema.colWorkId}
   END) AS review_count,
-  SUM(CASE WHEN mv.${MediaVariantsSchema.colAssetKind} = ? THEN 1 ELSE 0 END) AS video_count,
-  COUNT(*) AS total_file_count
+  COUNT(DISTINCT CASE WHEN mv.${MediaVariantsSchema.colAssetKind} = ? THEN mv.${MediaVariantsSchema.colRelativePath} END) AS video_count,
+  COUNT(DISTINCT mv.${MediaVariantsSchema.colRelativePath}) AS total_file_count
 FROM ${MediaVariantsSchema.table} mv
 INNER JOIN ${WorksSchema.table} w
   ON w.${WorksSchema.colId} = mv.${MediaVariantsSchema.colWorkId}

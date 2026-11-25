@@ -10,10 +10,7 @@ import 'package:konata_storage/konata_storage.dart';
 /// 用于测试音频内核行为的可编程受控 `LibMpvClient` 替身。
 class FakeLibMpvClient implements LibMpvClient, LibMpvUnobservable {
   /// 构造受控播放内核替身。
-  FakeLibMpvClient({
-    this.failInitializeCode = 0,
-    this.failLoadFile = false,
-  });
+  FakeLibMpvClient({this.failInitializeCode = 0, this.failLoadFile = false});
 
   final int failInitializeCode;
   final bool failLoadFile;
@@ -413,6 +410,14 @@ class SpyLyricDisplayPort implements LyricDisplayPort {
   final List<List<LyricTrackQuery>> prefetchedBatches =
       <List<LyricTrackQuery>>[];
   int clearCount = 0;
+  Duration lyricPosition = Duration.zero;
+  bool lyricPlaying = false;
+
+  @override
+  void updatePlaybackPosition(Duration position, {bool? isPlaying}) {
+    lyricPosition = position;
+    if (isPlaying != null) lyricPlaying = isPlaying;
+  }
 
   @override
   Future<void> resolveForTrack(LyricTrackQuery query) async {

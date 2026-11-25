@@ -281,9 +281,7 @@ Widget _buildHarness({
 }
 
 void main() {
-  testWidgets('桌面端分栏按 order 排列分区并支持窗口材质、显示偏好持久化、诊断导出与外链交互', (
-    tester,
-  ) async {
+  testWidgets('桌面端分栏按 order 排列分区并支持窗口材质、显示偏好持久化、诊断导出与外链交互', (tester) async {
     final tempDir = Directory.systemTemp.createTempSync('konata_settings_ui_');
     addTearDown(() {
       if (tempDir.existsSync()) {
@@ -407,7 +405,10 @@ void main() {
 
     await tester.tap(find.text('云母'));
     await tester.pumpAndSettle();
-    expect(materials, equals(<KonataWindowMaterial>[KonataWindowMaterial.mica]));
+    expect(
+      materials,
+      equals(<KonataWindowMaterial>[KonataWindowMaterial.mica]),
+    );
     expect(find.text(KonataWindowMaterial.mica.subtitle), findsOneWidget);
 
     await tester.tap(find.text('云母变体'));
@@ -421,9 +422,11 @@ void main() {
     );
     expect(find.text(KonataWindowMaterial.tabbed.subtitle), findsOneWidget);
 
-    await tester.tap(find.byKey(const ValueKey('settings_ambient_canvas_switch')));
+    await tester.tap(
+      find.byKey(const ValueKey('settings_ambient_canvas_switch')),
+    );
     await tester.pumpAndSettle();
-    expect(ambients, equals(<bool>[false]));
+    expect(ambients, equals(<bool>[true]));
 
     // 切换至「显示与存储」并验证展示偏好持久化与既有字段保留。
     await tester.tap(find.text('显示与存储'));
@@ -461,7 +464,7 @@ void main() {
         jsonDecode(displayRecord.payloadJson) as Map<String, dynamic>;
     expect(decodedDisplay['showTitleText'], isFalse);
     expect(decodedDisplay['showTitleLogo'], isTrue);
-    expect(decodedDisplay['showRawVideoFilename'], isTrue);
+    expect(decodedDisplay['showRawVideoFilename'], isFalse);
     expect(decodedDisplay['showCdTab'], isFalse);
     expect(decodedDisplay['showMainHeroBackdrop'], isFalse);
     expect(decodedDisplay['showEpisodeStillThumbnails'], isTrue);
@@ -485,10 +488,10 @@ void main() {
     expect(urlOpener.openedUris.single.host, equals('github.com'));
   });
 
-  testWidgets('手机端按平台过滤桌面专属分区、隐藏窗口材质并支持二级页面推入与返回', (
-    tester,
-  ) async {
-    final tempDir = Directory.systemTemp.createTempSync('konata_settings_phone_');
+  testWidgets('手机端按平台过滤桌面专属分区、隐藏窗口材质并支持二级页面推入与返回', (tester) async {
+    final tempDir = Directory.systemTemp.createTempSync(
+      'konata_settings_phone_',
+    );
     addTearDown(() {
       if (tempDir.existsSync()) {
         tempDir.deleteSync(recursive: true);
@@ -576,7 +579,9 @@ void main() {
   });
 
   testWidgets('兼容旧深链 storage 并支持刮削网络测速与自定义图片清理弹窗', (tester) async {
-    final tempDir = Directory.systemTemp.createTempSync('konata_settings_deep_');
+    final tempDir = Directory.systemTemp.createTempSync(
+      'konata_settings_deep_',
+    );
     addTearDown(() {
       if (tempDir.existsSync()) {
         tempDir.deleteSync(recursive: true);
@@ -673,7 +678,14 @@ void main() {
     addTearDown(db.close);
 
     final viewports =
-        <({String label, Size size, TargetPlatform target, KonataPlatform platform})>[
+        <
+          ({
+            String label,
+            Size size,
+            TargetPlatform target,
+            KonataPlatform platform,
+          })
+        >[
           (
             label: '手机竖屏',
             size: const Size(390, 780),
@@ -710,7 +722,9 @@ void main() {
         scopedPrefs: ScopedPrefsStore(db.userState),
         secureStorage: InMemorySecureStorage(),
         httpClient: _StubHttpClient(),
-        photosStorage: PhotosStorage(storageRoot: _TestStorageRoot(tempDir.path)),
+        photosStorage: PhotosStorage(
+          storageRoot: _TestStorageRoot(tempDir.path),
+        ),
         backupFilePort: _FakeBackupFilePort(),
         urlOpener: _FakeUrlOpener(),
         diagnosticLog: _StubLog(),

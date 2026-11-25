@@ -8,7 +8,7 @@ class DetailDisplayPreferences {
     this.showTitleText = true,
     this.showTitleLogo = true,
     this.showOverview = true,
-    this.showRawVideoFilename = false,
+    this.showRawVideoFilename = true,
     this.showCdTab = true,
     this.showScanTab = true,
     this.showMainHeroBackdrop = true,
@@ -53,7 +53,7 @@ class DetailDisplayPreferences {
   /// 是否显示作品简介正文。
   final bool showOverview;
 
-  /// 是否在选集卡上附加展示原始视频文件名（默认关闭）。
+  /// 是否在选集卡上附加展示原始视频文件名（默认开启）。
   final bool showRawVideoFilename;
 
   /// 是否在底部分类胶囊显示 `CD` 分类入口。
@@ -152,7 +152,7 @@ class DetailDisplayPreferences {
       showOverview: _readBool(raw[_keyShowOverview], fallback: true),
       showRawVideoFilename: _readBool(
         raw[_keyShowRawVideoFilename],
-        fallback: false,
+        fallback: true,
       ),
       showCdTab: _readBool(raw[_keyShowCdTab], fallback: true),
       showScanTab: _readBool(raw[_keyShowScanTab], fallback: true),

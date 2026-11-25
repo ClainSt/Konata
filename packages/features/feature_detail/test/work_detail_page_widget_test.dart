@@ -34,8 +34,7 @@ Future<void> _seedRichWork(DetailTestHarness harness) async {
       title: '少女终末旅行',
       originalTitle: '少女終末旅行',
       year: 2017,
-      overview:
-          '繁华的人类文明毁灭之后，两位少女驾驶履带摩托在废墟都市之间缓缓穿行，寻找着微光与希望。',
+      overview: '繁华的人类文明毁灭之后，两位少女驾驶履带摩托在废墟都市之间缓缓穿行，寻找着微光与希望。',
       bangumiScore: 8.8,
       matchedSeason: 1,
       scrapeStatus: ScrapeStatus.needsReview,
@@ -178,99 +177,118 @@ void main() {
       await ctrl.load();
     });
 
-    testWidgets('动态挂载模拟 DetailTabContribution 与 DetailActionContribution 并完整响应点击路由', (
-      tester,
-    ) async {
-      tester.view.physicalSize = const Size(1440, 900);
-      tester.view.devicePixelRatio = 1.0;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+    testWidgets(
+      '动态挂载模拟 DetailTabContribution 与 DetailActionContribution 并完整响应点击路由',
+      (tester) async {
+        tester.view.physicalSize = const Size(1440, 900);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
 
-      await tester.pumpWidget(
-        wrapDetailTestApp(
-          dependencies: harness.buildDependencies(
-            detailTabs: <DetailTabContribution>[visibleTab, hiddenTab],
-            detailActions: <DetailActionContribution>[primaryAction],
+        await tester.pumpWidget(
+          wrapDetailTestApp(
+            dependencies: harness.buildDependencies(
+              detailTabs: <DetailTabContribution>[visibleTab, hiddenTab],
+              detailActions: <DetailActionContribution>[primaryAction],
+            ),
+            child: WorkDetailPage(
+              workId: const WorkId.trusted('w_ui_1'),
+              controllerOverride: ctrl,
+              imageLoaderOverride: createStubImageLoader(),
+            ),
           ),
-          child: WorkDetailPage(
-            workId: const WorkId.trusted('w_ui_1'),
-            controllerOverride: ctrl,
-            imageLoaderOverride: createStubImageLoader(),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+
+        expect(tester.takeException(), isNull);
+        expect(find.text('少女终末旅行'), findsOneWidget);
+        expect(find.text('模拟扫图'), findsOneWidget);
+        expect(find.text('隐藏扩展页'), findsNothing);
+        // 冗余「刷新元数据」与外露扩展动作按钮均已从主操作行彻底移除，统一收口进唯一 `⚙`
+        expect(find.byKey(const Key('detail_rescrape_button')), findsNothing);
+        expect(
+          find.byKey(
+            const ValueKey<String>('detail_ext_primary_mock_primary_action'),
           ),
-        ),
-      );
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 50));
+          findsNothing,
+        );
 
-      expect(tester.takeException(), isNull);
-      expect(find.text('少女终末旅行'), findsOneWidget);
-      expect(find.text('模拟扫图'), findsOneWidget);
-      expect(find.text('隐藏扩展页'), findsNothing);
-      // 冗余「刷新元数据」与外露扩展动作按钮均已从主操作行彻底移除，统一收口进唯一 `⚙`
-      expect(find.byKey(const Key('detail_rescrape_button')), findsNothing);
-      expect(
-        find.byKey(const ValueKey<String>('detail_ext_primary_mock_primary_action')),
-        findsNothing,
-      );
+        // 1. 打开唯一齿轮菜单触发已收口的外部扩展动作，并确认仅保留封面与横版背景入口
+        await tester.tap(find.byKey(const Key('detail_gear_menu_button')));
+        await tester.pumpAndSettle();
+        expect(find.text('编辑竖版原画'), findsNothing);
+        expect(find.text('编辑封面海报'), findsOneWidget);
+        expect(find.text('编辑横版背景原画 / 抽帧'), findsOneWidget);
+        expect(
+          find.byKey(
+            const ValueKey<String>('detail_ext_gear_mock_primary_action'),
+          ),
+          findsOneWidget,
+        );
+        await tester.tap(
+          find.byKey(
+            const ValueKey<String>('detail_ext_gear_mock_primary_action'),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(invokedActionWorkIds, <WorkId>[const WorkId.trusted('w_ui_1')]);
 
-      // 1. 打开唯一齿轮菜单触发已收口的外部扩展动作，并确认仅保留封面与横版背景入口
-      await tester.tap(find.byKey(const Key('detail_gear_menu_button')));
-      await tester.pumpAndSettle();
-      expect(find.text('编辑竖版原画'), findsNothing);
-      expect(find.text('编辑封面海报'), findsOneWidget);
-      expect(find.text('编辑横版背景原画 / 抽帧'), findsOneWidget);
-      expect(
-        find.byKey(const ValueKey<String>('detail_ext_gear_mock_primary_action')),
-        findsOneWidget,
-      );
-      await tester.tap(
-        find.byKey(const ValueKey<String>('detail_ext_gear_mock_primary_action')),
-      );
-      await tester.pumpAndSettle();
-      expect(invokedActionWorkIds, <WorkId>[const WorkId.trusted('w_ui_1')]);
+        // 2. 点击动态扩展标签并校验 viewBuilder 被调用
+        await tester.tap(
+          find.byKey(const ValueKey<String>('detail_tab_mock_scan_viewer')),
+        );
+        await tester.pump(const Duration(milliseconds: 50));
+        expect(
+          find.byKey(const ValueKey<String>('mock_scan_tab_body')),
+          findsOneWidget,
+        );
+        expect(builtTabWorkIds, <WorkId>[const WorkId.trusted('w_ui_1')]);
 
-      // 2. 点击动态扩展标签并校验 viewBuilder 被调用
-      await tester.tap(
-        find.byKey(const ValueKey<String>('detail_tab_mock_scan_viewer')),
-      );
-      await tester.pump(const Duration(milliseconds: 50));
-      expect(
-        find.byKey(const ValueKey<String>('mock_scan_tab_body')),
-        findsOneWidget,
-      );
-      expect(builtTabWorkIds, <WorkId>[const WorkId.trusted('w_ui_1')]);
+        // 3. 切回正片标签并点击第一集卡片，验证路由至视频播放器
+        await tester.tap(
+          find.byKey(const ValueKey<String>('detail_tab_episodes')),
+        );
+        await tester.pump(const Duration(milliseconds: 50));
+        await tester.tap(
+          find.byKey(const ValueKey<String>('episode_card_ep_ui_1')),
+        );
+        await tester.pump();
+        expect(harness.navigator.videoPlayerCalls.length, 1);
+        expect(
+          harness.navigator.videoPlayerCalls.single.episodeId?.value,
+          'ep_ui_1',
+        );
 
-      // 3. 切回正片标签并点击第一集卡片，验证路由至视频播放器
-      await tester.tap(
-        find.byKey(const ValueKey<String>('detail_tab_episodes')),
-      );
-      await tester.pump(const Duration(milliseconds: 50));
-      await tester.tap(find.byKey(const ValueKey<String>('episode_card_ep_ui_1')));
-      await tester.pump();
-      expect(harness.navigator.videoPlayerCalls.length, 1);
-      expect(harness.navigator.videoPlayerCalls.single.episodeId?.value, 'ep_ui_1');
+        // 4. 切换至 CD 标签并点击专辑，验证路由至音频播放器
+        await tester.tap(find.byKey(const ValueKey<String>('detail_tab_cd')));
+        await tester.pump(const Duration(milliseconds: 50));
+        await tester.tap(
+          find.byKey(const ValueKey<String>('cd_card_var_ui_cd1')),
+        );
+        await tester.pump();
+        expect(harness.navigator.audioPlayerCalls.length, 1);
+        expect(
+          harness.navigator.audioPlayerCalls.single.variantId?.value,
+          'var_ui_cd1',
+        );
 
-      // 4. 切换至 CD 标签并点击专辑，验证路由至音频播放器
-      await tester.tap(find.byKey(const ValueKey<String>('detail_tab_cd')));
-      await tester.pump(const Duration(milliseconds: 50));
-      await tester.tap(find.byKey(const ValueKey<String>('cd_card_var_ui_cd1')));
-      await tester.pump();
-      expect(harness.navigator.audioPlayerCalls.length, 1);
-      expect(harness.navigator.audioPlayerCalls.single.variantId?.value, 'var_ui_cd1');
+        // 5. 切回正片后点击主播放按钮，先按 Esc 收起抽屉（不直接退出），再次按 Esc 返回
+        await tester.tap(
+          find.byKey(const ValueKey<String>('detail_tab_episodes')),
+        );
+        await tester.pump(const Duration(milliseconds: 50));
+        await tester.tap(find.byKey(const Key('detail_primary_play_button')));
+        await tester.pump();
+        expect(harness.navigator.videoPlayerCalls.length, 2);
 
-      // 5. 切回正片后点击主播放按钮，先按 Esc 收起抽屉（不直接退出），再次按 Esc 返回
-      await tester.tap(
-        find.byKey(const ValueKey<String>('detail_tab_episodes')),
-      );
-      await tester.pump(const Duration(milliseconds: 50));
-      await tester.tap(find.byKey(const Key('detail_primary_play_button')));
-      await tester.pump();
-      expect(harness.navigator.videoPlayerCalls.length, 2);
-
-      await tester.tap(find.byKey(const ValueKey<String>('detail_back_button')));
-      await tester.pump();
-      expect(harness.navigator.popCount, 1);
-    });
+        await tester.tap(
+          find.byKey(const ValueKey<String>('detail_back_button')),
+        );
+        await tester.pump();
+        expect(harness.navigator.popCount, 1);
+      },
+    );
   });
 
   group('WorkDetailPage 分类胶囊 ⊞ 弹性伸展、无 ⌄、Esc 与偏好显隐', () {
@@ -322,15 +340,24 @@ void main() {
 
       // 展开态右端可见 `⊞`，且彻底不存在独立 `⌄` 收起按钮
       expect(find.byKey(const Key('detail_category_capsule')), findsOneWidget);
-      expect(find.byKey(const Key('detail_drawer_view_all_button')), findsOneWidget);
+      expect(
+        find.byKey(const Key('detail_drawer_view_all_button')),
+        findsOneWidget,
+      );
       expect(find.byIcon(Icons.keyboard_arrow_up_rounded), findsNothing);
-      expect(find.byKey(const Key('detail_drawer_expanded_body')), findsOneWidget);
+      expect(
+        find.byKey(const Key('detail_drawer_expanded_body')),
+        findsOneWidget,
+      );
 
       expect(find.byType(Scrollbar), findsNothing);
       await tester.tap(find.byKey(const Key('detail_drawer_view_all_button')));
       await tester.pumpAndSettle();
       expect(find.text('少女终末旅行 · 完整列表'), findsOneWidget);
-      expect(find.byKey(const ValueKey('full_list_episode_ep_ui_1')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('full_list_episode_ep_ui_1')),
+        findsOneWidget,
+      );
       final dialog = find.byType(KonataGlassDialog);
 
       final initialDialog = tester.widget<KonataGlassDialog>(dialog);
@@ -345,20 +372,40 @@ void main() {
       final resizedDialog = tester.widget<KonataGlassDialog>(dialog);
       expect(resizedDialog.width, lessThan(initialDialog.width));
       expect(resizedDialog.height, lessThan(initialDialog.height!));
-      await tester.tap(find.descendant(of: dialog,
-          matching: find.byKey(const ValueKey('detail_tab_extras'))));
+      await tester.tap(
+        find.descendant(
+          of: dialog,
+          matching: find.byKey(const ValueKey('detail_tab_extras')),
+        ),
+      );
       await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('full_list_episode_ep_ui_sp1')), findsOneWidget);
-      await tester.tap(find.descendant(of: dialog,
-          matching: find.byKey(const ValueKey('detail_tab_cd'))));
+      expect(
+        find.byKey(const ValueKey('full_list_episode_ep_ui_sp1')),
+        findsOneWidget,
+      );
+      await tester.tap(
+        find.descendant(
+          of: dialog,
+          matching: find.byKey(const ValueKey('detail_tab_cd')),
+        ),
+      );
       await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('full_list_cd_var_ui_cd1')), findsOneWidget);
-      await tester.enterText(find.descendant(of: dialog, matching: find.byType(EditableText)), '不存在的文件');
+      expect(
+        find.byKey(const ValueKey('full_list_cd_var_ui_cd1')),
+        findsOneWidget,
+      );
+      await tester.enterText(
+        find.descendant(of: dialog, matching: find.byType(EditableText)),
+        '不存在的文件',
+      );
       await tester.pumpAndSettle();
       expect(find.text('没有符合当前筛选条件的文件'), findsOneWidget);
       Navigator.of(tester.element(dialog)).pop();
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('detail_drawer_view_all_button')), findsOneWidget);
+      expect(
+        find.byKey(const Key('detail_drawer_view_all_button')),
+        findsOneWidget,
+      );
 
       final capsule = find.byKey(const Key('detail_category_capsule'));
       final initialTop = tester.getTopLeft(capsule).dy;
@@ -371,32 +418,53 @@ void main() {
       }
 
       // 再次点击当前高亮「正片」分类 -> 收起抽屉并收回 `⊞`
-      await tester.tap(find.byKey(const ValueKey<String>('detail_tab_episodes')));
+      await tester.tap(
+        find.byKey(const ValueKey<String>('detail_tab_episodes')),
+      );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 260));
-      expect(find.byKey(const Key('detail_drawer_collapsed_body')), findsOneWidget);
-      expect(find.byKey(const Key('detail_drawer_view_all_button')), findsNothing);
+      expect(
+        find.byKey(const Key('detail_drawer_collapsed_body')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('detail_drawer_view_all_button')),
+        findsNothing,
+      );
 
       // 重新点击「正片」展开 -> `⊞` 再次弹出
-      await tester.tap(find.byKey(const ValueKey<String>('detail_tab_episodes')));
+      await tester.tap(
+        find.byKey(const ValueKey<String>('detail_tab_episodes')),
+      );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 260));
-      expect(find.byKey(const Key('detail_drawer_view_all_button')), findsOneWidget);
+      expect(
+        find.byKey(const Key('detail_drawer_view_all_button')),
+        findsOneWidget,
+      );
 
       // 桌面点击背景空白区 -> 收起抽屉
       await tester.tapAt(const Offset(900, 180));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 260));
-      expect(find.byKey(const Key('detail_drawer_collapsed_body')), findsOneWidget);
+      expect(
+        find.byKey(const Key('detail_drawer_collapsed_body')),
+        findsOneWidget,
+      );
 
       // 再次展开后按 Esc：首按先收起抽屉不退页，再按才退回媒体库
-      await tester.tap(find.byKey(const ValueKey<String>('detail_tab_episodes')));
+      await tester.tap(
+        find.byKey(const ValueKey<String>('detail_tab_episodes')),
+      );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 260));
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 260));
-      expect(find.byKey(const Key('detail_drawer_collapsed_body')), findsOneWidget);
+      expect(
+        find.byKey(const Key('detail_drawer_collapsed_body')),
+        findsOneWidget,
+      );
       expect(harness.navigator.popCount, 0);
 
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
@@ -404,8 +472,14 @@ void main() {
       expect(harness.navigator.popCount, 1);
 
       // 验证 `feature_detail.display` 共享开关实时生效（隐藏 CD/Scan 与简介）
-      expect(find.byKey(const ValueKey<String>('detail_tab_cd')), findsOneWidget);
-      expect(find.byKey(const ValueKey<String>('detail_tab_scan_viewer')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey<String>('detail_tab_cd')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('detail_tab_scan_viewer')),
+        findsOneWidget,
+      );
       await tester.runAsync(() async {
         await ctrl.setShowCdTab(false);
         await ctrl.setShowScanTab(false);
@@ -414,13 +488,18 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 120));
       expect(find.byKey(const ValueKey<String>('detail_tab_cd')), findsNothing);
-      expect(find.byKey(const ValueKey<String>('detail_tab_scan_viewer')), findsNothing);
+      expect(
+        find.byKey(const ValueKey<String>('detail_tab_scan_viewer')),
+        findsNothing,
+      );
       expect(find.textContaining('繁华的人类文明毁灭之后'), findsNothing);
     });
   });
 
   group('WorkDetailPage 系列选择器与竖屏 portraitBackdropRef 溶底验证', () {
-    Future<DetailTestHarness> seedBigSeries({bool withPortraitArt = true}) async {
+    Future<DetailTestHarness> seedBigSeries({
+      bool withPortraitArt = true,
+    }) async {
       final harness = await DetailTestHarness.create();
       await harness.repository.upsertSeriesGroup(
         SeriesGroup(
@@ -450,7 +529,9 @@ void main() {
           year: 1979,
           posterPath: '/poster_g01.jpg',
           backdropPath: '/wide_backdrop_g01.jpg',
-          portraitBackdropPath: withPortraitArt ? '/portrait_textless_g01.jpg' : null,
+          portraitBackdropPath: withPortraitArt
+              ? '/portrait_textless_g01.jpg'
+              : null,
           scrapeStatus: ScrapeStatus.matched,
         ),
       );
@@ -474,9 +555,7 @@ void main() {
             tmdbMediaType: TmdbMediaType.tv,
             seriesId: 'ser_gundam',
             seriesOrder: i,
-            title: i == 5
-                ? '机动战士高达 0080 口袋里的战争 OVA'
-                : '机动战士高达 衍生篇 $i',
+            title: i == 5 ? '机动战士高达 0080 口袋里的战争 OVA' : '机动战士高达 衍生篇 $i',
             year: 1980 + i,
             scrapeStatus: ScrapeStatus.matched,
           ),
@@ -536,9 +615,7 @@ void main() {
       await tabletNoArtCtrl.load();
     });
 
-    testWidgets('桌面宽窗弹出居中毛玻璃系列弹窗并支持 TV/剧场版/OVA 筛选与实时搜索切换', (
-      tester,
-    ) async {
+    testWidgets('桌面宽窗弹出居中毛玻璃系列弹窗并支持 TV/剧场版/OVA 筛选与实时搜索切换', (tester) async {
       tester.view.physicalSize = const Size(1440, 900);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -564,7 +641,10 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 260));
 
-      expect(find.byKey(const Key('series_selector_glass_dialog')), findsOneWidget);
+      expect(
+        find.byKey(const Key('series_selector_glass_dialog')),
+        findsOneWidget,
+      );
       await tester.tap(find.byKey(const ValueKey<String>('series_filter_ova')));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 120));
@@ -578,9 +658,14 @@ void main() {
       );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 120));
-      expect(find.byKey(const ValueKey<String>('series_member_item_g_02')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey<String>('series_member_item_g_02')),
+        findsOneWidget,
+      );
 
-      await tester.tap(find.byKey(const ValueKey<String>('series_member_item_g_02')));
+      await tester.tap(
+        find.byKey(const ValueKey<String>('series_member_item_g_02')),
+      );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 120));
       expect(
@@ -589,67 +674,90 @@ void main() {
       );
     });
 
-    testWidgets('Android 手机竖屏展示 portraitBackdropRef 溶底、横向选集卡与底部系列抽屉，空时回退海报绝不强裁 16:9 横图', (
-      tester,
-    ) async {
-      tester.view.physicalSize = const Size(390, 844);
-      tester.view.devicePixelRatio = 1.0;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+    testWidgets(
+      'Android 手机竖屏展示 portraitBackdropRef 溶底、横向选集卡与底部系列抽屉，空时回退海报绝不强裁 16:9 横图',
+      (tester) async {
+        tester.view.physicalSize = const Size(390, 844);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
 
-      await tester.pumpWidget(
-        wrapDetailTestApp(
-          dark: false,
-          dependencies: phoneArtHarness.buildDependencies(
-            platform: KonataPlatform.androidPhone,
+        await tester.pumpWidget(
+          wrapDetailTestApp(
+            dark: false,
+            dependencies: phoneArtHarness.buildDependencies(
+              platform: KonataPlatform.androidPhone,
+            ),
+            child: WorkDetailPage(
+              workId: const WorkId.trusted('g_01'),
+              controllerOverride: phoneArtCtrl,
+              imageLoaderOverride: createStubImageLoader(),
+            ),
           ),
-          child: WorkDetailPage(
-            workId: const WorkId.trusted('g_01'),
-            controllerOverride: phoneArtCtrl,
-            imageLoaderOverride: createStubImageLoader(),
-          ),
-        ),
-      );
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 260));
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 260));
 
-      expect(find.byKey(const ValueKey<String>('detail_portrait_hero_artwork')), findsOneWidget);
-      expect(find.byKey(const Key('detail_portrait_synopsis_section')), findsOneWidget);
-      expect(find.byKey(const ValueKey<String>('episode_card_ep_g1')), findsOneWidget);
-      expect(find.byKey(const Key('detail_gear_menu_button')), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey<String>('detail_portrait_hero_artwork')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('detail_portrait_synopsis_section')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('episode_card_ep_g1')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('detail_gear_menu_button')),
+          findsOneWidget,
+        );
 
-      // 手机端点击系列胶囊弹出底部全宽毛玻璃抽屉
-      await tester.tap(find.byKey(const Key('series_switcher_capsule')));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 260));
-      expect(find.byKey(const Key('series_selector_bottom_sheet')), findsOneWidget);
-      Navigator.of(tester.element(find.byKey(const Key('series_selector_bottom_sheet')))).pop();
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 260));
+        // 手机端点击系列胶囊弹出底部全宽毛玻璃抽屉
+        await tester.tap(find.byKey(const Key('series_switcher_capsule')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 260));
+        expect(
+          find.byKey(const Key('series_selector_bottom_sheet')),
+          findsOneWidget,
+        );
+        Navigator.of(
+          tester.element(find.byKey(const Key('series_selector_bottom_sheet'))),
+        ).pop();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 260));
 
-      // 验证 portraitBackdropPath 为空时回退常规竖版海报，绝不强裁 16:9 横版原画
-      tester.view.physicalSize = const Size(768, 1024);
-      await tester.pumpWidget(
-        wrapDetailTestApp(
-          dark: true,
-          dependencies: tabletNoArtHarness.buildDependencies(
-            platform: KonataPlatform.androidTablet,
+        // 验证 portraitBackdropPath 为空时回退常规竖版海报，绝不强裁 16:9 横版原画
+        tester.view.physicalSize = const Size(768, 1024);
+        await tester.pumpWidget(
+          wrapDetailTestApp(
+            dark: true,
+            dependencies: tabletNoArtHarness.buildDependencies(
+              platform: KonataPlatform.androidTablet,
+            ),
+            child: WorkDetailPage(
+              workId: const WorkId.trusted('g_01'),
+              controllerOverride: tabletNoArtCtrl,
+              imageLoaderOverride: createStubImageLoader(),
+            ),
           ),
-          child: WorkDetailPage(
-            workId: const WorkId.trusted('g_01'),
-            controllerOverride: tabletNoArtCtrl,
-            imageLoaderOverride: createStubImageLoader(),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 260));
+        expect(
+          find.byKey(
+            const ValueKey<String>('detail_portrait_hero_poster_fallback'),
           ),
-        ),
-      );
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 260));
-      expect(
-        find.byKey(const ValueKey<String>('detail_portrait_hero_poster_fallback')),
-        findsOneWidget,
-      );
-      expect(find.byKey(const ValueKey<String>('detail_wide_backdrop_stage')), findsNothing);
-    });
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('detail_wide_backdrop_stage')),
+          findsNothing,
+        );
+      },
+    );
   });
 
   group('WorkDetailPage 桌面 / 平板 / 手机横竖屏四视口零溢出', () {
@@ -733,7 +841,7 @@ void main() {
               reason: '${vp.name} (dark=$dark) 出现布局或溢出异常',
             );
             expect(find.text('少女终末旅行'), findsOneWidget);
-            expect(find.text('2017 · Bangumi 8.8'), findsOneWidget);
+            expect(find.text('2017 · 3 话 · Bangumi 8.8'), findsOneWidget);
             expect(find.text('3 集正片'), findsNothing);
             expect(find.text('1 项特典'), findsNothing);
             expect(find.text('1 张 CD'), findsNothing);

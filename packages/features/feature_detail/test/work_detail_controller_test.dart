@@ -20,7 +20,7 @@ void main() {
       expect(initial.showTitleText, isTrue);
       expect(initial.showTitleLogo, isTrue);
       expect(initial.showOverview, isTrue);
-      expect(initial.showRawVideoFilename, isFalse);
+      expect(initial.showRawVideoFilename, isTrue);
       expect(initial.showCdTab, isTrue);
       expect(initial.showScanTab, isTrue);
       expect(initial.showMainHeroBackdrop, isTrue);
@@ -53,10 +53,7 @@ void main() {
       expect(reloaded.showCdTab, isFalse);
       expect(reloaded.showScanTab, isFalse);
       expect(reloaded.extraFields['futureExperimentalToggle'], 'keep_me');
-      expect(
-        DetailDisplayPreferences.encodeJson(reloaded)['customDensity'],
-        2,
-      );
+      expect(DetailDisplayPreferences.encodeJson(reloaded)['customDensity'], 2);
 
       final emissions = <DetailDisplayPreferences>[];
       final sub = store.watch().listen(emissions.add);
@@ -175,110 +172,125 @@ void main() {
       await ctrl.switchSeriesMember(const WorkId.trusted('w_s2'));
       await ctrl.navigateBack();
 
-      expect(harness.navigator.videoPlayerCalls.single.episodeId?.value, 'ep_1');
-      expect(harness.navigator.audioPlayerCalls.single.variantId?.value, 'v_cd1');
+      expect(
+        harness.navigator.videoPlayerCalls.single.episodeId?.value,
+        'ep_1',
+      );
+      expect(
+        harness.navigator.audioPlayerCalls.single.variantId?.value,
+        'v_cd1',
+      );
       expect(harness.navigator.workDetailCalls.single.workId.value, 'w_s2');
       expect(harness.navigator.popCount, 1);
     });
 
-    test('单作重刮驱动 Idle -> Running -> Succeeded 状态机与领域事件发布，失败转入 Failed', () async {
-      final harness = await DetailTestHarness.create(
-        httpHandler: (method, uri) {
-          if (uri.host == 'api.themoviedb.org' && uri.path == '/3/tv/999') {
-            return KonataHttpResponse.text(
-              jsonEncode(<String, Object?>{
-                'id': 999,
-                'name': '轻音少女 重刮新版',
-                'original_name': 'けいおん!',
-                'first_air_date': '2009-04-03',
-                'overview': '最新同步简介',
-                'poster_path': '/k_on_new_poster.jpg',
-                'backdrop_path': '/k_on_new_bg.jpg',
-                'vote_average': 8.6,
-                'vote_count': 520,
-                'genre_ids': <int>[16],
-                'seasons': <Object?>[
-                  <String, Object?>{
-                    'season_number': 1,
-                    'name': '第 1 季',
-                    'episode_count': 1,
+    test(
+      '单作重刮驱动 Idle -> Running -> Succeeded 状态机与领域事件发布，失败转入 Failed',
+      () async {
+        final harness = await DetailTestHarness.create(
+          httpHandler: (method, uri) {
+            if (uri.host == 'api.themoviedb.org' && uri.path == '/3/tv/999') {
+              return KonataHttpResponse.text(
+                jsonEncode(<String, Object?>{
+                  'id': 999,
+                  'name': '轻音少女 重刮新版',
+                  'original_name': 'けいおん!',
+                  'first_air_date': '2009-04-03',
+                  'overview': '最新同步简介',
+                  'poster_path': '/k_on_new_poster.jpg',
+                  'backdrop_path': '/k_on_new_bg.jpg',
+                  'vote_average': 8.6,
+                  'vote_count': 520,
+                  'genre_ids': <int>[16],
+                  'seasons': <Object?>[
+                    <String, Object?>{
+                      'season_number': 1,
+                      'name': '第 1 季',
+                      'episode_count': 1,
+                    },
+                  ],
+                  'images': <String, Object?>{
+                    'posters': <Object?>[],
+                    'backdrops': <Object?>[],
+                    'logos': <Object?>[],
                   },
-                ],
-                'images': <String, Object?>{
-                  'posters': <Object?>[],
-                  'backdrops': <Object?>[],
-                  'logos': <Object?>[],
-                },
-                'translations': <String, Object?>{'translations': <Object?>[]},
-                'alternative_titles': <String, Object?>{'results': <Object?>[]},
-              }),
-            );
-          }
-          if (uri.host == 'api.themoviedb.org' &&
-              uri.path == '/3/tv/999/season/1') {
-            return KonataHttpResponse.text(
-              jsonEncode(<String, Object?>{
-                'season_number': 1,
-                'name': '第 1 季',
-                'episodes': <Object?>[
-                  <String, Object?>{
-                    'episode_number': 1,
-                    'name': '废部!',
-                    'overview': '轻音部面临废部危机',
-                    'still_path': '/ep1_still.jpg',
+                  'translations': <String, Object?>{
+                    'translations': <Object?>[],
                   },
-                ],
-              }),
-            );
-          }
-          return KonataHttpResponse.text('{}', statusCode: 404);
-        },
-      );
+                  'alternative_titles': <String, Object?>{
+                    'results': <Object?>[],
+                  },
+                }),
+              );
+            }
+            if (uri.host == 'api.themoviedb.org' &&
+                uri.path == '/3/tv/999/season/1') {
+              return KonataHttpResponse.text(
+                jsonEncode(<String, Object?>{
+                  'season_number': 1,
+                  'name': '第 1 季',
+                  'episodes': <Object?>[
+                    <String, Object?>{
+                      'episode_number': 1,
+                      'name': '废部!',
+                      'overview': '轻音部面临废部危机',
+                      'still_path': '/ep1_still.jpg',
+                    },
+                  ],
+                }),
+              );
+            }
+            return KonataHttpResponse.text('{}', statusCode: 404);
+          },
+        );
 
-      await harness.repository.upsertWork(
-        const Work(
-          id: 'w_rescrape',
-          title: '轻音少女',
-          tmdbId: 999,
-          tmdbMediaType: TmdbMediaType.tv,
-          matchedSeason: 1,
-          scrapeStatus: ScrapeStatus.matched,
-        ),
-      );
+        await harness.repository.upsertWork(
+          const Work(
+            id: 'w_rescrape',
+            title: '轻音少女',
+            tmdbId: 999,
+            tmdbMediaType: TmdbMediaType.tv,
+            matchedSeason: 1,
+            scrapeStatus: ScrapeStatus.matched,
+          ),
+        );
 
-      final ctrl = harness.createController(const WorkId.trusted('w_rescrape'));
-      await ctrl.load();
+        final ctrl = harness.createController(
+          const WorkId.trusted('w_rescrape'),
+        );
+        await ctrl.load();
 
-      final observedStates = <WorkRescrapeState>[ctrl.rescrapeState];
-      ctrl.addListener(() {
-        observedStates.add(ctrl.rescrapeState);
-      });
+        final observedStates = <WorkRescrapeState>[ctrl.rescrapeState];
+        ctrl.addListener(() {
+          observedStates.add(ctrl.rescrapeState);
+        });
 
-      final publishedEvents = <LibraryWorkChangedEvent>[];
-      final sub = harness.domainEventBus
-          .on<LibraryWorkChangedEvent>()
-          .listen(publishedEvents.add);
-      addTearDown(sub.cancel);
+        final publishedEvents = <LibraryWorkChangedEvent>[];
+        final sub = harness.domainEventBus.on<LibraryWorkChangedEvent>().listen(
+          publishedEvents.add,
+        );
+        addTearDown(sub.cancel);
 
-      expect(ctrl.rescrapeState, isA<WorkRescrapeIdle>());
-      final result = await ctrl.rescrapeMetadata();
+        expect(ctrl.rescrapeState, isA<WorkRescrapeIdle>());
+        final result = await ctrl.rescrapeMetadata();
 
-      expect(result, isA<WorkRescrapeSucceeded>());
-      expect(observedStates.any((s) => s is WorkRescrapeRunning), isTrue);
-      expect(ctrl.rescrapeState, isA<WorkRescrapeSucceeded>());
-      await Future<void>.delayed(Duration.zero);
-      expect(publishedEvents, isNotEmpty);
+        expect(result, isA<WorkRescrapeSucceeded>());
+        expect(observedStates.any((s) => s is WorkRescrapeRunning), isTrue);
+        expect(ctrl.rescrapeState, isA<WorkRescrapeSucceeded>());
+        await Future<void>.delayed(Duration.zero);
+        expect(publishedEvents, isNotEmpty);
 
-      ctrl.dismissRescrapeStatus();
-      expect(ctrl.rescrapeState, isA<WorkRescrapeIdle>());
+        ctrl.dismissRescrapeStatus();
+        expect(ctrl.rescrapeState, isA<WorkRescrapeIdle>());
 
-      // 模拟底层仓储故障验证 Failed 状态分支
-      await harness.databases.close();
-      final failed = await ctrl.rescrapeMetadata();
-      expect(failed, isA<WorkRescrapeFailed>());
-      expect(ctrl.rescrapeState, isA<WorkRescrapeFailed>());
-      ctrl.dismissRescrapeStatus();
-    });
+        // 模拟底层仓储故障验证 Failed 状态分支
+        await harness.databases.close();
+        final failed = await ctrl.rescrapeMetadata();
+        expect(failed, isA<WorkRescrapeFailed>());
+        expect(ctrl.rescrapeState, isA<WorkRescrapeFailed>());
+        ctrl.dismissRescrapeStatus();
+      },
+    );
 
     test('人工元数据锁、分集重映射锁与艺术图锁持久化与重置生效', () async {
       final harness = await DetailTestHarness.create();
@@ -332,7 +344,9 @@ void main() {
       expect(ctrl.bundle!.work.isManualLocked, isTrue);
       expect(ctrl.bundle!.work.metadataLocked, isTrue);
 
-      await ctrl.updateWorkArtwork(posterPath: 'https://example.com/custom.jpg');
+      await ctrl.updateWorkArtwork(
+        posterPath: 'https://example.com/custom.jpg',
+      );
       expect(ctrl.bundle!.work.posterLocked, isTrue);
       expect(ctrl.bundle!.work.posterPath, 'https://example.com/custom.jpg');
 
@@ -359,81 +373,84 @@ void main() {
       expect(ctrl.bundle!.variants.first.mappingLocked, isFalse);
     });
 
-    test('通过 FilePickerPort 选取本机图片执行比例裁切入 PhotosStorage 并生成 LocalCustomArtworkRef', () async {
-      TestWidgetsFlutterBinding.ensureInitialized();
-      final harness = await DetailTestHarness.create();
-      final recorder = ui.PictureRecorder();
-      final canvas = ui.Canvas(recorder);
-      canvas.drawRect(
-        const ui.Rect.fromLTWH(0, 0, 120, 180),
-        ui.Paint()..color = const ui.Color(0xFF3A7AFE),
-      );
-      final picture = recorder.endRecording();
-      final rawImg = await picture.toImage(120, 180);
-      final pngByteData = await rawImg.toByteData(
-        format: ui.ImageByteFormat.png,
-      );
-      rawImg.dispose();
-      picture.dispose();
+    test(
+      '通过 FilePickerPort 选取本机图片执行比例裁切入 PhotosStorage 并生成 LocalCustomArtworkRef',
+      () async {
+        TestWidgetsFlutterBinding.ensureInitialized();
+        final harness = await DetailTestHarness.create();
+        final recorder = ui.PictureRecorder();
+        final canvas = ui.Canvas(recorder);
+        canvas.drawRect(
+          const ui.Rect.fromLTWH(0, 0, 120, 180),
+          ui.Paint()..color = const ui.Color(0xFF3A7AFE),
+        );
+        final picture = recorder.endRecording();
+        final rawImg = await picture.toImage(120, 180);
+        final pngByteData = await rawImg.toByteData(
+          format: ui.ImageByteFormat.png,
+        );
+        rawImg.dispose();
+        picture.dispose();
 
-      final srcImage = File(
-        '${harness.tempRoot.path}${Platform.pathSeparator}picked_cover.png',
-      )..writeAsBytesSync(pngByteData!.buffer.asUint8List());
-      harness.filePicker.nextImagePath = srcImage.path;
+        final srcImage = File(
+          '${harness.tempRoot.path}${Platform.pathSeparator}picked_cover.png',
+        )..writeAsBytesSync(pngByteData!.buffer.asUint8List());
+        harness.filePicker.nextImagePath = srcImage.path;
 
-      await harness.repository.upsertWork(
-        const Work(
-          id: 'w_crop',
-          title: '本地自定义封面作品',
-          scrapeStatus: ScrapeStatus.matched,
-        ),
-      );
-      final ctrl = harness.createController(const WorkId.trusted('w_crop'));
-      await ctrl.load();
+        await harness.repository.upsertWork(
+          const Work(
+            id: 'w_crop',
+            title: '本地自定义封面作品',
+            scrapeStatus: ScrapeStatus.matched,
+          ),
+        );
+        final ctrl = harness.createController(const WorkId.trusted('w_crop'));
+        await ctrl.load();
 
-      final picked = await ctrl.pickLocalImageFile(dialogTitle: '选择封面');
-      expect(picked, srcImage.path);
+        final picked = await ctrl.pickLocalImageFile(dialogTitle: '选择封面');
+        expect(picked, srcImage.path);
 
-      final loaded = await ctrl.loadLocalArtworkForCrop(picked!);
-      addTearDown(loaded.dispose);
-      final cropRect = ArtworkCropMath.initialMaxCenteredRect(
-        imageWidth: loaded.width,
-        imageHeight: loaded.height,
-        aspectRatio: ArtworkCropMath.posterAspectRatio,
-      );
+        final loaded = await ctrl.loadLocalArtworkForCrop(picked!);
+        addTearDown(loaded.dispose);
+        final cropRect = ArtworkCropMath.initialMaxCenteredRect(
+          imageWidth: loaded.width,
+          imageHeight: loaded.height,
+          aspectRatio: ArtworkCropMath.posterAspectRatio,
+        );
 
-      final savedPath = await ctrl.cropAndSaveLocalArtwork(
-        isPoster: true,
-        source: loaded,
-        cropRect: cropRect,
-      );
+        final savedPath = await ctrl.cropAndSaveLocalArtwork(
+          isPoster: true,
+          source: loaded,
+          cropRect: cropRect,
+        );
 
-      expect(File(savedPath).existsSync(), isTrue);
-      expect(ctrl.bundle!.work.posterLocked, isTrue);
-      expect(ctrl.bundle!.work.posterRef, isA<LocalCustomArtworkRef>());
+        expect(File(savedPath).existsSync(), isTrue);
+        expect(ctrl.bundle!.work.posterLocked, isTrue);
+        expect(ctrl.bundle!.work.posterRef, isA<LocalCustomArtworkRef>());
 
-      final portraitSaved = await ctrl.cropAndSaveLocalArtwork(
-        isPoster: true,
-        isPortraitBackdrop: true,
-        source: loaded,
-        cropRect: cropRect,
-      );
-      expect(File(portraitSaved).existsSync(), isTrue);
-      expect(ctrl.bundle!.work.portraitBackdropLocked, isTrue);
-      expect(
-        ctrl.bundle!.work.portraitBackdropRef,
-        isA<LocalCustomArtworkRef>(),
-      );
+        final portraitSaved = await ctrl.cropAndSaveLocalArtwork(
+          isPoster: true,
+          isPortraitBackdrop: true,
+          source: loaded,
+          cropRect: cropRect,
+        );
+        expect(File(portraitSaved).existsSync(), isTrue);
+        expect(ctrl.bundle!.work.portraitBackdropLocked, isTrue);
+        expect(
+          ctrl.bundle!.work.portraitBackdropRef,
+          isA<LocalCustomArtworkRef>(),
+        );
 
-      // 手动更新基础信息时严禁丢失已锁定的竖版原画路径与锁定状态
-      await ctrl.updateWorkManualMetadata(title: '保留竖版原画测试');
-      expect(ctrl.bundle!.work.portraitBackdropPath, portraitSaved);
-      expect(ctrl.bundle!.work.portraitBackdropLocked, isTrue);
+        // 手动更新基础信息时严禁丢失已锁定的竖版原画路径与锁定状态
+        await ctrl.updateWorkManualMetadata(title: '保留竖版原画测试');
+        expect(ctrl.bundle!.work.portraitBackdropPath, portraitSaved);
+        expect(ctrl.bundle!.work.portraitBackdropLocked, isTrue);
 
-      await ctrl.resetArtworkLockToAuto(resetPortraitBackdrop: true);
-      expect(ctrl.bundle!.work.portraitBackdropLocked, isFalse);
-      expect(ctrl.bundle!.work.portraitBackdropPath, isNull);
-    });
+        await ctrl.resetArtworkLockToAuto(resetPortraitBackdrop: true);
+        expect(ctrl.bundle!.work.portraitBackdropLocked, isFalse);
+        expect(ctrl.bundle!.work.portraitBackdropPath, isNull);
+      },
+    );
 
     test('ArtworkDominantColor 正确吸色并适配深浅主题背景溶底，空载荷安全降级', () async {
       TestWidgetsFlutterBinding.ensureInitialized();
@@ -445,9 +462,9 @@ void main() {
       );
       final pic = recorder.endRecording();
       final img = await pic.toImage(48, 48);
-      final bytes = (await img.toByteData(format: ui.ImageByteFormat.png))!
-          .buffer
-          .asUint8List();
+      final bytes = (await img.toByteData(
+        format: ui.ImageByteFormat.png,
+      ))!.buffer.asUint8List();
       img.dispose();
       pic.dispose();
 
@@ -457,58 +474,63 @@ void main() {
         isDark: true,
         themeBackground: const ui.Color(0xFF0F1117),
       );
-      final lightDissolve = await ArtworkDominantColor.sampleBottomDissolveColor(
-        bytes: bytes,
-        cacheKey: 'test_palette_key',
-        isDark: false,
-        themeBackground: const ui.Color(0xFFF5F6FA),
-      );
+      final lightDissolve =
+          await ArtworkDominantColor.sampleBottomDissolveColor(
+            bytes: bytes,
+            cacheKey: 'test_palette_key',
+            isDark: false,
+            themeBackground: const ui.Color(0xFFF5F6FA),
+          );
       expect(darkDissolve, isNotNull);
       expect(lightDissolve, isNotNull);
       expect(darkDissolve!.computeLuminance(), lessThan(0.15));
       expect(lightDissolve!.computeLuminance(), greaterThan(0.65));
 
-      final emptyFallback = await ArtworkDominantColor.sampleBottomDissolveColor(
-        bytes: Uint8List(0),
-        cacheKey: 'empty_key',
-        isDark: true,
-        themeBackground: const ui.Color(0xFF0F1117),
-      );
+      final emptyFallback =
+          await ArtworkDominantColor.sampleBottomDissolveColor(
+            bytes: Uint8List(0),
+            cacheKey: 'empty_key',
+            isDark: true,
+            themeBackground: const ui.Color(0xFF0F1117),
+          );
       expect(emptyFallback, isNull);
     });
 
-    test('WorkArtworkOptionsService.mergePortraitBackdropOptions 无字竖版原画排在有字海报之前', () {
-      const detail = TmdbWorkDetail(
-        tmdbId: 501,
-        mediaType: TmdbMediaType.tv,
-        title: '测试番剧',
-        candidatePosters: <TmdbArtworkImage>[
-          TmdbArtworkImage(
-            filePath: '/texted_zh.jpg',
-            isoLanguage: 'zh',
-            voteAverage: 9.0,
-          ),
-          TmdbArtworkImage(
-            filePath: '/textless_portrait.jpg',
-            isoLanguage: null,
-            voteAverage: 7.5,
-          ),
-        ],
-      );
-      final merged = WorkArtworkOptionsService.mergePortraitBackdropOptions(
-        tmdbDetail: detail,
-        fanartPosters: const <FanartPosterCandidate>[
-          FanartPosterCandidate(
-            id: 'f1',
-            url: 'https://assets.fanart.tv/fanart/tv/1/tvposter/clean.jpg',
-            lang: '00',
-            likes: 12,
-          ),
-        ],
-      );
-      expect(merged.length, greaterThanOrEqualTo(3));
-      expect(merged.first.langTag, '无字');
-      expect(merged.last.filePath, '/texted_zh.jpg');
-    });
+    test(
+      'WorkArtworkOptionsService.mergePortraitBackdropOptions 无字竖版原画排在有字海报之前',
+      () {
+        const detail = TmdbWorkDetail(
+          tmdbId: 501,
+          mediaType: TmdbMediaType.tv,
+          title: '测试番剧',
+          candidatePosters: <TmdbArtworkImage>[
+            TmdbArtworkImage(
+              filePath: '/texted_zh.jpg',
+              isoLanguage: 'zh',
+              voteAverage: 9.0,
+            ),
+            TmdbArtworkImage(
+              filePath: '/textless_portrait.jpg',
+              isoLanguage: null,
+              voteAverage: 7.5,
+            ),
+          ],
+        );
+        final merged = WorkArtworkOptionsService.mergePortraitBackdropOptions(
+          tmdbDetail: detail,
+          fanartPosters: const <FanartPosterCandidate>[
+            FanartPosterCandidate(
+              id: 'f1',
+              url: 'https://assets.fanart.tv/fanart/tv/1/tvposter/clean.jpg',
+              lang: '00',
+              likes: 12,
+            ),
+          ],
+        );
+        expect(merged.length, greaterThanOrEqualTo(3));
+        expect(merged.first.langTag, '无字');
+        expect(merged.last.filePath, '/texted_zh.jpg');
+      },
+    );
   });
 }

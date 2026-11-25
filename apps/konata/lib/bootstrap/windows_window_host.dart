@@ -344,7 +344,7 @@ class WindowControlsState extends State<WindowControls>
       return const SizedBox.shrink();
     }
     final p = context.palette;
-    final showPill = widget.forceLightIcons || widget.showGlassPill;
+    final showPill = widget.showGlassPill;
     final iconColor = widget.forceLightIcons
         ? KonataTheme.pureWhite
         : (showPill ? p.textPrimary : p.textSecondary);

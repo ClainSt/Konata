@@ -150,25 +150,26 @@ class LibraryHeaderBar extends StatelessWidget {
                 : KonataTheme.h1Style(p),
           ),
         ),
-        SizedBox(width: compact ? 8 : 12),
-        Container(
-          key: const Key('library_works_count_pill'),
-          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 4),
-          decoration: BoxDecoration(
-            color: p.softFill,
-            borderRadius: KonataTheme.borderRadiusPill,
-            border: Border.all(color: p.hairline),
-          ),
-          child: Text(
-            countText,
-            style: KonataTheme.textStyle(
-              color: p.textSecondary,
-              fontSize: KonataTheme.fontSizeCaption,
-              weight: KonataTheme.weightActive,
-              tabularFigures: true,
+        if (totalCount > 0) SizedBox(width: compact ? 8 : 12),
+        if (totalCount > 0)
+          Container(
+            key: const Key('library_works_count_pill'),
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 4),
+            decoration: BoxDecoration(
+              color: p.softFill,
+              borderRadius: KonataTheme.borderRadiusPill,
+              border: Border.all(color: p.hairline),
+            ),
+            child: Text(
+              countText,
+              style: KonataTheme.textStyle(
+                color: p.textSecondary,
+                fontSize: KonataTheme.fontSizeCaption,
+                weight: KonataTheme.weightActive,
+                tabularFigures: true,
+              ),
             ),
           ),
-        ),
       ],
     );
 
@@ -182,13 +183,14 @@ class LibraryHeaderBar extends StatelessWidget {
           compact: compact,
           onTap: onOpenSearch,
         ),
-      _HeaderIconPill(
-        icon: Icons.tune_rounded,
-        tooltip: '筛选与排序',
-        highlighted: filtersExpanded || hasActiveFilters,
-        compact: compact,
-        onTap: onToggleFilters,
-      ),
+      if (totalCount > 0)
+        _HeaderIconPill(
+          icon: Icons.tune_rounded,
+          tooltip: '筛选与排序',
+          highlighted: filtersExpanded || hasActiveFilters,
+          compact: compact,
+          onTap: onToggleFilters,
+        ),
       if (hiddenCount > 0)
         _HiddenWorksHeaderButton(
           hiddenCount: hiddenCount,
@@ -273,6 +275,7 @@ class LibraryFilterSortStrip extends StatelessWidget {
   final VoidCallback onClearAll;
 
   static String _sortModeLabel(LibrarySortMode mode) => switch (mode) {
+    LibrarySortMode.libraryOrder => '默认顺序',
     LibrarySortMode.title => '名称拼音',
     LibrarySortMode.year => '发行年份',
     LibrarySortMode.score => '评分高低',
@@ -304,7 +307,7 @@ class LibraryFilterSortStrip extends StatelessWidget {
           builder: (btnCtx) => _FilterChipMenuTrigger(
             label: '排序：${_sortModeLabel(prefs.sortMode)}',
             icon: Icons.sort_rounded,
-            active: prefs.sortMode != LibrarySortMode.title,
+            active: prefs.sortMode != LibrarySortMode.libraryOrder,
             onTap: () async {
               final picked = await showKonataGlassMenu<LibrarySortMode>(
                 anchorContext: btnCtx,
@@ -436,7 +439,7 @@ class LibraryFilterSortStrip extends StatelessWidget {
         ),
         if (prefs.hasActiveFilters ||
             controller.searchQuery.trim().isNotEmpty ||
-            prefs.sortMode != LibrarySortMode.title ||
+            prefs.sortMode != LibrarySortMode.libraryOrder ||
             prefs.sortOrder != LibrarySortOrder.ascending)
           KonataPillButton.ghost(
             label: compact ? '重置' : '重置全部',

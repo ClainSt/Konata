@@ -218,6 +218,7 @@ class LyricDisplayController extends ChangeNotifier
   }
 
   /// 宿主主动推送最新播放进度与播放状态（未绑定外部可监听句柄时使用）。
+  @override
   void updatePlaybackPosition(Duration position, {bool? isPlaying}) {
     if (_disposed) return;
     if (_externalPosition == null && _internalPosition.value != position) {
@@ -413,7 +414,8 @@ class LyricDisplayController extends ChangeNotifier
     }
     _pendingUpgrade = null;
     final doc = outcome.lrcDocument!;
-    final mergedCandidates = _state.candidates.any(
+    final mergedCandidates =
+        _state.candidates.any(
           (c) =>
               c.candidate.source == selected.candidate.source &&
               c.candidate.sourceId == selected.candidate.sourceId,
@@ -600,10 +602,7 @@ class LyricDisplayController extends ChangeNotifier
             currentPositionSeconds + nextOffset.totalOffsetSeconds,
           );
     _updateState(
-      _state.copyWith(
-        offsetSnapshot: nextOffset,
-        activeLyricIndex: nextIndex,
-      ),
+      _state.copyWith(offsetSnapshot: nextOffset, activeLyricIndex: nextIndex),
     );
   }
 
@@ -664,8 +663,9 @@ class LyricDisplayController extends ChangeNotifier
         artist: query.artist,
         album: query.album,
         fileName: query.fileName,
-        durationSeconds:
-            query.durationSeconds > 0 ? query.durationSeconds : null,
+        durationSeconds: query.durationSeconds > 0
+            ? query.durationSeconds
+            : null,
       ),
     );
   }

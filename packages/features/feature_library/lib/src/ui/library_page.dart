@@ -216,16 +216,25 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
           showKonataToast(context, '重新匹配失败：$err', isError: true);
         }
       case 'files':
-        final changed = await ref.read(workManageDialogPortProvider)
-            .showSourceFilesReviewDialog(context, workId: WorkId.trusted(work.id));
+        final changed = await ref
+            .read(workManageDialogPortProvider)
+            .showSourceFilesReviewDialog(
+              context,
+              workId: WorkId.trusted(work.id),
+            );
         if (changed && mounted) await libraryController.reload();
       case 'match':
-        final changed = await ref.read(workManageDialogPortProvider)
+        final changed = await ref
+            .read(workManageDialogPortProvider)
             .showManualMatchDialog(context, workId: WorkId.trusted(work.id));
         if (changed && mounted) await libraryController.reload();
       case 'merge':
-        final changed = await ref.read(workManageDialogPortProvider)
-            .showWorkMergeDialog(context, sourceWorkId: WorkId.trusted(work.id));
+        final changed = await ref
+            .read(workManageDialogPortProvider)
+            .showWorkMergeDialog(
+              context,
+              sourceWorkId: WorkId.trusted(work.id),
+            );
         if (changed && mounted) await libraryController.reload();
       case 'hide':
         await mgmt.setWorkHidden(work.id, hidden: true);
@@ -257,8 +266,8 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     final horizontalPad = compact
         ? KonataAdaptiveTokens.horizontalInset
         : KonataTheme.pageHorizontalPadding;
-    final topPad = compact ? 8.0 : KonataTheme.pageHeaderTopSpacing;
-    final bottomHeaderPad = compact ? 10.0 : KonataTheme.pageHeaderBottomSpacing;
+    const topPad = 8.0;
+    const bottomHeaderPad = 10.0;
     final bottomClearance = KonataBottomClearanceScope.of(context);
     final gridBottomPad = math.max(
       compact ? 18.0 : 28.0,
@@ -271,7 +280,8 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
         final items = controller.displayedItems;
         final totalCount = controller.allVisibleItems.length;
         final showFilterStrip =
-            _filtersExpanded || controller.prefs.hasActiveFilters;
+            totalCount > 0 &&
+            (_filtersExpanded || controller.prefs.hasActiveFilters);
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -292,7 +302,8 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                 hasQuery: controller.searchQuery.trim().isNotEmpty,
                 hasActiveFilters: controller.prefs.hasActiveFilters,
                 showSearchButton: !_hasExternalDesktopSearchBar,
-                searchExpanded: _searchExpanded && !_hasExternalDesktopSearchBar,
+                searchExpanded:
+                    _searchExpanded && !_hasExternalDesktopSearchBar,
                 filtersExpanded: showFilterStrip,
                 searchController: _searchController,
                 searchFocusNode: _searchFocusNode,
@@ -445,8 +456,8 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                           icon: Icons.rule_folder_outlined,
                           onPressed: () => showReviewDialog(context),
                         ),
-                      KonataPillButton.secondary(
-                        label: '管理媒体源',
+                      KonataPillButton.primary(
+                        label: '前往添加媒体源',
                         icon: Icons.folder_open_outlined,
                         onPressed: () =>
                             deps.navigator.switchNavSection('sources'),
@@ -469,14 +480,14 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
           controller: scrollController,
           padding: EdgeInsets.fromLTRB(
             horizontalPad,
-            4,
+            0,
             horizontalPad,
             gridBottomPad,
           ),
           minPhoneCardWidth: 108.0,
           minWideCardWidth: 158.0,
           coverAspectRatio: 2 / 3,
-          footerBaseHeight: 0.0,
+          footerBaseHeight: 14.0,
           twoLineTextBaseHeight: compact ? 44.0 : 50.0,
           crossAxisSpacing: compact ? 12.0 : 16.0,
           mainAxisSpacing: compact ? 16.0 : 20.0,

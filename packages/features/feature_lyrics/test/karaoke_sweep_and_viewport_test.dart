@@ -10,10 +10,87 @@ import 'package:konata_storage/konata_storage.dart';
 import 'support/lyrics_test_helpers.dart';
 
 void main() {
+  testWidgets('宿主推送曲内时钟时 19 秒第三行自动聚焦，前后跳转与暂停同步', (tester) async {
+    final db = KonataDatabaseBundle.openInMemory();
+    addTearDown(db.close);
+    final controller = LyricDisplayController(
+      resolver: LyricsResolver(
+        cacheRepository: StorageLyricCacheRepository.fromBundle(db),
+        sourcesFactory: () async => const [],
+      ),
+      preferencesStore: LyricsPreferencesStore(ScopedPrefsStore(db.userState)),
+    );
+    addTearDown(controller.dispose);
+    const lrc =
+        '[00:00.00]First line\n[00:08.00]Second line\n[00:16.00]Third line\n[00:24.00]Fourth line';
+    await controller.resolveForTrack(
+      const LyricTrackQuery(
+        trackKey: 'evening',
+        albumKey: 'test',
+        title: 'Evening Shore',
+        artist: 'Tester',
+        durationSeconds: 32,
+        embeddedLrcText: lrc,
+      ),
+    );
+    await tester.pumpWidget(
+      wrapLyricsTestApp(
+        child: SizedBox(
+          width: 500,
+          height: 460,
+          child: ImmersiveLyricsViewport(
+            itemId: 'evening',
+            controller: controller,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final scroll = tester
+        .widget<Scrollable>(
+          find.descendant(
+            of: find.byKey(const ValueKey('immersive_lyrics_list')),
+            matching: find.byType(Scrollable),
+          ),
+        )
+        .controller!;
+    final initial = scroll.offset;
+    controller.updatePlaybackPosition(
+      const Duration(seconds: 19),
+      isPlaying: true,
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.pump(const Duration(milliseconds: 800));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(controller.state.activeLyricIndex, 2);
+    expect(scroll.offset, greaterThan(initial));
+    controller.updatePlaybackPosition(
+      const Duration(seconds: 3),
+      isPlaying: false,
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.pump(const Duration(milliseconds: 800));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(controller.state.activeLyricIndex, 0);
+    expect(controller.isPlayingListenable.value, isFalse);
+    controller.updatePlaybackPosition(
+      const Duration(seconds: 25),
+      isPlaying: true,
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.pump(const Duration(milliseconds: 800));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(controller.state.activeLyricIndex, 3);
+    expect(controller.isPlayingListenable.value, isTrue);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+  });
+
   group('ImmersiveLyricLineLeaf 帧时钟启停与渲染隔离', () {
-    testWidgets('直连播放叶子监听在暂停、不可见与行播完后立即停摆 Ticker', (
-      tester,
-    ) async {
+    testWidgets('直连播放叶子监听在暂停、不可见与行播完后立即停摆 Ticker', (tester) async {
       final pos = ValueNotifier<Duration>(const Duration(milliseconds: 10300));
       final playing = ValueNotifier<bool>(true);
       final tickerEnabled = ValueNotifier<bool>(true);
@@ -86,9 +163,7 @@ void main() {
       expect(SchedulerBinding.instance.transientCallbackCount, 0);
     });
 
-    testWidgets('开启罗马音展示注音且不混入译文区，长行自动换行无异常且偏移实时前移', (
-      tester,
-    ) async {
+    testWidgets('开启罗马音展示注音且不混入译文区，长行自动换行无异常且偏移实时前移', (tester) async {
       final pos = ValueNotifier<Duration>(const Duration(seconds: 10));
       final playing = ValueNotifier<bool>(false);
       addTearDown(pos.dispose);
@@ -134,12 +209,12 @@ void main() {
   });
 
   group('ImmersiveLyricsViewport 拖拽定位时间轴与点击跳转', () {
-    testWidgets('用户拖拽列表唤起时间轴引导线，点击播放图标触发偏移后跳转回调', (
-      tester,
-    ) async {
+    testWidgets('用户拖拽列表唤起时间轴引导线，点击播放图标触发偏移后跳转回调', (tester) async {
       final bundle = KonataDatabaseBundle.openInMemory();
       addTearDown(bundle.close);
-      final prefsStore = LyricsPreferencesStore(ScopedPrefsStore(bundle.userState));
+      final prefsStore = LyricsPreferencesStore(
+        ScopedPrefsStore(bundle.userState),
+      );
       final pos = ValueNotifier<Duration>(const Duration(seconds: 11));
       final playing = ValueNotifier<bool>(false);
       addTearDown(pos.dispose);
@@ -231,12 +306,12 @@ void main() {
       await tester.pumpAndSettle();
     });
 
-    testWidgets('浅色系统主题下歌词仍保持纯白发光排版、无右下角漂浮胶囊且响应双语译文开关', (
-      tester,
-    ) async {
+    testWidgets('浅色系统主题下歌词仍保持纯白发光排版、无右下角漂浮胶囊且响应双语译文开关', (tester) async {
       final bundle = KonataDatabaseBundle.openInMemory();
       addTearDown(bundle.close);
-      final prefsStore = LyricsPreferencesStore(ScopedPrefsStore(bundle.userState));
+      final prefsStore = LyricsPreferencesStore(
+        ScopedPrefsStore(bundle.userState),
+      );
       final pos = ValueNotifier<Duration>(const Duration(seconds: 10));
       final playing = ValueNotifier<bool>(false);
       addTearDown(pos.dispose);

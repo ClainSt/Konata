@@ -7,7 +7,7 @@ import 'library_models.dart';
 class LibraryPrefsState {
   /// 创建媒体库筛选与排序配置。
   const LibraryPrefsState({
-    this.sortMode = LibrarySortMode.title,
+    this.sortMode = LibrarySortMode.libraryOrder,
     this.sortOrder = LibrarySortOrder.ascending,
     this.yearFilter,
     this.releaseGroupFilter,
@@ -20,7 +20,7 @@ class LibraryPrefsState {
     final modeName = json['sortMode'] as String?;
     final sortMode = LibrarySortMode.values.firstWhere(
       (e) => e.name == modeName,
-      orElse: () => LibrarySortMode.title,
+      orElse: () => LibrarySortMode.libraryOrder,
     );
     final orderName = json['sortOrder'] as String?;
     final sortOrder = LibrarySortOrder.values.firstWhere(
@@ -28,7 +28,9 @@ class LibraryPrefsState {
       orElse: () => LibrarySortOrder.ascending,
     );
     final rawYear = json['yearFilter'];
-    final yearFilter = rawYear is int ? rawYear : int.tryParse('${rawYear ?? ''}');
+    final yearFilter = rawYear is int
+        ? rawYear
+        : int.tryParse('${rawYear ?? ''}');
     final group = (json['releaseGroupFilter'] as String?)?.trim();
     final sourceId = (json['sourceIdFilter'] as String?)?.trim();
     return LibraryPrefsState(

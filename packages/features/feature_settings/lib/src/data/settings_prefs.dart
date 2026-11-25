@@ -7,7 +7,7 @@ final class SettingsAppearancePrefs {
   /// 创建外观与显示偏好配置。
   const SettingsAppearancePrefs({
     this.themeMode = ThemeMode.dark,
-    this.ambientBackdropEnabled = true,
+    this.ambientBackdropEnabled = false,
     this.windowMaterial = KonataWindowMaterial.acrylic,
   });
 
@@ -50,7 +50,7 @@ final class SettingsAppearancePrefs {
     );
     final ambient = json['ambientBackdropEnabled'] is bool
         ? json['ambientBackdropEnabled']! as bool
-        : true;
+        : false;
     final materialRaw = (json['windowMaterial'] ?? '').toString().trim();
     final material = KonataWindowMaterial.values.firstWhere(
       (candidate) => candidate.name == materialRaw,

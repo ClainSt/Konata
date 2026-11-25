@@ -343,6 +343,18 @@ ON CONFLICT(${WorksSchema.colId}) DO UPDATE SET
     return _queryAll(_engine.select, includeDeleted: includeDeleted);
   }
 
+  /// 默认海报墙按首次入库行序展示，保留独立排序功能。
+  List<WorkId> listVisibleIdsInInsertionOrder() {
+    final rows = _engine.select(
+      'SELECT ${WorksSchema.colId} FROM ${WorksSchema.table} '
+      'WHERE ${WorksSchema.colDeletedAtMs} IS NULL '
+      'AND ${WorksSchema.colIsHidden} = 0 ORDER BY rowid ASC;',
+    );
+    return [
+      for (final row in rows) WorkId.trusted(row[WorksSchema.colId] as String),
+    ];
+  }
+
   /// 响应式监听全部未软删除作品（包含已隐藏作品）。
   Stream<List<WorkRecord>> watchAll({bool includeDeleted = false}) {
     return _engine.watchQuery<List<WorkRecord>>(

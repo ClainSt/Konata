@@ -501,7 +501,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(tester.takeException(), isNull);
-        expect(find.text('尚未配置 TMDB API 凭证'), findsOneWidget);
+        expect(find.text('尚未配置 TMDB API 凭证'), findsNothing);
         expect(find.textContaining('家庭主力 WebDAV'), findsOneWidget);
         expect(find.text('WebDAV'), findsOneWidget);
         expect(find.text('SMB 共享'), findsOneWidget);
@@ -513,9 +513,7 @@ void main() {
       }
     }
 
-    await tester.tap(find.text('去配置'));
-    await tester.pumpAndSettle();
-    expect(navigator.openedSettingsSections, contains('network'));
+    expect(find.text('去配置'), findsNothing);
 
     await tester.tap(find.byKey(const Key('sources_add_button')));
     await tester.pumpAndSettle();

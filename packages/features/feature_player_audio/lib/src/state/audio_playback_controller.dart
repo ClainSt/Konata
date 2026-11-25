@@ -77,6 +77,19 @@ class AudioPlaybackController extends ChangeNotifier {
       },
     );
     _bindAndroidMediaSessionCallbacks();
+    if (_lyricPort != null) {
+      _positionNotifier.addListener(_syncLyricsClock);
+      _playingNotifier.addListener(_syncLyricsClock);
+      _syncLyricsClock();
+    }
+  }
+
+  void _syncLyricsClock() {
+    if (_disposed) return;
+    _lyricPort?.updatePlaybackPosition(
+      _positionNotifier.value,
+      isPlaying: _playingNotifier.value,
+    );
   }
 
   final AudioPlaybackPreferences _preferences;
@@ -98,10 +111,15 @@ class AudioPlaybackController extends ChangeNotifier {
   final LibMpvClient Function()? _mpvClientFactoryOverride;
   final bool? _isWindowsOverride;
 
-  final AudiophileMicroFadeDriver _microFadeDriver = AudiophileMicroFadeDriver();
+  final AudiophileMicroFadeDriver _microFadeDriver =
+      AudiophileMicroFadeDriver();
 
-  final ValueNotifier<Duration> _positionNotifier = ValueNotifier(Duration.zero);
-  final ValueNotifier<Duration> _durationNotifier = ValueNotifier(Duration.zero);
+  final ValueNotifier<Duration> _positionNotifier = ValueNotifier(
+    Duration.zero,
+  );
+  final ValueNotifier<Duration> _durationNotifier = ValueNotifier(
+    Duration.zero,
+  );
   final ValueNotifier<bool> _playingNotifier = ValueNotifier(false);
   final ValueNotifier<bool> _activeNotifier = ValueNotifier(false);
   final ValueNotifier<AudioPlaybackSnapshot> _snapshotNotifier = ValueNotifier(
@@ -316,7 +334,11 @@ class AudioPlaybackController extends ChangeNotifier {
       );
       client.setPropertyFlag('pause', false);
       _playingNotifier.value = true;
-      _applyVolumeWithSafetyFade(client: client, plan: plan, useMicroFade: true);
+      _applyVolumeWithSafetyFade(
+        client: client,
+        plan: plan,
+        useMicroFade: true,
+      );
     } else {
       _microFadeDriver.cancel();
       client.setPropertyFlag('pause', true);
@@ -405,7 +427,11 @@ class AudioPlaybackController extends ChangeNotifier {
       milliseconds: (clampedRel * 1000.0).round(),
     );
     if (_playingNotifier.value) {
-      _applyVolumeWithSafetyFade(client: client, plan: plan, useMicroFade: true);
+      _applyVolumeWithSafetyFade(
+        client: client,
+        plan: plan,
+        useMicroFade: true,
+      );
     }
     unawaited(_persistPlaybackHistory(force: true));
     _syncAndroidMediaSession(forcePosition: true);
@@ -628,6 +654,8 @@ class AudioPlaybackController extends ChangeNotifier {
     unawaited(_clientEventSub?.cancel());
     _clientEventSub = null;
     unawaited(_releaseCurrentClient());
+    _positionNotifier.removeListener(_syncLyricsClock);
+    _playingNotifier.removeListener(_syncLyricsClock);
     _positionNotifier.dispose();
     _durationNotifier.dispose();
     _playingNotifier.dispose();

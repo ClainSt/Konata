@@ -142,7 +142,6 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final deps = ref.watch(featureSourcesDependenciesProvider);
     final scrapeController = ref.watch(sourceScrapeControllerProvider);
     final sourcesAsync = ref.watch(mediaSourcesStreamProvider);
     final statsMap =
@@ -157,8 +156,6 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
     final padH = screenW < 620.0
         ? KonataAdaptiveTokens.horizontalInset
         : KonataTheme.pageHorizontalPadding;
-    final tmdbMissing =
-        deps.httpClient.config.credentialKind == TmdbCredentialKind.none;
 
     return ListenableBuilder(
       listenable: scrapeController,
@@ -206,12 +203,9 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
                 isLoading: isLoading,
                 hasLoadError: sourcesAsync.hasError,
                 loadError: sourcesAsync.error,
-                tmdbMissing: tmdbMissing,
                 showBanner: showBanner,
                 padH: padH,
                 bottomClearance: bottomClearance,
-                onOpenSettingsNetwork: () =>
-                    deps.navigator.openSettings(sectionId: 'network'),
                 onInspectProgress: () => showScanProgressDialog(
                   context,
                   focusSourceId: phase.sourceId,
@@ -238,11 +232,9 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
     required bool isLoading,
     required bool hasLoadError,
     required Object? loadError,
-    required bool tmdbMissing,
     required bool showBanner,
     required double padH,
     required double bottomClearance,
-    required VoidCallback onOpenSettingsNetwork,
     required VoidCallback onInspectProgress,
     required VoidCallback onCancelScan,
     required VoidCallback onDismissBanner,
@@ -259,7 +251,7 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
       );
     }
 
-    if (sources.isEmpty && !showBanner && !tmdbMissing) {
+    if (sources.isEmpty && !showBanner) {
       return _EmptySourcesState(onAddSource: _openAddSource);
     }
 
@@ -268,15 +260,6 @@ class _SourcesPageState extends ConsumerState<SourcesPage> {
       builder: (_, ctrl) => CustomScrollView(
         controller: ctrl,
         slivers: [
-          if (tmdbMissing)
-            SliverPadding(
-              padding: EdgeInsets.fromLTRB(padH, 0, padH, 12),
-              sliver: SliverToBoxAdapter(
-                child: TmdbScrapeGuardBanner(
-                  onConfigureTap: onOpenSettingsNetwork,
-                ),
-              ),
-            ),
           if (showBanner)
             SliverPadding(
               padding: EdgeInsets.fromLTRB(padH, 0, padH, 14),

@@ -77,7 +77,7 @@ class MediaSourceCard extends ConsumerWidget {
           behavior: HitTestBehavior.opaque,
           onTap: onPickFolders,
           child: KonataSurfaceCard(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
             enableHover: true,
             child: LayoutBuilder(
               builder: (context, constraints) {
@@ -108,7 +108,7 @@ class MediaSourceCard extends ConsumerWidget {
                               fontSize: KonataTheme.fontSizeBodyXs,
                             ),
                           ),
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 4),
                           Wrap(
                             spacing: 6,
                             runSpacing: 6,

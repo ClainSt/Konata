@@ -73,6 +73,9 @@ abstract interface class LyricDisplayPort {
   /// 针对播放队列后续曲目执行分级后台预取。
   Future<void> prefetchQueue(List<LyricTrackQuery> upcoming);
 
+  /// 同步曲内播放时钟，独立于低频歌词解析与事件总线。
+  void updatePlaybackPosition(Duration position, {bool? isPlaying});
+
   /// 清空当前活跃歌词会话状态。
   void clearActive();
 }

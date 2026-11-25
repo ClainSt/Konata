@@ -71,6 +71,7 @@ class LibraryController extends ChangeNotifier {
   List<Work> _hiddenWorks = const <Work>[];
   List<Work> _reviewWorks = const <Work>[];
   List<MediaSource> _sources = const <MediaSource>[];
+  Map<String, int> _insertionOrder = const <String, int>{};
   Map<String, int> _updatedAtByWorkId = const <String, int>{};
 
   /// 当前排序与筛选偏好配置。
@@ -166,6 +167,11 @@ class LibraryController extends ChangeNotifier {
       final allEpisodes = results[3] as List<Episode>;
       final sources = results[4] as List<MediaSource>;
       final visibleRecords = databases.library.works.listVisible();
+      final insertionIds = databases.library.works
+          .listVisibleIdsInInsertionOrder();
+      _insertionOrder = {
+        for (var i = 0; i < insertionIds.length; i++) insertionIds[i].value: i,
+      };
       if (!ReleaseGroups.isLoaded &&
           allVariants.any((variant) => variant.assetKind == AssetKind.video)) {
         await ReleaseGroups.prepare();
@@ -193,8 +199,7 @@ class LibraryController extends ChangeNotifier {
             work.scrapeStatus == ScrapeStatus.matched || work.isManualLocked;
         if (!eligible) continue;
 
-        final workVariants =
-            variantsByWork[work.id] ?? const <MediaVariant>[];
+        final workVariants = variantsByWork[work.id] ?? const <MediaVariant>[];
         final workEpisodes = episodesByWork[work.id] ?? const <Episode>[];
         rawWall.add(
           _buildLibraryItem(
@@ -208,7 +213,10 @@ class LibraryController extends ChangeNotifier {
 
       if (!ChinesePinyinCollator.isLoaded &&
           (_hasPinyinTitles(allWorks, hidden) ||
-              rawWall.any((item) => item.releaseGroups.any(ChinesePinyinCollator.needsTable)))) {
+              rawWall.any(
+                (item) =>
+                    item.releaseGroups.any(ChinesePinyinCollator.needsTable),
+              ))) {
         await ChinesePinyinCollator.prepare();
         if (_disposed) return;
       }
@@ -236,7 +244,8 @@ class LibraryController extends ChangeNotifier {
       diagnosticLog?.logError(
         subsystem: DiagnosticSubsystem.ui,
         code: 'library_reload_failed',
-        message: '加载媒体库海报墙数据失败: ${DiagnosticTextSanitizer.redactSecrets('$error')}',
+        message:
+            '加载媒体库海报墙数据失败: ${DiagnosticTextSanitizer.redactSecrets('$error')}',
         error: error,
         source: 'LibraryController.reload',
       );
@@ -256,7 +265,8 @@ class LibraryController extends ChangeNotifier {
       if (_disposed) return;
       final allWorks = results[0] as List<Work>;
       final hidden = results[1] as List<Work>;
-      if (!ChinesePinyinCollator.isLoaded && _hasPinyinTitles(allWorks, hidden)) {
+      if (!ChinesePinyinCollator.isLoaded &&
+          _hasPinyinTitles(allWorks, hidden)) {
         await ChinesePinyinCollator.prepare();
         if (_disposed) return;
       }
@@ -337,8 +347,14 @@ class LibraryController extends ChangeNotifier {
 
   /// 清除全部筛选项与搜索关键词，恢复全量海报墙视图。
   void resetFilters({bool clearSearch = false}) {
-    final clearedPrefs = _prefs.clearFiltersOnly();
-    final prefsChanged = _prefs.hasActiveFilters;
+    final clearedPrefs = _prefs.clearFiltersOnly().copyWith(
+      sortMode: LibrarySortMode.libraryOrder,
+      sortOrder: LibrarySortOrder.ascending,
+    );
+    final prefsChanged =
+        _prefs.hasActiveFilters ||
+        _prefs.sortMode != LibrarySortMode.libraryOrder ||
+        _prefs.sortOrder != LibrarySortOrder.ascending;
     final searchChanged = clearSearch && _searchQuery.isNotEmpty;
     if (!prefsChanged && !searchChanged) return;
     if (clearSearch) {
@@ -423,6 +439,10 @@ class LibraryController extends ChangeNotifier {
     int primary = 0;
 
     switch (_prefs.sortMode) {
+      case LibrarySortMode.libraryOrder:
+        final ai = _insertionOrder[a.work.id] ?? 0;
+        final bi = _insertionOrder[b.work.id] ?? 0;
+        return asc ? ai.compareTo(bi) : bi.compareTo(ai);
       case LibrarySortMode.title:
         primary = ChinesePinyinCollator.compareNames(
           a.work.title,
@@ -526,15 +546,15 @@ class LibraryController extends ChangeNotifier {
 
   List<Work> _sortWorksByTitle(Iterable<Work> works) {
     final list = works.toList(growable: false)
-      ..sort(
-        (a, b) => ChinesePinyinCollator.compareNames(a.title, b.title),
-      );
+      ..sort((a, b) => ChinesePinyinCollator.compareNames(a.title, b.title));
     return List<Work>.unmodifiable(list);
   }
 
   static bool _hasPinyinTitles(List<Work> works, List<Work> hidden) =>
-      (works.length > 1 && works.any((work) => ChinesePinyinCollator.needsTable(work.title))) ||
-      (hidden.length > 1 && hidden.any((work) => ChinesePinyinCollator.needsTable(work.title)));
+      (works.length > 1 &&
+          works.any((work) => ChinesePinyinCollator.needsTable(work.title))) ||
+      (hidden.length > 1 &&
+          hidden.any((work) => ChinesePinyinCollator.needsTable(work.title)));
 
   @override
   void dispose() {

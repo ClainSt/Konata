@@ -112,80 +112,72 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            Padding(
-              padding: EdgeInsets.fromLTRB(
-                horizontalPad,
-                compact ? 8.0 : KonataTheme.pageHeaderTopSpacing,
-                horizontalPad,
-                compact ? 10.0 : KonataTheme.pageHeaderBottomSpacing,
+            AdaptiveActionHeader(
+              title: '播放记录',
+              badge: KonataSegmentedCapsule<HistoryMediaFilter>(
+                compact: true,
+                selected: controller.filter,
+                onChanged: controller.setFilter,
+                options: <KonataSegmentOption<HistoryMediaFilter>>[
+                  for (final f in [
+                    HistoryMediaFilter.video,
+                    HistoryMediaFilter.audio,
+                  ])
+                    KonataSegmentOption<HistoryMediaFilter>(
+                      value: f,
+                      label: f.label,
+                    ),
+                ],
               ),
-              child: AdaptiveActionHeader(
-                title: '播放记录',
-                badge: KonataSegmentedCapsule<HistoryMediaFilter>(
-                  compact: true,
-                  selected: controller.filter,
-                  onChanged: controller.setFilter,
-                  options: <KonataSegmentOption<HistoryMediaFilter>>[
-                    for (final f in [
-                      HistoryMediaFilter.video,
-                      HistoryMediaFilter.audio,
-                    ])
-                      KonataSegmentOption<HistoryMediaFilter>(
-                        value: f,
-                        label: f.label,
-                      ),
-                  ],
-                ),
-                primaryActions: <AdaptiveHeaderAction>[
-                  if (hasAny &&
-                      !controller.isSelectionMode) ...<AdaptiveHeaderAction>[
-                    AdaptiveHeaderAction(
-                      icon: Icons.done_all_rounded,
+              primaryActions: <AdaptiveHeaderAction>[
+                if (hasAny &&
+                    !controller.isSelectionMode) ...<AdaptiveHeaderAction>[
+                  AdaptiveHeaderAction(
+                    icon: Icons.done_all_rounded,
+                    label: controller.filter == HistoryMediaFilter.audio
+                        ? '标记为已听'
+                        : '标记为已看',
+                    wideWidget: KonataPillButton.secondary(
                       label: controller.filter == HistoryMediaFilter.audio
                           ? '标记为已听'
                           : '标记为已看',
-                      wideWidget: KonataPillButton.secondary(
-                        label: controller.filter == HistoryMediaFilter.audio
-                            ? '标记为已听'
-                            : '标记为已看',
-                        icon: Icons.done_all_rounded,
-                        compact: true,
-                        onPressed: () => controller.enterSelectionMode(
-                          action: HistorySelectionAction.markCompleted,
-                        ),
-                      ),
-                      tooltip: '批量标记已完播',
+                      icon: Icons.done_all_rounded,
+                      compact: true,
                       onPressed: () => controller.enterSelectionMode(
                         action: HistorySelectionAction.markCompleted,
                       ),
                     ),
-                    AdaptiveHeaderAction(
-                      icon: Icons.delete_sweep_outlined,
+                    tooltip: '批量标记已完播',
+                    onPressed: () => controller.enterSelectionMode(
+                      action: HistorySelectionAction.markCompleted,
+                    ),
+                  ),
+                  AdaptiveHeaderAction(
+                    icon: Icons.delete_sweep_outlined,
+                    label: '清理记录',
+                    wideWidget: KonataPillButton.secondary(
                       label: '清理记录',
-                      wideWidget: KonataPillButton.secondary(
-                        label: '清理记录',
-                        icon: Icons.delete_sweep_outlined,
-                        compact: true,
-                        onPressed: () => controller.enterSelectionMode(
-                          action: HistorySelectionAction.deleteRecords,
-                        ),
-                      ),
-                      tooltip: '进入多选批量删除',
+                      icon: Icons.delete_sweep_outlined,
+                      compact: true,
                       onPressed: () => controller.enterSelectionMode(
                         action: HistorySelectionAction.deleteRecords,
                       ),
                     ),
-                  ],
-                ],
-                overflowActions: <AdaptiveHeaderAction>[
-                  if (hasAny && controller.isSelectionMode)
-                    AdaptiveHeaderAction(
-                      icon: Icons.close_rounded,
-                      label: '退出多选',
-                      onPressed: controller.exitSelectionMode,
+                    tooltip: '进入多选批量删除',
+                    onPressed: () => controller.enterSelectionMode(
+                      action: HistorySelectionAction.deleteRecords,
                     ),
+                  ),
                 ],
-              ),
+              ],
+              overflowActions: <AdaptiveHeaderAction>[
+                if (hasAny && controller.isSelectionMode)
+                  AdaptiveHeaderAction(
+                    icon: Icons.close_rounded,
+                    label: '退出多选',
+                    onPressed: controller.exitSelectionMode,
+                  ),
+              ],
             ),
             if (controller.isSelectionMode)
               Padding(

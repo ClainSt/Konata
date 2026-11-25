@@ -600,6 +600,26 @@ class ScrapeWorkPersister {
         }
       }
     }
+    // 同源同路径已有索引（含旧版或导入 ID）应沿用原身份，避免重复创建文件。
+    final sourceVariantByPath = <String, MediaVariant>{};
+    for (final variant in sourceVariantById.values) {
+      final key = '${variant.sourceId}::${variant.relativePath}';
+      final previous = sourceVariantByPath[key];
+      if (previous == null ||
+          (!previous.mappingLocked &&
+              !previous.workLocked &&
+              !previous.scopeLocked &&
+              (variant.mappingLocked ||
+                  variant.workLocked ||
+                  variant.scopeLocked))) {
+        sourceVariantByPath[key] = variant;
+      }
+    }
+    String resolveVariantId(MediaVariant variant) {
+      final key = '${variant.sourceId}::${variant.relativePath}';
+      return sourceVariantByPath[key]?.id ?? deterministicId(key);
+    }
+
     final existingEpisodes = await _repository.getEpisodesByWork(work.id);
     final episodeById = <String, Episode>{
       for (final ep in existingEpisodes) ep.id: ep,
@@ -634,9 +654,7 @@ class ScrapeWorkPersister {
         strongMainEpisodes.add(parsed.episode!);
       }
 
-      final vId = deterministicId(
-        '${rawVariant.sourceId}::${rawVariant.relativePath}',
-      );
+      final vId = resolveVariantId(rawVariant);
       final globalExisting = sourceVariantById[vId];
       if (!resetManualLocks &&
           globalExisting != null &&
@@ -704,9 +722,7 @@ class ScrapeWorkPersister {
     for (final rawVariant in folder.variants) {
       String? episodeId;
       ParsedBdripRelease? parsed;
-      final variantId = deterministicId(
-        '${rawVariant.sourceId}::${rawVariant.relativePath}',
-      );
+      final variantId = resolveVariantId(rawVariant);
       final globalExisting = sourceVariantById[variantId];
       if (!resetManualLocks &&
           globalExisting != null &&

@@ -2,6 +2,9 @@ import 'package:engine_scraping/engine_scraping.dart';
 
 /// 媒体库海报墙排序字段枚举。
 enum LibrarySortMode {
+  /// 黄金源默认的入库顺序。
+  libraryOrder,
+
   /// 按中文拼音、英文字母与自然数字排序。
   title,
 

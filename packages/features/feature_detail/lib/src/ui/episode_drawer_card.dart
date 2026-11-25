@@ -108,6 +108,7 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
       widget.playback,
     );
     final hasWatched = widget.playback?.isCompleted ?? false;
+    final position = widget.playback?.positionSeconds ?? 0;
     final borderColor = _hovered
         ? KonataPlaybackTokens.activeGlassBorder(p)
         : KonataPlaybackTokens.glassBorder(p);
@@ -159,31 +160,64 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
                                 color: KonataTheme.scrimBlackLight,
                               ),
                             ),
-                          if (widget.variants.length > 1)
+                          if (widget.variants.length > 1 ||
+                              ep.category == EpisodeCategory.extra)
+                            Positioned(
+                              top: 6,
+                              left: 6,
+                              child: _CardMiniBadge(
+                                label: widget.variants.length > 1
+                                    ? '${widget.variants.length} 版本'
+                                    : '特典',
+                                accentColor: widget.variants.length > 1
+                                    ? p.accent
+                                    : KonataTheme.specVideoPurple,
+                              ),
+                            ),
+                          if (hasWatched || position > 0)
                             Positioned(
                               top: 6,
                               right: 6,
-                              child: _CardMiniBadge(
-                                label: '${widget.variants.length} 版本',
-                                accentColor: p.accent,
-                              ),
-                            ),
-                          if (hasWatched)
-                            Positioned(
-                              top: 6,
-                              left: 6,
-                              child: _CardMiniBadge(
-                                label: '已看完',
-                                accentColor: p.success,
-                              ),
-                            )
-                          else if (ep.category == EpisodeCategory.extra)
-                            const Positioned(
-                              top: 6,
-                              left: 6,
-                              child: _CardMiniBadge(
-                                label: '特典',
-                                accentColor: KonataTheme.specVideoPurple,
+                              child: Container(
+                                key: const ValueKey('episode_playback_badge'),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 7,
+                                  vertical: 2.5,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: hasWatched
+                                      ? p.success.withValues(alpha: 0.90)
+                                      : KonataTheme.scrimBlackDense,
+                                  borderRadius: KonataTheme.borderRadiusChip,
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (hasWatched) ...[
+                                      const Icon(
+                                        Icons.check_rounded,
+                                        size: 11,
+                                        color: KonataTheme.pureWhite,
+                                      ),
+                                      const SizedBox(width: 3),
+                                    ],
+                                    Text(
+                                      hasWatched
+                                          ? '已看'
+                                          : MediaDisplayFormatter.formatDurationSeconds(
+                                              position,
+                                            ),
+                                      style: const TextStyle(
+                                        color: KonataTheme.pureWhite,
+                                        fontSize: KonataTheme.fontSizeBadge,
+                                        fontWeight: FontWeight.w600,
+                                        height: 1.2,
+                                        leadingDistribution:
+                                            TextLeadingDistribution.even,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                           if (!KonataAdaptiveTokens.isAndroid && _hovered)
@@ -211,13 +245,33 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
                               left: 0,
                               right: 0,
                               bottom: 0,
+                              height: 3,
                               child: Container(
-                                height: 3,
-                                color: KonataTheme.scrimBlackMedium,
+                                key: const ValueKey(
+                                  'episode_playback_progress',
+                                ),
+                                color: KonataTheme.scrimBlackStrong,
                                 alignment: Alignment.centerLeft,
                                 child: FractionallySizedBox(
                                   widthFactor: progress,
-                                  child: ColoredBox(color: p.accent),
+                                  heightFactor: 1,
+                                  child: DecoratedBox(
+                                    decoration: BoxDecoration(
+                                      color: hasWatched
+                                          ? p.success
+                                          : KonataTheme.pureWhite,
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color:
+                                              (hasWatched
+                                                      ? p.success
+                                                      : KonataTheme.pureWhite)
+                                                  .withValues(alpha: 0.45),
+                                          blurRadius: 6,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
                                 ),
                               ),
                             ),

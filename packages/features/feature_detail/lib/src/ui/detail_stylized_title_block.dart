@@ -214,7 +214,7 @@ class _DetailStylizedTitleBlockState extends State<DetailStylizedTitleBlock> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final maxW = constraints.hasBoundedWidth
-            ? math.min(constraints.maxWidth, 640.0)
+            ? math.min(constraints.maxWidth, 520.0)
             : (widget.isCompactViewport ? 320.0 : 540.0);
         final plan = DetailTitleTypographyResolver.resolve(
           title: widget.work.title,

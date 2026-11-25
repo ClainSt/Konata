@@ -301,10 +301,12 @@ void main() {
     await controller.initialize();
 
     controller.setThemeMode(ThemeMode.light);
+    expect(controller.ambientBackdropEnabled, isFalse);
+    controller.setAmbientBackdropEnabled(true);
     controller.setAmbientBackdropEnabled(false);
 
     expect(themes, equals(<ThemeMode>[ThemeMode.light]));
-    expect(ambients, equals(<bool>[false]));
+    expect(ambients, equals(<bool>[true, false]));
 
     final persisted = SettingsAppearanceRepository(scopedPrefs).read();
     expect(persisted.themeMode, equals(ThemeMode.light));
@@ -386,7 +388,7 @@ void main() {
     expect(controller.displayPrefs.showTitleText, isTrue);
     expect(controller.displayPrefs.showTitleLogo, isTrue);
     expect(controller.displayPrefs.showOverview, isTrue);
-    expect(controller.displayPrefs.showRawVideoFilename, isFalse);
+    expect(controller.displayPrefs.showRawVideoFilename, isTrue);
     expect(controller.displayPrefs.showCdTab, isTrue);
     expect(controller.displayPrefs.showScanTab, isTrue);
 
@@ -479,7 +481,9 @@ void main() {
     expect(exportedText, isNot(contains('sakura')));
     expect(exportedText, contains('<USER_HOME>'));
 
-    final textReportPath = await controller.exportDiagnosticBundle(asJson: false);
+    final textReportPath = await controller.exportDiagnosticBundle(
+      asJson: false,
+    );
     expect(textReportPath, isNotNull);
     final plainText = utf8.decode(backupFilePort.saved.last.bytes);
     expect(plainText, isNot(contains('my_fanart_key_xyz')));
@@ -489,10 +493,7 @@ void main() {
 
   test('图片统计扫描识别孤儿目录并支持按作品目录与分类精准清理', () async {
     db.library.works.upsert(
-      const WorkRecord(
-        id: WorkId.trusted('work_a'),
-        title: '轻音少女',
-      ),
+      const WorkRecord(id: WorkId.trusted('work_a'), title: '轻音少女'),
     );
     final photosRoot = await photosStorage.resolveRootDirectory();
     final workPoster = File(
@@ -529,7 +530,10 @@ void main() {
     expect(snapshot.globalStats.totalBytes, equals(2000));
     expect(snapshot.workEntries.length, equals(2));
     expect(
-      snapshot.workEntries.where((e) => e.workId == 'work_orphan').single.isOrphan,
+      snapshot.workEntries
+          .where((e) => e.workId == 'work_orphan')
+          .single
+          .isOrphan,
       isTrue,
     );
 

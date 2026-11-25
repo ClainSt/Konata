@@ -311,7 +311,26 @@ void main() {
 
     expect(find.text('发烧输出与 -12 dBFS 防爆耳安全链'), findsOneWidget);
     expect(find.text('回放增益与常规音控'), findsOneWidget);
-    expect(find.text('桌面端外部音频转发接力'), findsOneWidget);
+    expect(find.text('桌面端外部音频转发接力'), findsNothing);
+    expect(find.textContaining('Beefweb'), findsNothing);
+    expect(featurePlayerAudioManifest.settingsSections.single.title, '音频');
+    final engine = find.byKey(const ValueKey('audio_engine_selector'));
+    expect(engine, findsOneWidget);
+    await tester.ensureVisible(engine);
+    await tester.tap(find.descendant(of: engine, matching: find.text('外部播放器')));
+    await tester.pumpAndSettle();
+    expect(
+      h.prefsRepo.read().preferredAudioEngine,
+      PreferredPlaybackEngine.desktopRelay,
+    );
+    await tester.tap(
+      find.descendant(of: engine, matching: find.text('内置流光音频')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      h.prefsRepo.read().preferredAudioEngine,
+      PreferredPlaybackEngine.builtinLibmpv,
+    );
 
     // 校验声明式清单与 Riverpod Provider 正常注入解析。
     expect(featurePlayerAudioManifest.id, 'feature_player_audio');

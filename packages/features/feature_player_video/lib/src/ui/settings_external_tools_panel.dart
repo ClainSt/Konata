@@ -90,10 +90,34 @@ class _SettingsExternalToolsPanelState
       widget.pickExecutableFile ??
       ref.read(featurePlayerVideoDependenciesProvider).pickExecutableFile;
 
+  ({int port, bool skipGuide}) _audioRelayPrefs() {
+    final reader = ref
+        .read(featurePlayerVideoDependenciesProvider)
+        .readAudioRelayPreferences;
+    final legacy = _resolvePrefsStore().read().skipFoobarBeefwebGuidePrompt;
+    final prefs = reader?.call();
+    return (
+      port: prefs?.port ?? FoobarBeefwebConfig.defaultPort,
+      skipGuide: (prefs?.skipGuide ?? false) || legacy,
+    );
+  }
+
+  void _saveAudioRelayPrefs({int? port, bool? skipGuide}) {
+    final writer = ref
+        .read(featurePlayerVideoDependenciesProvider)
+        .writeAudioRelayPreferences;
+    writer?.call(port: port, skipGuide: skipGuide);
+    if (skipGuide != null) {
+      _resolvePrefsStore().setSkipFoobarBeefwebGuidePrompt(
+        writer == null && skipGuide,
+      );
+    }
+  }
+
   @override
   void initState() {
     super.initState();
-    _beefwebPortController.text = '${FoobarBeefwebConfig.defaultPort}';
+    _beefwebPortController.text = '${_audioRelayPrefs().port}';
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         unawaited(_loadConfigs());
@@ -227,6 +251,7 @@ class _SettingsExternalToolsPanelState
       showKonataToast(context, '请输入有效的端口号（1–65535）', isError: true);
       return;
     }
+    _saveAudioRelayPrefs(port: port);
     setState(() => _probing = true);
     try {
       if (persist) await _persistNow();
@@ -408,18 +433,6 @@ class _SettingsExternalToolsPanelState
                           height: 1.4,
                         ),
                       ),
-                      if (_resolvePrefsStore()
-                              .read()
-                              .skipFoobarBeefwebGuidePrompt &&
-                          status.state == FoobarComponentState.missingComponent)
-                        KonataPillButton.ghost(
-                          label: '恢复播放前提醒',
-                          onPressed: () {
-                            _resolvePrefsStore()
-                                .setSkipFoobarBeefwebGuidePrompt(false);
-                            setState(() {});
-                          },
-                        ),
                     ],
                   ),
                   trailing: Wrap(
@@ -438,8 +451,13 @@ class _SettingsExternalToolsPanelState
                           prefixIcon: Icons.lan_outlined,
                           height: 38,
                           keyboardType: TextInputType.number,
-                          onChanged: (_) =>
-                              setState(() => _probeSnapshot = null),
+                          onChanged: (value) {
+                            final port = int.tryParse(value.trim());
+                            if (port != null && port >= 1 && port <= 65535) {
+                              _saveAudioRelayPrefs(port: port);
+                            }
+                            setState(() => _probeSnapshot = null);
+                          },
                         ),
                       ),
                       KonataPillButton.secondary(
@@ -463,6 +481,19 @@ class _SettingsExternalToolsPanelState
                         onPressed: () => unawaited(_openBeefwebDownload()),
                       ),
                     ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                AdaptiveSettingTile(
+                  title: '跳过 Beefweb 未安装引导弹窗',
+                  subtitle: '未安装组件时不再显示播放前提醒',
+                  trailing: KonataSwitch(
+                    key: const ValueKey('external_skip_beefweb_guide'),
+                    value: _audioRelayPrefs().skipGuide,
+                    onChanged: (v) {
+                      _saveAudioRelayPrefs(skipGuide: v);
+                      setState(() {});
+                    },
                   ),
                 ),
               ],

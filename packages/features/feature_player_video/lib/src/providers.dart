@@ -35,6 +35,8 @@ final class FeaturePlayerVideoDependencies {
     this.pipRecoveryStore,
     this.desktopRelayGateway,
     this.externalPlayerStore,
+    this.readAudioRelayPreferences,
+    this.writeAudioRelayPreferences,
     this.desktopSurfaceBridge,
     this.desktopProfileDelegate,
     this.androidSurfacePort,
@@ -101,6 +103,12 @@ final class FeaturePlayerVideoDependencies {
 
   /// 可选桌面外置播放器配置存取端口。
   final DesktopExternalPlayerStore? externalPlayerStore;
+
+  /// 宿主注入的统一音频接力偏好读取回调。
+  final ({int port, bool skipGuide}) Function()? readAudioRelayPreferences;
+
+  /// 宿主注入的统一音频接力偏好更新回调。
+  final void Function({int? port, bool? skipGuide})? writeAudioRelayPreferences;
 
   /// 可选桌面硬件纹理共享桥接端口。
   final KonataVideoTextureBridge? desktopSurfaceBridge;

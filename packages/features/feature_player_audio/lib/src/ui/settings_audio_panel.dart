@@ -89,12 +89,13 @@ class SettingsAudioPanel extends StatelessWidget {
                       onChanged: (val) {
                         final ctrl = controller;
                         if (ctrl != null) {
-                          unawaited(ctrl.setAudiophileSafetyLimiterEnabled(val));
+                          unawaited(
+                            ctrl.setAudiophileSafetyLimiterEnabled(val),
+                          );
                         } else {
                           preferences.update(
-                            (p) => p.copyWith(
-                              audiophileSafetyLimiterEnabled: val,
-                            ),
+                            (p) =>
+                                p.copyWith(audiophileSafetyLimiterEnabled: val),
                           );
                         }
                       },
@@ -112,21 +113,48 @@ class SettingsAudioPanel extends StatelessWidget {
                         ),
                       ),
                     ),
+                  if (isDesktopPlatform)
+                    AdaptiveSettingTile(
+                      title: '默认 CD 音频引擎',
+                      subtitle: '内置音频支持沉浸式舞台、迷你播放器与分轨歌词',
+                      estimatedTrailingWidth: 300,
+                      trailing: KonataSegmentedCapsule<PreferredPlaybackEngine>(
+                        key: const ValueKey('audio_engine_selector'),
+                        compact: true,
+                        selected: prefs.preferredAudioEngine,
+                        options: const [
+                          KonataSegmentOption(
+                            value: PreferredPlaybackEngine.builtinLibmpv,
+                            label: '内置流光音频',
+                          ),
+                          KonataSegmentOption(
+                            value: PreferredPlaybackEngine.desktopRelay,
+                            label: '外部播放器',
+                          ),
+                        ],
+                        onChanged: (e) => _updateAndSync(
+                          (p) => p.copyWith(preferredAudioEngine: e),
+                        ),
+                      ),
+                    ),
                   AdaptiveSettingTile(
                     title: 'libsoxr 线性相位重采样精度',
                     subtitle: '在需要采样率变换时使用的精度档位（28-bit 为推荐高保真均衡值）',
                     estimatedTrailingWidth: 160,
-                    trailing: KonataDropdown<int>(
-                      value: prefs.audioResamplerPrecision,
-                      dense: true,
-                      options: const [
-                        KonataDropdownOption(value: 20, label: '20-bit (轻量)'),
-                        KonataDropdownOption(value: 24, label: '24-bit (高精)'),
-                        KonataDropdownOption(value: 28, label: '28-bit (推荐)'),
-                        KonataDropdownOption(value: 32, label: '32-bit (极致)'),
-                      ],
-                      onChanged: (v) => _updateAndSync(
-                        (p) => p.copyWith(audioResamplerPrecision: v),
+                    trailing: SizedBox(
+                      width: 165,
+                      child: KonataDropdown<int>(
+                        value: prefs.audioResamplerPrecision,
+                        dense: true,
+                        options: const [
+                          KonataDropdownOption(value: 20, label: '20-bit (轻量)'),
+                          KonataDropdownOption(value: 24, label: '24-bit (高精)'),
+                          KonataDropdownOption(value: 28, label: '28-bit (推荐)'),
+                          KonataDropdownOption(value: 32, label: '32-bit (极致)'),
+                        ],
+                        onChanged: (v) => _updateAndSync(
+                          (p) => p.copyWith(audioResamplerPrecision: v),
+                        ),
                       ),
                     ),
                   ),
@@ -185,20 +213,27 @@ class SettingsAudioPanel extends StatelessWidget {
                     title: '回放增益 (ReplayGain)',
                     subtitle: '读取内嵌或标签中的响度元数据以平衡不同专辑间音量跳跃',
                     estimatedTrailingWidth: 165,
-                    trailing: KonataDropdown<AudioReplayGainMode>(
-                      value: prefs.replayGainMode,
-                      dense: true,
-                      options: [
-                        for (final mode in AudioReplayGainMode.values)
-                          KonataDropdownOption(value: mode, label: mode.label),
-                      ],
-                      onChanged: (m) => _updateAndSync(
-                        (p) => p.copyWith(replayGainMode: m),
+                    trailing: SizedBox(
+                      width: 165,
+                      child: KonataDropdown<AudioReplayGainMode>(
+                        value: prefs.replayGainMode,
+                        dense: true,
+                        options: [
+                          for (final mode in AudioReplayGainMode.values)
+                            KonataDropdownOption(
+                              value: mode,
+                              label: mode.label,
+                            ),
+                        ],
+                        onChanged: (m) => _updateAndSync(
+                          (p) => p.copyWith(replayGainMode: m),
+                        ),
                       ),
                     ),
                   ),
                   AdaptiveSettingTile(
-                    title: '前置增益微调 (${prefs.replayGainPreampDb.toStringAsFixed(1)} dB)',
+                    title:
+                        '前置增益微调 (${prefs.replayGainPreampDb.toStringAsFixed(1)} dB)',
                     subtitle: '正向增量时将自动受末端 -12 dBFS 限幅保护约束',
                     estimatedTrailingWidth: 190,
                     trailing: SizedBox(
@@ -225,9 +260,8 @@ class SettingsAudioPanel extends StatelessWidget {
                         min: 5.0,
                         max: 100.0,
                         divisions: 19,
-                        onChanged: (v) => _updateAndSync(
-                          (p) => p.copyWith(defaultVolume: v),
-                        ),
+                        onChanged: (v) =>
+                            _updateAndSync((p) => p.copyWith(defaultVolume: v)),
                       ),
                     ),
                   ),
@@ -236,9 +270,8 @@ class SettingsAudioPanel extends StatelessWidget {
                     subtitle: '倍速播放期间启用 Scaletempo2 保持人声与乐器原调',
                     trailing: KonataSwitch(
                       value: prefs.keepPitch,
-                      onChanged: (val) => _updateAndSync(
-                        (p) => p.copyWith(keepPitch: val),
-                      ),
+                      onChanged: (val) =>
+                          _updateAndSync((p) => p.copyWith(keepPitch: val)),
                     ),
                   ),
                   AdaptiveSettingTile(
@@ -254,76 +287,6 @@ class SettingsAudioPanel extends StatelessWidget {
                 ],
               ),
             ),
-            if (isDesktopPlatform) ...[
-              const SizedBox(height: 14),
-              // 三、桌面端外部音频播放器接力设置。
-              KonataSurfaceCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '桌面端外部音频转发接力',
-                      style: TextStyle(
-                        color: palette.textPrimary,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    AdaptiveSettingTile(
-                      title: '默认桌面音频播放引擎',
-                      subtitle: '决定在桌面端打开 CD 专辑时优先采用内置引擎或接力外部发烧播放器',
-                      estimatedTrailingWidth: 190,
-                      trailing: KonataDropdown<PreferredPlaybackEngine>(
-                        value: prefs.preferredAudioEngine,
-                        dense: true,
-                        options: [
-                          for (final engine in PreferredPlaybackEngine.values)
-                            KonataDropdownOption(
-                              value: engine,
-                              label: engine.label,
-                            ),
-                        ],
-                        onChanged: (e) => _updateAndSync(
-                          (p) => p.copyWith(preferredAudioEngine: e),
-                        ),
-                      ),
-                    ),
-                    AdaptiveSettingTile(
-                      title: 'foobar2000 Beefweb HTTP 端口 (${prefs.foobarBeefwebPort})',
-                      subtitle: '用于与本地 foobar2000 实时双向同步专辑列表与播放时间戳',
-                      estimatedTrailingWidth: 165,
-                      trailing: KonataDropdown<int>(
-                        value: const [8880, 8888, 9090].contains(
-                              prefs.foobarBeefwebPort,
-                            )
-                            ? prefs.foobarBeefwebPort
-                            : 8880,
-                        dense: true,
-                        options: const [
-                          KonataDropdownOption(value: 8880, label: '8880 (默认)'),
-                          KonataDropdownOption(value: 8888, label: '8888'),
-                          KonataDropdownOption(value: 9090, label: '9090'),
-                        ],
-                        onChanged: (port) => _updateAndSync(
-                          (p) => p.copyWith(foobarBeefwebPort: port),
-                        ),
-                      ),
-                    ),
-                    AdaptiveSettingTile(
-                      title: '跳过 Beefweb 未安装引导弹窗',
-                      subtitle: '探测不到 foo_beefweb 接口时直接唤起程序，不再弹出提示确认框',
-                      trailing: KonataSwitch(
-                        value: prefs.skipFoobarBeefwebPrompt,
-                        onChanged: (val) => _updateAndSync(
-                          (p) => p.copyWith(skipFoobarBeefwebPrompt: val),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
           ],
         );
       },

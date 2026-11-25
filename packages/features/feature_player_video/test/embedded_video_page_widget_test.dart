@@ -192,7 +192,16 @@ void main() {
 
       final harness = await VideoTestHarness.create();
       addTearDown(harness.dispose);
-      final deps = harness.buildDependencies();
+      var savedPort = 9090;
+      var savedSkip = false;
+      final deps = harness.buildDependencies(
+        readAudioRelayPreferences: () =>
+            (port: savedPort, skipGuide: savedSkip),
+        writeAudioRelayPreferences: ({int? port, bool? skipGuide}) {
+          if (port != null) savedPort = port;
+          if (skipGuide != null) savedSkip = skipGuide;
+        },
+      );
 
       await tester.pumpWidget(
         wrapVideoTestApp(
@@ -231,6 +240,25 @@ void main() {
       expect(find.text('外部音频播放器'), findsOneWidget);
       expect(find.text('待配置 foobar2000 路径'), findsOneWidget);
       expect(find.text('浏览'), findsNWidgets(3));
+      final portField = find.byKey(
+        const ValueKey('settings_foobar_beefweb_port_field'),
+      );
+      await tester.ensureVisible(portField);
+      expect(
+        find.descendant(of: portField, matching: find.text('9090')),
+        findsOneWidget,
+      );
+      await tester.enterText(
+        find.descendant(of: portField, matching: find.byType(EditableText)),
+        '8888',
+      );
+      await tester.pump();
+      expect(savedPort, 8888);
+      final guide = find.byKey(const ValueKey('external_skip_beefweb_guide'));
+      await tester.ensureVisible(guide);
+      await tester.tap(guide);
+      await tester.pump();
+      expect(savedSkip, isTrue);
       final probeFinder = find.text('检测连接');
       await tester.ensureVisible(probeFinder);
       await tester.pump();

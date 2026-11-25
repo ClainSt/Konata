@@ -563,6 +563,30 @@ List<Override> buildFeatureProviderOverrides(FeatureRuntimeWiring wiring) {
         audiophileCoordinator: wiring.audiophileCoordinator,
         desktopRelayGateway: wiring.desktopRelayGateway,
         externalPlayerStore: wiring.externalPlayerStore,
+        readAudioRelayPreferences: hasAudio
+            ? () {
+                final prefs = AudioPlaybackPreferences(
+                  store: wiring.scopedPrefs,
+                ).read();
+                return (
+                  port: prefs.foobarBeefwebPort,
+                  skipGuide: prefs.skipFoobarBeefwebPrompt,
+                );
+              }
+            : null,
+        writeAudioRelayPreferences: hasAudio
+            ? ({int? port, bool? skipGuide}) {
+                AudioPlaybackPreferences(
+                  store: wiring.scopedPrefs,
+                  eventBus: wiring.domainEventBus,
+                ).update(
+                  (p) => p.copyWith(
+                    foobarBeefwebPort: port,
+                    skipFoobarBeefwebPrompt: skipGuide,
+                  ),
+                );
+              }
+            : null,
         desktopSurfaceBridge: wiring.desktopSurfaceBridge,
         desktopProfileDelegate: wiring.desktopProfileDelegate,
         androidSurfacePort: wiring.androidSurfacePort,

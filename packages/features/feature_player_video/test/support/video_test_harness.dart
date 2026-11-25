@@ -399,10 +399,7 @@ final class FakeDesktopRelayGateway implements DesktopRelayGateway {
     launchCount++;
     lastStartSeconds = startSeconds;
     lastProgressCallback = onProgressUpdate;
-    return const LaunchPlaybackResult(
-      launched: true,
-      message: '已调起外部播放器接力播放',
-    );
+    return const LaunchPlaybackResult(launched: true, message: '已调起外部播放器接力播放');
   }
 
   @override
@@ -732,6 +729,8 @@ final class VideoTestHarness {
         const <PlayerSidePanelContribution>[],
     Future<String?> Function({String? dialogTitle})? pickExecutableFile,
     Future<List<ShaderImportSource>> Function()? pickShaderFiles,
+    ({int port, bool skipGuide}) Function()? readAudioRelayPreferences,
+    void Function({int? port, bool? skipGuide})? writeAudioRelayPreferences,
   }) {
     return FeaturePlayerVideoDependencies(
       databases: databases,
@@ -751,6 +750,8 @@ final class VideoTestHarness {
       pipRecoveryStore: pipStore,
       desktopRelayGateway: desktopRelay,
       externalPlayerStore: externalPlayerStore,
+      readAudioRelayPreferences: readAudioRelayPreferences,
+      writeAudioRelayPreferences: writeAudioRelayPreferences,
       playerSidePanels: playerSidePanels,
       pickExecutableFile: pickExecutableFile,
       pickShaderFiles: pickShaderFiles,
@@ -759,7 +760,15 @@ final class VideoTestHarness {
   }
 
   /// 向内存媒体库写入一部含两话正片的标准测试作品与物理版本数据。
-  Future<({WorkRecord work, EpisodeRecord ep1, EpisodeRecord ep2, MediaVariantRecord v1, MediaVariantRecord v2})>
+  Future<
+    ({
+      WorkRecord work,
+      EpisodeRecord ep1,
+      EpisodeRecord ep2,
+      MediaVariantRecord v1,
+      MediaVariantRecord v2,
+    })
+  >
   seedSampleAnime({
     String workId = 'work_sample',
     String? videoCodec,

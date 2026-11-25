@@ -32,15 +32,15 @@ Object _buildAudioSettingsSectionView(ViewSlotContext slotContext) {
 
 /// `feature_player_audio` 声明式扩展清单常量。
 ///
-/// 对外壳层注册「音频与发烧直通」设置分区贡献；沉浸舞台与迷你小窗通过根出口组件显式装配。
+/// 对外壳层注册「音频」设置分区贡献；沉浸舞台与迷你小窗通过根出口组件显式装配。
 const FeatureManifest featurePlayerAudioManifest = FeatureManifest(
   id: 'feature_player_audio',
   displayName: '沉浸式 CD 音乐舞台与小窗',
   settingsSections: <SettingsSectionContribution>[
     SettingsSectionContribution(
       id: 'audio_playback',
-      title: '音频与发烧直通',
-      subtitle: '-12 dBFS 防爆耳安全链、回放增益、迷你唱片与外部播放器转发',
+      title: '音频',
+      subtitle: '音频输出、回放增益与播放偏好',
       iconKey: 'audio_stage',
       order: 35,
       viewBuilder: _buildAudioSettingsSectionView,

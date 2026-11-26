@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:engine_scraping/engine_scraping.dart';
 import 'package:flutter/widgets.dart';
@@ -310,10 +309,8 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     const topPad = 8.0;
     const bottomHeaderPad = 10.0;
     final bottomClearance = KonataBottomClearanceScope.of(context);
-    final gridBottomPad = math.max(
-      compact ? 18.0 : 28.0,
-      bottomClearance + 16.0,
-    );
+    // 与黄金源一致：页面留白独立于导航胶囊或小窗避让高度。
+    final gridBottomPad = 28.0 + bottomClearance;
 
     return ListenableBuilder(
       listenable: controller,

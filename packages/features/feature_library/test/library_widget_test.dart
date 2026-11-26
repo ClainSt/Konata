@@ -607,7 +607,9 @@ void main() {
       Size(1440, 900),
     ];
 
-    for (final viewport in viewports) {
+    const clearances = <double>[96, 0, 120, 0];
+    for (final (index, viewport) in viewports.indexed) {
+      final clearance = clearances[index];
       tester.view.physicalSize = viewport;
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
@@ -627,18 +629,21 @@ void main() {
               child: Scaffold(
                 body: Stack(
                   children: [
-                    LibraryPage(
-                      slotContext: const ViewSlotContext(
-                        arguments: <String, Object?>{'searchQuery': ''},
+                    KonataBottomClearanceScope(
+                      bottomClearance: clearance,
+                      child: LibraryPage(
+                        slotContext: const ViewSlotContext(
+                          arguments: <String, Object?>{'searchQuery': ''},
+                        ),
+                        imageLoaderOverride:
+                            (
+                              _, {
+                              int targetWidth = 384,
+                              TmdbImageSize imageSize = TmdbImageSize.w500,
+                              String? ownerWorkId,
+                              PhotoSubfolder? subfolder,
+                            }) async => _samplePng,
                       ),
-                      imageLoaderOverride:
-                          (
-                            _, {
-                            int targetWidth = 384,
-                            TmdbImageSize imageSize = TmdbImageSize.w500,
-                            String? ownerWorkId,
-                            PhotoSubfolder? subfolder,
-                          }) async => _samplePng,
                     ),
                     KonataToastViewport(controller: toastCtrl),
                   ],
@@ -651,6 +656,12 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
+      final grid = tester.widget<GridView>(find.byType(GridView));
+      expect(
+        grid.padding!.resolve(TextDirection.ltr).bottom,
+        28 + clearance,
+        reason: '黄金源底部留白应独立叠加胶囊避让',
+      );
       final poster = tester.widget<ManagedImage>(find.byType(ManagedImage));
       expect(poster.ownerWorkId, 'w_wall_1');
       expect(poster.subfolder, PhotoSubfolder.posters);

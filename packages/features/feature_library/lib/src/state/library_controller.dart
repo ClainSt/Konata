@@ -495,6 +495,10 @@ class LibraryController extends ChangeNotifier {
         v.fileName,
         relativePath: v.relativePath,
         folderTitle: work.title,
+        // 海报墙仅消费压制组，跳过已由入库数据提供的季集与分类解析。
+        resolveEpisode: false,
+        resolveExtraClassification: false,
+        resolveTitleAndSeason: false,
       );
       final group = parsed.releaseGroup?.trim() ?? '';
       if (group.isNotEmpty && seenGroups.add(group.toLowerCase())) {

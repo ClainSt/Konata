@@ -64,11 +64,7 @@ extension _AudioPlaybackControllerEvents on AudioPlaybackController {
     _timePosObserved = false;
     _timePosObserveId = null;
     client.observeProperty(_allocateObserveId(), 'duration', MpvFormat.double_);
-    client.observeProperty(
-      _allocateObserveId(),
-      'core-idle',
-      MpvFormat.flag,
-    );
+    client.observeProperty(_allocateObserveId(), 'core-idle', MpvFormat.flag);
     client.observeProperty(
       _allocateObserveId(),
       'audio-params/samplerate',
@@ -109,8 +105,7 @@ extension _AudioPlaybackControllerEvents on AudioPlaybackController {
       _cueBoundaryTimer = null;
       return;
     }
-    final shouldObserve =
-        _playingNotifier.value && !_progressObservationHidden;
+    final shouldObserve = _playingNotifier.value && !_progressObservationHidden;
     if (shouldObserve && !_timePosObserved) {
       final obsId = _allocateObserveId();
       _timePosObserveId = obsId;
@@ -130,6 +125,8 @@ extension _AudioPlaybackControllerEvents on AudioPlaybackController {
   }
 
   Future<void> _releaseCurrentClient({bool fromEviction = false}) async {
+    _mediaOpenSeq++;
+    _clearPrefetchTracking(releaseBridge: true);
     _cueBoundaryTimer?.cancel();
     _cueBoundaryTimer = null;
     _microFadeDriver.cancel();
@@ -141,9 +138,10 @@ extension _AudioPlaybackControllerEvents on AudioPlaybackController {
     final client = _client;
     _client = null;
     _clientNativeInstanceId = 0;
-    if (client != null) {
+    if (client != null && !fromEviction) {
       await _engine.releaseNativeClient(client);
     }
+    _replaceMainStreamToken(null);
     if (fromEviction && !_disposed) {
       _playingNotifier.value = false;
       _updateSnapshot(
@@ -171,8 +169,17 @@ extension _AudioPlaybackControllerEvents on AudioPlaybackController {
         unawaited(_prefetchNextTrackIfPossible());
       case MpvAudioReconfigEvent():
         _refreshAudioStreamMetadataFromClient();
-      case MpvEndFileEvent(:final reason, :final errorCode):
-        _onMpvEndFile(reason: reason, errorCode: errorCode);
+      case MpvEndFileEvent(
+        :final reason,
+        :final errorCode,
+        :final playlistEntryId,
+      ):
+        if (_engine.matchesPhysicalEvent(
+          physicalMediaEpoch: _engine.physicalMediaEpoch,
+          playlistEntryId: playlistEntryId,
+        )) {
+          _onMpvEndFile(reason: reason, errorCode: errorCode);
+        }
       case MpvPropertyChangeEvent():
         _onMpvPropertyChange(event);
       case MpvLogMessageEvent(:final level, :final text):
@@ -218,10 +225,10 @@ extension _AudioPlaybackControllerEvents on AudioPlaybackController {
         }
       case 'audio-params/samplerate':
         final sr = event.intValue;
-        if (sr != null && sr > 0 && sr != _snapshotNotifier.value.sampleRateHz) {
-          _updateSnapshot(
-            _snapshotNotifier.value.copyWith(sampleRateHz: sr),
-          );
+        if (sr != null &&
+            sr > 0 &&
+            sr != _snapshotNotifier.value.sampleRateHz) {
+          _updateSnapshot(_snapshotNotifier.value.copyWith(sampleRateHz: sr));
         }
       case 'audio-params/format':
         final fmt = event.stringValue ?? '';
@@ -231,10 +238,10 @@ extension _AudioPlaybackControllerEvents on AudioPlaybackController {
         }
       case 'audio-params/channel-count':
         final ch = event.intValue;
-        if (ch != null && ch > 0 && ch != _snapshotNotifier.value.channelCount) {
-          _updateSnapshot(
-            _snapshotNotifier.value.copyWith(channelCount: ch),
-          );
+        if (ch != null &&
+            ch > 0 &&
+            ch != _snapshotNotifier.value.channelCount) {
+          _updateSnapshot(_snapshotNotifier.value.copyWith(channelCount: ch));
         }
       case 'audio-codec-name':
         final codec = event.stringValue ?? '';
@@ -340,17 +347,19 @@ extension _AudioPlaybackControllerEvents on AudioPlaybackController {
       return;
     }
     if (reason == MpvEndFileReason.eof) {
+      if (_expectedAppendPlaylistEntryId != null) {
+        // 原生已追加确切下一项，等待 START_FILE 晋升，不再并行发起 replace。
+        unawaited(_persistPlaybackHistory(force: true, markCompleted: true));
+        return;
+      }
       unawaited(_handleNaturalTrackCompletion(fromCueBoundary: false));
     }
   }
-
 }
 
 int _parseAudioBitDepthFromFormat(String format) {
   final lower = format.trim().toLowerCase();
-  if (lower.contains('s32') ||
-      lower.contains('flt') ||
-      lower.contains('dbl')) {
+  if (lower.contains('s32') || lower.contains('flt') || lower.contains('dbl')) {
     return lower.contains('dbl') ? 64 : 32;
   }
   if (lower.contains('s24')) return 24;

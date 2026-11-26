@@ -1,14 +1,64 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:engine_playback/engine_playback.dart';
 import 'package:feature_player_video/feature_player_video.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:konata_contracts/konata_contracts.dart';
+import 'package:konata_storage/konata_storage.dart';
 
 import 'support/video_test_harness.dart';
 
 void main() {
   group('VideoPlaybackPreferencesStore 自治偏好切片', () {
+    test('自动画中画默认开启且可持久关闭，旧载荷安全兼容', () async {
+      final harness = await VideoTestHarness.create();
+      addTearDown(harness.dispose);
+      final store = harness.preferencesStore;
+      expect(store.read().autoEnterPip, isTrue);
+      store.setAutoEnterPip(false);
+      final disabled = store.read();
+      expect(disabled.autoEnterPip, isFalse);
+      expect(disabled, isNot(const VideoPlaybackPreferences()));
+      expect(VideoPlaybackPreferences.fromJson(disabled.toJson(), 2), disabled);
+      expect(VideoPlaybackPreferences.fromJson({}, 2).autoEnterPip, isTrue);
+      store.setAutoEnterPip(true);
+      expect(store.read().autoEnterPip, isTrue);
+    });
+    test('输出模式原子互斥，兼容旧双开关并保留另一平台偏好', () async {
+      final h = await VideoTestHarness.create();
+      addTearDown(h.dispose);
+      final store = h.preferencesStore;
+      store.setAudioOutputRoute(
+        AudioOutputRouteMode.androidBitPerfectUsb,
+        platform: KonataPlatform.androidPhone,
+      );
+      store.setAudioOutputRoute(
+        AudioOutputRouteMode.exclusiveAudioOutput,
+        platform: KonataPlatform.windows,
+      );
+      expect(store.read().qualityConfig.exclusiveAudioOutput, isTrue);
+      expect(store.read().bitstreamPassthrough, isFalse);
+      expect(store.read().androidBitPerfectUsb, isTrue);
+      store.setAudioOutputRoute(
+        AudioOutputRouteMode.bitstreamPassthrough,
+        platform: KonataPlatform.windows,
+      );
+      expect(store.read().qualityConfig.exclusiveAudioOutput, isFalse);
+      expect(store.read().bitstreamPassthrough, isTrue);
+      store.setAudioOutputRoute(
+        AudioOutputRouteMode.sharedResampled,
+        platform: KonataPlatform.windows,
+      );
+      expect(store.read().bitstreamPassthrough, isFalse);
+      expect(store.read().androidBitPerfectUsb, isTrue);
+      final restored = VideoPlaybackPreferences.fromJson({
+        'qualityConfig': {'exclusiveAudioOutput': true},
+        'bitstreamPassthrough': true,
+      }, 2);
+      expect(restored.bitstreamPassthrough, isTrue);
+      expect(restored.qualityConfig.exclusiveAudioOutput, isFalse);
+    });
     test('读取默认值并在写入与恢复后保持往返一致且发出领域事件', () async {
       final harness = await VideoTestHarness.create();
       addTearDown(harness.dispose);
@@ -80,6 +130,121 @@ void main() {
   });
 
   group('PipRecoveryStore 画中画断点恢复存储', () {
+    test('损坏、缺失、负数和非有限快照安全拒绝', () {
+      final valid = <String, Object?>{
+        'workId': 'w',
+        'episodeId': 'e',
+        'variantId': 'v',
+        'positionSeconds': 12,
+        'updatedAtMs': 1000,
+        'isPlaying': true,
+      };
+      expect(PipPlaybackRecoverySnapshot.tryFromJson(valid), isNotNull);
+      for (final bad in <Map<String, Object?>>[
+        {'workId': 1},
+        {'episodeId': ''},
+        {'variantId': false},
+        {'positionSeconds': -1},
+        {'positionSeconds': double.nan},
+        {'positionSeconds': double.infinity},
+        {'isPlaying': 'yes'},
+        {'updatedAtMs': 'now'},
+      ]) {
+        expect(
+          PipPlaybackRecoverySnapshot.tryFromJson({...valid, ...bad}),
+          isNull,
+        );
+      }
+    });
+    test('磁盘关闭重开仍保留本机快照，错配物理版本被拒绝', () async {
+      final dir = await Directory.systemTemp.createTemp('konata_pip_disk_');
+      addTearDown(() => dir.delete(recursive: true));
+      final root = PortableStorageRootService(overrideRootPath: dir.path);
+      final first = await KonataDatabaseBundle.openFromStorageRoot(root);
+      const work = WorkId.trusted('pip-work');
+      const episode = EpisodeId.trusted('pip-episode');
+      const variant = VariantId.trusted('pip-variant');
+      const source = SourceId.trusted('pip-source');
+      const otherEpisode = EpisodeId.trusted('pip-other-episode');
+      final snapshot = PipPlaybackRecoverySnapshot(
+        workId: work.value,
+        episodeId: episode.value,
+        variantId: variant.value,
+        positionSeconds: 42,
+        isPlaying: false,
+        updatedAtMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      try {
+        first.library.works.upsert(const WorkRecord(id: work, title: '恢复测试'));
+        first.library.episodes.upsert(
+          const EpisodeRecord(
+            id: episode,
+            workId: work,
+            seasonNumber: 1,
+            episodeNumber: 1,
+          ),
+        );
+        first.library.episodes.upsert(
+          const EpisodeRecord(
+            id: otherEpisode,
+            workId: work,
+            seasonNumber: 1,
+            episodeNumber: 2,
+          ),
+        );
+        first.library.mediaSources.upsert(
+          MediaSourceRecord(
+            id: source,
+            kind: MediaSourceKind.local,
+            label: '隔离夹具',
+            location: dir.path,
+            createdAtMs: 1,
+            updatedAtMs: 1,
+          ),
+        );
+        first.library.mediaVariants.upsert(
+          const MediaVariantRecord(
+            id: variant,
+            workId: work,
+            episodeId: episode,
+            sourceId: source,
+            relativePath: '01.mkv',
+            fileName: '01.mkv',
+            fileSize: 1,
+          ),
+        );
+        await ScopedPrefsPipRecoveryStore(
+          ScopedPrefsStore(first.userState),
+        ).saveSnapshot(snapshot);
+      } finally {
+        await first.close();
+      }
+      final reopened = await KonataDatabaseBundle.openFromStorageRoot(root);
+      try {
+        final store = ScopedPrefsPipRecoveryStore(
+          ScopedPrefsStore(reopened.userState),
+        );
+        final recovered = await store.readFreshSnapshot();
+        expect(recovered?.toJson(), snapshot.toJson());
+        expect(recovered!.matchesLibrary(reopened), isTrue);
+        reopened.library.mediaVariants.upsert(
+          const MediaVariantRecord(
+            id: variant,
+            workId: work,
+            episodeId: otherEpisode,
+            sourceId: source,
+            relativePath: '01.mkv',
+            fileName: '01.mkv',
+            fileSize: 1,
+          ),
+        );
+        expect(recovered.matchesLibrary(reopened), isFalse);
+        await store.clear();
+        expect(await store.readFreshSnapshot(), isNull);
+      } finally {
+        await reopened.close();
+      }
+    });
     test('保存有效快照、判断时效并在过期后自动清理', () async {
       final harness = await VideoTestHarness.create();
       addTearDown(harness.dispose);
@@ -171,7 +336,7 @@ void main() {
   });
 
   group('featurePlayerVideoManifest 模块扩展声明校验', () {
-    test('注册播放设置全端分区、桌面专属外部工具分区及视频模式侧栏贡献', () {
+    test('注册播放设置全端分区及桌面专属外部工具分区，不再注册冗余侧栏', () {
       expect(featurePlayerVideoManifest.id, 'feature_player_video');
       expect(featurePlayerVideoManifest.settingsSections, hasLength(2));
 
@@ -189,16 +354,7 @@ void main() {
       expect(extSection.isSupportedOn(KonataPlatform.windows), isTrue);
       expect(extSection.isSupportedOn(KonataPlatform.androidPhone), isFalse);
 
-      expect(featurePlayerVideoManifest.playerSidePanels, hasLength(1));
-      final panel = featurePlayerVideoManifest.playerSidePanels.single;
-      expect(
-        panel.isSupportedOn(KonataPlatform.windows, PlayerMediaMode.video),
-        isTrue,
-      );
-      expect(
-        panel.isSupportedOn(KonataPlatform.windows, PlayerMediaMode.audio),
-        isFalse,
-      );
+      expect(featurePlayerVideoManifest.playerSidePanels, isEmpty);
     });
   });
 }

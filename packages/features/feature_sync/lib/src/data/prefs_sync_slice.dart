@@ -9,7 +9,8 @@ import 'sync_models.dart';
 ///
 /// 基于 `ScopedPrefsStore` 按白名单/黑名单双层规则过滤敏感凭据与本机绝对路径键，
 /// 并执行确定性最后写入胜出（LWW）合并，绝不覆写本机 `SyncPolicy.deviceLocal` 配置。
-final class PrefsSyncSlice implements SyncSliceContributor<List<PortablePrefEntry>> {
+final class PrefsSyncSlice
+    implements SyncSliceContributor<List<PortablePrefEntry>> {
   /// 创建绑定持久化存储器的偏好同步切片实例。
   const PrefsSyncSlice({
     required UserStateDatabase this._userStateDb,
@@ -389,12 +390,12 @@ final class PrefsSyncSlice implements SyncSliceContributor<List<PortablePrefEntr
   }
 
   @override
-  Future<void> applyMergePlan(
+  SyncApplyCompletion applyMergePlan(
     SyncTransactionContext tx,
     SyncMergePlan<List<PortablePrefEntry>> plan,
   ) {
     if (!plan.hasChanges || plan.planData.isEmpty) {
-      return Future<void>.value();
+      return SyncApplyCompletion.completed;
     }
     final db = _userStateDb;
     final store = _scopedPrefs;
@@ -403,14 +404,11 @@ final class PrefsSyncSlice implements SyncSliceContributor<List<PortablePrefEntr
     }
 
     final handle = tx.rawHandleFor('user_state');
-    if (handle is SqliteTransaction) {
-      _applyInTransaction(db, handle, plan.planData);
-    } else {
-      db.engine.runTransaction(
-        (innerTx) => _applyInTransaction(db, innerTx, plan.planData),
-      );
+    if (handle is! SqliteTransaction) {
+      throw StateError('偏好同步缺少宿主写事务');
     }
-    return Future<void>.value();
+    _applyInTransaction(db, handle, plan.planData);
+    return SyncApplyCompletion.completed;
   }
 
   void _applyInTransaction(

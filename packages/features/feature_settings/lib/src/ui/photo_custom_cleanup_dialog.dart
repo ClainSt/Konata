@@ -129,10 +129,7 @@ class _PhotoCustomCleanupDialogState extends State<_PhotoCustomCleanupDialog> {
       final res = await executor(selection);
       if (!mounted) return;
       final formatted = PhotosCleanupScanner.formatBytes(res.freedBytes);
-      showKonataToast(
-        context,
-        '已清理 ${res.removedFiles} 张图片，释放 $formatted',
-      );
+      showKonataToast(context, '已清理 ${res.removedFiles} 张图片，释放 $formatted');
       Navigator.of(context).pop(selection);
     } catch (err) {
       if (!mounted) return;
@@ -456,10 +453,9 @@ class _PhotoCustomCleanupDialogState extends State<_PhotoCustomCleanupDialog> {
                     ),
                     child: KonataDraggableScrollbar(
                       controller: _workListCtrl,
-                      padding: const EdgeInsets.only(right: 4),
                       builder: (_, ctrl) => ListView.separated(
                         controller: ctrl,
-                        padding: const EdgeInsets.fromLTRB(10, 8, 16, 8),
+                        padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
                         itemCount: filtered.length,
                         separatorBuilder: (_, _) => const SizedBox(height: 6),
                         itemBuilder: (_, idx) {

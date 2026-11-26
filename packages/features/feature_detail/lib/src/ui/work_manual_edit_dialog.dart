@@ -79,38 +79,42 @@ class _WorkManualEditDialogState extends State<WorkManualEditDialog> {
     final epById = <String, Episode>{
       for (final ep in widget.bundle.episodes) ep.id: ep,
     };
-    _mappingRows = [
-      for (final variant in widget.bundle.variants)
-        if (variant.assetKind == AssetKind.video)
-          () {
-            final ep = variant.episodeId != null
-                ? epById[variant.episodeId]
-                : null;
-            final category = ep?.category ?? EpisodeCategory.main;
-            final seasonNumber = ep?.seasonNumber ??
-                (category == EpisodeCategory.extra ? 0 : (work.matchedSeason ?? 1));
-            final episodeNumber = ep?.episodeNumber ?? 1;
-            final extraType = ep?.extraType ?? ExtraKind.sp;
-            return EditableFileMappingRow(
-              variant: variant,
-              category: category,
-              seasonNumber: seasonNumber,
-              episodeNumber: episodeNumber,
-              extraType: extraType,
-              recognizedExtraLabel: category == EpisodeCategory.extra
-                  ? (ep?.title ?? '')
-                  : '',
-              isTmdbSpecial:
-                  category == EpisodeCategory.extra &&
-                  seasonNumber == 0 &&
-                  extraType == ExtraKind.sp,
-            );
-          }(),
-    ]..sort(
-        (a, b) => a.variant.relativePath.toLowerCase().compareTo(
-          b.variant.relativePath.toLowerCase(),
-        ),
-      );
+    _mappingRows =
+        [
+          for (final variant in widget.bundle.variants)
+            if (variant.assetKind == AssetKind.video)
+              () {
+                final ep = variant.episodeId != null
+                    ? epById[variant.episodeId]
+                    : null;
+                final category = ep?.category ?? EpisodeCategory.main;
+                final seasonNumber =
+                    ep?.seasonNumber ??
+                    (category == EpisodeCategory.extra
+                        ? 0
+                        : (work.matchedSeason ?? 1));
+                final episodeNumber = ep?.episodeNumber ?? 1;
+                final extraType = ep?.extraType ?? ExtraKind.sp;
+                return EditableFileMappingRow(
+                  variant: variant,
+                  category: category,
+                  seasonNumber: seasonNumber,
+                  episodeNumber: episodeNumber,
+                  extraType: extraType,
+                  recognizedExtraLabel: category == EpisodeCategory.extra
+                      ? (ep?.title ?? '')
+                      : '',
+                  isTmdbSpecial:
+                      category == EpisodeCategory.extra &&
+                      seasonNumber == 0 &&
+                      extraType == ExtraKind.sp,
+                );
+              }(),
+        ]..sort(
+          (a, b) => a.variant.relativePath.toLowerCase().compareTo(
+            b.variant.relativePath.toLowerCase(),
+          ),
+        );
 
     _suppDrafts = [
       for (final item in widget.bundle.editableSupplementaryItems)
@@ -295,7 +299,9 @@ class _WorkManualEditDialogState extends State<WorkManualEditDialog> {
   Widget build(BuildContext context) {
     final p = context.palette;
     final work = widget.bundle.work;
-    final hasLockedMappings = widget.bundle.variants.any((v) => v.mappingLocked);
+    final hasLockedMappings = widget.bundle.variants.any(
+      (v) => v.mappingLocked,
+    );
 
     return KonataGlassDialog(
       width: 760,
@@ -380,7 +386,7 @@ class _WorkManualEditDialogState extends State<WorkManualEditDialog> {
       controller: _metaScrollCtrl,
       builder: (_, ctrl) => SingleChildScrollView(
         controller: ctrl,
-        padding: const EdgeInsets.only(right: 8),
+        padding: EdgeInsets.zero,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [

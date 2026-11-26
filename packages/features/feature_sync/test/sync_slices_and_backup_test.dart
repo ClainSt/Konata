@@ -85,17 +85,24 @@ final class _FakeLyricOverridesSlice
   }
 
   @override
-  Future<void> applyMergePlan(
+  SyncApplyCompletion applyMergePlan(
     SyncTransactionContext tx,
     SyncMergePlan<List<Map<String, Object?>>> plan,
   ) {
     if (throwOnApply) {
-      throw StateError('模拟外部切片写入失败以检验统一事务回滚');
+      final handle = tx.rawHandleFor('user_state')! as SqliteTransaction;
+      handle.execute(
+        "INSERT INTO lyric_user_overrides(override_key) VALUES ('audit-first')",
+      );
+      // 模拟扩展切片已写入一条后第二条违反唯一约束。
+      handle.execute(
+        "INSERT INTO lyric_user_overrides(override_key) VALUES ('audit-first')",
+      );
     }
     for (final item in plan.planData) {
       records[item['trackKey'].toString()] = Map<String, Object?>.of(item);
     }
-    return Future<void>.value();
+    return SyncApplyCompletion.completed;
   }
 
   static List<Map<String, Object?>> _coerceItems(Object? raw) {
@@ -492,6 +499,138 @@ void main() {
       await dbB.close();
     });
 
+    test('旧端仅发送作品墓碑时收敛本机子关系并保持同系列其他作品', () async {
+      const work = WorkId.trusted('deleted-parent');
+      const sibling = WorkId.trusted('kept-parent');
+      const source = SourceId.trusted('same-source');
+      const series = SeriesGroupId.trusted('same-series');
+      const ep = EpisodeId.trusted('deleted-episode');
+      const variant = VariantId.trusted('deleted-variant');
+      const moved = VariantId.trusted('moved-variant');
+      for (final db in [dbA.library, dbB.library]) {
+        db.mediaSources.upsert(
+          const MediaSourceRecord(
+            id: source,
+            kind: MediaSourceKind.local,
+            label: '测试',
+            location: 'D:/readonly',
+          ),
+        );
+        db.seriesGroups.upsert(
+          const SeriesGroupRecord(id: series, title: '系列'),
+        );
+        db.works.upsert(
+          const WorkRecord(
+            id: work,
+            title: '移除',
+            seriesId: series,
+            updatedAtMs: 1000,
+          ),
+        );
+        db.works.upsert(
+          const WorkRecord(
+            id: sibling,
+            title: '保留',
+            seriesId: series,
+            updatedAtMs: 1000,
+          ),
+        );
+      }
+      dbB.library.episodes.upsert(
+        const EpisodeRecord(
+          id: ep,
+          workId: work,
+          seasonNumber: 1,
+          episodeNumber: 1,
+          updatedAtMs: 1100,
+        ),
+      );
+      dbB.library.mediaVariants.upsert(
+        const MediaVariantRecord(
+          id: variant,
+          workId: work,
+          episodeId: ep,
+          sourceId: source,
+          relativePath: 'A/01.mkv',
+          fileName: '01.mkv',
+          fileSize: 100,
+          updatedAtMs: 1100,
+        ),
+      );
+      dbB.library.mediaVariants.upsert(
+        const MediaVariantRecord(
+          id: moved,
+          workId: sibling,
+          sourceId: source,
+          relativePath: 'B/02.mkv',
+          fileName: '02.mkv',
+          fileSize: 100,
+          updatedAtMs: 1500,
+        ),
+      );
+      dbA.library.works.softDelete(
+        work,
+        deletedAtMs: 2000,
+        sourceDeviceId: 'dev-a',
+      );
+      final remote = await sliceA.exportSlice(localDeviceId: 'dev-a');
+      final local = await sliceB.exportSlice(localDeviceId: 'dev-b');
+      final plan = sliceB.planMerge(local: local, remote: remote);
+      expect(plan.deleteCount, 3);
+      dbB.library.engine.runTransaction((tx) {
+        sliceB.applyMergePlan(
+          DatabaseBundleSyncTransactionContext(
+            localDeviceId: 'dev-b',
+            appliedAtMs: 5000,
+            libraryTx: tx,
+          ),
+          plan,
+        );
+      });
+      expect(dbB.library.works.findById(work), isNull);
+      expect(dbB.library.episodes.listByWork(work), isEmpty);
+      expect(dbB.library.mediaVariants.listByWork(work), isEmpty);
+      expect(dbB.library.mediaVariants.listBySource(source).single.id, moved);
+      expect(dbB.library.works.listBySeries(series).single.id, sibling);
+      expect(
+        dbB.library.mediaVariants
+            .findById(variant, includeDeleted: true)
+            ?.deletedAtMs,
+        2000,
+      );
+      // 远端后来补发旧归属的文件墓碑，本机已转移的文件仍必须保留。
+      dbA.library.mediaVariants.upsert(
+        const MediaVariantRecord(
+          id: moved,
+          workId: work,
+          sourceId: source,
+          relativePath: 'B/02.mkv',
+          fileName: '02.mkv',
+          fileSize: 100,
+          updatedAtMs: 3000,
+          deletedAtMs: 3000,
+          sourceDeviceId: 'dev-a',
+        ),
+      );
+      final late = await sliceA.exportSlice(localDeviceId: 'dev-a');
+      final after = await sliceB.exportSlice(localDeviceId: 'dev-b');
+      final latePlan = sliceB.planMerge(local: after, remote: late);
+      dbB.library.engine.runTransaction((tx) {
+        sliceB.applyMergePlan(
+          DatabaseBundleSyncTransactionContext(
+            localDeviceId: 'dev-b',
+            appliedAtMs: 5000,
+            libraryTx: tx,
+          ),
+          latePlan,
+        );
+      });
+      expect(dbB.library.mediaVariants.findById(moved)?.workId, sibling);
+      expect(
+        sliceB.planMerge(local: after, remote: remote).hasChanges,
+        isFalse,
+      );
+    });
     test('旧版目录切片隐藏标记不再参与合并或重新导出', () async {
       dbA.library.works.upsert(
         const WorkRecord(
@@ -831,6 +970,128 @@ void main() {
       await dbB.close();
     });
 
+    test('文件大小、流式解压及未来切片版本拒绝，目标库保持不变', () async {
+      final service = KonataBackupService(
+        databases: dbB,
+        scopedPrefs: prefsB,
+        deviceStore: SyncDeviceStore(dbB.userState.syncMeta),
+      );
+      const work = WorkId.trusted('protected-work');
+      dbB.library.works.upsert(const WorkRecord(id: work, title: '原有收藏'));
+      final dir = await Directory.systemTemp.createTemp('backup-size-');
+      addTearDown(() => dir.delete(recursive: true));
+      final oversized = File('${dir.path}/oversized.konata');
+      final handle = await oversized.open(mode: FileMode.write);
+      try {
+        await handle.truncate(KonataBackupService.maxArchiveBytes + 1);
+      } finally {
+        await handle.close();
+      }
+      await expectLater(
+        KonataBackupService.readArchiveFile(oversized.path),
+        throwsA(
+          isA<FormatException>().having(
+            (e) => e.message,
+            'message',
+            contains('32 MiB'),
+          ),
+        ),
+      );
+      await expectLater(
+        service.decodeAndVerifyArchiveBytes(
+          Uint8List(KonataBackupService.maxArchiveBytes + 1),
+        ),
+        throwsFormatException,
+      );
+      final encoded = _TestByteSink();
+      final compressor = gzip.encoder.startChunkedConversion(encoded);
+      final block = Uint8List(1024 * 1024);
+      for (
+        var i = 0;
+        i <= KonataBackupService.maxDecodedArchiveBytes ~/ block.length;
+        i++
+      ) {
+        compressor.add(block);
+      }
+      compressor.close();
+      await expectLater(
+        service.decodeAndVerifyArchiveBytes(encoded.bytes.takeBytes()),
+        throwsA(
+          isA<FormatException>().having(
+            (e) => e.message,
+            'message',
+            contains('128 MiB'),
+          ),
+        ),
+      );
+      final futureArchive = KonataBackupArchive.create(
+        exportedAtMs: 1000,
+        deviceId: 'future',
+        deviceName: 'fixture',
+        platform: 'android',
+        appVersion: 'future',
+        slicePayloads: [
+          const SyncSlicePayload(
+            sliceId: 'library_catalog_slice',
+            schemaVersion: 99,
+            exportedAtMs: 1000,
+            sourceDeviceId: 'future',
+            data: {},
+          ),
+        ],
+      );
+      final futureBytes = Uint8List.fromList(
+        utf8.encode(jsonEncode(futureArchive.toJson())),
+      );
+      for (final mode in KonataRestoreMode.values) {
+        await expectLater(
+          service.previewRestore(futureBytes, mode: mode),
+          throwsFormatException,
+        );
+        await expectLater(
+          service.restoreFromArchiveBytes(futureBytes, mode: mode),
+          throwsFormatException,
+        );
+      }
+      expect(dbB.library.works.listVisible().single.id, work);
+      expect(dbB.library.works.listVisible().single.title, '原有收藏');
+    });
+
+    test('校验和正确但内外切片标识不一致时拒绝，格式版本必须是整数', () async {
+      final source = KonataBackupService(
+        databases: dbA,
+        scopedPrefs: prefsA,
+        deviceStore: SyncDeviceStore(dbA.userState.syncMeta),
+      );
+      final bytes = await source.exportArchiveBytes(compressGzip: false);
+      final original = SyncSanitizer.coerceStringKeyMap(
+        jsonDecode(utf8.decode(bytes)) as Map,
+      );
+      final slices = SyncSanitizer.coerceStringKeyMap(original['slices']);
+      final item = SyncSanitizer.coerceStringKeyMap(
+        slices['library_catalog_slice'],
+      );
+      item['sliceId'] = 'playback_history_slice';
+      slices['library_catalog_slice'] = item;
+      final mismatched = {
+        ...original,
+        'slices': slices,
+        'payloadSha256': SyncSanitizer.computeMapSha256(slices),
+      };
+      expect(
+        () => KonataBackupArchive.parseAndVerify(jsonEncode(mismatched)),
+        throwsFormatException,
+      );
+      for (final invalid in [3.5, '3', 0, -1]) {
+        expect(
+          () => KonataBackupArchive.parseAndVerify(
+            jsonEncode({...original, 'schemaVersion': invalid}),
+          ),
+          throwsFormatException,
+        );
+      }
+    });
+
     test('支持选择性切片导出、SHA-256 篡改拒绝、干跑预览不改库、原子应用与发布 SyncCompletedEvent', () async {
       final extraA = _FakeLyricOverridesSlice();
       extraA.records['track::clannad::op'] = <String, Object?>{
@@ -985,9 +1246,73 @@ void main() {
 
       await expectLater(
         () => serviceB.restoreFromArchiveBytes(archiveBytes),
-        throwsStateError,
+        throwsA(
+          predicate<Object>(
+            (e) => e.toString().contains('UNIQUE constraint failed'),
+          ),
+        ),
       );
       expect(prefsB.read(appearanceSlice), isEmpty);
+      expect(
+        dbB.userState.lyricUserOverrides.listAll(includeDeleted: true),
+        isEmpty,
+      );
+    });
+
+    test('扩展切片同步失败不得留下已提交的双库内置表', () async {
+      const appearanceSlice = TypedPrefsSlice<Map<String, Object?>>(
+        namespace: 'appearance',
+        schemaVersion: 1,
+        syncPolicy: SyncPolicy.portable,
+        defaultValue: <String, Object?>{},
+        encode: _identityEncode,
+        decode: _identityDecode,
+      );
+      prefsA.write(appearanceSlice, <String, Object?>{'themeMode': 'dark'});
+      dbA.library.works.upsert(
+        const WorkRecord(id: WorkId.trusted('rollback-work'), title: '隔离作品'),
+      );
+      final extraA = _FakeLyricOverridesSlice();
+      extraA.records['track::rollback'] = <String, Object?>{
+        'trackKey': 'track::rollback',
+        'offsetMs': 120,
+        'updatedAtMs': 4000,
+      };
+
+      final serviceA = KonataBackupService(
+        databases: dbA,
+        scopedPrefs: prefsA,
+        deviceStore: SyncDeviceStore(dbA.userState.syncMeta, nowMs: () => 4000),
+        extraSlices: <SyncSliceContributor<Object?>>[extraA],
+      );
+      final archiveBytes = await serviceA.exportArchiveBytes();
+
+      final failingExtraB = _FakeLyricOverridesSlice(throwOnApply: true);
+      final serviceB = KonataBackupService(
+        databases: dbB,
+        scopedPrefs: prefsB,
+        deviceStore: SyncDeviceStore(dbB.userState.syncMeta, nowMs: () => 5000),
+        extraSlices: <SyncSliceContributor<Object?>>[failingExtraB],
+      );
+
+      await expectLater(
+        () => serviceB.restoreFromArchiveBytes(archiveBytes),
+        throwsA(
+          predicate<Object>(
+            (e) => e.toString().contains('UNIQUE constraint failed'),
+          ),
+        ),
+      );
+      expect(prefsB.read(appearanceSlice), isEmpty);
+      expect(
+        dbB.userState.lyricUserOverrides.listAll(includeDeleted: true),
+        isEmpty,
+      );
+      expect(dbB.library.works.listVisible(), isEmpty);
+      expect(
+        dbB.userState.syncMeta.get(SyncDeviceStore.metaKeyLocalBackupLastAtMs),
+        isNull,
+      );
     });
 
     test('覆盖还原模式会重建所选切片数据，但保留同址媒体源 ID 且不动本机 deviceLocal 配置', () async {
@@ -1044,3 +1369,11 @@ Map<String, Object?> _identityDecode(
   Map<String, Object?> json,
   int schemaVersion,
 ) => json;
+
+final class _TestByteSink implements Sink<List<int>> {
+  final BytesBuilder bytes = BytesBuilder(copy: false);
+  @override
+  void add(List<int> data) => bytes.add(data);
+  @override
+  void close() {}
+}

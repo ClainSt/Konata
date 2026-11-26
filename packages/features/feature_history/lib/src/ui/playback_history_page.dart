@@ -147,7 +147,7 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
                         action: HistorySelectionAction.markCompleted,
                       ),
                     ),
-                    tooltip: '批量标记已完播',
+                    tooltip: '批量标记完播',
                     onPressed: () => controller.enterSelectionMode(
                       action: HistorySelectionAction.markCompleted,
                     ),
@@ -163,7 +163,7 @@ class _PlaybackHistoryPageState extends ConsumerState<PlaybackHistoryPage> {
                         action: HistorySelectionAction.deleteRecords,
                       ),
                     ),
-                    tooltip: '进入多选批量删除',
+                    tooltip: '批量删除',
                     onPressed: () => controller.enterSelectionMode(
                       action: HistorySelectionAction.deleteRecords,
                     ),

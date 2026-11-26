@@ -88,6 +88,65 @@ void main() {
       expect(map['track::song_deleted']?.deletedAtMs, 2000);
     });
 
+    test('歌词切片缺少事务时拒绝，第二条SQL写入失败同步回滚第一条', () async {
+      final bundle = KonataDatabaseBundle.openInMemory();
+      addTearDown(bundle.close);
+      final slice = LyricOverridesSyncSlice(userStateDb: bundle.userState);
+      final plan = SyncMergePlan<LyricOverrideMergePlan>(
+        sliceId: slice.sliceId,
+        insertCount: 2,
+        updateCount: 0,
+        deleteCount: 0,
+        skippedCount: 0,
+        planData: const LyricOverrideMergePlan(
+          upserts: [
+            LyricUserOverrideRecord(
+              overrideKey: 'track::first',
+              scope: LyricOverrideScope.track,
+              trackKey: 'first',
+            ),
+            LyricUserOverrideRecord(
+              overrideKey: 'track::second',
+              scope: LyricOverrideScope.track,
+              trackKey: 'second',
+            ),
+          ],
+        ),
+      );
+      final engine = bundle.userState.engine;
+      expect(
+        () => slice.applyMergePlan(_TestSyncTx(engine), plan),
+        throwsStateError,
+      );
+      expect(bundle.userState.lyricUserOverrides.listAll(), isEmpty);
+      engine.runTransaction((tx) {
+        tx.execute(
+          "CREATE TRIGGER audit_fail_second BEFORE INSERT ON lyric_user_overrides WHEN NEW.override_key = 'track::second' BEGIN SELECT RAISE(ABORT, 'audit second write'); END;",
+        );
+      });
+      expect(
+        () => engine.runTransaction(
+          (tx) => slice.applyMergePlan(_TestSyncTx(tx), plan),
+        ),
+        throwsA(
+          predicate<Object>((e) => e.toString().contains('audit second write')),
+        ),
+      );
+      expect(
+        bundle.userState.lyricUserOverrides.listAll(includeDeleted: true),
+        isEmpty,
+      );
+      engine.runTransaction(
+        (tx) => tx.execute('DROP TRIGGER audit_fail_second;'),
+      );
+      expect(
+        engine.runTransaction(
+          (tx) => slice.applyMergePlan(_TestSyncTx(tx), plan),
+        ),
+        SyncApplyCompletion.completed,
+      );
+      expect(bundle.userState.lyricUserOverrides.listAll(), hasLength(2));
+    });
     test('planMerge 与 applyMergePlan 按最后写入胜出原则仲裁并原子提交', () async {
       final localBundle = KonataDatabaseBundle.openInMemory();
       final remoteBundle = KonataDatabaseBundle.openInMemory();
@@ -228,8 +287,8 @@ void main() {
       expect(plan.deleteCount, 1); // remote_deleted 墓碑新增
       expect(plan.skippedCount, 2); // newer_local + same
 
-      await localBundle.userState.engine.runTransaction((tx) async {
-        await localSlice.applyMergePlan(_TestSyncTx(tx), plan);
+      localBundle.userState.engine.runTransaction((tx) {
+        localSlice.applyMergePlan(_TestSyncTx(tx), plan);
       });
 
       final allAfter = localBundle.userState.lyricUserOverrides.listAll(

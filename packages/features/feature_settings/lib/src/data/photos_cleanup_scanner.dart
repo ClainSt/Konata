@@ -132,26 +132,32 @@ final class PhotosCleanupScanner {
       }
       final dirName = p.basename(entity.path);
       final tag = _extractWorkTag(dirName) ?? dirName;
-      final matchedWork = worksByTag[tag];
+      var matchedWork = worksByTag[tag];
+      if (matchedWork == null) {
+        for (final work in worksByTag.values) {
+          if (PhotosStorage.matchesWorkDirectoryTag(tag, work.id.value)) {
+            matchedWork = work;
+            break;
+          }
+        }
+      }
 
       final categoryMap = <PhotoStorageCategory, PhotoCategoryStat>{};
       var workBytes = 0;
       var workFiles = 0;
       String? posterFilePath;
       for (final category in PhotoStorageCategory.values) {
-        final subDir = Directory(p.join(entity.path, category.dirName));
         var catBytes = 0;
         var catFiles = 0;
-        if (subDir.existsSync()) {
-          for (final file in subDir.listSync(followLinks: false)) {
-            if (file is File) {
-              catFiles++;
-              catBytes += file.lengthSync();
-              if (category == PhotoStorageCategory.posters &&
-                  posterFilePath == null) {
-                posterFilePath = file.path;
-              }
-            }
+        for (final file in await _photosStorage.listManagedCategoryFiles(
+          workDirKey: dirName,
+          category: category,
+        )) {
+          catFiles++;
+          catBytes += file.lengthSync();
+          if (category == PhotoStorageCategory.posters &&
+              posterFilePath == null) {
+            posterFilePath = file.path;
           }
         }
         categoryMap[category] = PhotoCategoryStat(
@@ -203,37 +209,10 @@ final class PhotosCleanupScanner {
   Future<({int removedFiles, int freedBytes})> clearCustomPhotos({
     required Set<String> workDirKeys,
     required Set<PhotoStorageCategory> categories,
-  }) async {
-    if (workDirKeys.isEmpty || categories.isEmpty) {
-      return (removedFiles: 0, freedBytes: 0);
-    }
-    final rootDir = await _photosStorage.resolveRootDirectory();
-    if (!rootDir.existsSync()) {
-      return (removedFiles: 0, freedBytes: 0);
-    }
-
-    var removedFiles = 0;
-    var freedBytes = 0;
-    for (final entity in rootDir.listSync(followLinks: false)) {
-      if (entity is! Directory) continue;
-      final dirName = p.basename(entity.path);
-      if (!workDirKeys.contains(dirName)) continue;
-
-      for (final cat in categories) {
-        final subDir = Directory(p.join(entity.path, cat.dirName));
-        if (!subDir.existsSync()) continue;
-        for (final file in subDir.listSync(followLinks: false)) {
-          if (file is! File) continue;
-          final size = file.lengthSync();
-          await _photosStorage.onEvictImageFile?.call(file);
-          file.deleteSync();
-          removedFiles++;
-          freedBytes += size;
-        }
-      }
-    }
-    return (removedFiles: removedFiles, freedBytes: freedBytes);
-  }
+  }) => _photosStorage.clearSelectedCategories(
+    categories,
+    workDirKeys: workDirKeys,
+  );
 
   /// 一键清理全部可再生缓存（分集剧照与扫图微缩图）。
   Future<int> clearRegenerableCaches() {

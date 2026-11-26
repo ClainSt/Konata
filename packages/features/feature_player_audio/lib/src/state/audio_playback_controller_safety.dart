@@ -1,7 +1,8 @@
 part of 'audio_playback_controller.dart';
 
 extension _AudioPlaybackControllerSafety on AudioPlaybackController {
-  Future<HardwareRouteVerificationResult> _verifyAudiophileHardwareRouteImpl() async {
+  Future<HardwareRouteVerificationResult>
+  _verifyAudiophileHardwareRouteImpl() async {
     final prefs = _effectiveAudiophilePrefs(_preferences.read());
     final result = await _safetyCoordinator.verifyActiveHardwareRoute(prefs);
     final plan = _safetyCoordinator.compilePlan(
@@ -80,7 +81,9 @@ extension _AudioPlaybackControllerSafety on AudioPlaybackController {
     final clean = deviceName.trim().isEmpty
         ? PlaybackQualityConfig.defaultAudioDevice
         : deviceName.trim();
-    final nextPrefs = _preferences.update((p) => p.copyWith(audioDevice: clean));
+    final nextPrefs = _preferences.update(
+      (p) => p.copyWith(audioDevice: clean),
+    );
     _safetyCoordinator.handleExternalDeviceChanged(clean);
     final client = _client;
     if (client != null && !client.isDisposed && client.isInitialized) {
@@ -93,6 +96,7 @@ extension _AudioPlaybackControllerSafety on AudioPlaybackController {
     AudioPlaybackPrefsData? overridePrefs,
   }) async {
     final prefs = overridePrefs ?? _preferences.read();
+    _applyLoopMode(prefs.loopMode);
     final effective = _effectiveAudiophilePrefs(prefs);
     final upstream = _buildUpstreamDspFilters(prefs);
     final plan = _safetyCoordinator.compilePlan(
@@ -118,8 +122,6 @@ extension _AudioPlaybackControllerSafety on AudioPlaybackController {
         _snapshotNotifier.value.copyWith(
           audiophileSafetyState: _safetyCoordinator.deviceSafetyState,
           audiophilePlan: applied,
-          loopMode: prefs.loopMode,
-          shuffleEnabled: prefs.shuffleEnabled,
         ),
       );
       return;
@@ -129,8 +131,6 @@ extension _AudioPlaybackControllerSafety on AudioPlaybackController {
       _snapshotNotifier.value.copyWith(
         audiophileSafetyState: _safetyCoordinator.deviceSafetyState,
         audiophilePlan: plan,
-        loopMode: prefs.loopMode,
-        shuffleEnabled: prefs.shuffleEnabled,
       ),
     );
   }
@@ -150,7 +150,9 @@ extension _AudioPlaybackControllerSafety on AudioPlaybackController {
     return gateway.launchAudio(
       work: work,
       episode: EpisodeSummaryView(
-        id: EpisodeId('${PlaybackRecordHelper.audioEpisodePrefix}${item.itemId}'),
+        id: EpisodeId(
+          '${PlaybackRecordHelper.audioEpisodePrefix}${item.itemId}',
+        ),
         workId: work.id,
         seasonNumber: 1,
         category: EpisodeCategory.extra,

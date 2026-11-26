@@ -151,7 +151,7 @@ abstract class SmbConnect {
   Future close() async {
     var trees = _trees.values.toList();
     if (configuration.debugPrint) {
-      print("Close SmbConnect $host/${trees.map((e) => e.share)}");
+      print("SMB 关闭连接，共 ${trees.length} 个共享");
     }
     _trees.clear();
     try {

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:engine_playback/engine_playback.dart';
 import 'package:feature_player_audio/feature_player_audio.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -31,9 +33,53 @@ void main() {
     expect(defaults.audioResamplerPrecision, 28);
     expect(defaults.foobarBeefwebPort, 8880);
     expect(defaults.audioFloatingMiniEnabled, isTrue);
-    expect(defaults.preferredAudioEngine, PreferredPlaybackEngine.builtinLibmpv);
+    expect(
+      defaults.preferredAudioEngine,
+      PreferredPlaybackEngine.builtinLibmpv,
+    );
   });
 
+  test('旧版独立随机开关迁移到唯一播放模式并在下次写入移除旧键', () async {
+    for (final mode in [
+      AudioLoopMode.sequence,
+      AudioLoopMode.loopAll,
+      AudioLoopMode.loopOne,
+    ]) {
+      for (final shuffle in [true, false]) {
+        db.userState.scopedPrefs.upsert(
+          ScopedPrefRecord(
+            namespace: AudioPlaybackPreferences.namespace,
+            schemaVersion: 1,
+            syncPolicy: SyncPolicy.portable,
+            payloadJson: jsonEncode({
+              'loopMode': mode.name,
+              'shuffleEnabled': shuffle,
+              'defaultVolume': 42,
+            }),
+            updatedAtMs: 1,
+          ),
+        );
+        expect(
+          prefsRepo.read().loopMode,
+          shuffle ? AudioLoopMode.shuffle : mode,
+        );
+        expect(prefsRepo.read().defaultVolume, 42);
+        prefsRepo.update(
+          (p) =>
+              p.copyWith(loopMode: AudioLoopMode.sequence, defaultVolume: 43),
+        );
+        final raw = (await store.readRawSlice(
+          AudioPlaybackPreferences.namespace,
+        ))!;
+        expect(raw.containsKey('shuffleEnabled'), isFalse);
+        expect(raw['loopMode'], 'sequence');
+        expect(
+          AudioPlaybackPreferences(store: store).read().loopMode,
+          AudioLoopMode.sequence,
+        );
+      }
+    }
+  });
   test('写入发烧直通、回放增益与桌面外部转发设置可跨次持久化往返与发送低频事件', () async {
     final events = <DomainEvent>[];
     final sub = eventBus.stream.listen(events.add);
@@ -42,8 +88,7 @@ void main() {
       (p) => p.copyWith(
         defaultVolume: 64.0,
         isMuted: true,
-        loopMode: AudioLoopMode.loopOne,
-        shuffleEnabled: true,
+        loopMode: AudioLoopMode.shuffle,
         audiophileSafetyLimiterEnabled: false,
         replayGainMode: AudioReplayGainMode.album,
         replayGainPreampDb: 3.5,
@@ -72,8 +117,7 @@ void main() {
     final restored = freshRepo.read();
     expect(restored.defaultVolume, 64.0);
     expect(restored.isMuted, isTrue);
-    expect(restored.loopMode, AudioLoopMode.loopOne);
-    expect(restored.shuffleEnabled, isTrue);
+    expect(restored.loopMode, AudioLoopMode.shuffle);
     expect(restored.audiophileSafetyLimiterEnabled, isFalse);
     expect(restored.replayGainMode, AudioReplayGainMode.album);
     expect(restored.replayGainPreampDb, 3.5);

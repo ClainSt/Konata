@@ -87,6 +87,77 @@ void main() {
   });
 
   group('WorkDetailController 数据聚合、重刮状态机、人工锁与系列切换', () {
+    test('详情移除清理所属索引，保留系列兄弟和实际源文件', () async {
+      final h = await DetailTestHarness.create();
+      final file = File('${h.tempRoot.path}/source/A/01.mkv');
+      await file.parent.create(recursive: true);
+      await file.writeAsString('只读源文件');
+      await h.repository.upsertMediaSource(
+        MediaSource(
+          id: 'src-del',
+          kind: MediaSourceKind.local,
+          label: '测试',
+          location: '${h.tempRoot.path}/source',
+        ),
+      );
+      await h.repository.upsertSeriesGroup(
+        SeriesGroup(
+          id: 'ser-del',
+          title: '系列',
+          createdAt: DateTime.utc(2025),
+          updatedAt: DateTime.utc(2025),
+        ),
+      );
+      await h.repository.upsertWork(
+        const Work(
+          id: 'work-del',
+          title: '移除',
+          seriesId: 'ser-del',
+          scrapeStatus: ScrapeStatus.matched,
+        ),
+      );
+      await h.repository.upsertWork(
+        const Work(
+          id: 'work-keep',
+          title: '保留',
+          seriesId: 'ser-del',
+          scrapeStatus: ScrapeStatus.matched,
+        ),
+      );
+      await h.repository.upsertEpisode(
+        const Episode(
+          id: 'ep-del',
+          workId: 'work-del',
+          seasonNumber: 1,
+          episodeNumber: 1,
+        ),
+      );
+      await h.repository.upsertMediaVariant(
+        const MediaVariant(
+          id: 'var-del',
+          workId: 'work-del',
+          episodeId: 'ep-del',
+          sourceId: 'src-del',
+          relativePath: 'A/01.mkv',
+          fileName: '01.mkv',
+          fileSize: 100,
+        ),
+      );
+      final ctrl = h.createController(const WorkId.trusted('work-del'));
+      await ctrl.deleteWorkFromLibrary();
+      expect(await h.repository.findWorkById('work-del'), isNull);
+      expect(await h.repository.getEpisodesByWork('work-del'), isEmpty);
+      expect(await h.repository.getVariantsBySource('src-del'), isEmpty);
+      expect(await h.repository.findWorkById('work-keep'), isNotNull);
+      expect(await h.repository.getIgnoredFolders('src-del'), isEmpty);
+      expect(
+        h.databases.library.mediaVariants
+            .findById(const VariantId.trusted('var-del'), includeDeleted: true)
+            ?.deletedAtMs,
+        isNotNull,
+      );
+      expect(await file.readAsString(), '只读源文件');
+    });
     test('正确聚合正片/特典/CD/系列并转发播放、系列跳转与返回导航调用', () async {
       final harness = await DetailTestHarness.create();
 

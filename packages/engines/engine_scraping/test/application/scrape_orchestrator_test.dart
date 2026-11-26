@@ -201,7 +201,7 @@ void main() {
           .toList();
       expect(cdVariants, hasLength(1));
 
-      // 验证歧义作品保存候选且可人工 rebindWorkToTmdb + 目录写回 + 二次扫描锁定保护
+      // 验证歧义作品保存候选且可人工绑定只更新索引并保留原始路径，二次扫描锁定保护
       final ambiguous = works.firstWhere((w) => w.tmdbId != 209867);
       expect(
         ambiguous.scrapeStatus,
@@ -210,22 +210,36 @@ void main() {
       final savedCandidates = await repo.getScrapeCandidates(ambiguous.id);
       expect(savedCandidates, isNotEmpty);
 
+      final beforePaths = (await repo.getVariantsByWork(
+        ambiguous.id,
+      )).map((v) => v.relativePath).toSet();
       final rebound = await orchestrator.rebindWorkToTmdb(
         ambiguous.id,
         5001,
         TmdbMediaType.tv,
-        writeIdToFolderName: true,
       );
       expect(rebound.isManualLocked, isTrue);
       expect(rebound.tmdbId, 5001);
       expect(await repo.getScrapeCandidates(ambiguous.id), isEmpty);
       expect(
+        Directory(p.join(tempRoot.path, 'Ambiguous Show')).existsSync(),
+        isTrue,
+      );
+      expect(
         Directory(
           p.join(tempRoot.path, 'Ambiguous Show [tmdbid=5001]'),
         ).existsSync(),
-        isTrue,
+        isFalse,
       );
-
+      expect(
+        (await repo.getVariantsByWork(
+          ambiguous.id,
+        )).map((v) => v.relativePath).toSet(),
+        beforePaths,
+      );
+      for (final path in beforePaths) {
+        expect(File(p.join(tempRoot.path, path)).existsSync(), isTrue);
+      }
       // 二次扫描时 isManualLocked 必须保护人工纠错结果不被覆盖
       await orchestrator.scanAndScrapeSource(actualSource);
       final lockedWork = await repo.findWorkById(ambiguous.id);

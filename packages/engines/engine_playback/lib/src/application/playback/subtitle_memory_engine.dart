@@ -17,7 +17,7 @@ import '../../domain/text/multibyte_text_decoder.dart';
 import '../../infrastructure/players/libmpv_ffi.dart';
 import 'unified_playback_engine.dart';
 
-/// 单个字幕槽位（主字幕或副字幕）的权威挂载目标描述。
+/// 单字幕轨道的权威挂载目标描述。
 class SubtitleSlotRequest {
   /// 创建基于现有底层轨道编号的字幕槽位请求（无需内存直注）。
   const SubtitleSlotRequest.existingTrack(int trackId, {this.displayTitle})
@@ -78,31 +78,19 @@ class AuthoritativeSubtitleIntent {
   /// 创建权威字幕意图。
   const AuthoritativeSubtitleIntent({
     this.primary,
-    this.secondary,
-    this.updateSecondary = false,
     this.instantSubDelaySeconds,
     this.beforeSelectPrimary,
     this.forceRebindPrimaryDecoder = false,
   });
 
-  /// 关闭主字幕意图（若 [alsoDisableSecondary] 为真则同时关闭副字幕）。
-  const AuthoritativeSubtitleIntent.disable({
-    bool alsoDisableSecondary = false,
-    this.beforeSelectPrimary,
-  }) : primary = null,
-       secondary = null,
-       updateSecondary = alsoDisableSecondary,
-       instantSubDelaySeconds = null,
-       forceRebindPrimaryDecoder = false;
+  /// 关闭字幕意图。
+  const AuthoritativeSubtitleIntent.disable({this.beforeSelectPrimary})
+    : primary = null,
+      instantSubDelaySeconds = null,
+      forceRebindPrimaryDecoder = false;
 
   /// 主字幕槽位目标；为 `null` 时设置 `sid = no`。
   final SubtitleSlotRequest? primary;
-
-  /// 副字幕槽位目标；当 [updateSecondary] 为真且本字段为 `null` 时设置 `secondary-sid = no`。
-  final SubtitleSlotRequest? secondary;
-
-  /// 是否在本次原子提交中同步写入 `secondary-sid`。
-  final bool updateSecondary;
 
   /// 可选同步写入的瞬时 `sub-delay`（秒）；若本次挂载了离线重映射轨则自动强制归零 `0.0`。
   final double? instantSubDelaySeconds;
@@ -121,7 +109,6 @@ class SubtitleMemoryApplyResult {
     required this.applied,
     required this.staleAborted,
     this.primaryTrackId,
-    this.secondaryTrackId,
     this.primaryContentSha1,
     this.primaryDecodedCharset,
     this.primarySubsetState,
@@ -140,9 +127,6 @@ class SubtitleMemoryApplyResult {
 
   /// 最终生效的主字幕轨道 ID（关闭时为 `null`）。
   final int? primaryTrackId;
-
-  /// 最终生效的副字幕轨道 ID（未启用或未修改时为 `null`）。
-  final int? secondaryTrackId;
 
   /// 本次主字幕处理后文本的 SHA-1 摘要。
   final String? primaryContentSha1;
@@ -201,7 +185,7 @@ class _PreparedMemorySlot {
 ///
 /// 核心并发与无副作用不变量：
 /// 1. 使用全仓唯一 `MultibyteTextDecoder` 在内存统一归一为 UTF-8，绝不修改 `libmpv` 全局 `sub-codepage`；
-/// 2. 统一通过 `sub-add memory://<content> cached <title>` 静默入轨并由权威通道显式绑定 `sid`/`secondary-sid`，
+/// 2. 统一通过 `sub-add memory://<content> cached <title>` 静默入轨并由权威通道显式绑定 `sid`，
 ///    彻底杜绝 `sub-auto=fuzzy` 下的自动抢选轨副作用，并按内容 SHA-1 去重复用，全过程零临时磁盘文件；
 /// 3. 起播自动外挂字幕、侧栏选轨、手动加字幕、OpenCC、云端子集化与离线调轴共享单调递增意图代数与单一串行提交通道；
 ///    任一异步边界后若意图过时或物理媒体代数已推进，立即中止并保证对 `libmpv` **0 写回**。
@@ -467,14 +451,9 @@ class SubtitleMemoryEngine {
 
     // 1. 异步阶段在串行提交锁外并发准备字节解码、云端子集化、OpenCC 片段转换与离线调轴，避免阻塞较新意图抢占代数。
     _PreparedMemorySlot? preparedPrimary;
-    _PreparedMemorySlot? preparedSecondary;
     try {
       if (intent.primary != null) {
         preparedPrimary = await _prepareSlot(intent.primary!);
-      }
-      if (!isStillCurrent()) return _staleResult(stopwatch);
-      if (intent.updateSecondary && intent.secondary != null) {
-        preparedSecondary = await _prepareSlot(intent.secondary!);
       }
       if (!isStillCurrent()) return _staleResult(stopwatch);
     } on Object {
@@ -496,7 +475,6 @@ class SubtitleMemoryEngine {
 
       var usedCached = false;
       int? primaryTrackId;
-      int? secondaryTrackId;
 
       if (preparedPrimary != null) {
         final mount = _ensureMountedTrack(client, preparedPrimary);
@@ -514,22 +492,13 @@ class SubtitleMemoryEngine {
         usedCached = mount.reused;
       }
 
-      if (intent.updateSecondary && preparedSecondary != null) {
-        final mount = _ensureMountedTrack(client, preparedSecondary);
-        if (mount != null) {
-          secondaryTrackId = mount.trackId;
-        }
-      }
-
       // 再次核验安全空窗后执行原子选轨与延迟同步归零。
       if (!isStillCurrent()) {
         completer.complete(_staleResult(stopwatch));
         return;
       }
 
-      final hasRemappedTrack =
-          (preparedPrimary?.hasTimelineRemap ?? false) ||
-          (preparedSecondary?.hasTimelineRemap ?? false);
+      final hasRemappedTrack = preparedPrimary?.hasTimelineRemap ?? false;
       var zeroedDelay = false;
       if (hasRemappedTrack) {
         _writeSubDelay(client, 0.0, refreshIfPaused: false);
@@ -571,32 +540,12 @@ class SubtitleMemoryEngine {
         }
       }
 
-      if (intent.updateSecondary) {
-        if (secondaryTrackId == null) {
-          client.setPropertyString('secondary-sid', 'no');
-        } else {
-          final rc = client.setPropertyInt64('secondary-sid', secondaryTrackId);
-          if (rc < 0) {
-            client.setPropertyString('secondary-sid', '$secondaryTrackId');
-          }
-        }
-      }
-
       if (client.getPropertyFlag('pause') ?? false) {
         client.command(['seek', '0', 'relative', 'exact']);
       }
 
-      // 回收已被替换且主/副字幕均不再使用的派生内存轨（如旧 OpenCC 繁简转换或旧调轴轨），防止轨道无限累积。
-      final activeSecondaryId = intent.updateSecondary
-          ? secondaryTrackId
-          : int.tryParse(
-              client.getPropertyString('secondary-sid')?.trim() ?? '',
-            );
-      _pruneSupersededDerivedTracks(
-        client,
-        activePrimaryId: primaryTrackId,
-        activeSecondaryId: activeSecondaryId,
-      );
+      // 回收已被替换且不再使用的派生内存轨（如旧 OpenCC 繁简转换或旧调轴轨），防止轨道无限累积。
+      _pruneSupersededDerivedTracks(client, activePrimaryId: primaryTrackId);
 
       onTrackStateChanged?.call();
       stopwatch.stop();
@@ -605,7 +554,6 @@ class SubtitleMemoryEngine {
           applied: true,
           staleAborted: false,
           primaryTrackId: primaryTrackId,
-          secondaryTrackId: secondaryTrackId,
           primaryContentSha1: preparedPrimary?.contentSha1,
           primaryDecodedCharset: preparedPrimary?.decodedCharset,
           primarySubsetState: preparedPrimary?.subsetState,
@@ -640,12 +588,11 @@ class SubtitleMemoryEngine {
   void _pruneSupersededDerivedTracks(
     LibMpvClient client, {
     required int? activePrimaryId,
-    required int? activeSecondaryId,
   }) {
     if (_derivedMemoryTrackIds.isEmpty) return;
     final staleIds = <int>[
       for (final id in _derivedMemoryTrackIds)
-        if (id != activePrimaryId && id != activeSecondaryId) id,
+        if (id != activePrimaryId) id,
     ];
     for (final staleId in staleIds) {
       final rc = client.command(['sub-remove', '$staleId']);
@@ -940,7 +887,7 @@ class SubtitleMemoryEngine {
         : 'KonataMem_${contentSha1.substring(0, 8)}';
 
     // 统一使用 `cached` 静默载入 `track-list`，即使开启 `sub-auto=fuzzy` 亦绝不自动抢选 `sid`，
-    // 由单一串行权威意图通道显式提交最终 `sid` / `secondary-sid`。
+    // 由单一串行权威意图通道显式提交最终 `sid`。
     final rc = client.command([
       'sub-add',
       'memory://$content',

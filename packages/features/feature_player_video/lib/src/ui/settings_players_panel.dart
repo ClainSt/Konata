@@ -9,6 +9,7 @@ import 'package:konata_design_system/konata_design_system.dart';
 import '../data/shader_discovery_service.dart';
 import '../data/video_playback_preferences.dart';
 import '../providers.dart';
+import 'video_audio_route_controls.dart';
 
 /// 设置页「播放与解码」跨平台统一设置面板（全端共用，支持着色器与发烧音频安全策略）。
 class SettingsPlayersPanel extends ConsumerStatefulWidget {
@@ -18,6 +19,7 @@ class SettingsPlayersPanel extends ConsumerStatefulWidget {
     this.preferencesStore,
     this.shaderDiscoveryService,
     this.audiophileCoordinator,
+    this.cloudSubsetCoordinator,
     this.platform,
     this.pickShaderFiles,
   });
@@ -30,6 +32,9 @@ class SettingsPlayersPanel extends ConsumerStatefulWidget {
 
   /// 可选显式注入的发烧音频路由协调器。
   final AudiophileSafetyCoordinator? audiophileCoordinator;
+
+  /// 本机云字体授权与取消协调器。
+  final CloudSubsetCoordinator? cloudSubsetCoordinator;
 
   /// 可选显式注入当前宿主平台。
   final KonataPlatform? platform;
@@ -97,110 +102,19 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
     );
   }
 
-  Future<void> _showUnlockAudiophileDialog(
-    BuildContext context,
-    VideoPlaybackPreferences prefs,
-  ) async {
-    final coordinator = widget.audiophileCoordinator;
-    if (coordinator == null) {
-      showKonataToast(context, '当前环境未挂载硬件音频路由协调器');
-      return;
-    }
-    final routeMode = coordinator.resolveRouteMode(prefs.audiophilePreferences);
-    final canProbe =
-        routeMode == AudioOutputRouteMode.exclusiveAudioOutput ||
-        routeMode == AudioOutputRouteMode.androidBitPerfectUsb;
-
-    final confirmed = await showKonataGlassDialog<bool>(
-      context: context,
-      builder: (dialogCtx) {
-        String? probeNotice;
-        var probing = false;
-        return StatefulBuilder(
-          builder: (innerCtx, setDialogState) {
-            final p = innerCtx.palette;
-            final verified =
-                coordinator.deviceSafetyState.isBackendMeterVerified;
-            return KonataGlassDialog(
-              title: '当次会话满幅输出安全确认',
-              width: 460,
-              actions: [
-                KonataPillButton.ghost(
-                  label: '保持安全限幅',
-                  onPressed: () => Navigator.of(dialogCtx).pop(false),
-                ),
-                if (!verified && canProbe)
-                  KonataPillButton.ghost(
-                    label: probing ? '检测中…' : '检测直通链路',
-                    onPressed: probing
-                        ? null
-                        : () async {
-                            setDialogState(() {
-                              probing = true;
-                              probeNotice = null;
-                            });
-                            final res = await coordinator.verifyActiveHardwareRoute(
-                              prefs.audiophilePreferences,
-                            );
-                            if (dialogCtx.mounted) {
-                              setDialogState(() {
-                                probing = false;
-                                probeNotice = res.detail;
-                              });
-                            }
-                          },
-                  ),
-                KonataPillButton.primary(
-                  label: verified ? '确认解锁本次满幅' : '验证门锁状态',
-                  onPressed: () => Navigator.of(dialogCtx).pop(true),
-                ),
-              ],
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    verified
-                        ? '当前外设已完成直通核验，确认后将仅对本次会话解锁安全限幅。'
-                        : '${AudiophileSafetyPolicy.unverifiedFullScaleLockReason}。',
-                    style: TextStyle(color: p.textSecondary, fontSize: 13),
-                  ),
-                  if (probeNotice != null) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      probeNotice!,
-                      style: TextStyle(color: p.accent, fontSize: 12),
-                    ),
-                  ],
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-
-    if (confirmed == true && context.mounted) {
-      final unlocked = await coordinator.confirmSessionFullScaleUnlock(
-        prefs.audiophilePreferences,
-      );
-      if (!context.mounted) return;
-      showKonataToast(
-        context,
-        unlocked
-            ? '已核验硬件直通链路并解锁本次会话满幅输出'
-            : AudiophileSafetyPolicy.unverifiedFullScaleLockReason,
-        isError: !unlocked,
-      );
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
     final store = _resolvePrefsStore();
     final shaderService = _resolveShaderService();
     final platform = _resolvePlatform();
+    final cloud =
+        widget.cloudSubsetCoordinator ??
+        (widget.preferencesStore == null
+            ? ref
+                  .watch(featurePlayerVideoDependenciesProvider)
+                  .cloudSubsetCoordinator
+            : null);
 
     return StreamBuilder<VideoPlaybackPreferences>(
       initialData: store.read(),
@@ -221,10 +135,7 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    '默认播放内核与自动化行为',
-                    style: KonataTheme.cardTitleStyle(p),
-                  ),
+                  Text('默认播放内核与自动化行为', style: KonataTheme.cardTitleStyle(p)),
                   const SizedBox(height: 12),
                   if (platform == KonataPlatform.windows)
                     AdaptiveSettingTile(
@@ -265,6 +176,16 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
                       onChanged: store.setAutoSkipChapters,
                     ),
                   ),
+                  if (platform == KonataPlatform.androidPhone ||
+                      platform == KonataPlatform.androidTablet)
+                    AdaptiveSettingTile(
+                      title: '自动进入画中画',
+                      trailing: KonataSwitch(
+                        key: const ValueKey('settings_auto_pip_switch'),
+                        value: prefs.autoEnterPip,
+                        onChanged: store.setAutoEnterPip,
+                      ),
+                    ),
                   AdaptiveSettingTile(
                     title: '画质缩放滤镜档位',
                     subtitle: '平衡高保真动漫锐化还原与设备渲染功耗',
@@ -332,53 +253,20 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    '高精度音频输出与安全保护',
-                    style: KonataTheme.cardTitleStyle(p),
-                  ),
+                  Text('高精度音频输出与安全保护', style: KonataTheme.cardTitleStyle(p)),
                   const SizedBox(height: 12),
-                  if (platform == KonataPlatform.windows)
-                    AdaptiveSettingTile(
-                      title: '桌面音频设备独占输出',
-                      subtitle: '绕过系统混音器以原采样率直达声卡或外置解码器',
-                      trailing: KonataSwitch(
-                        value: quality.exclusiveAudioOutput,
-                        onChanged: (val) => store.updateQualityConfig(
-                          (q) => q.copyWith(exclusiveAudioOutput: val),
-                        ),
-                      ),
-                    ),
-                  if (platform == KonataPlatform.windows)
-                    AdaptiveSettingTile(
-                      title: '压缩音频源码直通',
-                      subtitle: '透传未解码多声道音轨至功放设备，关闭内置音量调节',
-                      trailing: KonataSwitch(
-                        value: prefs.bitstreamPassthrough,
-                        onChanged: (val) =>
-                            store.setAudiophileFlags(bitstreamPassthrough: val),
-                      ),
-                    ),
-                  if (platform != KonataPlatform.windows)
-                    AdaptiveSettingTile(
-                      title: '外接便携解码器逐位直通',
-                      subtitle: '自动协商便携设备硬件原生采样率输出',
-                      trailing: KonataSwitch(
-                        value: prefs.androidBitPerfectUsb,
-                        onChanged: (val) =>
-                            store.setAudiophileFlags(androidBitPerfectUsb: val),
-                      ),
-                    ),
-                  if (widget.audiophileCoordinator != null)
-                    AdaptiveSettingTile(
-                      title: '防爆音满幅输出锁状态',
-                      subtitle: '更换外设时自动限幅以保护听力，确认核验后可解锁当次会话',
-                      trailing: KonataPillButton.secondary(
-                        compact: true,
-                        label: '核验与解锁',
-                        onPressed: () =>
-                            unawaited(_showUnlockAudiophileDialog(context, prefs)),
-                      ),
-                    ),
+                  VideoAudioRouteControls(
+                    platform: platform,
+                    preferences: prefs,
+                    store: store,
+                    coordinator:
+                        widget.audiophileCoordinator ??
+                        (widget.preferencesStore == null
+                            ? ref
+                                  .watch(featurePlayerVideoDependenciesProvider)
+                                  .audiophileCoordinator
+                            : null),
+                  ),
                 ],
               ),
             ),
@@ -483,12 +371,13 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
                   const SizedBox(height: 12),
                   AdaptiveSettingTile(
                     title: '启用外挂字幕云端字体子集化',
-                    subtitle: '在原文字幕缺失内嵌字库时按需生成轻量化字体对比轨道',
+                    subtitle: '经本机授权后，按需向指定服务发送字幕正文',
                     trailing: KonataSwitch(
                       value: prefs.enableCloudSubset,
-                      onChanged: (enabled) => store.updateCloudSubsetSettings(
-                        enabled: enabled,
-                      ),
+                      onChanged: (enabled) {
+                        if (!enabled) cloud?.cancelAllCloudSubsetTasks();
+                        store.updateCloudSubsetSettings(enabled: enabled);
+                      },
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -500,20 +389,29 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
                           hintText: '输入服务端接口地址',
                           dense: true,
                           height: 40,
-                          onSubmitted: (val) => store.updateCloudSubsetSettings(
-                            endpointUrl: val.trim(),
-                          ),
+                          onSubmitted: (val) {
+                            if (val.trim() != store.read().fontInAssEndpoint) {
+                              cloud?.cancelAllCloudSubsetTasks();
+                            }
+                            store.updateCloudSubsetSettings(
+                              endpointUrl: val.trim(),
+                            );
+                          },
                         ),
                       ),
                       const SizedBox(width: 8),
                       KonataPillButton.secondary(
                         compact: true,
                         height: 40,
-                        label: '授权来源',
+                        label: '本机授权',
                         onPressed: () {
                           final raw = _endpointController.text.trim();
                           final uri = Uri.tryParse(raw);
-                          if (uri == null || uri.host.isEmpty) {
+                          if (uri == null ||
+                              uri.host.isEmpty ||
+                              uri.userInfo.isNotEmpty ||
+                              (uri.scheme != 'http' && uri.scheme != 'https') ||
+                              cloud == null) {
                             showKonataToast(
                               context,
                               '请输入有效的服务端网络地址',
@@ -522,6 +420,11 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
                             return;
                           }
                           final origin = CloudSubsetOrigin.fromUri(uri);
+                          if (raw != store.read().fontInAssEndpoint) {
+                            cloud.cancelAllCloudSubsetTasks();
+                          }
+                          cloud.authorizeOrigin(uri);
+                          setState(() {});
                           store.updateCloudSubsetSettings(endpointUrl: raw);
                           store.authorizeCloudSubsetOrigin(origin.key);
                           showKonataToast(context, '已授权来源 ${origin.key}');
@@ -534,11 +437,28 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
                     for (final origin in prefs.authorizedCloudSubsetOrigins)
                       AdaptiveSettingTile(
                         title: origin,
+                        subtitle:
+                            cloud
+                                    ?.cloudClient
+                                    .authorizationStore
+                                    .authorizedOriginKeys
+                                    .contains(origin) ==
+                                true
+                            ? '本机已授权'
+                            : '待本机授权',
                         trailing: KonataPillButton.ghost(
                           compact: true,
                           label: '撤销授权',
-                          onPressed: () =>
-                              store.revokeCloudSubsetOrigin(origin),
+                          onPressed: () {
+                            final uri = Uri.tryParse(origin);
+                            if (uri != null &&
+                                uri.host.isNotEmpty &&
+                                (uri.scheme == 'http' ||
+                                    uri.scheme == 'https')) {
+                              cloud?.revokeOriginAndCancel(uri);
+                            }
+                            store.revokeCloudSubsetOrigin(origin);
+                          },
                         ),
                       ),
                   ],

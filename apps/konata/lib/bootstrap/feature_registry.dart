@@ -535,6 +535,12 @@ List<Override> buildFeatureProviderOverrides(FeatureRuntimeWiring wiring) {
         database: wiring.databases,
         photosStorage: wiring.photosStorage,
         artworkCacheStore: wiring.artworkCache,
+        posterLoader: (path, workId) => ref.read(libraryArtworkLoaderProvider)(
+          path,
+          targetWidth: 512,
+          ownerWorkId: workId,
+          subfolder: PhotoSubfolder.posters,
+        ),
         storageRoot: wiring.storageRoot,
         domainEventBus: wiring.domainEventBus,
         desktopRelayGateway: wiring.desktopRelayGateway,
@@ -715,8 +721,7 @@ Future<bool> handleFullscreenMediaBackIntercept(
 }) async {
   if (videoStageOpen && registry.containsFeature('feature_player_video')) {
     final manager = ref.read(activeVideoSessionManagerProvider);
-    await manager.closeActiveSession();
-    onPopCurrentRoute();
+    if (await manager.closeActiveSession()) onPopCurrentRoute();
     return true;
   }
   if (audioStageOpen && registry.containsFeature('feature_player_audio')) {
@@ -739,6 +744,8 @@ Widget buildVideoPlayerRoutePage({
   required WorkId workId,
   EpisodeId? episodeId,
   VariantId? variantId,
+  int? initialPositionSeconds,
+  bool initialPlaying = true,
   bool hasAudioFeature = true,
   required VoidCallback onClosePage,
 }) {
@@ -747,6 +754,8 @@ Widget buildVideoPlayerRoutePage({
       workId: workId,
       episodeId: episodeId,
       variantId: variantId,
+      initialPositionSeconds: initialPositionSeconds,
+      initialPlaying: initialPlaying,
     ),
     hasAudioFeature: hasAudioFeature,
     onClosePage: onClosePage,
@@ -773,6 +782,52 @@ Widget buildAudioPlayerRoutePage({
 /// 从悬浮视频小窗回弹展开全屏舞台的定位回调签名。
 typedef ExpandVideoStageCallback =
     void Function(WorkId workId, EpisodeId? episodeId, VariantId? variantId);
+
+/// 冷启动仅消费有效且仍精确关联到媒体库的本机恢复快照，不回退到其他分集或版本。
+Future<
+  ({
+    WorkId workId,
+    EpisodeId episodeId,
+    VariantId variantId,
+    int positionSeconds,
+    bool isPlaying,
+  })?
+>
+takeAndroidVideoRecovery(
+  WidgetRef ref,
+  FeatureRegistry registry,
+  KonataPlatform platform,
+) async {
+  if (platform == KonataPlatform.windows ||
+      !registry.containsFeature('feature_player_video')) {
+    return null;
+  }
+  final manager = ref.read(activeVideoSessionManagerProvider);
+  if (manager.hasActiveSession) return null;
+  if (registry.containsFeature('feature_player_audio') &&
+      ref.read(audioPlaybackControllerProvider).activeListenable.value) {
+    return null;
+  }
+  final deps = ref.read(featurePlayerVideoDependenciesProvider);
+  final store = ref.read(videoPipRecoveryStoreProvider);
+  final snapshot = await store.readFreshSnapshot();
+  if (snapshot == null) return null;
+  final workId = WorkId.trusted(snapshot.workId);
+  final episodeId = EpisodeId.trusted(snapshot.episodeId);
+  final variantId = VariantId.trusted(snapshot.variantId);
+  if (!snapshot.matchesLibrary(deps.databases)) {
+    await store.clear();
+    return null;
+  } // 单次消费，避免坏资源或主动退出引发反复冷启动播放。
+  await store.clear();
+  return (
+    workId: workId,
+    episodeId: episodeId,
+    variantId: variantId,
+    positionSeconds: snapshot.positionSeconds,
+    isPlaying: snapshot.isPlaying,
+  );
+}
 
 /// 构建常驻应用根层的音视频悬浮小窗与系统桥接层（含 16:9 跨页悬浮视频小窗、迷你音频条与 Android 音频焦点/PiP 联动）。
 Widget buildHostFloatingPlaybackOverlay({
@@ -825,36 +880,61 @@ final class _HostVideoStageRoute extends ConsumerStatefulWidget {
 final class _HostVideoStageRouteState
     extends ConsumerState<_HostVideoStageRoute> {
   late final ActiveVideoSessionManager _sessionManager;
-  late final VideoPlaybackController _controller;
+  VideoPlaybackController? _controller;
+  final Object _routeOwner = Object();
 
   @override
   void initState() {
     super.initState();
     _sessionManager = ref.read(activeVideoSessionManagerProvider);
-    if (widget.hasAudioFeature) {
-      unawaited(
-        ref.read(audioPlaybackControllerProvider).pauseForVideoSession(),
+    // 跨页会话会通知根层，路由首帧提交后才允许启动或恢复。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_openSession());
+    });
+  }
+
+  Future<void> _openSession() async {
+    try {
+      if (widget.hasAudioFeature) {
+        await ref.read(audioPlaybackControllerProvider).pauseForVideoSession();
+      }
+      if (!mounted) return;
+      final controller = await _sessionManager.openOrReuseSession(
+        widget.request,
+        routeOwner: _routeOwner,
       );
+      if (!mounted) {
+        _sessionManager.handleStageRoutePopped(_routeOwner);
+        return;
+      }
+      setState(() => _controller = controller);
+    } catch (_) {
+      if (mounted) {
+        showKonataToast(context, '无法打开播放器，请重试', isError: true);
+        widget.onClosePage();
+      }
     }
-    _controller = _sessionManager.openOrReuseSession(widget.request);
   }
 
   @override
   void dispose() {
-    _sessionManager.handleStageRoutePopped();
+    // 路由卸载仍处于框架锁定期，退出通知移到卸载之后。
+    scheduleMicrotask(
+      () => _sessionManager.handleStageRoutePopped(_routeOwner),
+    );
     super.dispose();
   }
 
   Future<void> _collapseToMini() async {
     await _sessionManager.collapseToFloatingMini();
-    if (mounted) {
+    if (mounted && _controller?.state.miniMode == VideoMiniMode.floating) {
       widget.onClosePage();
     }
   }
 
   Future<void> _closeAndPop() async {
-    await _sessionManager.closeActiveSession();
-    if (mounted) {
+    final closed = await _sessionManager.closeActiveSession();
+    if (mounted && closed) {
       widget.onClosePage();
     }
   }
@@ -862,9 +942,13 @@ final class _HostVideoStageRouteState
   @override
   Widget build(BuildContext context) {
     final deps = ref.watch(featurePlayerVideoDependenciesProvider);
+    final controller = _controller;
+    if (controller == null) {
+      return const ColoredBox(color: KonataPlaybackTokens.cinemaPureBlack);
+    }
     return EmbeddedVideoPage(
       request: widget.request,
-      controller: _controller,
+      controller: controller,
       playerSidePanels: deps.playerSidePanels,
       videoSurfaceBuilder: _buildSharedVideoTextureSurface,
       onClose: () => unawaited(_closeAndPop()),
@@ -931,7 +1015,7 @@ final class _HostAudioStageRouteState
       final videoMgr = ref.read(activeVideoSessionManagerProvider);
       if (videoMgr.hasActiveSession) {
         // 启动独立音乐会话前先有序释放既有视频会话及其桌面渲染表面，避免残留失效悬浮视频小窗。
-        await videoMgr.closeActiveSession();
+        if (!await videoMgr.closeActiveSession()) return;
       }
     }
     if (!mounted) return;
@@ -1031,12 +1115,15 @@ final class _HostFloatingPlaybackOverlayState
       _audioController!.playingListenable.addListener(_syncPlaybackSideEffects);
     }
     widget.androidPipPort?.bindCallbacks(
-      onPipModeChanged: (_) {},
+      onPipModeChanged: (active) {
+        _videoManager?.controller?.setSystemPipActive(active);
+      },
       onRemoteAction: _handleAndroidPipAction,
       onPipDismissed: () {
         final mgr = _videoManager;
-        if (mgr != null && mgr.hasActiveSession) {
-          unawaited(mgr.closeActiveSession());
+        final controller = mgr?.controller;
+        if (controller != null) {
+          unawaited(controller.dismissSystemPip());
         }
       },
     );
@@ -1175,11 +1262,22 @@ final class _HostFloatingPlaybackOverlayState
 
     final pipPort = widget.androidPipPort;
     if (pipPort != null) {
-      final hasVideo = videoCtrl != null && !videoCtrl.state.isClosing;
+      final eligible =
+          videoCtrl?.canAutoEnterSystemPip(
+            stageExpanded:
+                videoMgr?.isStageExpanded == true && widget.videoStageOpen,
+          ) ??
+          false;
+      final aspect = PipAspectRatioPolicy.clampRational(
+        videoCtrl?.state.probeStats.videoWidth ?? 0,
+        videoCtrl?.state.probeStats.videoHeight ?? 0,
+      );
       unawaited(
         pipPort.syncState(
           AndroidPipState(
-            eligible: hasVideo && videoPlaying,
+            eligible: eligible,
+            aspectNumerator: aspect.numerator,
+            aspectDenominator: aspect.denominator,
             isPlaying: videoPlaying,
             canPrevious: videoCtrl?.hasPreviousEpisode ?? false,
             canNext: videoCtrl?.hasNextEpisode ?? false,
@@ -1201,6 +1299,7 @@ final class _HostFloatingPlaybackOverlayState
         : null;
 
     return Stack(
+      fit: StackFit.expand,
       children: <Widget>[
         if (videoManager != null)
           ListenableBuilder(
@@ -1238,7 +1337,6 @@ final class _HostFloatingPlaybackOverlayState
                 videoSurfaceBuilder: _buildSharedVideoTextureSurface,
                 onExpand: () {
                   final req = videoManager.activeRequest;
-                  unawaited(videoManager.expandFromFloatingMini());
                   if (req != null) {
                     widget.onExpandVideoStage(
                       req.workId,

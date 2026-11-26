@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../data/video_session_models.dart';
 import 'video_playback_controller.dart';
+import 'video_playback_state.dart';
 
 /// 构建独立视频播放控制器的工厂回调（由外层薄胶水注入具体依赖）。
 typedef VideoPlaybackControllerFactory = VideoPlaybackController Function();
@@ -22,6 +23,8 @@ class ActiveVideoSessionManager extends ChangeNotifier {
   VideoPlaybackController? _controller;
   bool _stageExpanded = false;
   bool _disposed = false;
+  bool _closeInProgress = false;
+  Object? _stageRouteOwner;
 
   /// 当前活跃视频起播请求（无活跃会话时为 `null`）。
   VideoLaunchRequest? get activeRequest => _activeRequest;
@@ -37,10 +40,16 @@ class ActiveVideoSessionManager extends ChangeNotifier {
 
   /// 当前是否应于应用根层展示跨页可拖拽 16:9 悬浮视频小窗。
   bool get shouldShowFloatingMiniPlayer =>
-      _controller != null && !_stageExpanded && _controller!.state.isMiniPlayer;
+      _controller != null &&
+      !_stageExpanded &&
+      _controller!.state.miniMode == VideoMiniMode.floating;
 
   /// 启动新的视频播放会话，或对同作品同分集同版本的既有会话原地回弹复用（零重新解码）。
-  VideoPlaybackController openOrReuseSession(VideoLaunchRequest request) {
+  Future<VideoPlaybackController> openOrReuseSession(
+    VideoLaunchRequest request, {
+    required Object routeOwner,
+  }) async {
+    if (_disposed) throw StateError('视频会话管理器已关闭');
     final existing = _controller;
     final currentReq = _activeRequest;
     final isSameTarget =
@@ -55,23 +64,26 @@ class ActiveVideoSessionManager extends ChangeNotifier {
             currentReq.variantId == request.variantId);
 
     if (isSameTarget) {
-      _stageExpanded = true;
       if (existing.state.isMiniPlayer) {
-        unawaited(existing.exitMiniPlayerToStage());
+        await existing.exitMiniPlayerToStage();
+        if (existing.state.isMiniPlayer) throw StateError('无法恢复播放舞台');
       }
+      _stageRouteOwner = routeOwner;
+      _stageExpanded = true;
       _safeNotify();
       return existing;
     }
 
     if (existing != null) {
-      existing.removeListener(_onControllerChanged);
-      unawaited(_disposeOldController(existing));
+      if (!await closeActiveSession()) throw StateError('无法关闭原播放会话');
     }
 
+    if (_disposed) throw StateError('视频会话管理器已关闭');
     final created = _controllerFactory();
     created.addListener(_onControllerChanged);
     _controller = created;
     _activeRequest = request;
+    _stageRouteOwner = routeOwner;
     _stageExpanded = true;
     unawaited(created.initialize(request));
     _safeNotify();
@@ -82,22 +94,15 @@ class ActiveVideoSessionManager extends ChangeNotifier {
   Future<void> collapseToFloatingMini() async {
     final ctrl = _controller;
     if (ctrl == null) return;
-    _stageExpanded = false;
     await ctrl.enterMiniPlayer(desktopAlwaysOnTop: false);
-    _safeNotify();
-  }
-
-  /// 从跨页悬浮小窗回弹展开至全屏视频舞台（零重新解码）。
-  Future<void> expandFromFloatingMini() async {
-    final ctrl = _controller;
-    if (ctrl == null) return;
-    _stageExpanded = true;
-    await ctrl.exitMiniPlayerToStage();
+    _stageExpanded = ctrl.state.miniMode != VideoMiniMode.floating;
     _safeNotify();
   }
 
   /// 标记全屏视频舞台路由已退场；若未进入悬浮小窗态则同步安全销毁会话。
-  void handleStageRoutePopped() {
+  void handleStageRoutePopped(Object routeOwner) {
+    if (_disposed || !identical(_stageRouteOwner, routeOwner)) return;
+    _stageRouteOwner = null;
     final ctrl = _controller;
     if (ctrl == null) {
       _stageExpanded = false;
@@ -105,7 +110,7 @@ class ActiveVideoSessionManager extends ChangeNotifier {
       return;
     }
     _stageExpanded = false;
-    if (!ctrl.state.isMiniPlayer) {
+    if (ctrl.state.miniMode != VideoMiniMode.floating) {
       unawaited(closeActiveSession());
     } else {
       _safeNotify();
@@ -113,16 +118,32 @@ class ActiveVideoSessionManager extends ChangeNotifier {
   }
 
   /// 彻底关闭当前活跃视频会话并释放全部原生解码资源。
-  Future<void> closeActiveSession() async {
+  Future<bool> closeActiveSession() async {
+    if (_closeInProgress) return false;
     final ctrl = _controller;
-    _controller = null;
-    _activeRequest = null;
-    _stageExpanded = false;
-    _safeNotify();
-    if (ctrl != null) {
-      ctrl.removeListener(_onControllerChanged);
-      await _disposeOldController(ctrl);
+    if (ctrl == null) return true;
+    _closeInProgress = true;
+    try {
+      await ctrl.closeSession();
+    } catch (_) {
+      if (!ctrl.state.isClosing) {
+        ctrl.showTransientNotice('窗口恢复失败，请重试', isError: true);
+        return false;
+      }
+      // 解码器已进入关闭阶段时，即使清理异常也不能继续使用该实例。
+    } finally {
+      _closeInProgress = false;
     }
+    if (identical(_controller, ctrl)) {
+      _controller = null;
+      _activeRequest = null;
+      _stageRouteOwner = null;
+      _stageExpanded = false;
+      _safeNotify();
+      ctrl.removeListener(_onControllerChanged);
+      ctrl.dispose();
+    }
+    return true;
   }
 
   Future<void> _disposeOldController(VideoPlaybackController ctrl) async {
@@ -149,6 +170,7 @@ class ActiveVideoSessionManager extends ChangeNotifier {
     final ctrl = _controller;
     _controller = null;
     _activeRequest = null;
+    _stageRouteOwner = null;
     _stageExpanded = false;
     if (ctrl != null) {
       ctrl.removeListener(_onControllerChanged);

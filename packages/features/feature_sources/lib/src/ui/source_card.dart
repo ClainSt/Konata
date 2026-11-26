@@ -304,7 +304,7 @@ class _IgnoredFolderChipState extends State<_IgnoredFolderChip> {
   Widget build(BuildContext context) {
     final p = context.palette;
     return KonataTooltip(
-      message: '点击恢复扫描目录「${widget.folder}」',
+      message: '恢复扫描目录',
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
         onEnter: (_) => setState(() => _hovered = true),

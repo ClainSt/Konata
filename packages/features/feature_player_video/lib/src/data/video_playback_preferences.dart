@@ -34,6 +34,7 @@ class VideoPlaybackPreferences {
     this.autoPlayNextEpisode = true,
     this.autoSkipChapters = false,
     this.backgroundAudioOnMinimize = true,
+    this.autoEnterPip = true,
     this.enableCloudSubset = false,
     this.fontInAssEndpoint = '',
     this.authorizedCloudSubsetOrigins = const <String>[],
@@ -99,6 +100,9 @@ class VideoPlaybackPreferences {
   /// 切入桌面迷你窗口或退居后台时是否允许保持音轨持续播放。
   final bool backgroundAudioOnMinimize;
 
+  /// 是否允许展开的视频舞台退至后台时自动进入系统画中画。
+  final bool autoEnterPip;
+
   /// 是否启用可选云端字体子集化功能。
   final bool enableCloudSubset;
 
@@ -161,6 +165,7 @@ class VideoPlaybackPreferences {
     'autoPlayNextEpisode': autoPlayNextEpisode,
     'autoSkipChapters': autoSkipChapters,
     'backgroundAudioOnMinimize': backgroundAudioOnMinimize,
+    'autoEnterPip': autoEnterPip,
     'enableCloudSubset': enableCloudSubset,
     'fontInAssEndpoint': fontInAssEndpoint,
     'authorizedCloudSubsetOrigins': List<String>.of(
@@ -270,17 +275,18 @@ class VideoPlaybackPreferences {
 
     return VideoPlaybackPreferences(
       preferredEngine: engine,
-      qualityConfig: quality,
+      qualityConfig: _readBool(json['bitstreamPassthrough'], false)
+          ? quality.copyWith(exclusiveAudioOutput: false)
+          : quality,
       preferredSubtitleLangs: subLangs.isEmpty
           ? _defaultSubtitleLangs
           : subLangs,
-      preferredAudioLangs: audioLangs.isEmpty
-          ? _defaultAudioLangs
-          : audioLangs,
+      preferredAudioLangs: audioLangs.isEmpty ? _defaultAudioLangs : audioLangs,
       volume: _readDouble(json['volume'], 1.0, min: 0.0, max: 1.0),
       isMuted: _readBool(json['isMuted'], false),
       autoPlayNextEpisode: _readBool(json['autoPlayNextEpisode'], true),
       autoSkipChapters: _readBool(json['autoSkipChapters'], false),
+      autoEnterPip: _readBool(json['autoEnterPip'], true),
       backgroundAudioOnMinimize: _readBool(
         json['backgroundAudioOnMinimize'],
         true,
@@ -310,6 +316,7 @@ class VideoPlaybackPreferences {
     bool? autoPlayNextEpisode,
     bool? autoSkipChapters,
     bool? backgroundAudioOnMinimize,
+    bool? autoEnterPip,
     bool? enableCloudSubset,
     String? fontInAssEndpoint,
     List<String>? authorizedCloudSubsetOrigins,
@@ -329,6 +336,7 @@ class VideoPlaybackPreferences {
       autoSkipChapters: autoSkipChapters ?? this.autoSkipChapters,
       backgroundAudioOnMinimize:
           backgroundAudioOnMinimize ?? this.backgroundAudioOnMinimize,
+      autoEnterPip: autoEnterPip ?? this.autoEnterPip,
       enableCloudSubset: enableCloudSubset ?? this.enableCloudSubset,
       fontInAssEndpoint: fontInAssEndpoint ?? this.fontInAssEndpoint,
       authorizedCloudSubsetOrigins:
@@ -378,6 +386,7 @@ class VideoPlaybackPreferences {
         other.autoPlayNextEpisode == autoPlayNextEpisode &&
         other.autoSkipChapters == autoSkipChapters &&
         other.backgroundAudioOnMinimize == backgroundAudioOnMinimize &&
+        other.autoEnterPip == autoEnterPip &&
         other.enableCloudSubset == enableCloudSubset &&
         other.fontInAssEndpoint == fontInAssEndpoint &&
         listEquals(
@@ -417,6 +426,7 @@ class VideoPlaybackPreferences {
     autoPlayNextEpisode,
     autoSkipChapters,
     backgroundAudioOnMinimize,
+    autoEnterPip,
     enableCloudSubset,
     fontInAssEndpoint,
     Object.hashAll(authorizedCloudSubsetOrigins),
@@ -425,11 +435,7 @@ class VideoPlaybackPreferences {
     skipFoobarBeefwebGuidePrompt,
   ]);
 
-  static T _parseEnum<T extends Enum>(
-    List<T> values,
-    Object? raw,
-    T fallback,
-  ) {
+  static T _parseEnum<T extends Enum>(List<T> values, Object? raw, T fallback) {
     if (raw is String) {
       for (final value in values) {
         if (value.name == raw) return value;
@@ -536,7 +542,8 @@ final class VideoPlaybackPreferencesStore {
     PlaybackQualityConfig Function(PlaybackQualityConfig current) updater,
   ) {
     update(
-      (current) => current.copyWith(qualityConfig: updater(current.qualityConfig)),
+      (current) =>
+          current.copyWith(qualityConfig: updater(current.qualityConfig)),
     );
   }
 
@@ -579,16 +586,18 @@ final class VideoPlaybackPreferencesStore {
     update((current) => current.copyWith(autoPlayNextEpisode: enabled));
   }
 
+  /// 更新 Android 自动进入系统画中画开关。
+  void setAutoEnterPip(bool enabled) {
+    update((current) => current.copyWith(autoEnterPip: enabled));
+  }
+
   /// 更新切入迷你窗或后台保持声音继续播放开关。
   void setBackgroundAudioOnMinimize(bool enabled) {
     update((current) => current.copyWith(backgroundAudioOnMinimize: enabled));
   }
 
   /// 更新云端字体子集化功能开关及服务端地址。
-  void updateCloudSubsetSettings({
-    bool? enabled,
-    String? endpointUrl,
-  }) {
+  void updateCloudSubsetSettings({bool? enabled, String? endpointUrl}) {
     update(
       (current) => current.copyWith(
         enableCloudSubset: enabled ?? current.enableCloudSubset,
@@ -628,18 +637,32 @@ final class VideoPlaybackPreferencesStore {
     );
   }
 
-  /// 更新发烧音频路由相关高级开关。
-  void setAudiophileFlags({
-    bool? bitstreamPassthrough,
-    bool? androidBitPerfectUsb,
+  /// 使用单一互斥路由原子写入现有偏好字段，兼容旧备份与同步格式。
+  void setAudioOutputRoute(
+    AudioOutputRouteMode mode, {
+    required KonataPlatform platform,
   }) {
+    final windows = platform == KonataPlatform.windows;
+    if (windows && mode == AudioOutputRouteMode.androidBitPerfectUsb ||
+        !windows &&
+            (mode == AudioOutputRouteMode.exclusiveAudioOutput ||
+                mode == AudioOutputRouteMode.bitstreamPassthrough)) {
+      throw ArgumentError('当前平台不支持所选音频输出模式');
+    }
     update(
-      (current) => current.copyWith(
-        bitstreamPassthrough:
-            bitstreamPassthrough ?? current.bitstreamPassthrough,
-        androidBitPerfectUsb:
-            androidBitPerfectUsb ?? current.androidBitPerfectUsb,
-      ),
+      (current) => windows
+          ? current.copyWith(
+              qualityConfig: current.qualityConfig.copyWith(
+                exclusiveAudioOutput:
+                    mode == AudioOutputRouteMode.exclusiveAudioOutput,
+              ),
+              bitstreamPassthrough:
+                  mode == AudioOutputRouteMode.bitstreamPassthrough,
+            )
+          : current.copyWith(
+              androidBitPerfectUsb:
+                  mode == AudioOutputRouteMode.androidBitPerfectUsb,
+            ),
     );
   }
 

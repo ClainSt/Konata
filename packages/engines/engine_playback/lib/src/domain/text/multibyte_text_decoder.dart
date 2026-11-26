@@ -69,7 +69,7 @@ class DecodedTextResult {
 /// 全仓唯一纯字节多字符集探测与解码器（UTF-8 / UTF-16LE/BE / CP932 / GB18030 / Big5）。
 ///
 /// 统一服务外挂字幕、CUE 分轨表与 LRC 同步歌词，严禁通过篡改 `libmpv` 全局 `sub-codepage`
-/// 造成副字幕槽乱码污染。
+/// 造成字幕轨道乱码污染。
 class MultibyteTextDecoder {
   MultibyteTextDecoder._();
 

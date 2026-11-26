@@ -28,10 +28,7 @@ Future<void> showScanProgressDialog(
 }
 
 class _ScanProgressDialog extends ConsumerStatefulWidget {
-  const _ScanProgressDialog({
-    this.focusSourceId,
-    this.initialTabIndex = 0,
-  });
+  const _ScanProgressDialog({this.focusSourceId, this.initialTabIndex = 0});
 
   final String? focusSourceId;
   final int initialTabIndex;
@@ -63,8 +60,7 @@ class _ScanProgressDialogState extends ConsumerState<_ScanProgressDialog> {
       listenable: scrapeController,
       builder: (context, _) {
         final phase = scrapeController.phase;
-        final activeSourceId =
-            widget.focusSourceId ?? phase.sourceId ?? '';
+        final activeSourceId = widget.focusSourceId ?? phase.sourceId ?? '';
         var displayLabel = phase.sourceLabel;
         if (displayLabel.isEmpty &&
             activeSourceId.isNotEmpty &&
@@ -77,9 +73,7 @@ class _ScanProgressDialogState extends ConsumerState<_ScanProgressDialog> {
           }
         }
         final visited = phase.visitedFolders;
-        final titleSuffix = displayLabel.isNotEmpty
-            ? ' · $displayLabel'
-            : '';
+        final titleSuffix = displayLabel.isNotEmpty ? ' · $displayLabel' : '';
 
         if (activeSourceId.isEmpty) {
           return _buildDialogFrame(
@@ -216,7 +210,7 @@ class _ScanProgressDialogState extends ConsumerState<_ScanProgressDialog> {
             return KonataDraggableScrollbar(
               builder: (_, scrollCtrl) => SingleChildScrollView(
                 controller: scrollCtrl,
-                padding: const EdgeInsets.only(right: 10),
+                padding: EdgeInsets.zero,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   mainAxisSize: MainAxisSize.min,
@@ -341,9 +335,7 @@ class _ScanProgressDialogState extends ConsumerState<_ScanProgressDialog> {
                   ),
                 ),
               if (phase.unmatchedWorks > 0)
-                ScanProgressStatChip(
-                  label: '未识别 ${phase.unmatchedWorks}',
-                ),
+                ScanProgressStatChip(label: '未识别 ${phase.unmatchedWorks}'),
             ],
           ),
           if (hasDifficultyStats ||

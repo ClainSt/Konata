@@ -1,7 +1,8 @@
 part of 'video_playback_controller.dart';
 
 /// 视频控制器进度落盘、完播事件发布、宿主窗口与外置播放器接力扩展。
-extension VideoPlaybackControllerWindowAndPersistence on VideoPlaybackController {
+extension VideoPlaybackControllerWindowAndPersistence
+    on VideoPlaybackController {
   void _checkCompletionTransition(double posSeconds) {
     if (_hasCompletedCurrentEpisode) return;
     final durSeconds = _state.durationSeconds;
@@ -106,9 +107,8 @@ extension VideoPlaybackControllerWindowAndPersistence on VideoPlaybackController
     final targetVariant =
         _state.currentBundle?.variantsForEpisode(episodeId).firstOrNull ??
         _state.currentVariant;
-    final existing = env.databases.userState.playbackRecords.findLatestByEpisode(
-      episodeId,
-    );
+    final existing = env.databases.userState.playbackRecords
+        .findLatestByEpisode(episodeId);
     final now = (env.nowMs ?? () => DateTime.now().millisecondsSinceEpoch)();
 
     final posInt = episodeId == _state.currentEpisode.id
@@ -183,46 +183,86 @@ extension VideoPlaybackControllerWindowAndPersistence on VideoPlaybackController
     double height = 202.5,
     bool desktopAlwaysOnTop = true,
   }) async {
-    if (_disposed || _closing) return;
-    await persistPipRecoverySnapshot();
-    if (desktopAlwaysOnTop && env.platform == KonataPlatform.windows) {
-      await env.hostWindow.enterDesktopMiniWindow(
-        width: width,
-        height: height,
-      );
-      await env.hostWindow.setAlwaysOnTop(true);
-    } else if (env.platform != KonataPlatform.windows) {
-      await env.hostWindow.setPreferredLandscape(false);
+    if (_disposed || _closing || _miniModeTransition || _state.isMiniPlayer) {
+      return;
     }
-    _setState(_state.copyWith(isMiniPlayer: true, sideSheetOpen: false));
+    _miniModeTransition = true;
+    final desktop =
+        desktopAlwaysOnTop && env.platform == KonataPlatform.windows;
+    try {
+      await persistPipRecoverySnapshot();
+      if (_disposed || _closing) return;
+      _setState(
+        _state.copyWith(
+          miniMode: desktop ? VideoMiniMode.desktop : VideoMiniMode.floating,
+          sideSheetOpen: false,
+        ),
+      );
+      if (desktop) {
+        await env.hostWindow.enterDesktopMiniWindow(
+          width: width,
+          height: height,
+        );
+        if (_disposed || _closing) {
+          await env.hostWindow.exitDesktopMiniWindow();
+        }
+      } else if (env.platform != KonataPlatform.windows) {
+        await env.hostWindow.setPreferredLandscape(false);
+      }
+    } catch (_) {
+      if (!_disposed && !_closing) {
+        _setState(_state.copyWith(miniMode: VideoMiniMode.stage));
+        showTransientNotice('无法进入小窗，请重试', isError: true);
+      }
+      await env.pipRecoveryStore.clear();
+    } finally {
+      _miniModeTransition = false;
+    }
   }
 
   /// 从悬浮小窗或桌面迷你窗回弹恢复至正常全屏播放舞台。
   Future<void> exitMiniPlayerToStage({bool enterFullscreen = false}) async {
-    if (_disposed || _closing) return;
-    if (env.platform == KonataPlatform.windows) {
-      await env.hostWindow.setAlwaysOnTop(false);
-      await env.hostWindow.exitDesktopMiniWindow();
-      if (enterFullscreen) {
-        await env.hostWindow.setFullScreen(true);
-      }
-    } else {
-      await env.hostWindow.setPreferredLandscape(true);
+    if (_disposed || _closing || _miniModeTransition || !_state.isMiniPlayer) {
+      return;
     }
-    await env.pipRecoveryStore.clear();
-    _setState(
-      _state.copyWith(
-        isMiniPlayer: false,
-        isFullscreen: enterFullscreen ? true : _state.isFullscreen,
-      ),
-    );
+    _miniModeTransition = true;
+    try {
+      if (env.platform == KonataPlatform.windows) {
+        if (_state.miniMode == VideoMiniMode.desktop) {
+          await env.hostWindow.exitDesktopMiniWindow();
+        }
+        if (enterFullscreen) await env.hostWindow.setFullScreen(true);
+      } else {
+        await env.hostWindow.setPreferredLandscape(true);
+      }
+      await env.pipRecoveryStore.clear();
+      if (!_disposed && !_closing) {
+        _setState(
+          _state.copyWith(
+            miniMode: VideoMiniMode.stage,
+            isFullscreen: enterFullscreen || _state.isFullscreen,
+          ),
+        );
+      }
+    } catch (_) {
+      if (!_disposed && !_closing) {
+        showTransientNotice('无法恢复播放器，请重试', isError: true);
+      }
+    } finally {
+      _miniModeTransition = false;
+    }
   }
 
   /// 写入当前进度的画中画可恢复快照。
   Future<void> persistPipRecoverySnapshot() async {
     final work = _state.currentWork;
-    if (work == null || !_state.hasPlayableMedia) return;
-    final posInt = (positionNotifier.value.inMilliseconds / 1000.0).round();
+    if (_disposed || _closing || work == null || !_state.hasPlayableMedia) {
+      return;
+    }
+    final nativePosition = _session?.readCurrentPositionSeconds();
+    final posInt =
+        (nativePosition ?? positionNotifier.value.inMilliseconds / 1000.0)
+            .round();
     final now = (env.nowMs ?? () => DateTime.now().millisecondsSinceEpoch)();
     await env.pipRecoveryStore.saveSnapshot(
       PipPlaybackRecoverySnapshot(
@@ -264,6 +304,52 @@ extension VideoPlaybackControllerWindowAndPersistence on VideoPlaybackController
   void setWindowBrightness(double brightness) {
     final clamped = brightness.clamp(0.05, 1.0).toDouble();
     _setState(_state.copyWith(windowBrightness: clamped));
+  }
+
+  /// 以当前视口所有者协调跨路由交接，已卸载视口不能隐藏新视口。
+  Future<void> updateHardwareViewport({
+    required Object owner,
+    required int leftPx,
+    required int topPx,
+    required int rightPx,
+    required int bottomPx,
+    required double cornerRadiusPx,
+    required bool visible,
+  }) async {
+    if (_disposed) return;
+    if (visible) {
+      if (_closing || _state.audioOnlyMode || _state.errorMessage != null) {
+        return;
+      }
+      _hardwareViewportOwner = owner;
+    } else {
+      if (!identical(_hardwareViewportOwner, owner)) return;
+      _hardwareViewportOwner = null;
+    }
+    if (env.platform == KonataPlatform.windows) {
+      await syncWindowsUnderlayViewport(
+        leftPx: leftPx,
+        topPx: topPx,
+        rightPx: rightPx,
+        bottomPx: bottomPx,
+        cornerRadiusPx: cornerRadiusPx,
+        visible: visible,
+      );
+    } else {
+      final port = env.androidSurfacePort;
+      if (port == null || port.isDisposed) return;
+      if (visible) {
+        await port.syncViewportRect(
+          leftPx: leftPx,
+          topPx: topPx,
+          rightPx: rightPx,
+          bottomPx: bottomPx,
+          cornerRadiusPx: cornerRadiusPx,
+        );
+      } else {
+        await port.hideViewport();
+      }
+    }
   }
 
   /// 同步桌面端底层直通视频输出宿主的物理像素矩形视口与圆角裁切。
@@ -343,7 +429,14 @@ extension VideoPlaybackControllerWindowAndPersistence on VideoPlaybackController
   /// 安全停止全部定时器、释放渲染表面与原生播放器会话（退出页面时调用）。
   Future<void> closeSession() async {
     if (_closing) return;
+    if (_miniModeTransition) throw StateError('窗口正在切换，请重试');
+    // 先确认桌面窗口恢复成功，再销毁播放实例，失败时仍可重试。
+    if (_state.miniMode == VideoMiniMode.desktop) {
+      await exitMiniPlayerToStage();
+      if (_state.isMiniPlayer) throw StateError('窗口恢复失败，请重试');
+    }
     _closing = true;
+    env.cloudSubsetCoordinator?.cancelAllCloudSubsetTasks();
     _cancelAllTimers();
     _currentSubtitleHudLiftPercent = 0.0;
     _session?.setSubtitleHudLiftPercent(0.0);
@@ -360,13 +453,7 @@ extension VideoPlaybackControllerWindowAndPersistence on VideoPlaybackController
       ]);
     } finally {
       env.playbackEngine.resetSession();
-      if (_state.isMiniPlayer) {
-        await env.pipRecoveryStore.clear();
-        if (env.platform == KonataPlatform.windows) {
-          await env.hostWindow.setAlwaysOnTop(false);
-          await env.hostWindow.exitDesktopMiniWindow();
-        }
-      }
+      await env.pipRecoveryStore.clear();
       await env.hostWindow.setKeepScreenOn(false);
       await env.hostWindow.setPreferredLandscape(false);
     }

@@ -246,7 +246,7 @@ class _DetailFullListDialogState extends State<DetailFullListDialog> {
                     );
                   }),
                   child: KonataTooltip(
-                    message: '拖动调整大小 · 双击恢复默认',
+                    message: '调整大小',
                     child: SizedBox(
                       width: 28,
                       height: 20,
@@ -328,21 +328,20 @@ class _DetailFullListDialogState extends State<DetailFullListDialog> {
     if (items.isEmpty) {
       return const Center(child: Text('没有符合当前筛选条件的文件'));
     }
-    return LayoutBuilder(
-      builder: (_, constraints) {
-        const rightPad = 16.0;
-        const spacing = 12.0;
-        final usableWidth = math.max(120.0, constraints.maxWidth - rightPad);
-        final columns = math.max(
-          1,
-          ((usableWidth + spacing) / (maxExtent + spacing)).ceil(),
-        );
-        return KonataDraggableScrollbar(
-          controller: _scrollCtrl,
-          builder: (_, ctrl) => ListView.separated(
+    return KonataDraggableScrollbar(
+      controller: _scrollCtrl,
+      builder: (_, ctrl) => LayoutBuilder(
+        builder: (_, constraints) {
+          const spacing = 12.0;
+          final usableWidth = math.max(120.0, constraints.maxWidth);
+          final columns = math.max(
+            1,
+            ((usableWidth + spacing) / (maxExtent + spacing)).ceil(),
+          );
+          return ListView.separated(
             key: ValueKey('detail_full_list_$_activeTab'),
             controller: ctrl,
-            padding: const EdgeInsets.only(right: rightPad, bottom: 6),
+            padding: const EdgeInsets.only(bottom: 6),
             itemCount: (items.length + columns - 1) ~/ columns,
             separatorBuilder: (_, _) => const SizedBox(height: 10),
             itemBuilder: (_, row) => Row(
@@ -358,9 +357,9 @@ class _DetailFullListDialogState extends State<DetailFullListDialog> {
                 ],
               ],
             ),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 }

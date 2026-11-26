@@ -126,9 +126,13 @@ class CloudSubsetAuthorizationStore {
         onHydrated?.call();
       }
     } on Object catch (error) {
-  // 无插件或存储受限环境下保持空授权集合，严禁默认放行未授权源。
-  developer.log('可恢复异常已记录', name: 'konata.fontinass_cloud_client', error: error);
-}
+      // 无插件或存储受限环境下保持空授权集合，严禁默认放行未授权源。
+      developer.log(
+        '可恢复异常已记录',
+        name: 'konata.fontinass_cloud_client',
+        error: error,
+      );
+    }
   }
 
   void _schedulePersist() {
@@ -139,9 +143,13 @@ class CloudSubsetAuthorizationStore {
       try {
         await persister(snapshot);
       } on Object catch (error) {
-  // 持久化失败不影响内存态本次撤权/授权立即生效。
-  developer.log('可恢复异常已记录', name: 'konata.fontinass_cloud_client', error: error);
-}
+        // 持久化失败不影响内存态本次撤权/授权立即生效。
+        developer.log(
+          '可恢复异常已记录',
+          name: 'konata.fontinass_cloud_client',
+          error: error,
+        );
+      }
     });
   }
 
@@ -203,8 +211,12 @@ class CloudSubsetCancellationHandle {
       try {
         fn();
       } catch (error) {
-      developer.log('可恢复异常已记录', name: 'konata.fontinass_cloud_client', error: error);
-    }
+        developer.log(
+          '可恢复异常已记录',
+          name: 'konata.fontinass_cloud_client',
+          error: error,
+        );
+      }
     }
   }
 }
@@ -285,8 +297,13 @@ class FontInAssCloudClient {
 
     final srcBytes = utf8.encode(originalAssContent);
     final srcSha1 = sha1.convert(srcBytes).toString();
-    final cacheDir = await PlaybackStoragePaths.ensureCloudSubsetDir(_storageRoot);
-    final originHash = sha1.convert(utf8.encode(origin.key)).toString().substring(0, 12);
+    final cacheDir = await PlaybackStoragePaths.ensureCloudSubsetDir(
+      _storageRoot,
+    );
+    final originHash = sha1
+        .convert(utf8.encode(origin.key))
+        .toString()
+        .substring(0, 12);
     final cacheFile = File(p.join(cacheDir.path, '${originHash}_$srcSha1.ass'));
 
     // 命中此前已通过语义校验并原子落盘的本地缓存时直接复用。
@@ -297,6 +314,7 @@ class FontInAssCloudClient {
         subsettedAss: cachedText,
       );
       if (cachedVerify.isValid) {
+        _throwIfAborted(cancellation, isTaskAlive, endpointUri);
         return CloudSubsetResult(
           subsettedAssContent: cachedText,
           cachedFilePath: cacheFile.path,
@@ -341,7 +359,6 @@ class FontInAssCloudClient {
           status == HttpStatus.temporaryRedirect ||
           status == HttpStatus.permanentRedirect ||
           (status >= 300 && status < 400)) {
-        await resp.drain<void>().catchError((_) {});
         throw CloudSubsetRedirectBlockedException(
           statusCode: status,
           location: resp.headers.value(HttpHeaders.locationHeader),
@@ -349,7 +366,6 @@ class FontInAssCloudClient {
       }
 
       if (status < 200 || status >= 300) {
-        await resp.drain<void>().catchError((_) {});
         throw HttpException('云端子集化服务返回异常状态码: HTTP $status', uri: endpointUri);
       }
 
@@ -363,7 +379,10 @@ class FontInAssCloudClient {
       }
 
       _throwIfAborted(cancellation, isTaskAlive, endpointUri);
-      final subsettedAss = utf8.decode(builder.takeBytes(), allowMalformed: false);
+      final subsettedAss = utf8.decode(
+        builder.takeBytes(),
+        allowMalformed: false,
+      );
 
       // 落盘前强制逐事件时间/图层/文本/标签语义同构 + 零字形退化核验。
       final verification = AssSemanticVerifier.verify(
@@ -390,6 +409,7 @@ class FontInAssCloudClient {
         }
       }
 
+      _throwIfAborted(cancellation, isTaskAlive, endpointUri);
       return CloudSubsetResult(
         subsettedAssContent: subsettedAss,
         cachedFilePath: cacheFile.path,

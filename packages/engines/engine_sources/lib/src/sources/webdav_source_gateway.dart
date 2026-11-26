@@ -59,6 +59,7 @@ class WebDavSourceGateway
   /// 单次 WebDAV 请求超时上限。
   final Duration requestTimeout;
 
+  bool _closed = false;
   String? _lastDigestChallenge;
   int _nonceCount = 0;
   final Map<String, _CachedRedirectEntry> _localRedirectCache =
@@ -336,14 +337,17 @@ class WebDavSourceGateway
     Duration? timeoutOverride,
     void Function(Uri resolvedUri)? onFinalRedirectUri,
   }) async {
+    if (_closed) throw StateError('WebDAV 网关已关闭');
     final activeClient = client ?? _client;
     var currentUri = uri;
     var currentMethod = method;
     var allowCredentials = _isSameOrigin(_rootUri, currentUri);
 
     for (var hop = 0; hop <= WebDavGatewayConfig.maxRedirects; hop++) {
+      if (_closed) throw StateError('WebDAV 网关已关闭');
       final initialBody =
-          body ?? (hop == 0 ? buildRequest(const <String, String>{}).body : null);
+          body ??
+          (hop == 0 ? buildRequest(const <String, String>{}).body : null);
       final streamed = await _sendSingleWithDigest(
         method: currentMethod,
         uri: currentUri,
@@ -356,6 +360,10 @@ class WebDavSourceGateway
         timeoutOverride: timeoutOverride,
       );
 
+      if (_closed) {
+        await streamed.stream.listen(null).cancel();
+        throw StateError('WebDAV 网关已关闭');
+      }
       if (!_isRedirectStatus(streamed.statusCode)) {
         if (hop > 0 &&
             (streamed.statusCode == HttpStatus.ok ||
@@ -482,12 +490,16 @@ class WebDavSourceGateway
 
       final isDir =
           okProps
-              .expand((pr) => pr.findElements('resourcetype', namespaceUri: '*'))
+              .expand(
+                (pr) => pr.findElements('resourcetype', namespaceUri: '*'),
+              )
               .expand((rt) => rt.findElements('collection', namespaceUri: '*'))
               .isNotEmpty ||
           hrefPath.endsWith('/');
       final sizeText = okProps
-          .expand((pr) => pr.findElements('getcontentlength', namespaceUri: '*'))
+          .expand(
+            (pr) => pr.findElements('getcontentlength', namespaceUri: '*'),
+          )
           .map((e) => e.innerText.trim())
           .firstWhere((t) => t.isNotEmpty, orElse: () => '0');
       final size = int.tryParse(sizeText) ?? 0;
@@ -680,7 +692,8 @@ class WebDavSourceGateway
   }
 
   static String? _extractStrongEtag(Map<String, String> headers) {
-    final raw = (headers[HttpHeaders.etagHeader] ?? headers['ETag'] ?? '').trim();
+    final raw = (headers[HttpHeaders.etagHeader] ?? headers['ETag'] ?? '')
+        .trim();
     if (raw.isEmpty || raw.startsWith('W/') || raw.startsWith('w/')) {
       return null;
     }
@@ -704,8 +717,7 @@ class WebDavSourceGateway
         expectedStrongValidator.isNotEmpty &&
         !expectedStrongValidator.startsWith('W/') &&
         !expectedStrongValidator.startsWith('w/');
-    final isFullFromStart =
-        start == 0 && endInclusive == null && !hasValidator;
+    final isFullFromStart = start == 0 && endInclusive == null && !hasValidator;
     final extraHeaders = <String, String>{};
     // 完整文件从头读取走标准 GET，避免向部分网盘发送开放式区间请求头引发兼容挂起。
     if (!isFullFromStart) {
@@ -724,8 +736,8 @@ class WebDavSourceGateway
     if (cachedRedirectUri != null) {
       try {
         final directResp = await _sendWithDigestRetry(
-          (headers) => http.Request('GET', cachedRedirectUri)
-            ..headers.addAll(headers),
+          (headers) =>
+              http.Request('GET', cachedRedirectUri)..headers.addAll(headers),
           method: 'GET',
           uri: cachedRedirectUri,
           extraHeaders: extraHeaders,
@@ -768,6 +780,10 @@ class WebDavSourceGateway
               _rememberCachedRedirect(uri, resolved),
         );
 
+    if (_closed) {
+      await streamed.stream.listen(null).cancel();
+      throw StateError('WebDAV 网关已关闭');
+    }
     final status = streamed.statusCode;
     if (status == HttpStatus.unauthorized || status == HttpStatus.forbidden) {
       await streamed.stream.listen(null).cancel();
@@ -840,23 +856,7 @@ class WebDavSourceGateway
       throw HttpException('WebDAV Range 读取失败: HTTP $status', uri: uri);
     }
 
-    Stream<List<int>> checkedResponse() async* {
-      var received = 0;
-      await for (final chunk in streamed.stream) {
-        received += chunk.length;
-        if (expectedBytes != null && received > expectedBytes) {
-          throw HttpException('WebDAV 响应字节超出声明范围', uri: uri);
-        }
-        yield chunk;
-      }
-      if (expectedBytes != null && received != expectedBytes) {
-        throw HttpException(
-          'WebDAV 响应提前结束，实际 $received / $expectedBytes 字节',
-          uri: uri,
-        );
-      }
-    }
-
+    var received = 0;
     StreamSubscription<List<int>>? upstreamSub;
     var streamReleased = false;
     var listened = false;
@@ -880,6 +880,12 @@ class WebDavSourceGateway
           name: 'konata.webdav_source_gateway',
           error: error,
         );
+      } finally {
+        // 网关主动关闭时必须唤醒仍在等待字节的下游，取消监听不等待自身的结束事件。
+        if (listened && !controller.isClosed) {
+          if (_closed) controller.addError(StateError('WebDAV 网关已关闭'));
+          unawaited(controller.close());
+        }
       }
     };
     _activeStreamAborters.add(aborter);
@@ -889,16 +895,40 @@ class WebDavSourceGateway
         listened = true;
         if (streamReleased) {
           if (!controller.isClosed) {
+            if (_closed) controller.addError(StateError('WebDAV 网关已关闭'));
             unawaited(controller.close());
           }
           return;
         }
-        upstreamSub = checkedResponse().listen(
-          controller.add,
+        // 直接订阅原生 HTTP 流，避免 async* 包装在等待下一块时延迟取消。
+        upstreamSub = streamed.stream.listen(
+          (chunk) {
+            if (streamReleased || controller.isClosed) return;
+            received += chunk.length;
+            if (expectedBytes != null && received > expectedBytes) {
+              controller.addError(HttpException('WebDAV 响应字节超出声明范围', uri: uri));
+              unawaited(aborter());
+              return;
+            }
+            controller.add(chunk);
+          },
           onError: (Object error, StackTrace st) {
-            if (!controller.isClosed) controller.addError(error, st);
+            if (!streamReleased && !controller.isClosed) {
+              controller.addError(error, st);
+            }
           },
           onDone: () {
+            if (!streamReleased &&
+                !controller.isClosed &&
+                expectedBytes != null &&
+                received != expectedBytes) {
+              controller.addError(
+                HttpException(
+                  'WebDAV 响应提前结束，实际 $received / $expectedBytes 字节',
+                  uri: uri,
+                ),
+              );
+            }
             streamReleased = true;
             _activeStreamAborters.remove(aborter);
             upstreamSub = null;
@@ -952,6 +982,8 @@ class WebDavSourceGateway
 
   @override
   Future<void> close() async {
+    if (_closed) return;
+    _closed = true;
     final pending = _activeStreamAborters.toList(growable: false);
     _activeStreamAborters.clear();
     for (final abort in pending) {

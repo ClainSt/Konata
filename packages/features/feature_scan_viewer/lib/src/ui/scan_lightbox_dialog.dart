@@ -212,7 +212,7 @@ class _ScanLightboxDialogState extends State<ScanLightboxDialog> {
 
     final initKey = widget.initialVolumeKey;
     if (initKey != null &&
-        _scanSummary.chips.isNotEmpty &&
+        _scanSummary.hasMultipleSubdirs &&
         _scanSummary.chips.any((c) => c.key == initKey)) {
       _selectedVolumeKey = initKey;
     } else {

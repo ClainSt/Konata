@@ -23,10 +23,7 @@ class ScanProgressStatChip extends StatelessWidget {
       decoration: BoxDecoration(
         color: badge?.bg ?? p.softFill,
         borderRadius: KonataTheme.borderRadiusPill,
-        border: Border.all(
-          color: badge?.border ?? p.hairline,
-          width: 1,
-        ),
+        border: Border.all(color: badge?.border ?? p.hairline, width: 1),
       ),
       child: Text(
         label,
@@ -122,7 +119,7 @@ class ScanVisitedFoldersPane extends StatelessWidget {
               : KonataDraggableScrollbar(
                   builder: (_, ctrl) => ListView.separated(
                     controller: ctrl,
-                    padding: const EdgeInsets.only(right: 14),
+                    padding: EdgeInsets.zero,
                     itemCount: visitedFolders.length,
                     separatorBuilder: (_, _) =>
                         Divider(height: 1, color: p.hairline),
@@ -161,7 +158,9 @@ class ScanVisitedFoldersPane extends StatelessWidget {
                             Text(
                               '$count 视频',
                               style: TextStyle(
-                                color: count > 0 ? p.textSecondary : p.textMuted,
+                                color: count > 0
+                                    ? p.textSecondary
+                                    : p.textMuted,
                                 fontSize: KonataTheme.fontSizeCaptionSm,
                                 fontFeatures: const [
                                   FontFeature.tabularFigures(),
@@ -234,11 +233,7 @@ class ScanPendingReviewTab extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
-                Icons.verified_outlined,
-                size: 32,
-                color: p.success,
-              ),
+              Icon(Icons.verified_outlined, size: 32, color: p.success),
               const SizedBox(height: 8),
               Text(
                 '当前媒体源下暂无需要人工复核的作品',
@@ -288,13 +283,14 @@ class ScanPendingReviewTab extends StatelessWidget {
           child: KonataDraggableScrollbar(
             builder: (context, scrollCtrl) => ListView.separated(
               controller: scrollCtrl,
-              padding: const EdgeInsets.only(right: 12),
+              padding: EdgeInsets.zero,
               itemCount: items.length,
               separatorBuilder: (_, _) => const SizedBox(height: 10),
               itemBuilder: (context, index) {
                 final item = items[index];
                 final rawReason = item.work.reviewReason;
-                final reasonText = rawReason != null && rawReason.trim().isNotEmpty
+                final reasonText =
+                    rawReason != null && rawReason.trim().isNotEmpty
                     ? _formatReason(rawReason)
                     : null;
 

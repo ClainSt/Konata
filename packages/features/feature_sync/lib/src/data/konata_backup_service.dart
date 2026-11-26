@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:konata_contracts/konata_contracts.dart';
 import 'package:konata_storage/konata_storage.dart';
 
+import 'legacy_backup_migration.dart';
 import 'library_catalog_sync_slice.dart';
 import 'playback_history_sync_slice.dart';
 import 'prefs_sync_slice.dart';
@@ -13,6 +14,29 @@ import 'sync_models.dart';
 
 /// 本地 `.konata` 选择性备份导出、干跑预览与原子恢复服务（零框架依赖）。
 final class KonataBackupService {
+  /// 与旧版文件选择上限一致，防止误选大视频。
+  static const int maxArchiveBytes = 32 * 1024 * 1024;
+
+  /// 独立解压上限，防止小体积 gzip 耗尽设备内存。
+  static const int maxDecodedArchiveBytes = 128 * 1024 * 1024;
+
+  /// 在读取前检查大小，且读取期间继续限制增长中的文件。
+  static Future<Uint8List> readArchiveFile(String path) async {
+    final file = File(path);
+    if (await file.length() > maxArchiveBytes) {
+      throw const FormatException('备份文件超过 32 MiB 安全上限');
+    }
+    final bytes = _BoundedArchiveSink(maxArchiveBytes, '备份文件超过 32 MiB 安全上限');
+    try {
+      await for (final chunk in file.openRead()) {
+        bytes.add(chunk);
+      }
+      return bytes.takeBytes();
+    } finally {
+      bytes.close();
+    }
+  }
+
   /// 创建备份恢复服务。
   KonataBackupService({
     required KonataDatabaseBundle databases,
@@ -85,24 +109,49 @@ final class KonataBackupService {
 
     final rawJson = jsonEncode(archive.toJson());
     final utf8Bytes = utf8.encode(rawJson);
-    if (!compressGzip) {
-      return Uint8List.fromList(utf8Bytes);
+    if (utf8Bytes.length > maxDecodedArchiveBytes) {
+      throw const FormatException('备份解压后超过 128 MiB 安全上限，请分批导出');
     }
-    return Uint8List.fromList(gzip.encode(utf8Bytes));
+    final result = compressGzip ? gzip.encode(utf8Bytes) : utf8Bytes;
+    if (result.length > maxArchiveBytes) {
+      throw const FormatException('备份文件超过 32 MiB 安全上限，请分批导出');
+    }
+    return Uint8List.fromList(result);
   }
 
   /// 解析并校验 `.konata` 备份字节流（自动识别 `gzip` 或明文结构，并验证 `SHA-256` 完整性）。
   Future<KonataBackupArchive> decodeAndVerifyArchiveBytes(
     Uint8List rawBytes,
   ) async {
+    return KonataBackupArchive.parseAndVerify(_decodeArchiveJson(rawBytes));
+  }
+
+  String _decodeArchiveJson(Uint8List rawBytes) {
     if (rawBytes.isEmpty) {
       throw const FormatException('备份文件为空');
     }
 
+    if (rawBytes.length > maxArchiveBytes) {
+      throw const FormatException('备份文件超过 32 MiB 安全上限');
+    }
     List<int> jsonBytes = rawBytes;
     if (rawBytes.length >= 2 && rawBytes[0] == 0x1f && rawBytes[1] == 0x8b) {
+      final output = _BoundedArchiveSink(
+        maxDecodedArchiveBytes,
+        '备份解压后超过 128 MiB 安全上限',
+      );
       try {
-        jsonBytes = gzip.decode(rawBytes);
+        final decoder = gzip.decoder.startChunkedConversion(output);
+        // 分段输入，解码器不能一次接收整个压缩文件。
+        const chunkSize = 16 * 1024;
+        for (var start = 0; start < rawBytes.length; start += chunkSize) {
+          final end = (start + chunkSize).clamp(0, rawBytes.length);
+          decoder.add(Uint8List.sublistView(rawBytes, start, end));
+        }
+        decoder.close();
+        jsonBytes = output.takeBytes();
+      } on _ArchiveSizeException catch (error) {
+        throw FormatException(error.message);
       } catch (_) {
         throw const FormatException('备份压缩数据已损坏，无法解压');
       }
@@ -115,7 +164,40 @@ final class KonataBackupService {
       throw const FormatException('备份文件编码不是有效的 UTF-8 文本');
     }
 
-    return KonataBackupArchive.parseAndVerify(rawJson);
+    return rawJson;
+  }
+
+  Future<(KonataBackupArchive, int?)> _decodeForRestore(
+    Uint8List rawBytes,
+    KonataRestoreMode mode,
+  ) async {
+    final rawJson = _decodeArchiveJson(rawBytes);
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(rawJson);
+    } on FormatException {
+      throw const FormatException('备份文件不是有效的 JSON 格式');
+    }
+    if (!LegacyBackupMigration.isLegacy(decoded)) {
+      return (KonataBackupArchive.parseAndVerify(rawJson), null);
+    }
+    if (mode != KonataRestoreMode.smartMerge) {
+      throw const FormatException('旧版 Konata v1/v2 备份仅支持智能合并；未导入任何数据');
+    }
+    final localCatalog = await findSlice(
+      LibraryCatalogSyncSlice.id,
+    )!.exportSlice(localDeviceId: '');
+    try {
+      final archive = LegacyBackupMigration.convert(
+        decoded,
+        localCatalog: localCatalog.data,
+      );
+      return (archive, (decoded as Map)['formatVersion'] as int);
+    } on FormatException {
+      rethrow;
+    } on TypeError {
+      throw const FormatException('旧版 Konata v1/v2 备份字段类型不合法；未导入任何数据');
+    }
   }
 
   /// 导入前对指定 `.konata` 字节流执行干跑预览，输出每个切片的新增/更新/删除计数。
@@ -124,7 +206,7 @@ final class KonataBackupService {
     KonataRestoreMode mode = KonataRestoreMode.smartMerge,
     Set<String>? sliceIds,
   }) async {
-    final archive = await decodeAndVerifyArchiveBytes(rawBytes);
+    final (archive, legacyVersion) = await _decodeForRestore(rawBytes, mode);
     final deviceId = _deviceStore.getOrCreateDeviceId();
     final previews = <KonataSlicePreview>[];
 
@@ -186,6 +268,7 @@ final class KonataBackupService {
       archiveSliceIds: archive.sliceIds,
       slicePreviews: List<KonataSlicePreview>.unmodifiable(previews),
       unrecognizedSliceIds: List<String>.unmodifiable(unrecognized),
+      legacyFormatVersion: legacyVersion,
     );
   }
 
@@ -195,7 +278,12 @@ final class KonataBackupService {
     Set<String>? selectedSliceIds,
     KonataRestoreMode mode = KonataRestoreMode.smartMerge,
   }) async {
-    final archive = await decodeAndVerifyArchiveBytes(rawBytes);
+    final (archive, legacyVersion) = await _decodeForRestore(rawBytes, mode);
+    if (legacyVersion == 2 &&
+        selectedSliceIds != null &&
+        !selectedSliceIds.containsAll(archive.sliceIds)) {
+      throw const FormatException('旧版完整目录必须与备份中其余切片一次性恢复，避免部分导入后无法继续迁移');
+    }
     final deviceId = _deviceStore.getOrCreateDeviceId();
     final now = _nowMs();
 
@@ -235,16 +323,14 @@ final class KonataBackupService {
       );
       outcomes.add(preview);
 
-      final shouldApply = plan.hasChanges || mode == KonataRestoreMode.overwrite;
+      final shouldApply =
+          plan.hasChanges || mode == KonataRestoreMode.overwrite;
       if (shouldApply) {
         updatedSliceIds.add(contributor.sliceId);
       }
-      plannedRuns.add(
-        _PlannedSliceApply(contributor: contributor, plan: plan),
-      );
+      plannedRuns.add(_PlannedSliceApply(contributor: contributor, plan: plan));
     }
 
-    final pendingFutures = <Future<void>>[];
     _databases.library.engine.runTransaction((libTx) {
       _databases.userState.engine.runTransaction((userTx) {
         final txCtx = DatabaseBundleSyncTransactionContext(
@@ -254,13 +340,10 @@ final class KonataBackupService {
           userStateTx: userTx,
         );
         for (final item in plannedRuns) {
-          pendingFutures.add(item.apply(txCtx));
+          item.apply(txCtx);
         }
       });
     });
-    if (pendingFutures.isNotEmpty) {
-      await Future.wait(pendingFutures);
-    }
 
     final result = KonataSyncOutcome(
       channel: SyncChannelIds.localBackup,
@@ -309,6 +392,11 @@ final class KonataBackupService {
     required KonataRestoreMode mode,
     required String localDeviceId,
   }) {
+    if (remotePayload.schemaVersion != contributor.schemaVersion) {
+      throw FormatException(
+        '备份切片 ${contributor.sliceId} 版本不兼容：${remotePayload.schemaVersion}',
+      );
+    }
     if (mode == KonataRestoreMode.smartMerge) {
       return contributor.planMerge(local: localPayload, remote: remotePayload);
     }
@@ -391,13 +479,38 @@ final class KonataBackupService {
   }
 }
 
+/// 仅在上限内累计字节，供文件读取与流式解压共享。
+final class _BoundedArchiveSink implements Sink<List<int>> {
+  _BoundedArchiveSink(this.limit, this.message);
+  final int limit;
+  final String message;
+  final BytesBuilder _bytes = BytesBuilder(copy: false);
+
+  @override
+  void add(List<int> data) {
+    if (data.length > limit - _bytes.length) {
+      throw _ArchiveSizeException(message);
+    }
+    _bytes.add(data);
+  }
+
+  @override
+  void close() {}
+
+  Uint8List takeBytes() => _bytes.takeBytes();
+}
+
+final class _ArchiveSizeException extends FormatException {
+  const _ArchiveSizeException(super.message);
+}
+
 final class _PlannedSliceApply {
   const _PlannedSliceApply({required this.contributor, required this.plan});
 
   final SyncSliceContributor<Object?> contributor;
   final SyncMergePlan<Object?> plan;
 
-  Future<void> apply(SyncTransactionContext tx) {
+  SyncApplyCompletion apply(SyncTransactionContext tx) {
     return contributor.applyMergePlan(tx, plan);
   }
 }

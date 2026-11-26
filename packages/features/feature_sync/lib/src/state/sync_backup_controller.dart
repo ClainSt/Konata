@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:konata_contracts/konata_contracts.dart';
@@ -307,11 +306,11 @@ final class SyncBackupController extends ChangeNotifier {
   /// 打包选定切片为 `.konata` 归档并通过 `BackupFilePort.saveFile` 导出，用户取消则返回 `null`。
   Future<String?> exportBackupToFilePort({Set<String>? sliceIds}) async {
     final targetIds = sliceIds ?? _state.exportSelectedSliceIds;
-    _setState(
-      _state.copyWith(isExporting: true, clearLastErrorMessage: true),
-    );
+    _setState(_state.copyWith(isExporting: true, clearLastErrorMessage: true));
     try {
-      final bytes = await _backupService.exportArchiveBytes(sliceIds: targetIds);
+      final bytes = await _backupService.exportArchiveBytes(
+        sliceIds: targetIds,
+      );
       final now = DateTime.fromMillisecondsSinceEpoch(_nowMs());
       final suffix = _formatFileTimestamp(now);
       final savedPath = await _backupFilePort.saveFile(
@@ -420,9 +419,7 @@ final class SyncBackupController extends ChangeNotifier {
     required Set<String> selectedSliceIds,
     KonataRestoreMode? mode,
   }) async {
-    _setState(
-      _state.copyWith(isRestoring: true, clearLastErrorMessage: true),
-    );
+    _setState(_state.copyWith(isRestoring: true, clearLastErrorMessage: true));
     try {
       final outcome = await _backupService.restoreFromArchiveBytes(
         bytes,
@@ -577,7 +574,7 @@ final class SyncBackupController extends ChangeNotifier {
   }
 
   static Future<Uint8List> _defaultReadFileBytes(String path) =>
-      File(path).readAsBytes();
+      KonataBackupService.readArchiveFile(path);
 
   static String _formatFileTimestamp(DateTime dt) {
     String two(int n) => n.toString().padLeft(2, '0');

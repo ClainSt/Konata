@@ -66,16 +66,14 @@ final class WindowsD3d11VideoBridge implements KonataVideoTextureBridge {
       'texture_fallback' => 'd3d11_10bit',
       _ => renderBackend,
     };
-    final result = await _channel.invokeMapMethod<String, Object?>(
-      'createSession',
-      <String, Object?>{
-        'mpvHandle': mpvHandleAddress,
-        'width': width,
-        'height': height,
-        'preferSoftware': preferSoftware,
-        'renderBackend': nativeBackend,
-      },
-    );
+    final result = await _channel
+        .invokeMapMethod<String, Object?>('createSession', <String, Object?>{
+          'mpvHandle': mpvHandleAddress,
+          'width': width,
+          'height': height,
+          'preferSoftware': preferSoftware,
+          'renderBackend': nativeBackend,
+        });
     if (result == null) {
       throw StateError('桌面视频纹理通道 createSession 返回空结果');
     }
@@ -84,7 +82,8 @@ final class WindowsD3d11VideoBridge implements KonataVideoTextureBridge {
       textureId: (result['textureId'] as num?)?.toInt() ?? -1,
       backend: result['backend']?.toString() ?? 'gpu_next',
       surfaceFormat:
-          result['surfaceFormat']?.toString() ?? 'DXGI_FORMAT_R10G10B10A2_UNORM',
+          result['surfaceFormat']?.toString() ??
+          'DXGI_FORMAT_R10G10B10A2_UNORM',
       colorBitDepth: (result['colorBitDepth'] as num?)?.toInt() ?? 10,
       underlaySwapChainActive: result['dcompActive'] == true,
       nativeWindowHandle: (result['nativeWindowHandle'] as num?)?.toInt() ?? 0,
@@ -128,9 +127,17 @@ final class WindowsD3d11VideoBridge implements KonataVideoTextureBridge {
         'visible': visible,
       });
     } on MissingPluginException catch (error) {
-      developer.log('跳过桌面视口同步', name: 'konata.windows_video_bridge', error: error);
+      developer.log(
+        '跳过桌面视口同步',
+        name: 'konata.windows_video_bridge',
+        error: error,
+      );
     } on PlatformException catch (error) {
-      developer.log('跳过瞬态桌面视口异常', name: 'konata.windows_video_bridge', error: error);
+      developer.log(
+        '跳过瞬态桌面视口异常',
+        name: 'konata.windows_video_bridge',
+        error: error,
+      );
     }
   }
 
@@ -223,14 +230,44 @@ final class WindowsD3d11VideoBridge implements KonataVideoTextureBridge {
 }
 
 /// Windows 桌面端窗口全屏、置顶与迷你窗口几何切换适配器（支持主窗口完整边界保存与恢复）。
-final class WindowsPlaybackWindowAdapter implements PlaybackHostWindowPort {
+final class WindowsPlaybackWindowAdapter
+    implements PlaybackHostWindowPort, DesktopMiniDockPort {
   /// 创建桌面窗口播控适配器。
   WindowsPlaybackWindowAdapter();
 
+  static const _dockChannel = MethodChannel('konata/desktop_mini');
+  DesktopMiniDockSide? _dockSide;
+  late final StreamController<void> _moveEnded =
+      StreamController<void>.broadcast(
+        onListen: () => _dockChannel.setMethodCallHandler((call) async {
+          if (call.method == 'moveEnded' && _inMiniWindow) _moveEnded.add(null);
+          return null;
+        }),
+        onCancel: () => _dockChannel.setMethodCallHandler(null),
+      );
+
+  @override
+  Stream<void> get desktopMiniMoveEnded => _moveEnded.stream;
+
+  @override
+  Future<DesktopMiniDockSide?> snapDesktopMiniWindow() async {
+    if (!_inMiniWindow) return null;
+    final side = await _dockChannel.invokeMethod<String>('fit', 'snap');
+    _dockSide = switch (side) {
+      'left' => DesktopMiniDockSide.left,
+      'right' => DesktopMiniDockSide.right,
+      _ => null,
+    };
+    return _dockSide;
+  }
+
+  Future<void> _fitMiniWindow() =>
+      _dockChannel.invokeMethod<void>('fit', _dockSide?.name ?? 'clamp');
   ui.Rect? _savedNormalBounds;
   ui.Offset? _lastMiniWindowOrigin;
   bool _savedNormalMaximized = false;
   bool _savedNormalFullScreen = false;
+  bool _savedNormalAlwaysOnTop = false;
   bool _inMiniWindow = false;
 
   wm.Window? _currentWindow() {
@@ -293,91 +330,136 @@ final class WindowsPlaybackWindowAdapter implements PlaybackHostWindowPort {
     required double height,
   }) async {
     final win = _currentWindow();
-    if (win == null) return;
-    try {
-      if (!_inMiniWindow) {
-        _savedNormalFullScreen = win.isFullScreen;
-        _savedNormalMaximized = win.isMaximized;
-        if (win.isFullScreen) {
-          win.isFullScreen = false;
-        }
-        if (win.isMaximized) {
-          win.unmaximize();
-        }
-        final currentBounds = win.bounds.toRect();
-        _savedNormalBounds =
-            (currentBounds.width >= 600 && currentBounds.height >= 400)
-            ? currentBounds
-            : KonataPlaybackTokens.desktopNormalWindowFallbackBounds;
-        _inMiniWindow = true;
-      }
-
+    if (win == null) throw StateError('桌面窗口不可用');
+    if (_inMiniWindow) {
+      final previous = win.bounds.toRect();
+      final previousMinSize = win.minimumSize;
       final targetSize = ui.Size(width, height);
-      final minSize = (width - height).abs() <= 24.0
+      try {
+        win.minimumSize = wm.SizeToNative(targetSize).toNative();
+        win.setSize(wm.SizeToNative(targetSize).toNative(), false);
+        // 保持小窗右边缘稳定，展开时避免向原有右侧继续增长。
+        win.position = wm.OffsetToNative(
+          ui.Offset(
+            _dockSide == DesktopMiniDockSide.left
+                ? previous.left
+                : previous.right - width,
+            previous.top,
+          ),
+        ).toNative();
+        await _fitMiniWindow();
+      } catch (error, stack) {
+        win.minimumSize = previousMinSize;
+        win.bounds = wm.RectToNative(previous).toNative();
+        Error.throwWithStackTrace(error, stack);
+      }
+      return;
+    }
+    _savedNormalFullScreen = win.isFullScreen;
+    _savedNormalMaximized = win.isMaximized;
+    _savedNormalAlwaysOnTop = win.isAlwaysOnTop;
+    _savedNormalBounds = win.bounds.toRect();
+    try {
+      if (_savedNormalFullScreen) win.isFullScreen = false;
+      if (_savedNormalMaximized) win.unmaximize();
+      final normalBounds = win.bounds.toRect();
+      _savedNormalBounds =
+          normalBounds.width >= 600 && normalBounds.height >= 400
+          ? normalBounds
+          : KonataPlaybackTokens.desktopNormalWindowFallbackBounds;
+      final targetSize = ui.Size(width, height);
+      final minSize =
+          height < KonataPlaybackTokens.desktopAlwaysOnTopVideoMinSize.height
+          ? targetSize
+          : (width - height).abs() <= 24.0
           ? KonataPlaybackTokens.desktopAlwaysOnTopAudioMinSize
           : KonataPlaybackTokens.desktopAlwaysOnTopVideoMinSize;
       win.minimumSize = wm.SizeToNative(minSize).toNative();
       win.setSize(wm.SizeToNative(targetSize).toNative(), false);
-      final saved =
-          _savedNormalBounds ??
-          KonataPlaybackTokens.desktopNormalWindowFallbackBounds;
+      final saved = _savedNormalBounds!;
       final desiredOrigin =
           _lastMiniWindowOrigin ??
           ui.Offset(
             (saved.right -
-                    targetSize.width -
-                    KonataPlaybackTokens.desktopAlwaysOnTopMiniEdgeOffset)
-                .clamp(0.0, double.infinity),
+                targetSize.width -
+                KonataPlaybackTokens.desktopAlwaysOnTopMiniEdgeOffset),
             (saved.bottom -
-                    targetSize.height -
-                    KonataPlaybackTokens.desktopAlwaysOnTopMiniEdgeOffset)
-                .clamp(0.0, double.infinity),
+                targetSize.height -
+                KonataPlaybackTokens.desktopAlwaysOnTopMiniEdgeOffset),
           );
       win.position = wm.OffsetToNative(desiredOrigin).toNative();
       win.isAlwaysOnTop = true;
+      await _fitMiniWindow();
       await _ensureNativeControlsHidden();
-    } catch (error) {
-      developer.log(
-        '进入桌面置顶迷你窗失败，已保持当前窗口态',
-        name: 'konata.windows_playback_window',
-        error: error,
-      );
+      _inMiniWindow = true;
+    } catch (error, stack) {
+      // 切换失败时恢复此前窗口属性；保留原始异常供调用方回滚界面状态。
+      try {
+        _restoreNormalWindow(win);
+        _clearSavedNormalWindow();
+      } catch (rollbackError, rollbackStack) {
+        developer.log(
+          '小窗进入失败且窗口回滚失败',
+          name: 'konata.windows_playback_window',
+          error: rollbackError,
+          stackTrace: rollbackStack,
+        );
+      }
+      Error.throwWithStackTrace(error, stack);
     }
+  }
+
+  void _restoreNormalWindow(wm.Window win) {
+    win.isAlwaysOnTop = _savedNormalAlwaysOnTop;
+    win.minimumSize = wm.SizeToNative(
+      KonataPlaybackTokens.desktopNormalWindowMinSize,
+    ).toNative();
+    win.bounds = wm.RectToNative(
+      _savedNormalBounds ??
+          KonataPlaybackTokens.desktopNormalWindowFallbackBounds,
+    ).toNative();
+    if (_savedNormalMaximized) win.maximize();
+    if (_savedNormalFullScreen) win.isFullScreen = true;
+  }
+
+  void _clearSavedNormalWindow() {
+    _inMiniWindow = false;
+    _dockSide = null;
+    _savedNormalBounds = null;
+    _savedNormalMaximized = false;
+    _savedNormalFullScreen = false;
+    _savedNormalAlwaysOnTop = false;
   }
 
   @override
   Future<void> exitDesktopMiniWindow() async {
     if (!_inMiniWindow) return;
     final win = _currentWindow();
+    if (win == null) throw StateError('桌面窗口不可用');
+    final miniBounds = win.bounds.toRect();
+    final miniMinSize = win.minimumSize;
     try {
-      if (win != null) {
-        _lastMiniWindowOrigin = win.position.toOffset();
-        win.isAlwaysOnTop = false;
-        win.minimumSize = wm.SizeToNative(
-          KonataPlaybackTokens.desktopNormalWindowMinSize,
-        ).toNative();
-        final restoreBounds =
-            _savedNormalBounds ??
-            KonataPlaybackTokens.desktopNormalWindowFallbackBounds;
-        win.bounds = wm.RectToNative(restoreBounds).toNative();
-        if (_savedNormalMaximized) {
-          win.maximize();
-        }
-        if (_savedNormalFullScreen) {
-          win.isFullScreen = true;
-        }
-      }
+      _restoreNormalWindow(win);
       await _ensureNativeControlsHidden();
-    } catch (error) {
-      developer.log(
-        '还原桌面主窗口边界失败，已尝试恢复默认态',
-        name: 'konata.windows_playback_window',
-        error: error,
-      );
-    } finally {
-      _inMiniWindow = false;
-      _savedNormalMaximized = false;
-      _savedNormalFullScreen = false;
+      _lastMiniWindowOrigin = miniBounds.topLeft;
+      _clearSavedNormalWindow();
+    } catch (error, stack) {
+      // 恢复主窗口失败时保留原快照和小窗形态，以便再次尝试。
+      try {
+        if (win.isFullScreen) win.isFullScreen = false;
+        if (win.isMaximized) win.unmaximize();
+        win.minimumSize = miniMinSize;
+        win.bounds = wm.RectToNative(miniBounds).toNative();
+        win.isAlwaysOnTop = true;
+      } catch (rollbackError, rollbackStack) {
+        developer.log(
+          '主窗口恢复失败且小窗回滚失败',
+          name: 'konata.windows_playback_window',
+          error: rollbackError,
+          stackTrace: rollbackStack,
+        );
+      }
+      Error.throwWithStackTrace(error, stack);
     }
   }
 

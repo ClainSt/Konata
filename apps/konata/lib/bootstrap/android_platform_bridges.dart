@@ -112,7 +112,11 @@ final class AndroidVideoSurfaceAdapter implements AndroidVideoSurfacePort {
     } on MissingPluginException {
       // 无 Android 原生表面通道时静默忽略。
     } on PlatformException catch (error) {
-      developer.log('Android 表面视口同步异常', name: 'konata.android_surface', error: error);
+      developer.log(
+        'Android 表面视口同步异常',
+        name: 'konata.android_surface',
+        error: error,
+      );
     }
   }
 
@@ -311,6 +315,7 @@ final class AndroidAudioRouteAdapter implements AndroidAudioRoutePort {
       return AndroidBitPerfectNegotiationResult(
         supported: raw['supported'] == true,
         engaged: raw['engaged'] == true,
+        operationSucceeded: raw['operationSucceeded'] == true,
         deviceName: (raw['deviceName'] as String?) ?? '',
         sampleRateHz: (raw['sampleRateHz'] as num?)?.toInt() ?? 0,
         detail: (raw['detail'] as String?) ?? '',
@@ -350,6 +355,14 @@ final class AndroidMediaSessionAdapter implements AndroidMediaSessionPort {
   final bool Function() _isSupported;
   final AndroidMediaSessionSyncFilter _syncFilter =
       AndroidMediaSessionSyncFilter();
+  Future<void> _deliveryTail = Future<void>.value();
+
+  // 更新与停止按请求顺序送达，失败不会让旧载荷覆盖新会话。
+  Future<void> _enqueueDelivery(Future<void> Function() action) {
+    final next = _deliveryTail.then((_) => action());
+    _deliveryTail = next.catchError((Object _) {});
+    return next;
+  }
 
   bool _handlerBound = false;
   VoidCallback? _onPlay;
@@ -425,10 +438,10 @@ final class AndroidMediaSessionAdapter implements AndroidMediaSessionPort {
     required String coverKey,
     Uint8List? coverBytes,
     bool forcePositionSync = false,
-  }) async {
+  }) => _enqueueDelivery(() async {
     if (!_isSupported()) return;
     if (title.trim().isEmpty) {
-      await stopSession();
+      await _stopSessionNow();
       return;
     }
     final payload = _syncFilter.buildPayloadIfChanged(
@@ -447,18 +460,33 @@ final class AndroidMediaSessionAdapter implements AndroidMediaSessionPort {
     try {
       await _channel.invokeMethod<void>('update', payload);
     } catch (error) {
-      developer.log('同步系统通知栏媒体卡片失败', name: 'konata.media_session', error: error);
+      _syncFilter.invalidateDelivery();
+      developer.log(
+        '同步系统通知栏媒体卡片失败',
+        name: 'konata.media_session',
+        error: error,
+      );
     }
-  }
+  });
 
   @override
-  Future<void> stopSession() async {
-    if (!_syncFilter.markStopped()) return;
-    if (!_isSupported()) return;
+  Future<void> stopSession() => _enqueueDelivery(_stopSessionNow);
+
+  Future<void> _stopSessionNow() async {
+    if (!_syncFilter.hasActiveSession) return;
+    if (!_isSupported()) {
+      _syncFilter.markStopped();
+      return;
+    }
     try {
       await _channel.invokeMethod<void>('stop');
+      _syncFilter.markStopped();
     } catch (error) {
-      developer.log('停止系统通知栏媒体卡片失败', name: 'konata.media_session', error: error);
+      developer.log(
+        '停止系统通知栏媒体卡片失败',
+        name: 'konata.media_session',
+        error: error,
+      );
     }
   }
 
@@ -498,15 +526,13 @@ final class AndroidMediaStorePublisher implements MediaStorePublisherPort {
     String mimeType = 'image/png',
   }) async {
     try {
-      return await _channel.invokeMethod<String>(
-        'saveImageToGallery',
-        <String, Object?>{
-          'sourcePath': tempFile.path,
-          'displayName': displayName,
-          'albumName': albumName,
-          'mimeType': mimeType,
-        },
-      );
+      return await _channel
+          .invokeMethod<String>('saveImageToGallery', <String, Object?>{
+            'sourcePath': tempFile.path,
+            'displayName': displayName,
+            'albumName': albumName,
+            'mimeType': mimeType,
+          });
     } on MissingPluginException {
       return null;
     } on PlatformException {
@@ -704,13 +730,11 @@ final class AndroidAudioFocusAdapter implements AndroidAudioFocusPort {
 /// Android 原生画中画通道适配器（直连 `MainActivity.kt` 的 `konata/pip` 通道）。
 final class AndroidPipAdapter implements AndroidPipPort {
   /// 创建 Android 画中画适配器。
-  AndroidPipAdapter({
-    MethodChannel? channel,
-    bool Function()? isSupported,
-  }) : _channel = channel ?? const MethodChannel('konata/pip'),
-       _isSupported =
-           isSupported ??
-           (() => !kIsWeb && defaultTargetPlatform == TargetPlatform.android);
+  AndroidPipAdapter({MethodChannel? channel, bool Function()? isSupported})
+    : _channel = channel ?? const MethodChannel('konata/pip'),
+      _isSupported =
+          isSupported ??
+          (() => !kIsWeb && defaultTargetPlatform == TargetPlatform.android);
 
   final MethodChannel _channel;
   final bool Function() _isSupported;

@@ -8,6 +8,7 @@ import 'package:konata_storage/konata_storage.dart';
 import 'package:path/path.dart' as p;
 
 import 'audio_playback_models.dart';
+import 'smart_cover_alignment.dart';
 
 /// 曲目辅助资产（封面与随附/内嵌歌词文本）解析结果。
 class ResolvedTrackAuxiliaryResult {
@@ -41,6 +42,12 @@ class ResolvedTrackAuxiliaryResult {
 /// 遵循三级封面回退序：`内嵌音频封面` -> `专辑目录封面` -> `作品托管海报 / 空占位`，
 /// 并通过内存 LRU 与可选 `PhotosStorage` 磁盘缓存避免反复跨网关读取字节流。
 class AudioPlaybackAssets {
+  /// 未命中本机海报时使用宿主已有的受管图片加载器。
+  AudioPlaybackAssets({this.posterLoader});
+
+  final Future<Uint8List?> Function(String path, String workId)? posterLoader;
+  final Map<String, Future<Uint8List?>> _posterCropsInFlight = {};
+
   /// 内存 LRU 上限，单张图片控制在千字节级缩略/原始封面内。
   static const int maxMemoryCacheEntries = 48;
 
@@ -62,16 +69,17 @@ class AudioPlaybackAssets {
     final pending = _inFlightAuxiliary[inflightKey];
     if (pending != null) return pending;
 
-    final future = _resolveInternal(
-      item: item,
-      memKey: memKey,
-      gatewayFactory: gatewayFactory,
-      photosStorage: photosStorage,
-      artworkCacheStore: artworkCacheStore,
-      probeLyrics: probeLyrics,
-    ).whenComplete(() {
-      _inFlightAuxiliary.remove(inflightKey);
-    });
+    final future =
+        _resolveInternal(
+          item: item,
+          memKey: memKey,
+          gatewayFactory: gatewayFactory,
+          photosStorage: photosStorage,
+          artworkCacheStore: artworkCacheStore,
+          probeLyrics: probeLyrics,
+        ).whenComplete(() {
+          _inFlightAuxiliary.remove(inflightKey);
+        });
     _inFlightAuxiliary[inflightKey] = future;
     return future;
   }
@@ -124,6 +132,34 @@ class AudioPlaybackAssets {
         );
         if (bytes != null && bytes.isNotEmpty) return bytes;
       } catch (_) {}
+    }
+    final fallback = item.posterFallback?.trim() ?? '';
+    if (fallback.isNotEmpty) {
+      try {
+        final file = File(fallback);
+        if (file.existsSync()) {
+          final bytes = await file.readAsBytes();
+          if (bytes.isNotEmpty) return bytes;
+        }
+      } catch (_) {}
+    }
+    final loader = posterLoader;
+    if (loader != null) {
+      final candidates = <String>{
+        if (posterRef is RemoteArtworkRef) posterRef.uri,
+        if (fallback.isNotEmpty) fallback,
+      };
+      for (final candidate in candidates) {
+        final uri = Uri.tryParse(candidate);
+        if (uri == null ||
+            (uri.hasScheme && uri.scheme != 'http' && uri.scheme != 'https')) {
+          continue;
+        }
+        try {
+          final bytes = await loader(candidate, item.workId.value);
+          if (bytes != null && bytes.isNotEmpty) return bytes;
+        } catch (_) {}
+      }
     }
     return null;
   }
@@ -243,17 +279,32 @@ class AudioPlaybackAssets {
       artworkCacheStore: artworkCacheStore,
     );
     if (fallbackPosterBytes != null && fallbackPosterBytes.isNotEmpty) {
-      return ResolvedTrackAuxiliaryResult(
-        cover: MemoryAudioCover(fallbackPosterBytes),
-        coverBytes: fallbackPosterBytes,
-        coverCacheKey: 'poster::${item.workId.value}',
-        extractedLyricsText: extractedLyrics,
-        siblings: siblings,
-      );
+      // 作品海报的内容变化与音轨专属封面分开缓存，不把衍生图写回原海报。
+      final key =
+          'poster-square::${item.workId.value}::${fallbackPosterBytes.length}::${Object.hashAll(fallbackPosterBytes)}';
+      final square =
+          _peekMemory(key) ??
+          await (_posterCropsInFlight[key] ??=
+              SmartCoverFraming.cropPosterToSquare(
+                fallbackPosterBytes,
+              ).whenComplete(() {
+                _posterCropsInFlight.remove(key);
+              }));
+      if (square != null && square.isNotEmpty) {
+        _putMemory(key, square);
+        return ResolvedTrackAuxiliaryResult(
+          cover: MemoryAudioCover(square),
+          coverBytes: square,
+          coverCacheKey: key,
+          extractedLyricsText: extractedLyrics,
+          siblings: siblings,
+        );
+      }
     }
 
     if (item.posterRef != null ||
-        (item.posterFallback != null && item.posterFallback!.trim().isNotEmpty)) {
+        (item.posterFallback != null &&
+            item.posterFallback!.trim().isNotEmpty)) {
       return ResolvedTrackAuxiliaryResult(
         cover: ManagedPosterAudioCover(
           artworkRef: item.posterRef,
@@ -280,6 +331,7 @@ class AudioPlaybackAssets {
   }
 
   void _putMemory(String key, Uint8List bytes) {
+    _coverMemoryCache.remove(key);
     if (_coverMemoryCache.length >= maxMemoryCacheEntries) {
       _coverMemoryCache.remove(_coverMemoryCache.keys.first);
     }
@@ -287,16 +339,12 @@ class AudioPlaybackAssets {
   }
 
   static String _buildCoverMemoryKey(AudioQueueItem item) {
-    final normDir = p.posix.dirname(
-      item.relativePath.replaceAll('\\', '/'),
-    );
+    final normDir = p.posix.dirname(item.relativePath.replaceAll('\\', '/'));
     return 'cd_cover::${item.sourceId.value}::$normDir::${item.variantId.value}';
   }
 
   static String _buildDirCacheKey(AudioQueueItem item) {
-    final normDir = p.posix.dirname(
-      item.relativePath.replaceAll('\\', '/'),
-    );
+    final normDir = p.posix.dirname(item.relativePath.replaceAll('\\', '/'));
     return '${item.sourceId.value}::$normDir';
   }
 

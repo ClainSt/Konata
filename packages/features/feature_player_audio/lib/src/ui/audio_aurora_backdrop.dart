@@ -58,6 +58,7 @@ class _AudioAuroraBackdropState extends State<AudioAuroraBackdrop> {
     final cover = widget.cover;
     final key = widget.coverVariantTag ?? '';
     if (cover is! MemoryAudioCover || cover.bytes.isEmpty || key.isEmpty) {
+      _activeKey = null;
       if (_palette != ArtworkAuroraPalette.fallback) {
         setState(() {
           _activeKey = null;
@@ -177,10 +178,7 @@ class _AudioAuroraBackdropState extends State<AudioAuroraBackdrop> {
                 gradient: RadialGradient(
                   center: const Alignment(0.0, -0.08),
                   radius: 0.88,
-                  colors: [
-                    accent.withValues(alpha: 0.14),
-                    Colors.transparent,
-                  ],
+                  colors: [accent.withValues(alpha: 0.14), Colors.transparent],
                   stops: const [0.0, 1.0],
                 ),
               ),
@@ -414,7 +412,11 @@ class AudioCoverArtworkView extends StatelessWidget {
             cache: alignmentCache!,
             builder: (_, alignment) => buildWithAlignment(alignment),
           )
-        : buildWithAlignment(Alignment.center);
+        : buildWithAlignment(
+            cover is ManagedPosterAudioCover
+                ? KonataSmartCoverFraming.defaultPosterAlignment
+                : Alignment.center,
+          );
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(borderRadius),

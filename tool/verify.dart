@@ -70,7 +70,7 @@ final class _WorkspacePackage {
   final Set<String> dependencies;
 }
 
-/// 17 包分层枚举，用于硬拦截跨包单向依赖方向。
+/// 18 包分层枚举，用于硬拦截跨包单向依赖方向。
 enum _PackageLayer {
   app,
   contracts,

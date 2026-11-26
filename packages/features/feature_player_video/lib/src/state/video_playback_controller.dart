@@ -91,10 +91,56 @@ class VideoPlaybackController extends ChangeNotifier {
   StreamSubscription<String>? _renderBackendSub;
   StreamSubscription<String>? _adapterNameSub;
   StreamSubscription<VideoPlaybackPreferences>? _prefsSub;
+  VideoPlaybackPreferences? _lastCloudPrefs;
 
   bool _disposed = false;
   bool _closing = false;
+  bool _miniModeTransition = false;
+  Object? _hardwareViewportOwner;
   bool _hudVisible = true;
+  bool _systemPipActive = false;
+
+  /// 原生系统画中画使用系统控制层，不再绘制完整应用播控。
+  bool get systemPipActive => _systemPipActive;
+
+  /// 仅有效的展开视频舞台自动进入系统画中画，避免把媒体库整个缩入系统小窗。
+  bool canAutoEnterSystemPip({required bool stageExpanded}) =>
+      env.preferencesStore.read().autoEnterPip &&
+      (stageExpanded || systemPipActive) &&
+      state.isPlaying &&
+      state.hasFirstFrame &&
+      !state.audioOnlyMode &&
+      !state.isInitializing &&
+      !state.isClosing &&
+      state.errorMessage == null;
+
+  /// 由宿主原生画中画回调更新，保留原解码会话。
+  void setSystemPipActive(bool active) {
+    if (_disposed || _closing || _systemPipActive == active) return;
+    _systemPipActive = active;
+    if (active) {
+      unawaited(persistPipRecoverySnapshot());
+      setHudVisible(false);
+      updateHudSubtitleLift(
+        hudVisible: false,
+        bottomCapsuleOccupiedHeight: 0,
+        viewportHeight: 0,
+      );
+    } else {
+      unawaited(env.pipRecoveryStore.clear());
+    }
+    notifyListeners();
+  }
+
+  /// 用户关闭系统画中画时暂停原会话，不销毁播放器或留下冷恢复快照。
+  Future<void> dismissSystemPip() async {
+    final position = _session?.readCurrentPositionSeconds();
+    if (position != null) handlePositionUpdate(position);
+    setSystemPipActive(false);
+    await setPlaying(false);
+    await env.pipRecoveryStore.clear();
+  }
+
   double _currentSubtitleHudLiftPercent = 0.0;
   bool _hasCompletedCurrentEpisode = false;
   double _lastSavedPosSeconds = -1;
@@ -112,6 +158,7 @@ class VideoPlaybackController extends ChangeNotifier {
 
   void _bindEnvironmentListeners() {
     env.shaderDiscoveryService.addListener(_onShadersChanged);
+    _lastCloudPrefs = env.preferencesStore.read();
     _prefsSub = env.preferencesStore.watch().listen(_onPreferencesChanged);
   }
 
@@ -124,6 +171,26 @@ class VideoPlaybackController extends ChangeNotifier {
 
   void _onPreferencesChanged(VideoPlaybackPreferences nextPrefs) {
     if (_disposed || _closing) return;
+    final previous = _lastCloudPrefs;
+    _lastCloudPrefs = nextPrefs;
+    final cloud = env.cloudSubsetCoordinator;
+    if (previous != null && cloud != null) {
+      if ((previous.enableCloudSubset && !nextPrefs.enableCloudSubset) ||
+          previous.fontInAssEndpoint != nextPrefs.fontInAssEndpoint) {
+        cloud.cancelAllCloudSubsetTasks();
+      }
+      for (final removed
+          in previous.authorizedCloudSubsetOrigins.toSet().difference(
+            nextPrefs.authorizedCloudSubsetOrigins.toSet(),
+          )) {
+        final uri = Uri.tryParse(removed);
+        if (uri != null &&
+            uri.host.isNotEmpty &&
+            (uri.scheme == 'http' || uri.scheme == 'https')) {
+          cloud.revokeOriginAndCancel(uri);
+        }
+      }
+    }
     _session?.applyLiveQualityConfig(nextPrefs.qualityConfig);
     final normVol = (nextPrefs.volume.clamp(0.0, 1.0)) * 100.0;
     if ((normVol - _state.volume).abs() > 0.5 ||
@@ -131,6 +198,8 @@ class VideoPlaybackController extends ChangeNotifier {
       _session?.setVolume(normVol);
       _session?.setMute(nextPrefs.isMuted);
       _setState(_state.copyWith(volume: normVol, isMuted: nextPrefs.isMuted));
+    } else if (previous?.autoEnterPip != nextPrefs.autoEnterPip) {
+      notifyListeners();
     }
   }
 
@@ -209,8 +278,8 @@ class VideoPlaybackController extends ChangeNotifier {
     _lastSavedPosSeconds = startSec;
 
     positionNotifier.value = Duration(milliseconds: (startSec * 1000).round());
-    durationNotifier.value = existingRecord != null &&
-            existingRecord.durationSeconds > 0
+    durationNotifier.value =
+        existingRecord != null && existingRecord.durationSeconds > 0
         ? Duration(seconds: existingRecord.durationSeconds)
         : Duration.zero;
     bufferedNotifier.value = Duration.zero;
@@ -222,7 +291,7 @@ class VideoPlaybackController extends ChangeNotifier {
         hasFirstFrame: false,
         isPlaying: false,
         isClosing: false,
-        isMiniPlayer: _state.isMiniPlayer,
+        miniMode: _state.miniMode,
         currentWork: bundle.work,
         currentBundle: bundle,
         currentEpisode: episode,
@@ -277,6 +346,7 @@ class VideoPlaybackController extends ChangeNotifier {
       qualityConfig: qualityConfig,
       startSeconds: startSec,
       volume100: volume100,
+      startPlaying: request.initialPlaying,
     );
   }
 
@@ -288,6 +358,7 @@ class VideoPlaybackController extends ChangeNotifier {
     required PlaybackQualityConfig qualityConfig,
     required double startSeconds,
     required double volume100,
+    bool startPlaying = true,
   }) async {
     final existingSession = _session;
     final loadReq = EmbeddedVideoLoadRequest(
@@ -295,6 +366,7 @@ class VideoPlaybackController extends ChangeNotifier {
       variant: variant,
       source: source,
       startSeconds: startSeconds,
+      startPlaying: startPlaying,
     );
 
     if (existingSession != null) {
@@ -454,6 +526,7 @@ class VideoPlaybackController extends ChangeNotifier {
       if (!_disposed && !_closing && !_state.hasFirstFrame) {
         _setState(_state.copyWith(hasFirstFrame: true, isBuffering: false));
       }
+      refreshProbeOnce();
     };
     session.onHwdecChanged = _onHwdecChanged;
     session.onMediaMetadataUpdated = _onMediaMetadataUpdated;
@@ -472,7 +545,8 @@ class VideoPlaybackController extends ChangeNotifier {
     };
     session.mountedSubtitleSourcePathsReader = _readMountedSubtitleSourcePaths;
     session.mountedCloudSubsetTrackIdsReader = _readMountedCloudSubsetTrackIds;
-    session.onMountExternalTextSubtitles = _mountDiscoveredExternalTextSubtitles;
+    session.onMountExternalTextSubtitles =
+        _mountDiscoveredExternalTextSubtitles;
   }
 
   /// 处理高频播放位置推进事件（仅更新叶子监听器，避免刷新整棵视图树）。
@@ -537,6 +611,7 @@ class VideoPlaybackController extends ChangeNotifier {
     _syncTimersForActivity();
     if (!playing) {
       unawaited(persistProgressNow());
+      if (systemPipActive) unawaited(persistPipRecoverySnapshot());
     }
   }
 
@@ -558,10 +633,10 @@ class VideoPlaybackController extends ChangeNotifier {
     _session?.setPositionObservationEnabled(
       _hudVisible || _state.isMiniPlayer || _skipPlan != null,
     );
-    _persistTimer ??= Timer.periodic(
-      const Duration(seconds: 10),
-      (_) => unawaited(persistProgressNow()),
-    );
+    _persistTimer ??= Timer.periodic(const Duration(seconds: 10), (_) {
+      unawaited(persistProgressNow());
+      if (systemPipActive) unawaited(persistPipRecoverySnapshot());
+    });
 
     if (_state.probeOverlayVisible) {
       _probeTimer ??= Timer.periodic(
@@ -579,6 +654,7 @@ class VideoPlaybackController extends ChangeNotifier {
     if (_hudVisible == visible) return;
     _hudVisible = visible;
     if (!_disposed && !_closing) {
+      if (visible) refreshProbeOnce();
       _syncTimersForActivity();
     }
   }
@@ -589,14 +665,22 @@ class VideoPlaybackController extends ChangeNotifier {
     if (_disposed || _closing || session == null) return;
     final stats = _state.probeOverlayVisible
         ? session.collectProbeStats()
-        : session.collectLightProbeStats();
+        : session.collectLightProbeStats(previous: _state.probeStats);
     final cacheSec = stats.demuxerCacheSeconds;
     if (cacheSec != null && cacheSec >= 0) {
       handleBufferedUpdate(
         (positionNotifier.value.inMilliseconds / 1000.0) + cacheSec,
       );
     }
-    if (_state.probeOverlayVisible) {
+    final previous = _state.probeStats;
+    if (_state.probeOverlayVisible ||
+        stats.videoWidth != previous.videoWidth ||
+        stats.videoHeight != previous.videoHeight ||
+        stats.videoCodec != previous.videoCodec ||
+        stats.videoPixelFormat != previous.videoPixelFormat ||
+        stats.videoHwPixelFormat != previous.videoHwPixelFormat ||
+        stats.videoProfile != previous.videoProfile ||
+        stats.hwdecCurrent != previous.hwdecCurrent) {
       _setState(_state.copyWith(probeStats: stats));
     }
   }
@@ -608,6 +692,8 @@ class VideoPlaybackController extends ChangeNotifier {
   }
 
   void _onHwdecChanged(String hwdecCurrent) {
+    if (_disposed || _closing) return;
+    refreshProbeOnce();
     final safety = HwdecSafetyPolicy.evaluate(
       platform: _toHwdecPlatform(),
       videoCodec: _state.probeStats.videoCodec,
@@ -641,6 +727,7 @@ class VideoPlaybackController extends ChangeNotifier {
         availableAudioDevices: audioDevices,
       ),
     );
+    refreshProbeOnce();
     _recomputeChapterSkipPlan();
     thumbnailService.updateChapters(
       chapters,

@@ -54,7 +54,6 @@ class AudioPlaybackController extends ChangeNotifier {
       volume: prefs.defaultVolume,
       isMuted: prefs.isMuted,
       loopMode: prefs.loopMode,
-      shuffleEnabled: prefs.shuffleEnabled,
       audiophileSafetyState: _safetyCoordinator.deviceSafetyState,
       audiophilePlan: initialPlan,
     );
@@ -132,6 +131,7 @@ class AudioPlaybackController extends ChangeNotifier {
   int _clientNativeInstanceId = 0;
 
   bool _disposed = false;
+  bool _desktopWindowTransition = false;
   bool _timePosObserved = false;
   bool _progressObservationHidden = false;
   int? _timePosObserveId;
@@ -144,6 +144,8 @@ class AudioPlaybackController extends ChangeNotifier {
   DateTime? _lastMediaSessionSyncAt;
 
   Timer? _cueBoundaryTimer;
+  int _prefetchGeneration = 0;
+  String? _mainStreamToken;
   String? _prefetchedItemId;
   String? _prefetchedStreamToken;
   int? _expectedAppendPlaylistEntryId;
@@ -261,7 +263,7 @@ class AudioPlaybackController extends ChangeNotifier {
     final playOrder = AudioPlaybackQueueBuilder.buildPlayOrder(
       length: builtQueue.length,
       currentIndex: targetIndex,
-      shuffle: prefs.shuffleEnabled,
+      shuffle: prefs.loopMode == AudioLoopMode.shuffle,
     );
     final playOrderPos = playOrder.indexOf(targetIndex);
 
@@ -284,7 +286,6 @@ class AudioPlaybackController extends ChangeNotifier {
         playOrder: playOrder,
         playOrderPos: playOrderPos,
         loopMode: prefs.loopMode,
-        shuffleEnabled: prefs.shuffleEnabled,
         volume: prefs.defaultVolume,
         isMuted: prefs.isMuted,
         expandedCuePaths: expandedCues,
@@ -441,46 +442,48 @@ class AudioPlaybackController extends ChangeNotifier {
   Future<void> seekToTrackPosition(Duration position) =>
       seekRelativeTrackSeconds(position.inMilliseconds / 1000.0);
 
-  /// 依次切换循环模式：`sequence -> loopAll -> loopOne -> sequence`。
+  /// 依次切换顺序、列表循环、单曲循环、随机循环。
   void cycleLoopMode() {
-    final nextMode = switch (_snapshotNotifier.value.loopMode) {
-      AudioLoopMode.sequence => AudioLoopMode.loopAll,
-      AudioLoopMode.loopAll => AudioLoopMode.loopOne,
-      AudioLoopMode.loopOne => AudioLoopMode.sequence,
-    };
-    setLoopMode(nextMode);
+    const modes = AudioLoopMode.values;
+    final current = _snapshotNotifier.value.loopMode;
+    setLoopMode(modes[(current.index + 1) % modes.length]);
   }
 
-  /// 显式设置循环模式并持久化到 `playback_audio`。
+  /// 切换互斥播放模式，保留当前曲目并同步原生预加载队列。
   void setLoopMode(AudioLoopMode mode) {
-    if (_snapshotNotifier.value.loopMode == mode) return;
-    _updateSnapshot(_snapshotNotifier.value.copyWith(loopMode: mode));
+    if (!_applyLoopMode(mode)) return;
     _preferences.update((p) => p.copyWith(loopMode: mode));
   }
 
-  /// 切换随机乱序播放。
-  void toggleShuffle() => setShuffle(!_snapshotNotifier.value.shuffleEnabled);
-
-  /// 显式设置随机播放状态，保留当前曲目作为起点重建播放顺序。
-  void setShuffle(bool enabled) {
+  bool _applyLoopMode(AudioLoopMode mode) {
     final snap = _snapshotNotifier.value;
-    if (snap.shuffleEnabled == enabled) return;
-    final newOrder = AudioPlaybackQueueBuilder.buildPlayOrder(
-      length: snap.queue.length,
-      currentIndex: snap.currentIndex,
-      shuffle: enabled,
-    );
-    final newPos = snap.currentIndex >= 0
-        ? newOrder.indexOf(snap.currentIndex)
-        : -1;
+    if (snap.loopMode == mode) return false;
+    final shuffleChanged =
+        (snap.loopMode == AudioLoopMode.shuffle) !=
+        (mode == AudioLoopMode.shuffle);
+    final order = shuffleChanged
+        ? AudioPlaybackQueueBuilder.buildPlayOrder(
+            length: snap.queue.length,
+            currentIndex: snap.currentIndex,
+            shuffle: mode == AudioLoopMode.shuffle,
+          )
+        : snap.playOrder;
+    final client = _client;
+    if (client != null && !client.isDisposed && client.isInitialized) {
+      client.command(<String>['playlist-clear']);
+    }
+    _clearPrefetchTracking(releaseBridge: true);
     _updateSnapshot(
       snap.copyWith(
-        shuffleEnabled: enabled,
-        playOrder: newOrder,
-        playOrderPos: newPos,
+        loopMode: mode,
+        playOrder: order,
+        playOrderPos: order.indexOf(snap.currentIndex),
       ),
     );
-    _preferences.update((p) => p.copyWith(shuffleEnabled: enabled));
+    if (snap.isActive && !snap.isBuffering) {
+      unawaited(_prefetchNextTrackIfPossible());
+    }
+    return true;
   }
 
   /// 调整软件安全缩放音量（`0 ~ 100`）；源码透传模式下保持受控只读提示。
@@ -573,15 +576,78 @@ class AudioPlaybackController extends ChangeNotifier {
 
   /// 切换桌面端置顶便携小窗形态（通过窗口抽象端口委托给宿主壳层）。
   Future<void> setDesktopMiniWindow(bool enabled) async {
+    if (_disposed) throw StateError('播放会话已关闭');
+    if (_desktopWindowTransition) throw StateError('窗口正在切换，请重试');
     if (_snapshotNotifier.value.isDesktopMiniWindow == enabled) return;
-    if (enabled) {
-      await _windowPort.enterDesktopMiniWindow(width: 392, height: 108);
-    } else {
-      await _windowPort.exitDesktopMiniWindow();
+    _desktopWindowTransition = true;
+    try {
+      // 先切换视图再缩放宿主，避免全尺寸播放舞台挤入小窗。
+      if (enabled) {
+        _updateSnapshot(
+          _snapshotNotifier.value.copyWith(isDesktopMiniWindow: true),
+        );
+        await _windowPort.enterDesktopMiniWindow(width: 336, height: 76);
+      } else {
+        await _windowPort.exitDesktopMiniWindow();
+        if (!_disposed) {
+          _updateSnapshot(
+            _snapshotNotifier.value.copyWith(isDesktopMiniWindow: false),
+          );
+        }
+      }
+    } catch (_) {
+      if (!_disposed) {
+        _updateSnapshot(
+          _snapshotNotifier.value.copyWith(isDesktopMiniWindow: !enabled),
+        );
+      }
+      rethrow;
+    } finally {
+      _desktopWindowTransition = false;
     }
-    _updateSnapshot(
-      _snapshotNotifier.value.copyWith(isDesktopMiniWindow: enabled),
-    );
+  }
+
+  /// 系统窗口移动结束事件；仅支持桌面吸附能力的宿主提供。
+  Stream<void> get desktopMiniMoveEnded {
+    final port = _windowPort;
+    return port is DesktopMiniDockPort
+        ? (port as DesktopMiniDockPort).desktopMiniMoveEnded
+        : const Stream.empty();
+  }
+
+  /// 只在桌面音频小窗活动期间查询并修正实际窗口边缘。
+  Future<DesktopMiniDockSide?> snapDesktopMiniWindow() async {
+    final port = _windowPort;
+    if (_disposed ||
+        _desktopWindowTransition ||
+        !snapshot.isDesktopMiniWindow ||
+        port is! DesktopMiniDockPort) {
+      return null;
+    }
+    _desktopWindowTransition = true;
+    try {
+      return await (port as DesktopMiniDockPort).snapDesktopMiniWindow();
+    } finally {
+      _desktopWindowTransition = false;
+    }
+  }
+
+  /// 仅缩放现有桌面小窗，不创建播放会话或覆盖主窗口恢复快照。
+  Future<void> resizeDesktopMiniWindow({
+    required double width,
+    required double height,
+  }) async {
+    if (_disposed ||
+        _desktopWindowTransition ||
+        !_snapshotNotifier.value.isDesktopMiniWindow) {
+      throw StateError('桌面小窗当前无法调整尺寸');
+    }
+    _desktopWindowTransition = true;
+    try {
+      await _windowPort.enterDesktopMiniWindow(width: width, height: height);
+    } finally {
+      _desktopWindowTransition = false;
+    }
   }
 
   /// 将当前正在播放的专辑队列或单曲移交给桌面端已配置的外部发烧播放器接力。
@@ -603,6 +669,10 @@ class AudioPlaybackController extends ChangeNotifier {
   /// 彻底结束音频播放会话，重置叶子通知器并通知歌词端口清空当前活动曲目。
   Future<void> stopAndClose() async {
     if (_disposed) return;
+    if (_desktopWindowTransition) throw StateError('窗口正在切换，请重试');
+    if (_snapshotNotifier.value.isDesktopMiniWindow) {
+      await setDesktopMiniWindow(false);
+    }
     await _persistPlaybackHistory(force: true);
     _cueBoundaryTimer?.cancel();
     _cueBoundaryTimer = null;
@@ -613,10 +683,7 @@ class AudioPlaybackController extends ChangeNotifier {
     }
     _clearPrefetchTracking(releaseBridge: true);
     await _releaseCurrentClient();
-
-    if (_snapshotNotifier.value.isDesktopMiniWindow) {
-      await _windowPort.exitDesktopMiniWindow();
-    }
+    _engine.resetSession(stage: PlaybackStageKind.audio);
 
     _activeWork = null;
     _rawDurationSeconds = 0.0;
@@ -629,7 +696,6 @@ class AudioPlaybackController extends ChangeNotifier {
     _updateSnapshot(
       AudioPlaybackSnapshot(
         loopMode: _preferences.read().loopMode,
-        shuffleEnabled: _preferences.read().shuffleEnabled,
         volume: _preferences.read().defaultVolume,
         isMuted: _preferences.read().isMuted,
         audiophileSafetyState: _safetyCoordinator.deviceSafetyState,
@@ -672,6 +738,15 @@ class AudioPlaybackController extends ChangeNotifier {
 
   void _updateSnapshot(AudioPlaybackSnapshot next) {
     if (_disposed) return;
+    final previous = _snapshotNotifier.value;
+    if (previous.currentItem?.variantId != next.currentItem?.variantId &&
+        identical(previous.cover, next.cover)) {
+      // 切换物理音轨时不可沿用上一张专辑图；等待当前曲目的封面解析。
+      next = next.copyWith(
+        cover: const EmptyAudioCover(),
+        clearCoverVariantTag: true,
+      );
+    }
     _snapshotNotifier.value = next;
     notifyListeners();
   }

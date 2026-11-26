@@ -166,6 +166,8 @@ final class HostAppNavigator implements AppNavigator {
     required WorkId workId,
     EpisodeId? episodeId,
     VariantId? variantId,
+    int? initialPositionSeconds,
+    bool initialPlaying = true,
   }) async {
     final nav = navigatorKey.currentState;
     if (nav == null) return;
@@ -180,6 +182,8 @@ final class HostAppNavigator implements AppNavigator {
               workId: workId,
               episodeId: episodeId,
               variantId: variantId,
+              initialPositionSeconds: initialPositionSeconds,
+              initialPlaying: initialPlaying,
               hasAudioFeature: hasAudioFeature,
               onClosePage: () {
                 unawaited(pop());
@@ -251,10 +255,10 @@ final class HostAppNavigator implements AppNavigator {
   }
 }
 
-/// 云端子集化已授权 Origin 持久化配置切片（设备本地保留，严禁跨设备同步）。
+/// 仅保存经本机显式授权的来源；旧授权来源无法确认用户许可，不自动继承。
 final TypedPrefsSlice<List<String>> _cloudSubsetOriginsSlice =
     TypedPrefsSlice<List<String>>(
-      namespace: 'engine_playback.cloud_subset_origins',
+      namespace: 'engine_playback.cloud_subset_origins_v2',
       schemaVersion: 1,
       syncPolicy: SyncPolicy.deviceLocal,
       defaultValue: const <String>[],
@@ -1015,6 +1019,13 @@ final class _KonataBootstrapRootState
       );
     }
 
+    // Android 仅在首次挂载且无用户打开的其他路由时消费设备本地恢复快照。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && widget.bootstrap.androidPipPort != null) {
+        unawaited(_restoreAndroidVideoOnce());
+      }
+    });
+
     // 启动后错峰 5 秒触发连载追更静默巡检（销毁时自动取消，避免测试悬空定时器）。
     if (widget.bootstrap.autoStartDetailWarmupAndBackfill) {
       _ongoingSyncStartupTimer = Timer(const Duration(seconds: 5), () {
@@ -1022,6 +1033,29 @@ final class _KonataBootstrapRootState
         triggerOngoingWorksAutoSync(ref, widget.bootstrap.featureRegistry);
       });
     }
+  }
+
+  Future<void> _restoreAndroidVideoOnce() async {
+    if (widget.navigatorKey.currentState?.canPop() != false) return;
+    final recovery = await takeAndroidVideoRecovery(
+      ref,
+      widget.bootstrap.featureRegistry,
+      widget.bootstrap.platform,
+    );
+    if (!mounted ||
+        recovery == null ||
+        widget.navigatorKey.currentState?.canPop() != false ||
+        widget.videoStageOpen.value ||
+        widget.audioStageOpen.value) {
+      return;
+    }
+    await widget.hostNavigator.openVideoPlayer(
+      workId: recovery.workId,
+      episodeId: recovery.episodeId,
+      variantId: recovery.variantId,
+      initialPositionSeconds: recovery.positionSeconds,
+      initialPlaying: recovery.isPlaying,
+    );
   }
 
   @override

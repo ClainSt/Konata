@@ -30,7 +30,7 @@ class _EpisodesSection extends StatelessWidget {
       builder: (context, scrollController) {
         return ListView(
           controller: scrollController,
-          padding: const EdgeInsets.only(right: 8),
+          padding: EdgeInsets.zero,
           children: [
             if (members.length > 1) ...[
               Text(
@@ -112,7 +112,7 @@ class _EpisodesSection extends StatelessWidget {
                                   false))
                         ? Icons.check_circle_rounded
                         : Icons.check_circle_outline_rounded,
-                    tooltip: '切换看完状态',
+                    tooltip: '标记完播',
                     size: 18,
                     color: p.accent,
                     onTap: () {
@@ -141,156 +141,168 @@ class _EpisodesSection extends StatelessWidget {
   }
 }
 
-class _ChaptersSection extends StatelessWidget {
-  const _ChaptersSection({required this.controller, required this.state});
-
-  final VideoPlaybackController controller;
-  final VideoPlaybackState state;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-    if (state.chapters.isEmpty) {
-      return Center(
-        child: Text(
-          '当前视频未嵌入章节标记',
-          style: TextStyle(color: p.textMuted, fontSize: 13),
-        ),
-      );
-    }
-    return KonataDraggableScrollbar(
-      builder: (context, scrollController) {
-        return ListView.builder(
-          controller: scrollController,
-          padding: const EdgeInsets.only(right: 8),
-          itemCount: state.chapters.length,
-          itemBuilder: (context, idx) {
-            final ch = state.chapters[idx];
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: _SelectableOptionRow(
-                title: ch.title.trim().isEmpty
-                    ? '第 ${ch.index + 1} 章'
-                    : ch.title.trim(),
-                subtitle: PlaybackRecordHelper.formatClock(
-                  ch.startSeconds.round(),
-                ),
-                selected: false,
-                onTap: () => unawaited(controller.seekToChapter(ch)),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-}
-
 class _SubtitlesSection extends StatelessWidget {
-  const _SubtitlesSection({required this.controller, required this.state});
+  const _SubtitlesSection({
+    required this.controller,
+    required this.state,
+    required this.prefs,
+  });
 
   final VideoPlaybackController controller;
   final VideoPlaybackState state;
+  final VideoPlaybackPreferences prefs;
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
+    final q = prefs.qualityConfig;
+    final store = controller.env.preferencesStore;
+    final hasAss = state.subtitles.any(
+      (s) =>
+          s.selected &&
+          !s.isCloudSubset &&
+          s.isExternal &&
+          (s.codec.toLowerCase() == 'ass' || s.codec.toLowerCase() == 'ssa'),
+    );
     return KonataDraggableScrollbar(
-      builder: (context, scrollController) {
-        return ListView(
-          controller: scrollController,
-          padding: const EdgeInsets.only(right: 8),
-          children: [
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                KonataPillButton.secondary(
-                  compact: true,
-                  icon: Icons.add_rounded,
-                  label: '挂载外挂字幕',
-                  onPressed: () =>
-                      unawaited(controller.pickAndAddExternalSubtitle()),
-                ),
-                KonataPillButton.secondary(
-                  compact: true,
-                  icon: Icons.cloud_sync_outlined,
-                  label: state.isApplyingCloudSubset ? '字库子集化中…' : '云端子集化',
-                  onPressed: state.isApplyingCloudSubset
-                      ? null
-                      : () => unawaited(
-                          controller.applyCloudSubsetToCurrentSubtitle(),
-                        ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            KonataSegmentedCapsule<SubtitleOpenCcMode>(
-              expand: true,
-              compact: true,
-              selected: state.subtitleOpenCcMode,
-              options: const <KonataSegmentOption<SubtitleOpenCcMode>>[
-                KonataSegmentOption(
-                  value: SubtitleOpenCcMode.none,
-                  label: '原字形',
-                ),
-                KonataSegmentOption(
-                  value: SubtitleOpenCcMode.toSimplified,
-                  label: '转简体',
-                ),
-                KonataSegmentOption(
-                  value: SubtitleOpenCcMode.toTraditional,
-                  label: '转繁体',
-                ),
-              ],
-              onChanged: (mode) =>
-                  unawaited(controller.setSubtitleOpenCcMode(mode)),
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Text(
-                  '字幕偏移: ${state.subtitleDelaySeconds.toStringAsFixed(1)}s',
-                  style: TextStyle(color: p.textSecondary, fontSize: 12),
-                ),
-                const Spacer(),
-                KonataPillButton.ghost(
-                  compact: true,
-                  label: '-0.5s',
-                  onPressed: () => controller.adjustSubtitleDelay(-0.5),
-                ),
-                KonataPillButton.ghost(
-                  compact: true,
-                  label: '归零',
-                  onPressed: () => controller.setSubtitleDelay(0.0),
-                ),
-                KonataPillButton.ghost(
-                  compact: true,
-                  label: '+0.5s',
-                  onPressed: () => controller.adjustSubtitleDelay(0.5),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            _SelectableOptionRow(
-              title: '关闭主字幕',
-              selected: state.subtitles.every((s) => !s.selected),
-              onTap: () => unawaited(controller.selectSubtitleChoice(null)),
-            ),
-            const SizedBox(height: 6),
-            for (final sub in state.subtitles)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: _SelectableOptionRow(
-                  title: sub.primaryTitle,
-                  subtitle: sub.sourceFormatBadge,
-                  selected: sub.selected,
-                  onTap: () => unawaited(controller.selectSubtitleChoice(sub)),
-                ),
+      builder: (context, scrollController) => ListView(
+        controller: scrollController,
+        padding: EdgeInsets.zero,
+        children: [
+          _TrackSelectionRow(
+            title: '关闭字幕',
+            selected: state.subtitles.every((s) => !s.selected),
+            onTap: () => unawaited(controller.selectSubtitleChoice(null)),
+          ),
+          const SizedBox(height: 8),
+          for (final sub in state.subtitles)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _TrackSelectionRow(
+                title: sub.primaryTitle,
+                badge: sub.sourceFormatBadge,
+                selected: sub.selected,
+                onTap: () => unawaited(controller.selectSubtitleChoice(sub)),
               ),
+            ),
+          KonataPillButton.secondary(
+            compact: true,
+            icon: Icons.add_rounded,
+            label: '添加外挂字幕',
+            onPressed: () => unawaited(controller.pickAndAddExternalSubtitle()),
+          ),
+          const SizedBox(height: 16),
+          Text('内存字幕增强（OpenCC）', style: KonataTheme.bodyLabelStyle(p)),
+          const SizedBox(height: 8),
+          KonataSegmentedCapsule<SubtitleOpenCcMode>(
+            expand: true,
+            compact: true,
+            selected: state.subtitleOpenCcMode,
+            options: const [
+              KonataSegmentOption(value: SubtitleOpenCcMode.none, label: '原文'),
+              KonataSegmentOption(
+                value: SubtitleOpenCcMode.toSimplified,
+                label: '转简体',
+              ),
+              KonataSegmentOption(
+                value: SubtitleOpenCcMode.toTraditional,
+                label: '转繁体',
+              ),
+            ],
+            onChanged: (mode) =>
+                unawaited(controller.setSubtitleOpenCcMode(mode)),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '适用于外挂文本字幕，保留原始文件。',
+            style: TextStyle(color: p.textMuted, fontSize: 12),
+          ),
+          if (prefs.enableCloudSubset &&
+              prefs.fontInAssEndpoint.trim().isNotEmpty) ...[
+            const SizedBox(height: 8),
+            KonataPillButton.secondary(
+              compact: true,
+              icon: Icons.cloud_sync_outlined,
+              label: state.isApplyingCloudSubset ? '字库子集化中…' : '云端字库子集化',
+              onPressed: state.isApplyingCloudSubset || !hasAss
+                  ? null
+                  : () => unawaited(
+                      controller.applyCloudSubsetToCurrentSubtitle(),
+                    ),
+            ),
           ],
-        );
-      },
+          const SizedBox(height: 16),
+          Text('字幕同步与样式', style: KonataTheme.bodyLabelStyle(p)),
+          const SizedBox(height: 8),
+          _PlaybackValueStepper(
+            label: '字幕延迟',
+            value: '${state.subtitleDelaySeconds.toStringAsFixed(1)}s',
+            onDecrease: () => controller.adjustSubtitleDelay(-0.1),
+            onIncrease: () => controller.adjustSubtitleDelay(0.1),
+            onReset: () => controller.setSubtitleDelay(0),
+          ),
+          const SizedBox(height: 8),
+          KonataDropdown<SubtitleAssOverrideMode>(
+            value: q.subOverrideMode,
+            options: const [
+              KonataDropdownOption(
+                value: SubtitleAssOverrideMode.preserveAss,
+                label: '保留原始特效',
+              ),
+              KonataDropdownOption(
+                value: SubtitleAssOverrideMode.scaleOnly,
+                label: '仅缩放字号',
+              ),
+              KonataDropdownOption(
+                value: SubtitleAssOverrideMode.forceStyle,
+                label: '覆盖字幕样式',
+              ),
+            ],
+            onChanged: (mode) => store.updateQualityConfig(
+              (c) => c.copyWith(subOverrideMode: mode),
+            ),
+          ),
+          const SizedBox(height: 8),
+          _PlaybackValueStepper(
+            label: '字幕字号',
+            value: '${q.subFontSize}',
+            onDecrease: () => store.updateQualityConfig(
+              (c) => c.copyWith(subFontSize: (c.subFontSize - 2).clamp(24, 96)),
+            ),
+            onIncrease: () => store.updateQualityConfig(
+              (c) => c.copyWith(subFontSize: (c.subFontSize + 2).clamp(24, 96)),
+            ),
+            onReset: () => store.updateQualityConfig(
+              (c) => c.copyWith(
+                subFontSize: const PlaybackQualityConfig().subFontSize,
+              ),
+            ),
+          ),
+          _PlaybackValueStepper(
+            label: '底部边距',
+            value: '${q.subBottomMargin}',
+            onDecrease: () => store.updateQualityConfig(
+              (c) => c.copyWith(
+                subBottomMargin: (c.subBottomMargin - 2).clamp(0, 120),
+              ),
+            ),
+            onIncrease: () => store.updateQualityConfig(
+              (c) => c.copyWith(
+                subBottomMargin: (c.subBottomMargin + 2).clamp(0, 120),
+              ),
+            ),
+            onReset: () => store.updateQualityConfig(
+              (c) => c.copyWith(
+                subBottomMargin: const PlaybackQualityConfig().subBottomMargin,
+              ),
+            ),
+          ),
+          Text(
+            '保留原始特效时，ASS 字幕沿用原文件的样式。',
+            style: TextStyle(color: p.textMuted, fontSize: 12),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -299,90 +311,74 @@ class _AudioSection extends StatelessWidget {
   const _AudioSection({
     required this.controller,
     required this.state,
-    required this.currentAudioDevice,
+    required this.prefs,
   });
 
   final VideoPlaybackController controller;
   final VideoPlaybackState state;
-  final String currentAudioDevice;
+  final VideoPlaybackPreferences prefs;
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
+    final devices = <String, String>{'auto': '系统默认音频输出 (Auto)'};
+    for (final dev in state.availableAudioDevices) {
+      if (dev.name.isEmpty || devices.containsKey(dev.name)) continue;
+      final description = dev.description.trim();
+      devices[dev.name] = description.isEmpty || description == dev.name
+          ? '音频设备 ${devices.length}'
+          : description;
+    }
+    final device = prefs.qualityConfig.audioDevice;
     return KonataDraggableScrollbar(
-      builder: (context, scrollController) {
-        return ListView(
-          controller: scrollController,
-          padding: const EdgeInsets.only(right: 8),
-          children: [
-            Row(
-              children: [
-                Text(
-                  '音频延迟: ${state.audioDelaySeconds.toStringAsFixed(2)}s',
-                  style: TextStyle(color: p.textSecondary, fontSize: 12),
-                ),
-                const Spacer(),
-                KonataPillButton.ghost(
-                  compact: true,
-                  label: '-0.1s',
-                  onPressed: () =>
-                      controller.setAudioDelay(state.audioDelaySeconds - 0.1),
-                ),
-                KonataPillButton.ghost(
-                  compact: true,
-                  label: '归零',
-                  onPressed: () => controller.setAudioDelay(0.0),
-                ),
-                KonataPillButton.ghost(
-                  compact: true,
-                  label: '+0.1s',
-                  onPressed: () =>
-                      controller.setAudioDelay(state.audioDelaySeconds + 0.1),
-                ),
-              ],
+      builder: (context, scrollController) => ListView(
+        controller: scrollController,
+        padding: EdgeInsets.zero,
+        children: [
+          Text('音轨', style: KonataTheme.bodyLabelStyle(p)),
+          const SizedBox(height: 8),
+          for (final track in state.audioTracks)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _TrackSelectionRow(
+                title: track.primaryTitle,
+                badge: track.sourceFormatBadge,
+                selected: track.selected,
+                onTap: () => unawaited(controller.selectAudioTrack(track)),
+              ),
             ),
-            const SizedBox(height: 10),
-            for (final track in state.audioTracks)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: _SelectableOptionRow(
-                  title: track.title.trim().isEmpty
-                      ? '音轨 #${track.mpvTrackId ?? ''}'
-                      : track.title.trim(),
-                  subtitle: [
-                    if (track.language.isNotEmpty) track.language,
-                    if (track.codec.isNotEmpty) track.codec.toUpperCase(),
-                  ].join(' · '),
-                  selected: track.selected,
-                  onTap: () => unawaited(controller.selectAudioTrack(track)),
-                ),
-              ),
-            if (state.availableAudioDevices.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Text(
-                '音频输出设备',
-                style: TextStyle(
-                  color: p.textSecondary,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 6),
-              for (final dev in state.availableAudioDevices)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
-                  child: _SelectableOptionRow(
-                    title: dev.description.isEmpty ? dev.name : dev.description,
-                    subtitle: dev.name,
-                    selected: dev.name == currentAudioDevice,
-                    onTap: () =>
-                        unawaited(controller.selectAudioDevice(dev.name)),
-                  ),
-                ),
+          const SizedBox(height: 12),
+          Text('音频输出设备', style: KonataTheme.bodyLabelStyle(p)),
+          const SizedBox(height: 8),
+          KonataDropdown<String>(
+            value: devices.containsKey(device) ? device : null,
+            hintText: '已选设备不可用，请重新选择',
+            options: [
+              for (final entry in devices.entries)
+                KonataDropdownOption(value: entry.key, label: entry.value),
             ],
-          ],
-        );
-      },
+            onChanged: (value) =>
+                unawaited(controller.selectAudioDevice(value)),
+          ),
+          const SizedBox(height: 12),
+          _PlaybackValueStepper(
+            label: '音频延迟',
+            value: '${state.audioDelaySeconds.toStringAsFixed(1)}s',
+            onDecrease: () =>
+                controller.setAudioDelay(state.audioDelaySeconds - 0.1),
+            onIncrease: () =>
+                controller.setAudioDelay(state.audioDelaySeconds + 0.1),
+            onReset: () => controller.setAudioDelay(0),
+          ),
+          const SizedBox(height: 16),
+          VideoAudioRouteControls(
+            platform: controller.env.platform,
+            preferences: prefs,
+            store: controller.env.preferencesStore,
+            coordinator: controller.env.audiophileCoordinator,
+          ),
+        ],
+      ),
     );
   }
 }
@@ -407,7 +403,7 @@ class _VideoAndShadersSection extends StatelessWidget {
       builder: (context, scrollController) {
         return ListView(
           controller: scrollController,
-          padding: const EdgeInsets.only(right: 8),
+          padding: EdgeInsets.zero,
           children: [
             Text('渲染画质与解码策略', style: KonataTheme.bodyLabelStyle(p)),
             const SizedBox(height: 8),
@@ -460,7 +456,17 @@ class _VideoAndShadersSection extends StatelessWidget {
             const SizedBox(height: 12),
             Text('播放倍速', style: KonataTheme.bodyLabelStyle(p)),
             const SizedBox(height: 8),
-            for (final speed in [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0])
+            for (final speed in [
+              0.5,
+              0.75,
+              1.0,
+              1.25,
+              1.5,
+              1.75,
+              2.0,
+              2.5,
+              3.0,
+            ])
               Padding(
                 padding: const EdgeInsets.only(bottom: 6),
                 child: (state.speed - speed).abs() < 0.01
@@ -477,7 +483,7 @@ class _VideoAndShadersSection extends StatelessWidget {
               ),
             const SizedBox(height: 12),
             AdaptiveSettingTile(
-              title: '仅听声音省电模式',
+              title: '纯音频模式',
               subtitle: '关闭视频画面解码与渲染，仅保留音轨输出',
               trailing: KonataSwitch(
                 value: state.audioOnlyMode,

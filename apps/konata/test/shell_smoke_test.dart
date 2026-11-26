@@ -364,7 +364,16 @@ void main() {
       await _pumpFrames(tester, count: 8);
 
       expect(find.byType(WorkDetailPage), findsOneWidget);
-      final scanTabFinder = find.text('扫图');
+      final scanTabFinder = find.byKey(
+        const ValueKey<String>('detail_tab_scan_viewer'),
+      );
+      expect(
+        find.descendant(
+          of: scanTabFinder,
+          matching: find.textContaining('Scan'),
+        ),
+        findsOneWidget,
+      );
       expect(scanTabFinder, findsWidgets);
       await tester.tap(scanTabFinder.first);
       await _pumpFrames(tester, count: 6);

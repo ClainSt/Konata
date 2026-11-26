@@ -2,7 +2,7 @@
 
 <h1>Konata</h1>
 
-<img src="assets/brand/icons/android-round.png" alt="Konata · 泉此方" width="200">
+<img src="apps/konata/assets/brand/icons/android-round.png" alt="Konata · 泉此方" width="200">
 
 <p>把收藏的动画，整理成自己的海报墙。</p>
 
@@ -27,8 +27,8 @@
 
 ## 平台
 
-- **Windows x64**（优先支持，纯绿色便携模式，基于独立桌面入口 `lib/main.dart`）
-- **Android ARM64**（同源跨端设计语言与自适应外壳，应用专属存储 + SAF 只读访问，独立裁剪入口 `lib/main_android.dart`）
+- **Windows x64**（优先支持，纯绿色便携模式，基于独立桌面入口 `apps/konata/lib/main.dart`）
+- **Android ARM64**（同源跨端设计语言与自适应外壳，应用专属存储 + SAF 只读访问，独立裁剪入口 `apps/konata/lib/main_android.dart`）
 
 ## 产品定位
 
@@ -63,6 +63,12 @@ Konata 聚焦简洁高颜值的二次元动画收藏、BDRip 资料库管理与�
 - **无损音频与流光舞台**：支持整轨 + `.cue` 虚拟分轨、`gapless` 播放、WASAPI 共享/独占与 Android 14+ Bit-Perfect 音频安全链、内嵌/目录专辑封面提取与多源同步/逐字歌词展示。
 - **观看进度追踪**：基于单调时钟并集时间线的有效完播率判定（`WatchedTracker`）与全站播放记录断点续播。
 
+### 同步与备份
+
+- **本地 `.konata` 备份与还原**：按需勾选设置、播放记录与媒体库目录等切片导出为带 SHA-256 校验的归档；恢复前先干跑预览新增/更新/删除计数，确认后在单一事务内原子写入。
+- **WebDAV 多设备同步**：远端按「切片 × 设备」分片存放，未变化的分片零上传、零下载；WebDAV 密码仅存本机安全存储，凭据与本机绝对路径不参与同步。
+- **Bangumi 追番进度同步**：使用个人访问令牌（PAT）直连官方 `api.bgm.tv`，单集完播后自动排队上报，网络异常时指数退避重试，令牌失效时提示重新绑定。
+
 ### 外观与跨端适配
 
 - Windows 11 原生 DWM 亚克力（Acrylic）/ 云母（Mica）透光材质与深色/亮色/跟随系统主题切换。
@@ -77,7 +83,27 @@ Konata 聚焦简洁高颜值的二次元动画收藏、BDRip 资料库管理与�
 
 ## 从源码运行
 
-Windows 采用纯绿色便携存储：数据库（Drift SQLite `konata_v2.sqlite`）、DPAPI 加密凭据与 `photos/` 图片缓存均保存在程序同级 `userdata/`（调试模式位于项目根目录，已在 `.gitignore` 中忽略），临时缓存（字幕暂存、字体池、着色器缓存等）位于 `cache/tmp/`，绝不写入 C 盘 `%APPDATA%` 或系统 `%TEMP%`。Android 使用应用专属存储。
+Windows 采用纯绿色便携存储：全部业务数据落在程序同级目录（调试时为仓库根目录，均已在 `.gitignore` 中忽略），绝不写入 C 盘 `%APPDATA%`、`%LOCALAPPDATA%` 或系统 `%TEMP%`。
+
+- `userdata/`：三库分治的 SQLite 数据库（`db/library.db` 媒体资产库、`db/user_state.db` 用户态库、按需惰性打开的 `db/cache.db` 缓存库）、DPAPI 加密凭据、配置与诊断日志；
+- `photos/`：作品图片缓存（海报、背景、徽标、缩略图与扫图微缩图）；
+- `cache/`：可随时清理的缓存，含 `tmp/` 临时文件与字幕暂存、`font_pool/` 字体池、`mpv_shader_cache/` 着色器缓存等。
+
+Android 使用应用专属存储。
+
+### 仓库结构
+
+Konata v3 采用 Dart 原生 Pub Workspaces 多包结构，依赖严格单向，全仓不使用 `build_runner` 代码生成：
+
+```text
+apps/konata                 应用壳：Windows / Android 宿主装配与功能模块注册
+packages/features/*         11 个功能模块（媒体库、详情、音视频播放、歌词、扫图、同步等）
+packages/engines/*          4 个无界面纯 Dart 引擎（媒体源、刮削、播放、云盘）
+packages/foundation/*       3 个底座包（契约、存储、设计系统）
+packages/native_plugins/*   为绿色便携等需求修补的原生插件
+```
+
+开发规范见 [`AGENTS.md`](AGENTS.md)，各包职责与公开接口见各自目录下的 `PACKAGE.md`。
 
 ### 前置环境
 
@@ -89,26 +115,35 @@ Windows 采用纯绿色便携存储：数据库（Drift SQLite `konata_v2.sqlite
 ```sh
 flutter pub get
 dart run tool/fetch_native.dart
+cd apps/konata
 flutter run -d windows
 ```
+
+如需 Fanart.tv 艺术图，可将根目录 `dart_defines.example.json` 复制为 `dart_defines.dev.json` 并填入密钥（已在 `.gitignore` 中忽略），运行时附加 `--dart-define-from-file=../../dart_defines.dev.json`；`verify.dart build` 会自动注入该文件。
 
 构建与校验：
 
 ```sh
-# 静态分析、全量单测与 Windows Debug 门禁
+# 日常迭代：仅对改动及受影响的包执行 guard + analyze + test
+dart run tool/verify.dart changed
+
+# 阶段合入：串行执行 guard -> analyze -> test -> Windows Debug 构建
 dart run tool/verify.dart all
 
-# 手动发布构建产物
+# 手动发布构建（在 apps/konata 目录下执行）
+cd apps/konata
 flutter build windows --release
 flutter build apk --release -t lib/main_android.dart --target-platform android-arm64 --split-per-abi
 ```
+
+Windows 发布构建也可直接运行 `tool/build_windows_release.ps1`，调试符号会自动剥离到 `build/symbols/windows/`。
 
 Android 正式签名需本机发布密钥及 `KONATA_SIGNING_PASSWORD` 环境变量，可运行 `tool/build_signed_android.ps1`。
 
 ## 许可证与版权说明
 
 - 本项目原创源代码遵循 **GNU General Public License v3.0 or later（GPL-3.0-or-later）** 开源，协议全文见 [`LICENSE`](LICENSE)。
-- **角色头像与品牌图标版权排除声明**：仓库内基于《幸运星》泉此方创作的二次创作头像与各平台应用图标（位于 `assets/brand/icons/`、`assets/icons/konata_icon.png`、`windows/runner/resources/app_icon.ico` 及 `android/app/src/main/res/mipmap-*`）**明确排除在 GPL-3.0-or-later 授权范围之外**，原角色著作权及相关权利归原权利方所有；任何衍生分发或分支项目均须自行移除或替换相关角色美术资产。
+- **角色头像与品牌图标版权排除声明**：仓库内基于《幸运星》泉此方创作的二次创作头像与各平台应用图标（位于 `apps/konata/assets/brand/icons/`、`apps/konata/assets/icons/konata_icon.png`、`apps/konata/windows/runner/resources/app_icon.ico` 及 `apps/konata/android/app/src/main/res/mipmap-*`）**明确排除在 GPL-3.0-or-later 授权范围之外**，原角色著作权及相关权利归原权利方所有；任何衍生分发或分支项目均须自行移除或替换相关角色美术资产。
 - 第三方源码、原生运行时（mpv / FFmpeg）、内置字体（Inter Variable / Noto Sans CJK SC）与开源数据集的完整授权及对应源码说明见 [`THIRD_PARTY_NOTICES`](THIRD_PARTY_NOTICES)。
 
 ## 致谢

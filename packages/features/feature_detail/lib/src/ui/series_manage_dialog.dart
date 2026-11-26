@@ -332,7 +332,7 @@ class _SeriesManageDialogState extends State<SeriesManageDialog> {
                             if (_members.length > 1)
                               KonataCapsuleIconButton(
                                 icon: Icons.close_rounded,
-                                tooltip: '移出本系列',
+                                tooltip: '移出系列',
                                 color: p.danger,
                                 size: 17,
                                 padding: const EdgeInsets.all(6),
@@ -357,7 +357,8 @@ class _SeriesManageDialogState extends State<SeriesManageDialog> {
                                       }),
                                 child: KonataSpecBadge(
                                   label: preset,
-                                  highlighted: row.labelCtrl.text.trim() == preset,
+                                  highlighted:
+                                      row.labelCtrl.text.trim() == preset,
                                 ),
                               ),
                           ],
@@ -374,9 +375,7 @@ class _SeriesManageDialogState extends State<SeriesManageDialog> {
             controller: _addSearchCtrl,
             dense: true,
             prefixIcon: Icons.add_rounded,
-            hintText: _loadingWorks
-                ? '正在索引库内作品...'
-                : '输入库内其他季度或剧场版名称以加入该系列...',
+            hintText: _loadingWorks ? '正在索引库内作品...' : '输入库内其他季度或剧场版名称以加入该系列...',
             onChanged: (v) => setState(() => _searchQuery = v),
           ),
           if (addCandidates.isNotEmpty) ...[

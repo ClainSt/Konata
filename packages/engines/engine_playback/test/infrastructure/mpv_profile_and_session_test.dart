@@ -128,8 +128,14 @@ void main() {
         mpvConfigDir: mpvDir,
         isWindowsOverride: false,
       );
-      expect(audioClient.options['audio-swresample-o'], contains('resampler=swr'));
-      expect(audioClient.options['audio-swresample-o'], isNot(contains('soxr')));
+      expect(
+        audioClient.options['audio-swresample-o'],
+        contains('resampler=swr'),
+      );
+      expect(
+        audioClient.options['audio-swresample-o'],
+        isNot(contains('soxr')),
+      );
 
       MpvQualityProfile.applyLiveSubtitleStyleUpdate(
         client,
@@ -159,80 +165,132 @@ void main() {
       }
     });
 
-    test('Hi10P 重配置立即切软解，gpu-next 失败回落 gpu 并推送 renderBackendChanges 流', () async {
-      final storage = PortableStorageRootService(overrideRootPath: tempRoot.path);
-      final bridge = FakeLocalStreamBridge();
-      final client = FakeLibMpvClient()
-        ..failStringAssignments.add('vo=gpu-next')
-        ..stringProps['video-format'] = 'h264'
-        ..stringProps['video-params/profile'] = 'High 10'
-        ..stringProps['video-params/pixelformat'] = 'yuv420p10le';
-      final notices = <String>[];
-      final backends = <String>[];
+    test(
+      'Hi10P 重配置立即切软解，gpu-next 失败回落 gpu 并推送 renderBackendChanges 流',
+      () async {
+        final storage = PortableStorageRootService(
+          overrideRootPath: tempRoot.path,
+        );
+        final bridge = FakeLocalStreamBridge();
+        final client = FakeLibMpvClient()
+          ..failStringAssignments.add('vo=gpu-next')
+          ..stringProps['video-format'] = 'h264'
+          ..stringProps['video-params/profile'] = 'High 10'
+          ..stringProps['video-params/pixelformat'] = 'yuv420p10le';
+        final notices = <String>[];
+        final backends = <String>[];
 
-      final session = EmbeddedMpvSession(
-        storageRoot: storage,
-        streamBridge: bridge,
-        clientFactory: () => client,
-        isWindowsOverride: false,
-        isAndroidOverride: true,
-      )..onNotice = notices.add;
-      final backendSub = session.renderBackendChanges.listen(backends.add);
-      addTearDown(() async {
-        await backendSub.cancel();
-        await session.dispose();
-      });
+        final session = EmbeddedMpvSession(
+          storageRoot: storage,
+          streamBridge: bridge,
+          clientFactory: () => client,
+          isWindowsOverride: false,
+          isAndroidOverride: true,
+        )..onNotice = notices.add;
+        final backendSub = session.renderBackendChanges.listen(backends.add);
+        addTearDown(() async {
+          await backendSub.cancel();
+          await session.dispose();
+        });
 
-      final surface = FakeAndroidVideoSurfacePort(
-        const AndroidSurfaceDescriptor(
-          wid: 88,
-          width: 1920,
-          height: 1080,
-          hdrPeak: 1000,
-        ),
+        final surface = FakeAndroidVideoSurfacePort(
+          const AndroidSurfaceDescriptor(
+            wid: 88,
+            width: 1920,
+            height: 1080,
+            hdrPeak: 1000,
+          ),
+        );
+        addTearDown(surface.dispose);
+
+        const variant = MediaVariantRecord(
+          id: VariantId.trusted('v_hi10'),
+          workId: WorkId.trusted('w_hi10'),
+          sourceId: SourceId.trusted('s_hi10'),
+          relativePath: '01_hi10p.mkv',
+          fileName: '01_hi10p.mkv',
+          fileSize: 2048,
+        );
+
+        await session.initializeAndLoad(
+          request: const EmbeddedVideoLoadRequest(
+            workId: 'w_hi10',
+            variant: variant,
+          ),
+          qualityConfig: const PlaybackQualityConfig(),
+          androidSurfaceSupplier: () async => surface,
+        );
+
+        await Future<void>.delayed(Duration.zero);
+        expect(client.stringProps['vo'], equals('gpu'));
+        expect(session.renderBackend, equals('gpu'));
+        expect(backends, contains('gpu'));
+
+        client.emitEvent(const MpvFileLoadedEvent());
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+
+        expect(client.stringProps['hwdec'], equals('no'));
+        expect(client.stringProps['vd-lavc-threads'], equals('0'));
+        expect(session.isUsingSoftwareFallback, isTrue);
+        expect(notices.any((m) => m.contains('Hi10P')), isTrue);
+        expect(
+          client.commands.any(
+            (cmd) => cmd.length == 1 && cmd.first == 'video-reload',
+          ),
+          isTrue,
+        );
+      },
+    );
+
+    test('注入宿主 Android 表面端口在连续播放会话之间保持可复用', () async {
+      final storage = PortableStorageRootService(
+        overrideRootPath: tempRoot.path,
       );
+      final bridge = FakeLocalStreamBridge();
+      const descriptor = AndroidSurfaceDescriptor(
+        wid: 88,
+        width: 1920,
+        height: 1080,
+        hdrPeak: 0,
+      );
+      final surface = FakeAndroidVideoSurfacePort(descriptor);
       addTearDown(surface.dispose);
-
       const variant = MediaVariantRecord(
-        id: VariantId.trusted('v_hi10'),
-        workId: WorkId.trusted('w_hi10'),
-        sourceId: SourceId.trusted('s_hi10'),
-        relativePath: '01_hi10p.mkv',
-        fileName: '01_hi10p.mkv',
+        id: VariantId.trusted('v_repeat'),
+        workId: WorkId.trusted('w_repeat'),
+        sourceId: SourceId.trusted('s_repeat'),
+        relativePath: '01.mkv',
+        fileName: '01.mkv',
         fileSize: 2048,
       );
-
-      await session.initializeAndLoad(
-        request: const EmbeddedVideoLoadRequest(
-          workId: 'w_hi10',
-          variant: variant,
-        ),
-        qualityConfig: const PlaybackQualityConfig(),
-        androidSurfaceSupplier: () async => surface,
-      );
-
-      await Future<void>.delayed(Duration.zero);
-      expect(client.stringProps['vo'], equals('gpu'));
-      expect(session.renderBackend, equals('gpu'));
-      expect(backends, contains('gpu'));
-
-      client.emitEvent(const MpvFileLoadedEvent());
-      await Future<void>.delayed(const Duration(milliseconds: 20));
-
-      expect(client.stringProps['hwdec'], equals('no'));
-      expect(client.stringProps['vd-lavc-threads'], equals('0'));
-      expect(session.isUsingSoftwareFallback, isTrue);
-      expect(notices.any((m) => m.contains('Hi10P')), isTrue);
-      expect(
-        client.commands.any(
-          (cmd) => cmd.length == 1 && cmd.first == 'video-reload',
-        ),
-        isTrue,
-      );
+      for (var i = 0; i < 2; i++) {
+        surface.pushDescriptor(descriptor);
+        final client = FakeLibMpvClient();
+        final session = EmbeddedMpvSession(
+          storageRoot: storage,
+          streamBridge: bridge,
+          clientFactory: () => client,
+          isWindowsOverride: false,
+          isAndroidOverride: true,
+          androidSurfacePort: surface,
+        );
+        await session.initializeAndLoad(
+          request: const EmbeddedVideoLoadRequest(
+            workId: 'w_repeat',
+            variant: variant,
+          ),
+          qualityConfig: const PlaybackQualityConfig(),
+        );
+        expect(client.stringProps['vo'], 'gpu-next');
+        await session.dispose();
+        expect(surface.isDisposed, isFalse);
+        expect(surface.current, isNull);
+      }
     });
-
     test('双模原画截图支持桌面直存与 MediaStore 接口发布并清理临时文件', () async {
-      final storage = PortableStorageRootService(overrideRootPath: tempRoot.path);
+      final storage = PortableStorageRootService(
+        overrideRootPath: tempRoot.path,
+      );
       final bridge = FakeLocalStreamBridge();
       final client = FakeLibMpvClient();
       final session = EmbeddedMpvSession(
@@ -298,7 +356,9 @@ void main() {
     });
 
     test('OSD 静默期退订 time-pos 后零回调唤醒，恢复订阅即时同步最新秒数', () async {
-      final storage = PortableStorageRootService(overrideRootPath: tempRoot.path);
+      final storage = PortableStorageRootService(
+        overrideRootPath: tempRoot.path,
+      );
       final bridge = FakeLocalStreamBridge();
       final client = FakeLibMpvClient();
       final session = EmbeddedMpvSession(

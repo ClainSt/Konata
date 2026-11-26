@@ -10,6 +10,11 @@ import 'detail_artwork_view.dart';
 
 /// 详情页底部抽屉与完整选集页共用的 `16:9` 单集 / 特典卡片。
 class EpisodeDrawerCard extends StatefulWidget {
+  /// 标准与紧凑视口的轨道卡片宽度及剧照比例。
+  static const double standardWidth = 244.0;
+  static const double compactWidth = 208.0;
+  static const double thumbnailAspectRatio = 16 / 9;
+
   /// 创建分集展示卡片。
   const EpisodeDrawerCard({
     super.key,
@@ -28,7 +33,8 @@ class EpisodeDrawerCard extends StatefulWidget {
     this.workPosterFallbackPath,
     this.workPosterOwnerId,
     this.onDarkBackdrop = true,
-    this.cardWidth = 228.0,
+    this.cardWidth = standardWidth,
+    this.compactMeta = false,
     this.onShowMediaInfo,
   });
 
@@ -79,6 +85,9 @@ class EpisodeDrawerCard extends StatefulWidget {
 
   /// 卡片逻辑宽度。
   final double cardWidth;
+
+  /// 紧凑视口沿用两行文件名及更紧凑的文字间距。
+  final bool compactMeta;
 
   /// 右键或长按弹出媒体参数详情弹窗回调。
   final VoidCallback? onShowMediaInfo;
@@ -149,7 +158,7 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
                   child: ClipRRect(
                     borderRadius: KonataTheme.borderRadiusTile,
                     child: AspectRatio(
-                      aspectRatio: 16 / 9,
+                      aspectRatio: EpisodeDrawerCard.thumbnailAspectRatio,
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
@@ -280,7 +289,7 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 6),
+                SizedBox(height: widget.compactMeta ? 6 : 8),
                 Row(
                   children: [
                     Expanded(
@@ -294,7 +303,9 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
                                     ? KonataTheme.pureWhite
                                     : KonataTheme.overlayWhiteTextStrong)
                               : p.textPrimary,
-                          fontSize: KonataTheme.fontSizeBodyXs,
+                          fontSize: widget.compactMeta
+                              ? KonataTheme.fontSizeBodySm
+                              : KonataTheme.fontSizeBodyMd,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -316,19 +327,22 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
                   ],
                 ),
                 if (widget.showOriginalFileName && primaryVariant != null) ...[
-                  const SizedBox(height: 1.5),
+                  SizedBox(height: widget.compactMeta ? 2 : 3),
                   EllipsisTextWithTooltip(
                     text: MediaDisplayFormatter.formatWrappableFileName(
                       primaryVariant.fileName,
                     ),
-                    maxLines: 2,
+                    maxLines: widget.compactMeta ? 2 : 3,
                     style: KonataTheme.detailTextStyle(
                       palette: p,
                       color: (widget.onDarkBackdrop || p.isDark)
                           ? KonataTheme.overlayWhiteTextSub
                           : p.textSecondary,
-                      fontSize: KonataTheme.fontSizeCaptionXs,
+                      fontSize: widget.compactMeta
+                          ? KonataTheme.fontSizeCaptionSm
+                          : KonataTheme.fontSizeCaption,
                       fontWeight: FontWeight.w400,
+                      height: 1.25,
                     ),
                   ),
                 ],

@@ -143,7 +143,6 @@ final class MainEpisodeFrameBackfillService {
       if (hasPoster &&
           !work.backdropLocked &&
           isLegacyAutoBackdropPath(work.backdropPath)) {
-        final legacyFile = File(work.backdropPath!);
         final latestWork = await _repository.findWorkById(work.id);
         if (latestWork != null &&
             !latestWork.backdropLocked &&
@@ -153,9 +152,11 @@ final class MainEpisodeFrameBackfillService {
           );
           anyChanged = true;
           try {
-            if (legacyFile.existsSync()) {
-              legacyFile.deleteSync();
-            }
+            await _photosStorage.deleteManagedArtworkFile(
+              workId: work.id,
+              subfolder: PhotoSubfolder.backdrops,
+              path: latestWork.backdropPath!,
+            );
           } catch (error) {
             developer.log(
               '清理旧版抽帧背景缓存失败已忽略',
@@ -279,6 +280,7 @@ final class MainEpisodeFrameBackfillService {
       }
 
       final cachedUpdatedEpisodes = <Episode>[];
+      final cachedCleanup = <(String?, String)>[];
       final pendingTasks = <MainEpisodeFrameTask>[];
       final epById = <String, Episode>{};
       for (final ep in episodesToProcess) {
@@ -299,7 +301,7 @@ final class MainEpisodeFrameBackfillService {
             cachedUpdatedEpisodes.add(
               ep.copyWith(stillPath: cachedStillFile.path),
             );
-            await _deleteLegacyStillIfNeeded(oldStill, cachedStillFile.path);
+            cachedCleanup.add((oldStill, cachedStillFile.path));
           }
         } else {
           epById[ep.id] = ep;
@@ -315,6 +317,9 @@ final class MainEpisodeFrameBackfillService {
 
       if (cachedUpdatedEpisodes.isNotEmpty) {
         await _repository.upsertEpisodesBatch(cachedUpdatedEpisodes);
+        for (final (oldPath, newPath) in cachedCleanup) {
+          await _deleteLegacyStillIfNeeded(work.id, oldPath, newPath);
+        }
         anyChanged = true;
         onWorkUpdated?.call(work.id);
       }
@@ -382,7 +387,11 @@ final class MainEpisodeFrameBackfillService {
             await _repository.upsertEpisode(
               latestEp.copyWith(stillPath: writtenStill.path),
             );
-            await _deleteLegacyStillIfNeeded(oldStill, writtenStill.path);
+            await _deleteLegacyStillIfNeeded(
+              work.id,
+              oldStill,
+              writtenStill.path,
+            );
             anyChanged = true;
             onWorkUpdated?.call(work.id);
           },
@@ -429,6 +438,7 @@ final class MainEpisodeFrameBackfillService {
   }
 
   Future<void> _deleteLegacyStillIfNeeded(
+    String workId,
     String? oldStill,
     String newStill,
   ) async {
@@ -438,10 +448,11 @@ final class MainEpisodeFrameBackfillService {
       return;
     }
     try {
-      final oldFile = File(oldStill);
-      if (oldFile.existsSync()) {
-        oldFile.deleteSync();
-      }
+      await _photosStorage.deleteManagedArtworkFile(
+        workId: workId,
+        subfolder: PhotoSubfolder.thumbnails,
+        path: oldStill,
+      );
     } catch (error) {
       developer.log(
         '清理旧版抽帧剧照缓存失败已忽略',

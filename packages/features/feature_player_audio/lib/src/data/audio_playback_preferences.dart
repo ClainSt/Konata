@@ -40,7 +40,6 @@ class AudioPlaybackPrefsData {
     this.defaultVolume = 85.0,
     this.isMuted = false,
     this.loopMode = AudioLoopMode.loopAll,
-    this.shuffleEnabled = false,
     this.audiophileSafetyLimiterEnabled = true,
     this.replayGainMode = AudioReplayGainMode.none,
     this.replayGainPreampDb = 0.0,
@@ -65,9 +64,6 @@ class AudioPlaybackPrefsData {
 
   /// 音频队列循环模式。
   final AudioLoopMode loopMode;
-
-  /// 是否开启随机打乱播放序。
-  final bool shuffleEnabled;
 
   /// 是否启用发烧输出 `-12 dBFS` 防爆耳安全天花板开关。
   final bool audiophileSafetyLimiterEnabled;
@@ -130,7 +126,6 @@ class AudioPlaybackPrefsData {
     double? defaultVolume,
     bool? isMuted,
     AudioLoopMode? loopMode,
-    bool? shuffleEnabled,
     bool? audiophileSafetyLimiterEnabled,
     AudioReplayGainMode? replayGainMode,
     double? replayGainPreampDb,
@@ -151,12 +146,13 @@ class AudioPlaybackPrefsData {
       defaultVolume: (defaultVolume ?? this.defaultVolume).clamp(0.0, 100.0),
       isMuted: isMuted ?? this.isMuted,
       loopMode: loopMode ?? this.loopMode,
-      shuffleEnabled: shuffleEnabled ?? this.shuffleEnabled,
       audiophileSafetyLimiterEnabled:
           audiophileSafetyLimiterEnabled ?? this.audiophileSafetyLimiterEnabled,
       replayGainMode: replayGainMode ?? this.replayGainMode,
-      replayGainPreampDb:
-          (replayGainPreampDb ?? this.replayGainPreampDb).clamp(-12.0, 6.0),
+      replayGainPreampDb: (replayGainPreampDb ?? this.replayGainPreampDb).clamp(
+        -12.0,
+        6.0,
+      ),
       preferredAudioEngine: preferredAudioEngine ?? this.preferredAudioEngine,
       audioResamplerPrecision:
           audioResamplerPrecision ?? this.audioResamplerPrecision,
@@ -167,8 +163,10 @@ class AudioPlaybackPrefsData {
       androidBitPerfectUsb: androidBitPerfectUsb ?? this.androidBitPerfectUsb,
       audioFloatingMiniEnabled:
           audioFloatingMiniEnabled ?? this.audioFloatingMiniEnabled,
-      foobarBeefwebPort:
-          (foobarBeefwebPort ?? this.foobarBeefwebPort).clamp(1, 65535),
+      foobarBeefwebPort: (foobarBeefwebPort ?? this.foobarBeefwebPort).clamp(
+        1,
+        65535,
+      ),
       skipFoobarBeefwebPrompt:
           skipFoobarBeefwebPrompt ?? this.skipFoobarBeefwebPrompt,
       preferredRelayTargetId: clearPreferredRelayTargetId
@@ -183,7 +181,6 @@ class AudioPlaybackPrefsData {
         other.defaultVolume == defaultVolume &&
         other.isMuted == isMuted &&
         other.loopMode == loopMode &&
-        other.shuffleEnabled == shuffleEnabled &&
         other.audiophileSafetyLimiterEnabled ==
             audiophileSafetyLimiterEnabled &&
         other.replayGainMode == replayGainMode &&
@@ -203,25 +200,24 @@ class AudioPlaybackPrefsData {
 
   @override
   int get hashCode => Object.hash(
-        defaultVolume,
-        isMuted,
-        loopMode,
-        shuffleEnabled,
-        audiophileSafetyLimiterEnabled,
-        replayGainMode,
-        replayGainPreampDb,
-        preferredAudioEngine,
-        audioResamplerPrecision,
-        exclusiveAudioOutput,
-        audioDevice,
-        keepPitch,
-        bitstreamPassthrough,
-        androidBitPerfectUsb,
-        audioFloatingMiniEnabled,
-        foobarBeefwebPort,
-        skipFoobarBeefwebPrompt,
-        preferredRelayTargetId,
-      );
+    defaultVolume,
+    isMuted,
+    loopMode,
+    audiophileSafetyLimiterEnabled,
+    replayGainMode,
+    replayGainPreampDb,
+    preferredAudioEngine,
+    audioResamplerPrecision,
+    exclusiveAudioOutput,
+    audioDevice,
+    keepPitch,
+    bitstreamPassthrough,
+    androidBitPerfectUsb,
+    audioFloatingMiniEnabled,
+    foobarBeefwebPort,
+    skipFoobarBeefwebPrompt,
+    preferredRelayTargetId,
+  );
 }
 
 /// 面向 `ScopedPrefsStore` 的 `playback_audio` 强类型切片定义。
@@ -235,7 +231,6 @@ final TypedPrefsSlice<AudioPlaybackPrefsData> audioPlaybackPrefsSlice =
         'defaultVolume': value.defaultVolume,
         'isMuted': value.isMuted,
         'loopMode': value.loopMode.name,
-        'shuffleEnabled': value.shuffleEnabled,
         'audiophileSafetyLimiterEnabled': value.audiophileSafetyLimiterEnabled,
         'replayGainMode': value.replayGainMode.name,
         'replayGainPreampDb': value.replayGainPreampDb,
@@ -274,8 +269,9 @@ final TypedPrefsSlice<AudioPlaybackPrefsData> audioPlaybackPrefsSlice =
               ? rawVolume.toDouble().clamp(0.0, 100.0)
               : 85.0,
           isMuted: json['isMuted'] == true,
-          loopMode: AudioLoopMode.parse(json['loopMode']),
-          shuffleEnabled: json['shuffleEnabled'] == true,
+          loopMode: json['shuffleEnabled'] == true
+              ? AudioLoopMode.shuffle
+              : AudioLoopMode.parse(json['loopMode']),
           audiophileSafetyLimiterEnabled:
               json['audiophileSafetyLimiterEnabled'] is bool
               ? json['audiophileSafetyLimiterEnabled']! as bool
@@ -292,7 +288,9 @@ final TypedPrefsSlice<AudioPlaybackPrefsData> audioPlaybackPrefsSlice =
           audioDevice: rawDevice is String && rawDevice.trim().isNotEmpty
               ? rawDevice
               : PlaybackQualityConfig.defaultAudioDevice,
-          keepPitch: json['keepPitch'] is bool ? json['keepPitch']! as bool : true,
+          keepPitch: json['keepPitch'] is bool
+              ? json['keepPitch']! as bool
+              : true,
           bitstreamPassthrough: json['bitstreamPassthrough'] == true,
           androidBitPerfectUsb: json['androidBitPerfectUsb'] == true,
           audioFloatingMiniEnabled: json['audioFloatingMiniEnabled'] is bool
@@ -302,7 +300,8 @@ final TypedPrefsSlice<AudioPlaybackPrefsData> audioPlaybackPrefsSlice =
               ? rawPort.toInt().clamp(1, 65535)
               : 8880,
           skipFoobarBeefwebPrompt: json['skipFoobarBeefwebPrompt'] == true,
-          preferredRelayTargetId: rawRelayTarget is String && rawRelayTarget.isNotEmpty
+          preferredRelayTargetId:
+              rawRelayTarget is String && rawRelayTarget.isNotEmpty
               ? rawRelayTarget
               : null,
         );
@@ -319,10 +318,7 @@ int _sanitizePrecision(int value) {
 /// 封装 `ScopedPrefsStore` 与低频偏好变更广播的音频设置仓库（不直接耦合状态管理框架）。
 class AudioPlaybackPreferences {
   /// 创建基于 `ScopedPrefsStore` 的音频偏好读写适配器。
-  AudioPlaybackPreferences({
-    required this._store,
-    this._eventBus,
-  });
+  AudioPlaybackPreferences({required this._store, this._eventBus});
 
   /// 本切片在全库设置体系中的唯一命名空间标识。
   static const String namespace = 'playback_audio';
@@ -334,7 +330,8 @@ class AudioPlaybackPreferences {
   AudioPlaybackPrefsData read() => _store.read(audioPlaybackPrefsSlice);
 
   /// 订阅命名空间 `playback_audio` 变更事件流。
-  Stream<AudioPlaybackPrefsData> watch() => _store.watch(audioPlaybackPrefsSlice);
+  Stream<AudioPlaybackPrefsData> watch() =>
+      _store.watch(audioPlaybackPrefsSlice);
 
   /// 写入完整音频偏好快照，并在可用时通过领域事件总线发出低频变更通知。
   void write(AudioPlaybackPrefsData next) {

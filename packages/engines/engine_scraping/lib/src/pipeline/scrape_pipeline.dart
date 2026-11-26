@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:developer' as developer;
-import 'dart:io';
 
 import 'package:engine_sources/engine_sources.dart';
 import 'package:konata_contracts/konata_contracts.dart';
@@ -135,7 +134,10 @@ class ScrapePipeline {
        _bangumiService = bangumiService,
        _bangumiRelationCache =
            bangumiRelationCache ?? <int, List<BangumiRelatedSubject>>{},
-       _persister = ScrapeWorkPersister(repository),
+       _persister = ScrapeWorkPersister(
+         repository,
+         photosStorage: _photosStorage,
+       ),
        _candidateFetcher = ScrapeCandidateFetcher(
          tmdbService,
          bangumiService: bangumiService,
@@ -1971,7 +1973,6 @@ class ScrapePipeline {
     String workId,
     int tmdbId,
     TmdbMediaType mediaType, {
-    bool writeIdToFolderName = false,
     bool resetManualLocks = false,
     bool markManualLocked = true,
     bool clearManualLockIfNoFieldLock = false,
@@ -2007,13 +2008,7 @@ class ScrapePipeline {
       throw StateError('无法获取 TMDB 条目详情: $tmdbId');
     }
 
-    var variants = await _repository.getVariantsByWork(workId);
-    if (writeIdToFolderName && variants.isNotEmpty) {
-      variants = await _persister.tryAppendTmdbIdToLocalFolder(
-        variants,
-        tmdbId,
-      );
-    }
+    final variants = await _repository.getVariantsByWork(workId);
 
     final targetFolder = await _rebuildFolderFromVariants(
       variants,
@@ -2550,10 +2545,7 @@ class ScrapePipeline {
     await _repository.upsertEpisodesBatch(toUpsert);
     for (final stale in staleAutoStills) {
       try {
-        final f = File(stale);
-        if (f.existsSync()) {
-          f.deleteSync();
-        }
+        await _photosStorage?.deleteManagedStill(work.id, stale);
       } catch (error) {
         developer.log(
           '清理已被官方剧照替代的抽帧缓存失败已忽略',

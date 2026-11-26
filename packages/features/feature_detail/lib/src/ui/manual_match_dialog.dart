@@ -54,7 +54,6 @@ class _ManualMatchDialogState extends State<ManualMatchDialog> {
 
   _ManualMatchMode _mode = _ManualMatchMode.tmdb;
   TmdbMediaType _directMediaType = TmdbMediaType.tv;
-  bool _writeFolderTag = false;
   bool _searchingTmdb = false;
   bool _searchedTmdb = false;
   bool _searchingBgm = false;
@@ -173,7 +172,6 @@ class _ManualMatchDialogState extends State<ManualMatchDialog> {
         final created = await widget.controller.splitVariantsToIndependentWork(
           variantIds: widget.splitVariantIds!,
           tmdbTarget: (tmdbId: tmdbId, mediaType: mediaType),
-          writeTmdbIdToFolderName: _writeFolderTag,
         );
         if (!mounted) return;
         Navigator.of(context).pop(true);
@@ -184,7 +182,6 @@ class _ManualMatchDialogState extends State<ManualMatchDialog> {
       await widget.controller.rebindWorkToTmdb(
         tmdbId: tmdbId,
         mediaType: mediaType,
-        writeIdToFolderName: _writeFolderTag,
       );
       if (mounted) {
         Navigator.of(context).pop(true);
@@ -409,16 +406,6 @@ class _ManualMatchDialogState extends State<ManualMatchDialog> {
                   label: '直绑 ID',
                   compact: true,
                   onPressed: _submitting ? null : _applyDirectTmdbId,
-                ),
-                Text(
-                  '写入文件夹标签',
-                  style: KonataTheme.captionStyle(
-                    p,
-                  ).copyWith(color: p.textSecondary),
-                ),
-                KonataSwitch(
-                  value: _writeFolderTag,
-                  onChanged: (v) => setState(() => _writeFolderTag = v),
                 ),
               ],
             );

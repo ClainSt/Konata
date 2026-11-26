@@ -283,16 +283,19 @@ class _ScanGalleryTabHostState extends ConsumerState<ScanGalleryTabHost> {
                   )
                   .toList();
         final volumeChips = state.scanSummary.chips;
-        final showVolumeBar = volumeChips.isNotEmpty;
+        final showVolumeBar = state.scanSummary.hasMultipleSubdirs;
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             if (showVolumeBar) ...[
-              _ScanVolumeFilterBar(
-                totalCount: state.allScans.length,
-                chips: volumeChips,
-                selectedKey: state.selectedVolumeKey,
+              KonataSecondaryFilterBar<String?>(
+                items: [
+                  (value: null, label: '全部 (${state.allScans.length})'),
+                  for (final chip in volumeChips)
+                    (value: chip.key, label: '${chip.label} (${chip.count})'),
+                ],
+                selected: state.selectedVolumeKey,
                 onSelected: (key) {
                   if (_effectiveScrollController.hasClients) {
                     _effectiveScrollController.jumpTo(0);
@@ -331,123 +334,6 @@ class _ScanGalleryTabHostState extends ConsumerState<ScanGalleryTabHost> {
           ],
         );
       },
-    );
-  }
-}
-
-class _ScanVolumeFilterBar extends StatelessWidget {
-  const _ScanVolumeFilterBar({
-    required this.totalCount,
-    required this.chips,
-    required this.selectedKey,
-    required this.onSelected,
-  });
-
-  final int totalCount;
-  final List<({String key, String label, int count})> chips;
-  final String? selectedKey;
-  final ValueChanged<String?> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _VolumeFilterPill(
-            label: '全部 ($totalCount)',
-            selected: selectedKey == null,
-            onTap: () => onSelected(null),
-          ),
-          for (final chip in chips) ...[
-            const SizedBox(width: 8),
-            _VolumeFilterPill(
-              label: '${chip.label} (${chip.count})',
-              selected: selectedKey == chip.key,
-              onTap: () => onSelected(chip.key),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _VolumeFilterPill extends StatefulWidget {
-  const _VolumeFilterPill({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  State<_VolumeFilterPill> createState() => _VolumeFilterPillState();
-}
-
-class _VolumeFilterPillState extends State<_VolumeFilterPill> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-    final bg = KonataPlaybackTokens.secondaryFilterPillBg(
-      p,
-      selected: widget.selected,
-      hovered: _hovered,
-    );
-    final border = KonataPlaybackTokens.secondaryFilterPillBorder(
-      p,
-      selected: widget.selected,
-    );
-    final fg = KonataPlaybackTokens.secondaryFilterPillText(
-      p,
-      selected: widget.selected,
-      hovered: _hovered,
-    );
-
-    Widget pill = AnimatedContainer(
-      duration: KonataTheme.motionFast,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: KonataTheme.borderRadiusPill,
-        border: Border.all(color: border, width: 1),
-      ),
-      child: Text(
-        widget.label,
-        maxLines: 1,
-        softWrap: false,
-        style: TextStyle(
-          color: fg,
-          fontSize: KonataTheme.fontSizeCaption,
-          fontWeight: widget.selected ? FontWeight.w600 : FontWeight.w500,
-        ),
-      ),
-    );
-
-    if (KonataAdaptiveTokens.isAndroid) {
-      pill = ConstrainedBox(
-        constraints: const BoxConstraints(
-          minHeight: KonataAdaptiveTokens.touchTarget,
-        ),
-        child: Center(widthFactor: 1, heightFactor: 1, child: pill),
-      );
-    }
-
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: widget.onTap,
-        child: pill,
-      ),
     );
   }
 }

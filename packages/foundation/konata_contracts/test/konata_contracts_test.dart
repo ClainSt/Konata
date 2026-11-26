@@ -38,7 +38,9 @@ final class _FakeSliceContributor
       schemaVersion: schemaVersion,
       exportedAtMs: 1000,
       sourceDeviceId: localDeviceId,
-      data: const <String, Object?>{'items': <String>['a']},
+      data: const <String, Object?>{
+        'items': <String>['a'],
+      },
     );
   }
 
@@ -66,12 +68,13 @@ final class _FakeSliceContributor
   }
 
   @override
-  Future<void> applyMergePlan(
+  SyncApplyCompletion applyMergePlan(
     SyncTransactionContext tx,
     SyncMergePlan<List<String>> plan,
-  ) async {
+  ) {
     final target = tx.rawHandleFor('user_state') as List<String>?;
     target?.addAll(plan.planData);
+    return SyncApplyCompletion.completed;
   }
 }
 
@@ -144,7 +147,10 @@ void main() {
 
     test('非法 JSON 还原安全返回 null', () {
       expect(ArtworkRef.tryFromJson(null), isNull);
-      expect(ArtworkRef.tryFromJson(<String, Object?>{'kind': 'unknown'}), isNull);
+      expect(
+        ArtworkRef.tryFromJson(<String, Object?>{'kind': 'unknown'}),
+        isNull,
+      );
       expect(
         ArtworkRef.tryFromJson(<String, Object?>{
           'kind': 'remote',
@@ -161,7 +167,10 @@ void main() {
       expect(KonataLaneConfig.resolveLane(''), '');
       expect(KonataLaneConfig.resolveLane('main'), '');
       expect(KonataLaneConfig.isolatedDirectoryName('main'), isNull);
-      expect(KonataLaneConfig.resolveDesktopWindowTitle(rawOverride: ''), 'Konata');
+      expect(
+        KonataLaneConfig.resolveDesktopWindowTitle(rawOverride: ''),
+        'Konata',
+      );
 
       expect(KonataLaneConfig.resolveLane('Next_1'), 'next_1');
       expect(KonataLaneConfig.isolatedDirectoryName('next'), 'Konata_next');
@@ -284,10 +293,7 @@ void main() {
         isTrue,
       );
       expect(
-        audioPanel.isSupportedOn(
-          KonataPlatform.windows,
-          PlayerMediaMode.video,
-        ),
+        audioPanel.isSupportedOn(KonataPlatform.windows, PlayerMediaMode.video),
         isFalse,
       );
 
@@ -297,7 +303,9 @@ void main() {
         schemaVersion: 1,
         exportedAtMs: 2000,
         sourceDeviceId: 'dev-b',
-        data: <String, Object?>{'items': <String>['a', 'b', 'c']},
+        data: <String, Object?>{
+          'items': <String>['a', 'b', 'c'],
+        },
       );
       final plan = slice.planMerge(local: local, remote: remote);
       expect(plan.hasChanges, isTrue);
@@ -305,7 +313,7 @@ void main() {
       expect(plan.skippedCount, 1);
 
       final tx = _FakeSyncTx('dev-a', 3000);
-      await slice.applyMergePlan(tx, plan);
+      expect(slice.applyMergePlan(tx, plan), SyncApplyCompletion.completed);
       expect(tx.appliedIds, equals(<String>['b', 'c']));
 
       final pushRes = await tracker.pushProgress(

@@ -36,7 +36,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   final FocusNode _searchFocusNode = FocusNode();
 
   Timer? _scrollSettleTimer;
-  bool _isFastScrolling = false;
+  final ValueNotifier<bool> _isFastScrolling = ValueNotifier(false);
   bool _searchExpanded = false;
   bool _filtersExpanded = false;
 
@@ -86,6 +86,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   @override
   void dispose() {
     _scrollSettleTimer?.cancel();
+    _isFastScrolling.dispose();
     _scrollController.dispose();
     _searchController.dispose();
     _searchFocusNode.dispose();
@@ -113,23 +114,18 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   }
 
   bool _onScrollNotification(ScrollNotification notification) {
-    if (notification is ScrollUpdateNotification) {
-      if (!_isFastScrolling) {
-        setState(() => _isFastScrolling = true);
-        ref.read(libraryControllerProvider).setFastScrolling(true);
-      }
+    if (notification.depth != 0) return false;
+    if (notification is ScrollStartNotification ||
+        notification is ScrollUpdateNotification) {
       _scrollSettleTimer?.cancel();
-      _scrollSettleTimer = Timer(const Duration(milliseconds: 140), () {
-        if (!mounted) return;
-        setState(() => _isFastScrolling = false);
-        ref.read(libraryControllerProvider).setFastScrolling(false);
-      });
+      _scrollSettleTimer = null;
+      _isFastScrolling.value = true;
     } else if (notification is ScrollEndNotification) {
       _scrollSettleTimer?.cancel();
+      // 仅在滚动结束时建立一次冷却计时，不在高频更新中反复分配定时器。
       _scrollSettleTimer = Timer(const Duration(milliseconds: 60), () {
-        if (!mounted) return;
-        setState(() => _isFastScrolling = false);
-        ref.read(libraryControllerProvider).setFastScrolling(false);
+        _scrollSettleTimer = null;
+        if (mounted) _isFastScrolling.value = false;
       });
     }
     return false;
@@ -494,8 +490,8 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
               subtitleFontSize: isCompactCard
                   ? KonataTheme.fontSizeCaptionXs
                   : KonataTheme.fontSizeCaptionSm,
-              suppressHoverCheck: () =>
-                  _isFastScrolling || controller.videoPlaybackActive,
+              scrollingListenable: _isFastScrolling,
+              suppressHoverCheck: () => controller.videoPlaybackActive,
               imageLoaderOverride: widget.imageLoaderOverride,
               onTap: () =>
                   deps.navigator.openWorkDetail(WorkId.trusted(item.work.id)),

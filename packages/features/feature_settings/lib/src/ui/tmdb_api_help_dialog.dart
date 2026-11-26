@@ -22,7 +22,9 @@ class _TmdbApiHelpDialog extends StatelessWidget {
       'for matching local video files, fetching localized titles, synopses, '
       'posters, and episode metadata for personal organization only.';
 
-  static final Uri _tmdbSignupUri = Uri.parse(KonataNetworkConfig.tmdbSignupUrl);
+  static final Uri _tmdbSignupUri = Uri.parse(
+    KonataNetworkConfig.tmdbSignupUrl,
+  );
   static final Uri _tmdbApiSettingsUri = Uri.parse(
     KonataNetworkConfig.tmdbApiSettingsUrl,
   );
@@ -47,7 +49,7 @@ class _TmdbApiHelpDialog extends StatelessWidget {
       child: KonataDraggableScrollbar(
         builder: (_, ctrl) => SingleChildScrollView(
           controller: ctrl,
-          padding: const EdgeInsets.only(right: 14),
+          padding: EdgeInsets.zero,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,

@@ -69,6 +69,7 @@ class _EmbeddedVideoOverlaysState extends State<EmbeddedVideoOverlays> {
   Timer? _wheelOsdTimer;
   bool _hudVisible = true;
   bool _volumePopupActive = false;
+  bool _screenshotMenuOpen = false;
   bool _wheelOsdVisible = false;
   int _volumeRevealPulse = 0;
   VideoSideSheetTab? _activeSheetTab;
@@ -121,6 +122,7 @@ class _EmbeddedVideoOverlaysState extends State<EmbeddedVideoOverlays> {
   @override
   void dispose() {
     widget.controller.removeListener(_onControllerChanged);
+    widget.controller.setHudVisible(false);
     widget.controller.updateHudSubtitleLift(
       hudVisible: false,
       bottomCapsuleOccupiedHeight: 0.0,
@@ -206,7 +208,8 @@ class _EmbeddedVideoOverlaysState extends State<EmbeddedVideoOverlays> {
     if (!_effectiveHudVisible ||
         !widget.controller.state.isPlaying ||
         _activeSheetTab != null ||
-        _volumePopupActive) {
+        _volumePopupActive ||
+        _screenshotMenuOpen) {
       return;
     }
 
@@ -214,7 +217,8 @@ class _EmbeddedVideoOverlaysState extends State<EmbeddedVideoOverlays> {
       if (!mounted) return;
       if (widget.controller.state.isPlaying &&
           _activeSheetTab == null &&
-          !_volumePopupActive) {
+          !_volumePopupActive &&
+          !_screenshotMenuOpen) {
         _setHudVisible(false);
       }
     });
@@ -299,6 +303,32 @@ class _EmbeddedVideoOverlaysState extends State<EmbeddedVideoOverlays> {
         setState(() => _wheelOsdVisible = false);
       }
     });
+  }
+
+  /// 截图菜单与快捷键共用控制器的双模式原画截图入口。
+  Future<void> _showScreenshotMenu(BuildContext anchor) async {
+    if (_screenshotMenuOpen) return;
+    _screenshotMenuOpen = true;
+    _syncAutoHideTimer();
+    final controller = widget.controller;
+    try {
+      final selected = await showKonataGlassMenu<ScreenshotCaptureMode>(
+        anchorContext: anchor,
+        items: [
+          for (final mode in ScreenshotCaptureMode.values)
+            KonataGlassMenuItem(value: mode, label: mode.label),
+        ],
+      );
+      if (mounted &&
+          identical(widget.controller, controller) &&
+          !widget.screenLocked &&
+          selected != null) {
+        await controller.captureScreenshot(mode: selected);
+      }
+    } finally {
+      _screenshotMenuOpen = false;
+      if (mounted) _syncAutoHideTimer();
+    }
   }
 
   KeyEventResult _handleKeyEvent(FocusNode _, KeyEvent event) {
@@ -399,8 +429,8 @@ class _EmbeddedVideoOverlaysState extends State<EmbeddedVideoOverlays> {
             builder: (context, constraints) {
               final mq = MediaQuery.maybeOf(context);
               final safe = mq?.padding ?? EdgeInsets.zero;
-              final stageHeight = constraints.maxHeight.isFinite &&
-                      constraints.maxHeight > 0
+              final stageHeight =
+                  constraints.maxHeight.isFinite && constraints.maxHeight > 0
                   ? constraints.maxHeight
                   : (mq?.size.height ?? 0.0);
               final bottomOffset = _resolveBottomCapsuleMargin(safe.bottom);
@@ -461,10 +491,15 @@ class _EmbeddedVideoOverlaysState extends State<EmbeddedVideoOverlays> {
                             onCollapseToMini: widget.onEnterMiniRequested,
                             onEnterMini: () {
                               _revealHud();
-                              if (widget.onEnterMiniRequested != null) {
-                                widget.onEnterMiniRequested!();
+                              if (widget.controller.env.platform ==
+                                  KonataPlatform.windows) {
+                                unawaited(
+                                  widget.controller.enterMiniPlayer(
+                                    desktopAlwaysOnTop: true,
+                                  ),
+                                );
                               } else {
-                                unawaited(widget.controller.enterMiniPlayer());
+                                widget.onEnterMiniRequested?.call();
                               }
                             },
                             onToggleAudioOnly: () {
@@ -550,13 +585,10 @@ class _EmbeddedVideoOverlaysState extends State<EmbeddedVideoOverlays> {
                                 onNextEpisode: () => unawaited(
                                   widget.controller.playNextEpisode(),
                                 ),
-                                onSelectSpeed:
-                                    widget.controller.setPlaybackSpeed,
                                 onVolumeChanged: widget.controller.setVolume,
                                 onToggleMute: widget.controller.toggleMute,
-                                onCaptureScreenshot: () => unawaited(
-                                  widget.controller.captureScreenshot(),
-                                ),
+                                onOpenScreenshotMenu: (anchor) =>
+                                    unawaited(_showScreenshotMenu(anchor)),
                                 onOpenEpisodesSheet: () =>
                                     _openSheet(VideoSideSheetTab.episodes),
                                 onOpenSubtitlesSheet: () =>
@@ -573,7 +605,8 @@ class _EmbeddedVideoOverlaysState extends State<EmbeddedVideoOverlays> {
                           ),
                         ),
                       ],
-                      if (state.activeSkipWindow != null && !widget.screenLocked)
+                      if (state.activeSkipWindow != null &&
+                          !widget.screenLocked)
                         Positioned(
                           right: math.max(
                             KonataPlaybackTokens.skipPillRightOffset,
@@ -680,7 +713,9 @@ class _TopBar extends StatelessWidget {
         : (state.currentVariant.videoCodec ?? '');
     final codecBadge = PlaybackFormatters.formatCodecShortLabel(rawCodec);
     final probeBitDepth = PlaybackFormatters.formatVideoBitDepthLabel(
-      state.probeStats.videoPixelFormat,
+      state.probeStats.videoHwPixelFormat.isNotEmpty
+          ? state.probeStats.videoHwPixelFormat
+          : state.probeStats.videoPixelFormat,
     );
     final bitDepthBadge = probeBitDepth.isNotEmpty
         ? probeBitDepth
@@ -696,7 +731,7 @@ class _TopBar extends StatelessWidget {
         ? '硬解 ($hwdecCurrent)'
         : (state.renderBackend == 'sw'
               ? 'SW 兼容'
-              : (state.hasFirstFrame ? '软解' : ''));
+              : (hwdecCurrent == 'no' && state.hasFirstFrame ? '软解' : ''));
 
     final desktopControls = KonataDesktopWindowChromeScope.buildWindowControls(
       context,
@@ -729,7 +764,7 @@ class _TopBar extends StatelessWidget {
                 KonataCapsuleIconButton(
                   key: const ValueKey('video_collapse_button'),
                   icon: Icons.keyboard_arrow_down_rounded,
-                  tooltip: '收起为悬浮小窗',
+                  tooltip: '悬浮小窗',
                   color: fg,
                   size: 22,
                   fixedSize: btnSize,
@@ -789,7 +824,7 @@ class _TopBar extends StatelessWidget {
               KonataCapsuleIconButton(
                 key: const ValueKey('video_mini_mode_button'),
                 icon: Icons.picture_in_picture_alt_rounded,
-                tooltip: isTouchPlatform ? '进入画中画 / 悬浮小窗' : '悬浮小窗播放',
+                tooltip: isTouchPlatform ? '悬浮小窗' : '桌面小窗',
                 color: fg,
                 size: 18,
                 fixedSize: btnSize,
@@ -799,7 +834,7 @@ class _TopBar extends StatelessWidget {
               KonataCapsuleIconButton(
                 key: const ValueKey('video_audio_only_button'),
                 icon: Icons.headphones_rounded,
-                tooltip: state.audioOnlyMode ? '恢复视频画面' : '纯音频省电模式',
+                tooltip: state.audioOnlyMode ? '恢复画面' : '纯音频模式',
                 color: fg,
                 highlighted: state.audioOnlyMode,
                 highlightColor: p.accent,
@@ -811,7 +846,7 @@ class _TopBar extends StatelessWidget {
               KonataCapsuleIconButton(
                 key: const ValueKey('video_probe_toggle_button'),
                 icon: Icons.analytics_outlined,
-                tooltip: '音画技术探针',
+                tooltip: '详细信息',
                 color: fg,
                 highlighted: state.probeOverlayVisible,
                 highlightColor: p.accent,
@@ -824,7 +859,7 @@ class _TopBar extends StatelessWidget {
                 KonataCapsuleIconButton(
                   key: const ValueKey('video_external_relay_button'),
                   icon: Icons.open_in_new_rounded,
-                  tooltip: '外部播放器接力',
+                  tooltip: '外部播放器',
                   color: fg,
                   size: 18,
                   fixedSize: btnSize,
@@ -834,7 +869,7 @@ class _TopBar extends StatelessWidget {
               KonataCapsuleIconButton(
                 key: const ValueKey('video_top_video_sheet_button'),
                 icon: Icons.tune_rounded,
-                tooltip: '画面与解码设置',
+                tooltip: '画面设置',
                 color: fg,
                 size: 18,
                 fixedSize: btnSize,

@@ -286,6 +286,76 @@ void main() {
       expect(tester.widget<ListView>(rail).controller!.offset, greaterThan(0));
       expect(tester.takeException(), isNull);
 
+      // 单一有效目录不应占用二级筛选行，历史分卷键也不能让原图不可达。
+      blockThumbnailStreams = false;
+      final singleId = WorkId('w_single_scan');
+      db.library.works.upsert(WorkRecord(id: singleId, title: '单册'));
+      for (var i = 0; i < 2; i++) {
+        db.library.mediaVariants.upsert(
+          MediaVariantRecord(
+            id: VariantId('single_$i'),
+            workId: singleId,
+            sourceId: sourceId,
+            relativePath: 'Scans/Booklet/page_$i.png',
+            fileName: 'page_$i.png',
+            fileSize: samplePng.length,
+            assetKind: AssetKind.scanGallery,
+          ),
+        );
+      }
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            featureScanViewerDependenciesProvider.overrideWithValue(deps),
+          ],
+          child: MaterialApp(
+            theme: KonataTheme.darkTheme(),
+            home: Scaffold(
+              body: ScanGalleryTabHost(
+                workId: singleId,
+                initialVolumeKey: 'obsolete',
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 80)),
+      );
+      await tester.pump();
+      expect(find.byType(KonataSecondaryFilterBar<String?>), findsNothing);
+      expect(find.text('全部 (2)'), findsNothing);
+      expect(
+        find.byKey(const ValueKey('scan_gallery_tile_single_0')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('scan_gallery_tile_single_1')),
+        findsOneWidget,
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('scan_gallery_tile_single_0')),
+      );
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 80)),
+      );
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(find.byType(ScanLightboxDialog), findsOneWidget);
+      expect(find.textContaining('全部分卷'), findsNothing);
+      expect(find.textContaining('1 / 2'), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await tester.pump(const Duration(milliseconds: 150));
+      expect(find.textContaining('2 / 2'), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(find.byType(ScanLightboxDialog), findsNothing);
+      expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpAndSettle();
       await tester.runAsync(
@@ -405,6 +475,46 @@ void main() {
           await tester.pump();
           expect(tester.takeException(), isNull, reason: '${vp.name} 画廊存在布局异常');
 
+          // 按真实正文约束排版，轨道单独占位，两个画廊模式都不再叠加旧右留白。
+          final scrollbar = find.byType(KonataDraggableScrollbar);
+          final uniform = find.byKey(
+            const ValueKey('scan_gallery_uniform_list'),
+          );
+          final barRect = tester.getRect(scrollbar);
+          final contentRect = tester.getRect(uniform);
+          expect(
+            barRect.right - contentRect.right,
+            greaterThanOrEqualTo(
+              KonataTheme.scrollbarMaxThickness +
+                  KonataTheme.scrollbarContentGap,
+            ),
+          );
+          expect(
+            (tester.widget<ListView>(uniform).padding! as EdgeInsets).right,
+            0,
+          );
+          await tester.tap(find.text('等高流'));
+          await tester.pump();
+          final justified = find.byKey(
+            const ValueKey('scan_gallery_justified_list'),
+          );
+          expect(
+            tester.getRect(justified).width,
+            closeTo(contentRect.width, 0.01),
+          );
+          expect(
+            (tester.widget<ListView>(justified).padding! as EdgeInsets).right,
+            0,
+          );
+          for (final tile in find.byType(ScanThumbnailCard).evaluate()) {
+            final rect = tester.getRect(find.byWidget(tile.widget));
+            expect(
+              rect.right,
+              lessThanOrEqualTo(contentRect.right + 0.1),
+              reason: vp.name,
+            );
+          }
+          expect(tester.takeException(), isNull, reason: '${vp.name} 等高流越界');
           // 同时挂载灯箱弹窗校验四视口零溢出，并在销毁后校验 96 MiB 滑窗即时释放归零。
           final memoryWindow = ScanLightboxMemoryWindow();
           await tester.pumpWidget(

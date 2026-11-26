@@ -35,6 +35,8 @@ class FakeLibMpvClient implements LibMpvClient, LibMpvUnobservable {
     ),
   ];
 
+  int _playlistEntrySerial = 0;
+  final List<int> _playlistIds = <int>[];
   bool _initialized = false;
   bool _disposed = false;
 
@@ -139,6 +141,17 @@ class FakeLibMpvClient implements LibMpvClient, LibMpvUnobservable {
     commands.add(List<String>.from(args));
     if (args.isNotEmpty && args.first == 'loadfile' && failLoadFile) {
       return -1;
+    }
+    if (args.first == 'loadfile') {
+      if (args.last == 'replace') _playlistIds.clear();
+      _playlistEntrySerial += 3;
+      _playlistIds.add(_playlistEntrySerial);
+    } else if (args.first == 'playlist-clear' && _playlistIds.length > 1) {
+      _playlistIds.removeRange(1, _playlistIds.length);
+    }
+    properties['playlist-count'] = _playlistIds.length;
+    for (var i = 0; i < _playlistIds.length; i++) {
+      properties['playlist/$i/id'] = _playlistIds[i];
     }
     return 0;
   }
@@ -297,6 +310,7 @@ class FakeStreamBridge implements LocalStreamBridgePort {
   final Map<String, String> registeredTokens = <String, String>{};
   final Set<String> unregisteredTokens = <String>{};
   String? mockedLastError;
+  Future<void> Function(String path)? beforeRegistrationCompletes;
 
   @override
   int? get port => 18080;
@@ -318,6 +332,7 @@ class FakeStreamBridge implements LocalStreamBridgePort {
     if (ownsGateway) {
       await gateway.close();
     }
+    await beforeRegistrationCompletes?.call(relativePath);
     return (
       token: token,
       url: Uri.parse('http://127.0.0.1:18080/stream/$token/$fileName'),
@@ -436,8 +451,24 @@ class SpyLyricDisplayPort implements LyricDisplayPort {
 }
 
 /// 记录窗口迷你置顶调用的模拟宿主窗口端口。
-class SpyHostWindowPort implements PlaybackHostWindowPort {
+class SpyHostWindowPort implements PlaybackHostWindowPort, DesktopMiniDockPort {
+  final moveEvents = StreamController<void>.broadcast(sync: true);
+  Future<void> dispose() => moveEvents.close();
+  DesktopMiniDockSide? nextDockSide;
+  int snapCount = 0;
+
+  @override
+  Stream<void> get desktopMiniMoveEnded => moveEvents.stream;
+
+  @override
+  Future<DesktopMiniDockSide?> snapDesktopMiniWindow() async {
+    snapCount++;
+    return nextDockSide;
+  }
+
   int enterMiniCount = 0;
+  bool failEnterMini = false;
+  bool failExitMini = false;
   int exitMiniCount = 0;
   double? lastMiniWidth;
   double? lastMiniHeight;
@@ -456,6 +487,7 @@ class SpyHostWindowPort implements PlaybackHostWindowPort {
     required double width,
     required double height,
   }) async {
+    if (failEnterMini) throw StateError('窗口切换失败');
     enterMiniCount++;
     lastMiniWidth = width;
     lastMiniHeight = height;
@@ -463,6 +495,7 @@ class SpyHostWindowPort implements PlaybackHostWindowPort {
 
   @override
   Future<void> exitDesktopMiniWindow() async {
+    if (failExitMini) throw StateError('窗口恢复失败');
     exitMiniCount++;
   }
 

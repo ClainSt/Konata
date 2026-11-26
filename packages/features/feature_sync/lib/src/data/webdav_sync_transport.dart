@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:engine_sources/engine_sources.dart';
 import 'package:http/http.dart' as http;
@@ -24,13 +26,37 @@ final class WebDavSyncException implements Exception {
       : 'WebDavSyncException($statusCode): $message';
 }
 
-/// 远端分片（`slices/<sliceId>_<deviceId>.json.gz`）下载与校验返回包。
+/// 清单及其 HTTP 写入前置条件；不存在时只能使用 If-None-Match 创建。
+final class WebDavManifestSnapshot {
+  /// 保留读取时的强 ETag，避免覆盖其他设备随后发布的清单。
+  const WebDavManifestSnapshot(
+    this.manifest, {
+    required this.exists,
+    this.etag,
+  });
+
+  /// 当前清单内容。
+  final WebDavSyncManifest manifest;
+
+  /// 远端是否已有清单。
+  final bool exists;
+
+  /// 读取时的强实体标记（服务器可能不提供）。
+  final String? etag;
+
+  /// 不允许降级为无条件写入。
+  void requireWritable() {
+    final tag = etag;
+    if (exists && (tag == null || !RegExp(r'^"[^"]*"$').hasMatch(tag))) {
+      throw const WebDavSyncException('服务器未提供强 ETag，无法安全更新同步清单');
+    }
+  }
+}
+
+/// 远端分片下载与校验返回包。
 final class DownloadedSliceShard {
   /// 创建远端分片下载结果。
-  const DownloadedSliceShard({
-    required this.watermark,
-    required this.payload,
-  });
+  const DownloadedSliceShard({required this.watermark, required this.payload});
 
   /// 远端清单水位条目标记。
   final WebDavSliceWatermark watermark;
@@ -43,7 +69,7 @@ final class DownloadedSliceShard {
 ///
 /// 远端目录结构严格固定为：
 /// - `<remoteDir>/manifest.json`
-/// - `<remoteDir>/slices/<sliceId>_<deviceId>.json.gz`
+/// - `<remoteDir>/slices/<sliceId>_<deviceId>_<sha256>.json.gz`
 final class WebDavSyncTransport {
   /// 创建 WebDAV 同步传输器。
   WebDavSyncTransport({
@@ -58,18 +84,31 @@ final class WebDavSyncTransport {
   /// 远端切片压缩分片固定子目录名。
   static const String slicesDirectoryName = 'slices';
 
+  /// 清单只记录设备与切片水位，不含目录正文。
+  static const int maxManifestBytes = 4 * 1024 * 1024;
+
+  /// 压缩分片安全上限。
+  static const int maxShardBytes = 32 * 1024 * 1024;
+
+  /// 解压正文安全上限，防止异常远端内容耗尽设备内存。
+  static const int maxDecodedShardBytes = 128 * 1024 * 1024;
+
   final WebDavConnectionPool _effectivePool;
   final http.Client Function(WebDavSyncConfig config)? _clientFactory;
   final Duration _requestTimeout;
 
-  /// 构造规范分片相对路径：`slices/<sliceId>_<deviceId>.json.gz`。
+  /// 新分片采用内容版本路径；已发布的旧分片不能被新数据覆盖。
   static String buildShardRelativePath({
     required String sliceId,
     required String deviceId,
+    required String sha256,
   }) {
     final safeSlice = _sanitizePathSegment(sliceId);
     final safeDevice = _sanitizePathSegment(deviceId);
-    return '$slicesDirectoryName/${safeSlice}_$safeDevice.json.gz';
+    if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(sha256)) {
+      throw ArgumentError('无效的分片 SHA-256');
+    }
+    return '$slicesDirectoryName/${safeSlice}_${safeDevice}_$sha256.json.gz';
   }
 
   /// 解析远程基准 URI 与归一化同步根目录，构造目标接口完整地址。
@@ -143,11 +182,11 @@ final class WebDavSyncTransport {
   }
 
   /// 读取远端 `manifest.json`；若首次同步尚不存在则返回空清单。
-  Future<WebDavSyncManifest> fetchManifest(WebDavSyncConfig config) async {
+  Future<WebDavManifestSnapshot> fetchManifest(WebDavSyncConfig config) async {
     final uri = resolveRelativeUri(config, manifestFileName);
     final res = await _sendWithAuth(config: config, method: 'GET', uri: uri);
     if (res.statusCode == 404) {
-      return const WebDavSyncManifest();
+      return const WebDavManifestSnapshot(WebDavSyncManifest(), exists: false);
     }
     if (res.statusCode < 200 || res.statusCode >= 300) {
       throw _buildHttpException('读取同步清单失败', res.statusCode);
@@ -160,7 +199,7 @@ final class WebDavSyncTransport {
       throw const WebDavSyncException('远端 manifest.json 编码无效');
     }
     if (bodyText.trim().isEmpty) {
-      return const WebDavSyncManifest();
+      throw const WebDavSyncException('远端 manifest.json 内容为空，已终止同步');
     }
 
     final dynamic decoded;
@@ -172,24 +211,35 @@ final class WebDavSyncTransport {
     if (decoded is! Map) {
       throw const WebDavSyncException('远端 manifest.json 结构无效');
     }
-    return WebDavSyncManifest.fromJson(
-      SyncSanitizer.coerceStringKeyMap(decoded),
+    return WebDavManifestSnapshot(
+      WebDavSyncManifest.fromJson(SyncSanitizer.coerceStringKeyMap(decoded)),
+      exists: true,
+      etag: _readCaseInsensitiveHeader(res.headers, 'etag'),
     );
   }
 
-  /// 上传更新后的远端 `manifest.json`。
+  /// 条件发布远端清单；HTTP 412 表示快照失效，调用方必须重读合并。
   Future<void> uploadManifest(
     WebDavSyncConfig config,
-    WebDavSyncManifest manifest,
-  ) async {
+    WebDavSyncManifest manifest, {
+    required WebDavManifestSnapshot expected,
+  }) async {
+    expected.requireWritable();
     final uri = resolveRelativeUri(config, manifestFileName);
     final body = utf8.encode(jsonEncode(manifest.toJson()));
+    if (body.length > maxManifestBytes) {
+      throw const WebDavSyncException('同步清单超过 4 MiB 安全上限');
+    }
     final res = await _sendWithAuth(
       config: config,
       method: 'PUT',
       uri: uri,
-      headers: const <String, String>{
+      headers: <String, String>{
         HttpHeaders.contentTypeHeader: 'application/json; charset=utf-8',
+        if (expected.exists)
+          'If-Match': expected.etag!
+        else
+          'If-None-Match': '*',
       },
       body: body,
     );
@@ -203,6 +253,7 @@ final class WebDavSyncTransport {
     WebDavSyncConfig config,
     WebDavSliceWatermark watermark,
   ) async {
+    _validateShardPath(watermark);
     final uri = resolveRelativeUri(config, watermark.shardPath);
     final res = await _sendWithAuth(config: config, method: 'GET', uri: uri);
     if (res.statusCode < 200 || res.statusCode >= 300) {
@@ -220,9 +271,19 @@ final class WebDavSyncTransport {
         res.bodyBytes[0] == 0x1f &&
         res.bodyBytes[1] == 0x8b) {
       try {
-        jsonBytes = gzip.decode(res.bodyBytes);
+        final output = _BoundedShardSink();
+        final decoder = gzip.decoder.startChunkedConversion(output);
+        const chunkSize = 16 * 1024;
+        for (var start = 0; start < res.bodyBytes.length; start += chunkSize) {
+          final end = (start + chunkSize).clamp(0, res.bodyBytes.length);
+          decoder.add(Uint8List.sublistView(res.bodyBytes, start, end));
+        }
+        decoder.close();
+        jsonBytes = output.takeBytes();
+      } on WebDavSyncException {
+        rethrow;
       } catch (_) {
-        throw WebDavSyncException('远端切片 `${watermark.sliceId}` 解压失败');
+        throw WebDavSyncException('远端切片 ${watermark.sliceId} 解压失败');
       }
     } else {
       jsonBytes = res.bodyBytes;
@@ -244,9 +305,13 @@ final class WebDavSyncTransport {
       throw WebDavSyncException('远端切片 `${watermark.sliceId}` 缺少 data 载荷');
     }
 
-    final sliceId = (root['sliceId'] ?? watermark.sliceId).toString().trim();
-    final schemaVersion =
-        (root['schemaVersion'] as num?)?.toInt() ?? watermark.schemaVersion;
+    if (root['sliceId'] != watermark.sliceId ||
+        root['schemaVersion'] != watermark.schemaVersion ||
+        root['sourceDeviceId'] != watermark.deviceId) {
+      throw const WebDavSyncException('远端切片身份与清单不一致，已终止合并');
+    }
+    final sliceId = watermark.sliceId;
+    final schemaVersion = watermark.schemaVersion;
     final data = Map<String, Object?>.unmodifiable(
       SyncSanitizer.coerceStringKeyMap(rawData),
     );
@@ -270,27 +335,41 @@ final class WebDavSyncTransport {
     return DownloadedSliceShard(watermark: watermark, payload: payload);
   }
 
-  /// 压缩并上传本机单个切片分片（`slices/<sliceId>_<deviceId>.json.gz`）。
+  /// 压缩并上传本机单个切片分片（`slices/<sliceId>_<deviceId>_<sha256>.json.gz`）。
   Future<void> uploadSliceShard({
     required WebDavSyncConfig config,
     required WebDavSliceWatermark watermark,
     required SyncSlicePayload payload,
   }) async {
+    _validateShardPath(watermark);
     final uri = resolveRelativeUri(config, watermark.shardPath);
     final envelope = <String, Object?>{
       ...payload.toJson(),
       'sha256': watermark.sha256,
     };
-    final gzBytes = gzip.encode(utf8.encode(jsonEncode(envelope)));
+    final rawBytes = utf8.encode(jsonEncode(envelope));
+    if (rawBytes.length > maxDecodedShardBytes) {
+      throw const WebDavSyncException('同步分片解压后超过 128 MiB 安全上限');
+    }
+    final gzBytes = gzip.encode(rawBytes);
+    if (gzBytes.length > maxShardBytes) {
+      throw const WebDavSyncException('同步分片超过 32 MiB 安全上限');
+    }
     final res = await _sendWithAuth(
       config: config,
       method: 'PUT',
       uri: uri,
       headers: const <String, String>{
         HttpHeaders.contentTypeHeader: 'application/gzip',
+        'If-None-Match': '*',
       },
       body: gzBytes,
     );
+    if (res.statusCode == 412) {
+      // 重试或相同内容版本已存在时，只复用经过完整校验的分片。
+      await downloadSliceShard(config, watermark);
+      return;
+    }
     if (res.statusCode < 200 || res.statusCode >= 300) {
       throw _buildHttpException(
         '上传同步切片 `${watermark.sliceId}` 失败',
@@ -418,7 +497,12 @@ final class WebDavSyncTransport {
       }
 
       final streamed = await client.send(req).timeout(_requestTimeout);
-      final response = await http.Response.fromStream(streamed);
+      final isShard = method == 'GET' && uri.path.endsWith('.json.gz');
+      final response = await _readBoundedResponse(
+        streamed,
+        isShard ? maxShardBytes : maxManifestBytes,
+        isShard ? '同步分片超过 32 MiB 安全上限' : '同步响应超过 4 MiB 安全上限',
+      );
       if (_isRedirect(response.statusCode)) {
         final location = _readCaseInsensitiveHeader(
           response.headers,
@@ -427,13 +511,80 @@ final class WebDavSyncTransport {
         if (location != null &&
             location.trim().isNotEmpty &&
             hop < WebDavGatewayConfig.maxRedirects) {
-          currentUri = currentUri.resolve(location.trim());
+          final nextUri = currentUri.resolve(location.trim());
+          if (nextUri.scheme != uri.scheme ||
+              nextUri.host != uri.host ||
+              nextUri.port != uri.port ||
+              nextUri.userInfo.isNotEmpty) {
+            throw const WebDavSyncException('拒绝跨站或协议变更的 WebDAV 重定向');
+          }
+          currentUri = nextUri;
           continue;
         }
       }
       return response;
     }
     throw const WebDavSyncException('WebDAV 重定向次数过多');
+  }
+
+  /// 限制声明长度、实际累计长度和整个正文接收时间。
+  Future<http.Response> _readBoundedResponse(
+    http.StreamedResponse streamed,
+    int limit,
+    String message,
+  ) async {
+    if ((streamed.contentLength ?? 0) > limit) {
+      await streamed.stream.listen((_) {}).cancel();
+      throw WebDavSyncException(message);
+    }
+    final bytes = BytesBuilder(copy: false);
+    final result = Completer<Uint8List>();
+    late final StreamSubscription<List<int>> subscription;
+    void reject(Object error, [StackTrace? stack]) {
+      if (result.isCompleted) {
+        return;
+      }
+      result.completeError(error, stack);
+      // 已确定失败，不让连接取消过程阻塞错误返回。
+      unawaited(subscription.cancel().catchError((Object _) {}));
+    }
+
+    final timer = Timer(
+      _requestTimeout,
+      () => reject(const WebDavSyncException('WebDAV 响应读取超时')),
+    );
+    try {
+      subscription = streamed.stream.listen(
+        (chunk) {
+          if (result.isCompleted) {
+            return;
+          }
+          if (chunk.length > limit - bytes.length) {
+            reject(WebDavSyncException(message));
+            return;
+          }
+          bytes.add(chunk);
+        },
+        onError: (Object error, StackTrace stack) => reject(error, stack),
+        onDone: () {
+          if (!result.isCompleted) {
+            result.complete(bytes.takeBytes());
+          }
+        },
+        cancelOnError: true,
+      );
+      return http.Response.bytes(
+        await result.future,
+        streamed.statusCode,
+        headers: streamed.headers,
+        request: streamed.request,
+        isRedirect: streamed.isRedirect,
+        persistentConnection: streamed.persistentConnection,
+        reasonPhrase: streamed.reasonPhrase,
+      );
+    } finally {
+      timer.cancel();
+    }
   }
 
   static Uri _parseValidatedBaseUri(String rawUrl) {
@@ -481,8 +632,41 @@ final class WebDavSyncTransport {
     return WebDavSyncException('$prefix（HTTP $status）', statusCode: status);
   }
 
+  // 仅接受当前分片版本路径或既有 v2 固定路径，不访问同步目录之外的资源。
+  static void _validateShardPath(WebDavSliceWatermark watermark) {
+    final legacy =
+        '$slicesDirectoryName/${_sanitizePathSegment(watermark.sliceId)}_${_sanitizePathSegment(watermark.deviceId)}.json.gz';
+    final versioned = buildShardRelativePath(
+      sliceId: watermark.sliceId,
+      deviceId: watermark.deviceId,
+      sha256: watermark.sha256,
+    );
+    if (watermark.shardPath != legacy && watermark.shardPath != versioned) {
+      throw const WebDavSyncException('远端切片路径与清单身份不一致');
+    }
+  }
+
   static String _sanitizePathSegment(String raw) {
     final cleaned = raw.trim().replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
     return cleaned.isEmpty ? 'unknown' : cleaned;
   }
+}
+
+/// 限制解压器累计输出，不分配超过上限的正文缓冲区。
+final class _BoundedShardSink implements Sink<List<int>> {
+  final BytesBuilder _bytes = BytesBuilder(copy: false);
+
+  @override
+  void add(List<int> chunk) {
+    if (chunk.length >
+        WebDavSyncTransport.maxDecodedShardBytes - _bytes.length) {
+      throw const WebDavSyncException('同步分片解压后超过 128 MiB 安全上限');
+    }
+    _bytes.add(chunk);
+  }
+
+  @override
+  void close() {}
+
+  Uint8List takeBytes() => _bytes.takeBytes();
 }

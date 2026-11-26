@@ -22,9 +22,15 @@ void main() {
       final subToken = engine.acquireTaskToken(
         PlaybackTaskDomain.rawSubtitleFetch,
       );
-      final cloudToken = engine.acquireTaskToken(PlaybackTaskDomain.cloudSubset);
-      final lyricToken = engine.acquireTaskToken(PlaybackTaskDomain.lyricLookup);
-      final colorToken = engine.acquireTaskToken(PlaybackTaskDomain.artworkColor);
+      final cloudToken = engine.acquireTaskToken(
+        PlaybackTaskDomain.cloudSubset,
+      );
+      final lyricToken = engine.acquireTaskToken(
+        PlaybackTaskDomain.lyricLookup,
+      );
+      final colorToken = engine.acquireTaskToken(
+        PlaybackTaskDomain.artworkColor,
+      );
 
       engine.cancelTaskDomain(PlaybackTaskDomain.cloudSubset);
       expect(engine.isTaskAlive(cloudToken), isFalse);
@@ -135,6 +141,173 @@ void main() {
   });
 
   group('AudiophileSafetyCoordinator -12 dBFS 安全链与外设热拔出保护', () {
+    test('Windows 无活动会话或缺少实际 WASAPI 反馈时不得核验解锁', () async {
+      final coordinator = AudiophileSafetyCoordinator(
+        engine: UnifiedPlaybackEngine(),
+        isWindowsOverride: true,
+        isAndroidOverride: false,
+      );
+      addTearDown(coordinator.dispose);
+      const prefs = AudiophileAudioPreferences(
+        qualityConfig: PlaybackQualityConfig(exclusiveAudioOutput: true),
+      );
+      expect(
+        (await coordinator.verifyActiveHardwareRoute(prefs)).verified,
+        isFalse,
+      );
+      expect(await coordinator.confirmSessionFullScaleUnlock(prefs), isFalse);
+      final client = FakeLibMpvClient()..initialize();
+      addTearDown(client.dispose);
+      coordinator.attachSession(
+        owner: 'video',
+        clientProvider: () => client,
+        prefsProvider: () => prefs,
+        onTransientMuteAndPause: (_) {},
+      );
+      coordinator.applyToClient(client, prefs: prefs);
+      expect(
+        (await coordinator.verifyActiveHardwareRoute(prefs)).verified,
+        isFalse,
+      );
+      client.setPropertyFlag('audio-exclusive', true);
+      client.setPropertyString('current-ao', 'wasapi');
+      expect(
+        (await coordinator.verifyActiveHardwareRoute(prefs)).verified,
+        isTrue,
+      );
+      expect(await coordinator.confirmSessionFullScaleUnlock(prefs), isTrue);
+      coordinator.detachSession('video');
+      expect(coordinator.deviceSafetyState.allowFullScaleBypass, isFalse);
+    });
+    test('Android 无会话、过期核验及撤销失败均不能保留满幅解锁', () async {
+      final engine = UnifiedPlaybackEngine();
+      final route = FakeAndroidAudioRoutePort();
+      final coordinator = AudiophileSafetyCoordinator(
+        engine: engine,
+        androidRouteBridge: route,
+        isWindowsOverride: false,
+        isAndroidOverride: true,
+      );
+      addTearDown(coordinator.dispose);
+      addTearDown(route.dispose);
+      var prefs = const AudiophileAudioPreferences(androidBitPerfectUsb: true);
+      expect(
+        (await coordinator.verifyActiveHardwareRoute(prefs)).verified,
+        isFalse,
+      );
+      expect(route.negotiateCallCount, 0);
+      final client = FakeLibMpvClient()..initialize();
+      addTearDown(client.dispose);
+      final reasons = <String>[];
+      coordinator.attachSession(
+        owner: 'audio',
+        clientProvider: () => client,
+        prefsProvider: () => prefs,
+        onTransientMuteAndPause: reasons.add,
+      );
+      coordinator.applyToClient(client, prefs: prefs);
+      final pending = Completer<AndroidBitPerfectNegotiationResult>();
+      route.onNegotiate = (enable) => enable
+          ? pending.future
+          : Future.value(
+              const AndroidBitPerfectNegotiationResult(
+                supported: true,
+                engaged: false,
+                operationSucceeded: true,
+              ),
+            );
+      final verification = coordinator.verifyActiveHardwareRoute(prefs);
+      prefs = const AudiophileAudioPreferences();
+      await coordinator.reapplyAll(prefs);
+      pending.complete(
+        const AndroidBitPerfectNegotiationResult(
+          supported: true,
+          engaged: true,
+          operationSucceeded: true,
+        ),
+      );
+      expect((await verification).verified, isFalse);
+      expect(await coordinator.confirmSessionFullScaleUnlock(prefs), isFalse);
+      route.onNegotiate = null;
+      prefs = const AudiophileAudioPreferences(androidBitPerfectUsb: true);
+      coordinator.applyToClient(client, prefs: prefs);
+      expect(
+        (await coordinator.verifyActiveHardwareRoute(prefs)).verified,
+        isTrue,
+      );
+      expect(await coordinator.confirmSessionFullScaleUnlock(prefs), isTrue);
+      prefs = const AudiophileAudioPreferences();
+      route.nextNegotiationResult = const AndroidBitPerfectNegotiationResult(
+        supported: true,
+        engaged: false,
+        detail: '系统拒绝撤销',
+      );
+      await coordinator.reapplyAll(prefs);
+      await Future<void>.delayed(Duration.zero);
+      expect(coordinator.deviceSafetyState.allowFullScaleBypass, isFalse);
+      expect(client.boolProps['mute'], isTrue);
+      expect(client.boolProps['pause'], isTrue);
+      expect(reasons, contains('android_usb_route_unconfirmed'));
+      expect(await coordinator.confirmSessionFullScaleUnlock(prefs), isFalse);
+    });
+    test('控制器仍登记但解码实例已释放时撤销 USB 路由，不等待旧协商', () async {
+      final engine = UnifiedPlaybackEngine();
+      final route = FakeAndroidAudioRoutePort();
+      final coordinator = AudiophileSafetyCoordinator(
+        engine: engine,
+        androidRouteBridge: route,
+        isWindowsOverride: false,
+        isAndroidOverride: true,
+      );
+      addTearDown(route.dispose);
+      addTearDown(coordinator.dispose);
+      final client = FakeLibMpvClient()..initialize();
+      addTearDown(client.dispose);
+      LibMpvClient? activeClient = client;
+      const prefs = AudiophileAudioPreferences(androidBitPerfectUsb: true);
+      coordinator.attachSession(
+        owner: 'audio',
+        clientProvider: () => activeClient,
+        prefsProvider: () => prefs,
+        onTransientMuteAndPause: (_) {},
+      );
+      coordinator.applyToClient(client, prefs: prefs);
+      expect(
+        (await coordinator.verifyActiveHardwareRoute(prefs)).verified,
+        isTrue,
+      );
+      expect(await coordinator.confirmSessionFullScaleUnlock(prefs), isTrue);
+
+      final pending = Completer<AndroidBitPerfectNegotiationResult>();
+      route.onNegotiate = (enable) => enable
+          ? pending.future
+          : Future.value(
+              const AndroidBitPerfectNegotiationResult(
+                supported: true,
+                engaged: false,
+                operationSucceeded: true,
+              ),
+            );
+      final oldVerification = coordinator.verifyActiveHardwareRoute(prefs);
+      activeClient = null;
+      try {
+        await coordinator.reapplyAll(prefs).timeout(const Duration(seconds: 2));
+        expect(route.lastNegotiateEnable, isFalse);
+        expect(coordinator.deviceSafetyState.allowFullScaleBypass, isFalse);
+        expect(coordinator.activePlan.safetyLimiterEngaged, isTrue);
+      } finally {
+        pending.complete(
+          const AndroidBitPerfectNegotiationResult(
+            supported: true,
+            engaged: true,
+            operationSucceeded: true,
+          ),
+        );
+      }
+      expect((await oldVerification).verified, isFalse);
+      expect(coordinator.deviceSafetyState.allowFullScaleBypass, isFalse);
+    });
+
     test('未实证后端锁定 -12 dBFS 安全限幅、拔出瞬间静音暂停、重连复归安全上限', () async {
       final engine = UnifiedPlaybackEngine();
       final routePort = FakeAndroidAudioRoutePort();
@@ -154,9 +327,7 @@ void main() {
       final client = FakeLibMpvClient()..initialize();
       addTearDown(client.dispose);
       final mutedReasons = <String>[];
-      const prefs = AudiophileAudioPreferences(
-        androidBitPerfectUsb: true,
-      );
+      const prefs = AudiophileAudioPreferences(androidBitPerfectUsb: true);
 
       coordinator.attachSession(
         owner: 'audio-stage',

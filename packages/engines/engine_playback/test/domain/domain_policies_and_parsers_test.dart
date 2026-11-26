@@ -7,6 +7,31 @@ import 'package:konata_storage/konata_storage.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('视频像素格式位深与采样布局数字严格区分', () {
+    for (final (format, expected) in [
+      ('nv12', '8bit'),
+      ('nv16', '8bit'),
+      ('nv21', '8bit'),
+      ('yuv420p', '8bit'),
+      ('yuv420p10le', '10bit'),
+      ('p010', '10bit'),
+      ('p010le', '10bit'),
+      ('p012', '12bit'),
+      ('yuv420p12le', '12bit'),
+      ('p016', '16bit'),
+      ('yuv444p14le', '14bit'),
+      ('rgb48le', '16bit'),
+      ('d3d11', ''),
+      ('mediacodec', ''),
+      ('', ''),
+    ]) {
+      expect(
+        PlaybackFormatters.formatVideoBitDepthLabel(format),
+        expected,
+        reason: format,
+      );
+    }
+  });
   group('HwdecSafetyPolicy Hi10P 与 HEVC Rext 拦截策略', () {
     test('精确拦截 AVC Hi10P 与 HEVC Rext / 12-bit，放行标准 8/10-bit 4:2:0', () {
       final hi10Android = HwdecSafetyPolicy.evaluate(
@@ -146,7 +171,10 @@ FILE "Disc1.flac" WAVE
 
       expect(sheet.title, equals('Frieren Original Soundtrack Disc 1'));
       expect(sheet.tracks, hasLength(3));
-      expect(sheet.tracks[1].startSectorFrames, equals((3 * 60 + 12) * 75 + 37));
+      expect(
+        sheet.tracks[1].startSectorFrames,
+        equals((3 * 60 + 12) * 75 + 37),
+      );
       expect(sheet.tracks[1].startSeconds, closeTo(192.493, 0.01));
       expect(sheet.tracks[2].endSeconds, closeTo(540.0, 0.001));
 
@@ -245,11 +273,36 @@ FILE "Disc1.flac" WAVE
         totalDurationSeconds: 1420.0,
         hasNextEpisode: true,
         rawChapters: const [
-          PlaybackChapter(index: 0, title: 'Avant', startSeconds: 0, endSeconds: 70),
-          PlaybackChapter(index: 1, title: 'OP', startSeconds: 70, endSeconds: 160),
-          PlaybackChapter(index: 2, title: 'Part A', startSeconds: 160, endSeconds: 700),
-          PlaybackChapter(index: 3, title: 'Ending', startSeconds: 1290, endSeconds: 1380),
-          PlaybackChapter(index: 4, title: 'Next Preview', startSeconds: 1380, endSeconds: 1420),
+          PlaybackChapter(
+            index: 0,
+            title: 'Avant',
+            startSeconds: 0,
+            endSeconds: 70,
+          ),
+          PlaybackChapter(
+            index: 1,
+            title: 'OP',
+            startSeconds: 70,
+            endSeconds: 160,
+          ),
+          PlaybackChapter(
+            index: 2,
+            title: 'Part A',
+            startSeconds: 160,
+            endSeconds: 700,
+          ),
+          PlaybackChapter(
+            index: 3,
+            title: 'Ending',
+            startSeconds: 1290,
+            endSeconds: 1380,
+          ),
+          PlaybackChapter(
+            index: 4,
+            title: 'Next Preview',
+            startSeconds: 1380,
+            endSeconds: 1420,
+          ),
         ],
       );
       expect(planWithCPart.opening?.kind, equals(SkipActionKind.skipOp));
@@ -343,7 +396,11 @@ FILE "Disc1.flac" WAVE
       }
 
       final sections = PlaybackHistoryTimelineBuilder.build([
-        makeRecord(id: 'r1', workId: 'w1', playedAt: DateTime(2026, 7, 8, 21, 10)),
+        makeRecord(
+          id: 'r1',
+          workId: 'w1',
+          playedAt: DateTime(2026, 7, 8, 21, 10),
+        ),
         makeRecord(
           id: 'r2',
           workId: 'w1',
@@ -393,57 +450,60 @@ FILE "Disc1.flac" WAVE
       expect(plan?.buttonLabel, equals('继续播放'));
     });
 
-    test('TrackPreferences、CrossEpisodeTrackMemory 与 SubtitleAndAudioChoices 语义去重', () {
-      const prefs = TrackPreferences();
-      const tracks = [
-        MpvTrackInfo(
-          id: 1,
-          type: MpvTrackType.subtitle,
-          lang: 'eng',
-          title: 'Signs & Songs',
-          codec: 'ass',
-          isDefault: true,
-        ),
-        MpvTrackInfo(
-          id: 2,
-          type: MpvTrackType.subtitle,
-          lang: 'cht',
-          title: 'SweetSub 繁日雙語',
-          codec: 'ass',
-        ),
-        MpvTrackInfo(
-          id: 3,
-          type: MpvTrackType.subtitle,
-          lang: 'chs',
-          title: 'SweetSub 简日双语',
-          codec: 'ass',
-          isExternal: true,
-        ),
-      ];
-      expect(prefs.pickBestSubtitleTrack(tracks)?.id, equals(3));
-
-      const memory = CrossEpisodeTrackMemory();
-      final nextMem = memory.rememberSubtitle(tracks[1]);
-      expect(nextMem.resolveSubtitleTrack(tracks)?.id, equals(2));
-
-      final merged = SubtitleAndAudioChoices.mergeSubtitles(
-        mpvTracks: const [
+    test(
+      'TrackPreferences、CrossEpisodeTrackMemory 与 SubtitleAndAudioChoices 语义去重',
+      () {
+        const prefs = TrackPreferences();
+        const tracks = [
           MpvTrackInfo(
             id: 1,
             type: MpvTrackType.subtitle,
-            lang: 'chs',
-            title: '[SweetSub] 简日双语',
+            lang: 'eng',
+            title: 'Signs & Songs',
             codec: 'ass',
-            selected: true,
+            isDefault: true,
           ),
-        ],
-        discoveredExternalPaths: const [
-          'D:/Anime/[SweetSub] Frieren [01].jpsc.ass',
-          'D:/Anime/[KTXP] Frieren [01].tc.srt',
-        ],
-      );
-      expect(merged.first.sourceFormatBadge, equals('内封 ASS'));
-      expect(merged.last.sourceFormatBadge, equals('外挂 SRT'));
-    });
+          MpvTrackInfo(
+            id: 2,
+            type: MpvTrackType.subtitle,
+            lang: 'cht',
+            title: 'SweetSub 繁日雙語',
+            codec: 'ass',
+          ),
+          MpvTrackInfo(
+            id: 3,
+            type: MpvTrackType.subtitle,
+            lang: 'chs',
+            title: 'SweetSub 简日双语',
+            codec: 'ass',
+            isExternal: true,
+          ),
+        ];
+        expect(prefs.pickBestSubtitleTrack(tracks)?.id, equals(3));
+
+        const memory = CrossEpisodeTrackMemory();
+        final nextMem = memory.rememberSubtitle(tracks[1]);
+        expect(nextMem.resolveSubtitleTrack(tracks)?.id, equals(2));
+
+        final merged = SubtitleAndAudioChoices.mergeSubtitles(
+          mpvTracks: const [
+            MpvTrackInfo(
+              id: 1,
+              type: MpvTrackType.subtitle,
+              lang: 'chs',
+              title: '[SweetSub] 简日双语',
+              codec: 'ass',
+              selected: true,
+            ),
+          ],
+          discoveredExternalPaths: const [
+            'D:/Anime/[SweetSub] Frieren [01].jpsc.ass',
+            'D:/Anime/[KTXP] Frieren [01].tc.srt',
+          ],
+        );
+        expect(merged.first.sourceFormatBadge, equals('内封 ASS'));
+        expect(merged.last.sourceFormatBadge, equals('外挂 SRT'));
+      },
+    );
   });
 }

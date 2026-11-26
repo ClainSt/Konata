@@ -115,43 +115,22 @@ final class LyricOverridesSyncSlice
   }
 
   @override
-  Future<void> applyMergePlan(
+  SyncApplyCompletion applyMergePlan(
     SyncTransactionContext tx,
     SyncMergePlan<LyricOverrideMergePlan> plan,
-  ) async {
+  ) {
     final upserts = plan.planData.upserts;
-    if (upserts.isEmpty) return;
+    if (upserts.isEmpty) return SyncApplyCompletion.completed;
 
     final dao = _userStateDb.lyricUserOverrides;
     final raw = tx.rawHandleFor('user_state');
-    if (raw is SqliteTransaction) {
-      for (final record in upserts) {
-        dao.upsertInTx(raw, record);
-      }
-      return;
+    if (raw is! SqliteTransaction) {
+      throw StateError('歌词同步缺少宿主写事务');
     }
-    if (raw is UserStateDatabase) {
-      raw.engine.runTransaction((dbTx) {
-        for (final record in upserts) {
-          raw.lyricUserOverrides.upsertInTx(dbTx, record);
-        }
-      });
-      return;
+    for (final record in upserts) {
+      dao.upsertInTx(raw, record);
     }
-    if (raw is KonataSqliteEngine) {
-      raw.runTransaction((dbTx) {
-        for (final record in upserts) {
-          dao.upsertInTx(dbTx, record);
-        }
-      });
-      return;
-    }
-
-    _userStateDb.engine.runTransaction((dbTx) {
-      for (final record in upserts) {
-        dao.upsertInTx(dbTx, record);
-      }
-    });
+    return SyncApplyCompletion.completed;
   }
 
   /// 将单条覆盖记录序列化为可移植字典。

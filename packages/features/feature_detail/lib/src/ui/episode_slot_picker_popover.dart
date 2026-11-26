@@ -424,7 +424,7 @@ class _SlotPopoverOverlayState extends State<_SlotPopoverOverlay> {
                         builder: (_, ctrl) => ListView.builder(
                           controller: ctrl,
                           shrinkWrap: true,
-                          padding: const EdgeInsets.fromLTRB(6, 0, 10, 6),
+                          padding: const EdgeInsets.fromLTRB(6, 0, 6, 6),
                           itemCount: filtered.length,
                           itemBuilder: (_, index) {
                             final opt = filtered[index];

@@ -12,12 +12,19 @@ Konata 跨设备协同同步与本地 `.konata` 备份还原独立特性包。
 2. **本地 `.konata` 备份与干跑预览恢复（`KonataBackupService`）**
    - 按勾选切片打包为带 `schemaVersion`、`deviceId`、`SHA-256` 校验和与切片清单的自描述压缩归档；
    - 通过 `BackupFilePort` 完成跨平台存取，恢复前执行干跑 `planMerge` 预览新增/更新/删除计数并在统一跨库写事务中原子落盘。
+   - 文件读取上限 32 MiB，gzip 解压累计上限 128 MiB；导出也遵守同一上限。切片标识与版本不兼容时拒绝恢复。旧版 v1/v2 快照经专用迁移后仅支持智能合并；v2 完整目录限空目标库并一次性恢复全部归档切片，v1 视频进度与可唯一解析的视频墓碑按本地物理身份关联。艺术图仅迁移明确远程来源，外观偏好仅支持完整已知字段；旧音频身份、作品墓碑、歧义关系及未映射偏好拒绝转换。
 3. **WebDAV 多设备分片同步（`WebDavSyncTransport` + `WebDavSyncCoordinator`）**
-   - 远端固定采用 `manifest.json` + `slices/<sliceId>_<deviceId>.json.gz` 隔离布局；
+   - 远端固定采用 `manifest.json` + `slices/<sliceId>_<deviceId>_<sha256>.json.gz` 隔离布局；
    - 通过切片主体确定性 `SHA-256` 比对实现未变分片零下载与零上传；
+   - 新分片按内容版本命名并条件创建，读取时仍支持旧版 v2 清单引用的固定路径；清单使用强 ETag / If-Match 与首次创建 If-None-Match，412 冲突最多重试三次，仅合并本轮新增水位；
+   - 所有参与设备须升级至支持条件写入的版本，服务器须正确执行 HTTP 前置条件；缺少强 ETag 时拒绝更新已有清单。暂不自动清理历史分片，避免误删正在被读取或尚未发布的分片；
    - WebDAV 服务器配置存入 `ScopedPrefsStore`（命名空间 `sync_webdav`），密码严格加密存储于 `SecureStoragePort`。
 4. **状态控制、事件联动与设置面板**
    - `SyncBackupController` 管理导出勾选、导入干跑预览、WebDAV 连通性测试与一键/自动同步调度，并在落盘后通过 `DomainEventBus` 发布 `SyncCompletedEvent`；
    - `SettingsBackupSyncPanel` 与 `featureSyncManifest` 向设置页注册同步面板。
 
 - 云盘媒体源仅同步合法无凭据虚拟地址与远端文件标识；未知来源、普通合并的标识冲突拒绝处理，授权由各设备单独完成。
+
+WebDAV 同步边界：已启用切片在清单读取及冲突重读时校验贡献器版本（包括本机旧身份水位）；清单与非分片响应上限 4 MiB、压缩分片 32 MiB、解压正文 128 MiB，正文累计接收限时沿用请求超时（默认 15 秒）。超限或不兼容时停止同步，不降级为无条件写入。
+
+恢复与 WebDAV 每轮合并在同步事务内应用全部切片；任一切片 SQL 执行失败时回滚本轮两库，成功提交后记录水位。两个独立 WAL 数据库不保证跨文件断电原子性。

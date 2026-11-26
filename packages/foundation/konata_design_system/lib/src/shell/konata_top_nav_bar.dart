@@ -232,7 +232,7 @@ class _KonataTopNavBarState extends State<KonataTopNavBar> {
                         const SizedBox(width: 4),
                       ],
                       _TopNavIconButton(
-                        tooltip: p.isDark ? '切换亮色模式' : '切换暗色模式',
+                        tooltip: p.isDark ? '浅色模式' : '深色模式',
                         icon: p.isDark
                             ? Icons.light_mode_outlined
                             : Icons.dark_mode_outlined,
@@ -765,7 +765,7 @@ class _ExpandableSearchBox extends StatelessWidget {
                 ),
               )
             : _TopNavIconButton(
-                tooltip: '搜索媒体库 (Ctrl + K)',
+                tooltip: '搜索媒体库',
                 icon: Icons.search_rounded,
                 color: p.textSecondary,
                 hoverBg: p.secondaryButtonBg,

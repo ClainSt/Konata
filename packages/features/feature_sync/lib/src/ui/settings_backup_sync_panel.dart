@@ -868,23 +868,31 @@ class _RestorePreviewDialogState extends State<_RestorePreviewDialog> {
               ),
             ),
             const SizedBox(height: 12),
-            KonataSegmentedCapsule<KonataRestoreMode>(
-              key: const Key('restore_mode_segmented'),
-              expand: true,
-              compact: true,
-              selected: _data.mode,
-              options: const <KonataSegmentOption<KonataRestoreMode>>[
-                KonataSegmentOption<KonataRestoreMode>(
-                  value: KonataRestoreMode.smartMerge,
-                  label: '智能合并',
-                ),
-                KonataSegmentOption<KonataRestoreMode>(
-                  value: KonataRestoreMode.overwrite,
-                  label: '覆盖还原',
-                ),
-              ],
-              onChanged: _applying ? (_) {} : _switchMode,
-            ),
+            if (report.legacyFormatVersion != null)
+              Text(
+                report.legacyFormatVersion == 2
+                    ? '旧版 v2 备份已通过迁移预检，须一次性智能合并全部项目。原备份文件不变。'
+                    : '旧版 v1 备份已通过迁移预检，仅支持智能合并。原备份文件不变。',
+                style: TextStyle(fontSize: 12.5, color: palette.textSecondary),
+              )
+            else
+              KonataSegmentedCapsule<KonataRestoreMode>(
+                key: const Key('restore_mode_segmented'),
+                expand: true,
+                compact: true,
+                selected: _data.mode,
+                options: const <KonataSegmentOption<KonataRestoreMode>>[
+                  KonataSegmentOption<KonataRestoreMode>(
+                    value: KonataRestoreMode.smartMerge,
+                    label: '智能合并',
+                  ),
+                  KonataSegmentOption<KonataRestoreMode>(
+                    value: KonataRestoreMode.overwrite,
+                    label: '覆盖还原',
+                  ),
+                ],
+                onChanged: _applying ? (_) {} : _switchMode,
+              ),
             const SizedBox(height: 12),
             Text(
               _recalculating
@@ -901,7 +909,10 @@ class _RestorePreviewDialogState extends State<_RestorePreviewDialog> {
               _PreviewSliceRow(
                 preview: preview,
                 selected: _selectedIds.contains(preview.sliceId),
-                onChanged: (!preview.remoteAvailable || _applying)
+                onChanged:
+                    (!preview.remoteAvailable ||
+                        _applying ||
+                        report.legacyFormatVersion == 2)
                     ? null
                     : (checked) {
                         setState(() {

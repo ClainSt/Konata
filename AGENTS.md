@@ -4,14 +4,14 @@
 
 ---
 
-## 一、17 包单向依赖与零代码生成铁律（硬拦截）
+## 一、18 包单向依赖与零代码生成铁律（硬拦截）
 
 全仓采用 Dart 原生 `Pub Workspaces`，严格执行单向 DAG，由 `dart run tool/verify.dart guard` 在 1 秒内硬拦截：
 
 ```text
 apps/konata (薄壳组装根)
   ├── packages/features/*        (11 个纵向自治切片，严禁 feature 之间横向互引)
-  ├── packages/engines/*         (3 个无 UI 纯 Dart 引擎：engine_sources / engine_scraping / engine_playback)
+  ├── packages/engines/*         (4 个无 UI 纯 Dart 引擎：engine_cloud_drives / engine_sources / engine_scraping / engine_playback)
   └── packages/foundation/*      (3 个受保护底座：konata_contracts / konata_storage / konata_design_system)
 ```
 
@@ -20,7 +20,7 @@ apps/konata (薄壳组装根)
    - `packages/foundation/konata_contracts`、`konata_storage` 与全部 `packages/engines/*` **严格 0 Flutter 依赖**（禁导 `package:flutter/*` 与 `dart:ui`）；
    - `packages/foundation/konata_design_system` **严格 0 Riverpod、0 业务依赖**；
    - `packages/features/*` 业务界面仅依赖 `package:flutter/widgets.dart` 与 `konata_design_system`，禁止直接依赖 `material.dart` / `material_ui` / `cupertino_ui`；
-   - 引擎、状态机、控制器与 DAO 均为 **0 `Ref` 纯 Dart 类**（构造函数注入），`flutter_riverpod` 仅停留在 Feature 最外层 `providers.dart` 薄胶水。
+   - 引擎、状态机、控制器与 DAO 均为 **0 `Ref` 纯 Dart 类**（构造函数注入），`flutter_riverpod` 仅允许出现在 Feature 外层的 `providers.dart` 薄胶水、`manifest.dart` 注册清单与 `ui/` 界面层；`lib/src/state/`、`lib/src/data/` 与 `lib/src/domain/` 一律禁止引入（其中 `state/` 与 `data/` 由 `verify.dart guard` 硬拦截）。
 3. **全仓零 `build_runner`**：严禁引入 `drift_dev`、`freezed`、`json_serializable`、`riverpod_generator` 与任何 `.g.dart` / `.freezed.dart` 生成物；数据持久化统一使用纯 `sqlite3` + `KonataSqliteEngine`（三库分治：`library.db`、`user_state.db`、`cache.db`），模型与状态机统一使用纯 Dart 3 `sealed class` / `final class` / `Record`。
 4. **跨模块唯一 3 条合法通道**：`AppNavigator`（只传 ID）、`DomainEventBus`（低频 `sealed` 事件）、`konata_contracts` 只读 Query 端口；一切跨包能力挂载均走 7 大声明式扩展点（`FeatureManifest` 按字母序显式注册于 `apps/konata`）。
 
@@ -51,19 +51,12 @@ apps/konata (薄壳组装根)
 
 ---
 
-## 四、多 Worktree 与 Neon + Hydrogen 协同纪律
+## 四、多 Worktree 与开发协同纪律
 
 1. **车道隔离**：并行开发使用 `scripts/lane_manager.ps1` 在 `D:\Anime-Projects\Konata-lanes\<lane>` 创建短命车道，自动生成私有 `.git/konata-lane.json` 写权限白名单（不入 Git），`verify.dart guard` 自动拦截越界修改。
 2. **Contract-First 底座保护**：`packages/foundation/*` 默认对业务车道只读；确需改契约时先走短分支合入 `main`，业务车道执行 `git rebase main` 后继续。
 3. **自治文档**：废弃单一全局 `SHARED_ASSETS.md`，每个包维护自身简短 `PACKAGE.md`（导出符号、依赖与关键契约）。
 4. **硬件互斥**：触及真机压测统一经 `scripts/lane_manager.ps1 -Action lock-verify` 排队。
-5. **Neon + Hydrogen 自主并行触发机制（仅顶层主会话生效）**：
-   - **默认自动激活**：当任务满足任一条件且用户未显式要求单人执行时，顶层主会话（Coordinator）**必须主动读取 `.agents/skills/neon-hydrogen/SKILL.md` 并直接通过 `swarm` 拉起 Hydrogen 并行编码 + 独立验收团队**，无需等待用户再次口头点名：
-     - 进入 Phase 2（3 引擎并行）、Phase 3（3 核心 Feature 并行）或 Phase 4（5 媒体/同步 Feature 并行）；
-     - 任意后续开发/迁移/批量修 Bug 涉及 **≥ 2 个无交叉独立包**（`packages/engines/*` 或 `packages/features/*`）；
-     - 复杂算法、并发状态机或高风险重构需要「编码 Worker + 只读验收 Worker」写审分离时。
-   - **保持单人串行**：Phase 0 / Phase 1 底座契约建设、Phase 5 真机 A/B 压测与发布签名、1~2 个文件的轻量修改或纯调研问答，保持主会话串行完成，不强开 Swarm。
-   - **防套娃护栏**：已在 Swarm 中的 Worker 专注自身分配的包边界，**严禁套娃另起并行团队**。
 
 ---
 

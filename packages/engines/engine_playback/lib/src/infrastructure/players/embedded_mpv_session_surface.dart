@@ -99,7 +99,8 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
           );
         }
       } catch (e) {
-        PlaybackLogHelper.record(logStore, 
+        PlaybackLogHelper.record(
+          logStore,
           'mpv-desktop-render',
           'gpu_next 底层子窗口创建失败，自动回落至 10-bit 底层合成交换链：$e',
         );
@@ -140,7 +141,8 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
     var initRc = client.initialize();
     if (initRc < 0 && preCreatedGpuNextHandle != null) {
       // 老旧显卡或驱动无法初始化 vo=gpu-next 时安全销毁并透明回落至 vo=libmpv 管线。
-      PlaybackLogHelper.record(logStore, 
+      PlaybackLogHelper.record(
+        logStore,
         'mpv-desktop-render',
         'vo=gpu-next 初始化失败 (${client.errorString(initRc)})，回落至 vo=libmpv',
       );
@@ -354,7 +356,8 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
           );
         }
       } catch (e) {
-        PlaybackLogHelper.record(logStore, 
+        PlaybackLogHelper.record(
+          logStore,
           'screenshot-mediastore',
           'MediaStore publish failed: $e',
           isError: true,
@@ -365,7 +368,8 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
             await targetFile.delete();
           }
         } catch (e) {
-          PlaybackLogHelper.record(logStore, 
+          PlaybackLogHelper.record(
+            logStore,
             'screenshot-mediastore',
             '删除相册发布临时截图文件失败：$e',
           );
@@ -446,7 +450,9 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
 
     // 底层 SurfaceView 在整个进程内为单例宿主：热重绑仅分离旧控制器事件流，
     // 严禁调用 releaseAll 误杀新控制器正在使用的同一原生表面句柄与 JNI 全局引用。
-    if (previous != null && !previous.isDisposed) {
+    if (previous != null &&
+        !previous.isDisposed &&
+        !identical(previous, androidSurfacePort)) {
       await previous.detachWithoutClearingChannel();
     }
     if (_disposed || ctrl.isDisposed) return;
@@ -455,9 +461,7 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
     if (desc == null || desc.wid <= 0 || desc.width <= 0 || desc.height <= 0) {
       try {
         desc = await ctrl.surfaceChanges
-            .where(
-              (e) => e != null && e.wid > 0 && e.width > 0 && e.height > 0,
-            )
+            .where((e) => e != null && e.wid > 0 && e.width > 0 && e.height > 0)
             .cast<AndroidSurfaceDescriptor>()
             .first
             .timeout(const Duration(milliseconds: 2500));
@@ -472,7 +476,9 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
   void _bindAndroidSurfaceController(AndroidVideoSurfacePort ctrl) {
     _androidSurface = ctrl;
     unawaited(_androidSurfaceSub?.cancel());
-    _androidSurfaceSub = ctrl.surfaceChanges.listen((AndroidSurfaceDescriptor? next) {
+    _androidSurfaceSub = ctrl.surfaceChanges.listen((
+      AndroidSurfaceDescriptor? next,
+    ) {
       if (_disposed || _client == null || _client!.isDisposed) return;
       unawaited(_enqueueAndroidSurfaceUpdate(next, sourceCtrl: ctrl));
     });
@@ -491,7 +497,12 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
       );
     });
     _androidSurfaceSerial = op.catchError((Object e, StackTrace _) {
-      PlaybackLogHelper.record(logStore, 'mpv-surface', 'Android 表面更新任务异常：$e', isError: true);
+      PlaybackLogHelper.record(
+        logStore,
+        'mpv-surface',
+        'Android 表面更新任务异常：$e',
+        isError: true,
+      );
     });
     return op;
   }
@@ -582,7 +593,10 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
     if (rc >= 0) {
       _activeAndroidVo = MpvQualityProfile.androidVideoDriver;
     } else {
-      client.setPropertyString('vo', MpvQualityProfile.androidLegacyVideoDriver);
+      client.setPropertyString(
+        'vo',
+        MpvQualityProfile.androidLegacyVideoDriver,
+      );
       _activeAndroidVo = MpvQualityProfile.androidLegacyVideoDriver;
     }
     _setRenderBackend(_activeAndroidVo);
@@ -670,13 +684,14 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
   }
 
   /// 装载前依据已解析的结构化视频编码/位深预判硬件解码安全性，避免对已知 Hi10P / HEVC Rext 启动无效 MediaCodec。
-  void _applyPreLoadHwdecPolicy(LibMpvClient client, MediaVariantRecord variant) {
+  void _applyPreLoadHwdecPolicy(
+    LibMpvClient client,
+    MediaVariantRecord variant,
+  ) {
     if (!_hwdecWasEnabled || _closingSilenced) return;
     final platform = _useAndroidSurfaceSession
         ? HwdecPlatformKind.android
-        : (_isWindows
-              ? HwdecPlatformKind.windows
-              : HwdecPlatformKind.other);
+        : (_isWindows ? HwdecPlatformKind.windows : HwdecPlatformKind.other);
     final decision = HwdecSafetyPolicy.evaluateVariantMetadata(
       platform: platform,
       videoCodec: variant.videoCodec,
@@ -686,7 +701,8 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
       _hwdecFallbackAttempted = true;
       _usingSoftwareFallback = true;
       _setHwdecWithAndroidVoGuard(client, 'no', threads: '0');
-      PlaybackLogHelper.record(logStore, 
+      PlaybackLogHelper.record(
+        logStore,
         'mpv-hwdec-guard',
         'preload rule=${decision.matchedRule} codec=${variant.videoCodec} bitDepth=${variant.bitDepth} -> hwdec=no',
       );
@@ -806,14 +822,16 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
       client,
       config: config,
       isHdrSource: _lastDynamicHdrActive ?? false,
-      hasSecondarySubtitle: _hasSecondarySubtitle,
       isAndroidOverride: _useAndroidSurfaceSession,
       desktopDelegate: desktopProfileDelegate,
       verifiedShaderPaths: verifiedShaders,
       onExclusiveFallbackNotice: onNotice,
       logStore: logStore,
     );
-    if (needAndroidVoGuard && !_disposed && !_closingSilenced && !client.isDisposed) {
+    if (needAndroidVoGuard &&
+        !_disposed &&
+        !_closingSilenced &&
+        !client.isDisposed) {
       _applyAndroidVo(client);
       client.setPropertyFlag('pause', wasPaused);
     }
@@ -846,9 +864,7 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
         client.getPropertyString('video-dec-params/hw-pixelformat');
     final platform = _useAndroidSurfaceSession
         ? HwdecPlatformKind.android
-        : (_isWindows
-              ? HwdecPlatformKind.windows
-              : HwdecPlatformKind.other);
+        : (_isWindows ? HwdecPlatformKind.windows : HwdecPlatformKind.other);
     final decision = HwdecSafetyPolicy.evaluate(
       platform: platform,
       videoCodec: codec,
@@ -862,7 +878,8 @@ extension EmbeddedMpvSessionSurface on EmbeddedMpvSession {
     _hwdecFallbackAttempted = true;
     _usingSoftwareFallback = true;
     _applySoftwareDecodeTransition(client, reloadFile: false);
-    PlaybackLogHelper.record(logStore, 
+    PlaybackLogHelper.record(
+      logStore,
       'mpv-hwdec-guard',
       'rule=${decision.matchedRule} codec=$codec profile=$profile pixfmt=$pixfmt hw=$hwPixfmt -> hwdec=no',
     );

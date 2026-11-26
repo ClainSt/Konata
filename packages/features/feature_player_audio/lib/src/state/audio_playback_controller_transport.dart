@@ -49,7 +49,10 @@ extension _AudioPlaybackControllerTransport on AudioPlaybackController {
         client.isInitialized &&
         previousItem != null &&
         (previousItem.isCueTrack || targetItem.isCueTrack) &&
-        AudioPlaybackQueueBuilder.isSamePhysicalStream(previousItem, targetItem);
+        AudioPlaybackQueueBuilder.isSamePhysicalStream(
+          previousItem,
+          targetItem,
+        );
 
     if (samePhysicalCue && manualSelection) {
       _engine.advanceLogicalTrack(resetLyricsDomain: true);
@@ -82,7 +85,11 @@ extension _AudioPlaybackControllerTransport on AudioPlaybackController {
           clearErrorMessage: true,
         ),
       );
-      _applyVolumeWithSafetyFade(client: client, plan: plan, useMicroFade: true);
+      _applyVolumeWithSafetyFade(
+        client: client,
+        plan: plan,
+        useMicroFade: true,
+      );
       _reconcileClockObservation();
       _armCueBoundaryWatchdog();
       _syncLyricsForActiveTrack();
@@ -128,18 +135,23 @@ extension _AudioPlaybackControllerTransport on AudioPlaybackController {
         isBuffering: true,
         currentIndex: index,
         playOrderPos: playOrderPos >= 0 ? playOrderPos : snap.playOrderPos,
+        audioTrackEndActionPending: false,
         clearErrorMessage: true,
       ),
     );
 
+    bool isCurrent() =>
+        !_disposed &&
+        openSeq == _mediaOpenSeq &&
+        identical(_client, activeClient) &&
+        _engine.matchesPhysicalEvent(physicalMediaEpoch: epoch);
     try {
       final targetUri = await _resolveMediaTargetAndBindLease(
         item: targetItem,
         isPrefetch: false,
+        isCurrent: isCurrent,
       );
-      if (_disposed ||
-          openSeq != _mediaOpenSeq ||
-          !_engine.matchesPhysicalEvent(physicalMediaEpoch: epoch)) {
+      if (targetUri == null || !isCurrent()) {
         return;
       }
 
@@ -165,14 +177,16 @@ extension _AudioPlaybackControllerTransport on AudioPlaybackController {
       }
 
       activeClient.setPropertyFlag('pause', false);
-      final rc = activeClient.command(<String>['loadfile', targetUri, 'replace']);
+      final rc = activeClient.command(<String>[
+        'loadfile',
+        targetUri,
+        'replace',
+      ]);
       if (rc < 0) {
-        throw StateError(
-          '音频文件装载命令返回异常 ($rc: ${activeClient.errorString(rc)})',
-        );
+        throw StateError('音频文件装载命令返回异常 ($rc: ${activeClient.errorString(rc)})');
       }
 
-      if (!_engine.matchesPhysicalEvent(physicalMediaEpoch: epoch)) return;
+      if (!isCurrent()) return;
       _playingNotifier.value = true;
       _updateSnapshot(
         _snapshotNotifier.value.copyWith(
@@ -192,7 +206,7 @@ extension _AudioPlaybackControllerTransport on AudioPlaybackController {
       _scheduleAuxiliaryLoad(targetItem);
       _syncAndroidMediaSession(forcePosition: true);
     } catch (error, stackTrace) {
-      if (!_engine.matchesPhysicalEvent(physicalMediaEpoch: epoch)) return;
+      if (!isCurrent()) return;
       await _handlePhysicalLoadFailure(
         message: '加载音频流失败：${targetItem.title}',
         error: error,
@@ -271,17 +285,16 @@ extension _AudioPlaybackControllerTransport on AudioPlaybackController {
     );
     if (expanded.insertedCount <= 0) return 0;
 
-    final updatedExpandedPaths = Set<String>.from(currentSnap.expandedCuePaths)
-      ..add(
-        AudioPlaybackQueueBuilder.normalizeQueuePath(cuePath).toLowerCase(),
-      );
+    final updatedExpandedPaths = Set<String>.from(
+      currentSnap.expandedCuePaths,
+    )..add(AudioPlaybackQueueBuilder.normalizeQueuePath(cuePath).toLowerCase());
     final nextCurrentIndex = currentSnap.currentIndex > resolvedIndex
         ? currentSnap.currentIndex + expanded.insertedCount - 1
         : currentSnap.currentIndex;
     final nextOrder = AudioPlaybackQueueBuilder.buildPlayOrder(
       length: expanded.queue.length,
       currentIndex: nextCurrentIndex,
-      shuffle: currentSnap.shuffleEnabled,
+      shuffle: currentSnap.loopMode == AudioLoopMode.shuffle,
     );
     final nextOrderPos = nextCurrentIndex >= 0
         ? nextOrder.indexOf(nextCurrentIndex)
@@ -329,7 +342,7 @@ extension _AudioPlaybackControllerTransport on AudioPlaybackController {
     final nextOrder = AudioPlaybackQueueBuilder.buildPlayOrder(
       length: collapsed.queue.length,
       currentIndex: collapsed.newCurrentIndex,
-      shuffle: currentSnap.shuffleEnabled,
+      shuffle: currentSnap.loopMode == AudioLoopMode.shuffle,
     );
     final nextOrderPos = collapsed.newCurrentIndex >= 0
         ? nextOrder.indexOf(collapsed.newCurrentIndex)
@@ -349,18 +362,37 @@ extension _AudioPlaybackControllerTransport on AudioPlaybackController {
   Future<void> _handleNaturalTrackCompletion({
     required bool fromCueBoundary,
   }) async {
-    final snap = _snapshotNotifier.value;
+    var snap = _snapshotNotifier.value;
     if (snap.audioTrackEndActionPending || snap.queue.isEmpty) return;
+    final physicalEpoch = _engine.physicalMediaEpoch;
+    final logicalEpoch = _engine.logicalTrackEpoch;
+    final openSeq = _mediaOpenSeq;
+    bool isCurrent() =>
+        !_disposed &&
+        openSeq == _mediaOpenSeq &&
+        physicalEpoch == _engine.physicalMediaEpoch &&
+        logicalEpoch == _engine.logicalTrackEpoch;
     _updateSnapshot(snap.copyWith(audioTrackEndActionPending: true));
     try {
       await _persistPlaybackHistory(force: true, markCompleted: true);
+      if (!isCurrent()) return;
+      snap = _snapshotNotifier.value;
 
       if (snap.loopMode == AudioLoopMode.loopOne) {
         final item = snap.currentItem;
         if (item != null) {
-          await seekRelativeTrackSeconds(0.0);
-          if (!_playingNotifier.value) {
-            await setPlaying(true);
+          if (fromCueBoundary) {
+            // 分轨边界仍有存活物理流，直接定位以避免重复装载。
+            await seekRelativeTrackSeconds(0.0);
+            if (!_playingNotifier.value) {
+              await setPlaying(true);
+            }
+          } else {
+            // 音频内核 keep-open=no，物理 EOF 后必须重新装载，不能只移动界面时钟。
+            await _playQueueIndexInternal(
+              snap.currentIndex,
+              manualSelection: false,
+            );
           }
         }
         return;
@@ -395,7 +427,8 @@ extension _AudioPlaybackControllerTransport on AudioPlaybackController {
             currentItem,
             nextItem,
           ) &&
-          (nextItem.startSeconds - (currentItem.endSeconds ?? 0.0)).abs() <= 0.6;
+          (nextItem.startSeconds - (currentItem.endSeconds ?? 0.0)).abs() <=
+              0.6;
 
       if (isContiguousCueStep) {
         _engine.advanceLogicalTrack(resetLyricsDomain: true);
@@ -427,7 +460,7 @@ extension _AudioPlaybackControllerTransport on AudioPlaybackController {
       );
       await _playQueueIndexInternal(nextQueueIdx, manualSelection: false);
     } finally {
-      if (!_disposed && _snapshotNotifier.value.audioTrackEndActionPending) {
+      if (isCurrent() && _snapshotNotifier.value.audioTrackEndActionPending) {
         _updateSnapshot(
           _snapshotNotifier.value.copyWith(audioTrackEndActionPending: false),
         );
@@ -474,16 +507,23 @@ extension _AudioPlaybackControllerTransport on AudioPlaybackController {
     );
   }
 
-  Future<String> _resolveMediaTargetAndBindLease({
+  Future<String?> _resolveMediaTargetAndBindLease({
     required AudioQueueItem item,
     required bool isPrefetch,
-    int? prefetchPlaylistEntryId,
+    required bool Function() isCurrent,
   }) async {
-    final physicalPath = AudioPlaybackQueueBuilder.resolvePhysicalMediaPath(item);
+    final physicalPath = AudioPlaybackQueueBuilder.resolvePhysicalMediaPath(
+      item,
+    );
     final gateway = await _gatewayFactory.create(item.source);
+    if (!isCurrent()) {
+      await gateway.close();
+      return null;
+    }
     if (gateway is LocalSourceGateway) {
       try {
         final absPath = gateway.resolveAbsolutePath(physicalPath);
+        if (!isPrefetch) _replaceMainStreamToken(null);
         return absPath;
       } finally {
         await gateway.close();
@@ -502,20 +542,19 @@ extension _AudioPlaybackControllerTransport on AudioPlaybackController {
       ownsGateway: true,
       sourceKind: item.source.kind,
     );
+    if (!isCurrent()) {
+      await _streamBridge.unregisterSession(registered.token);
+      return null;
+    }
     if (isPrefetch) {
       _prefetchedStreamToken = registered.token;
-      final oldPrefetch = _engine.bindPrefetchStreamLease(
-        registered.token,
-        playlistEntryId: prefetchPlaylistEntryId,
-      );
+      final oldPrefetch = _engine.bindPrefetchStreamLease(registered.token);
       if (oldPrefetch != null) {
         unawaited(_streamBridge.unregisterSession(oldPrefetch));
       }
     } else {
-      final oldMain = _engine.bindMainStreamLease(registered.token);
-      if (oldMain != null) {
-        unawaited(_streamBridge.unregisterSession(oldMain));
-      }
+      _engine.bindMainStreamLease(registered.token);
+      _replaceMainStreamToken(registered.token);
     }
     return registered.url.toString();
   }
@@ -543,12 +582,21 @@ extension _AudioPlaybackControllerTransport on AudioPlaybackController {
     _clearPrefetchTracking(releaseBridge: true);
     _prefetchedItemId = nextItem.itemId;
 
+    final generation = _prefetchGeneration;
+    final epoch = _engine.physicalMediaEpoch;
+    bool isCurrent() =>
+        !_disposed &&
+        generation == _prefetchGeneration &&
+        identical(_client, client) &&
+        !client.isDisposed &&
+        _engine.matchesPhysicalEvent(physicalMediaEpoch: epoch);
     try {
       final targetUri = await _resolveMediaTargetAndBindLease(
         item: nextItem,
         isPrefetch: true,
+        isCurrent: isCurrent,
       );
-      if (_disposed || _prefetchedItemId != nextItem.itemId) return;
+      if (targetUri == null || !isCurrent()) return;
       final token = _prefetchedStreamToken;
       if (token != null) {
         unawaited(
@@ -560,13 +608,31 @@ extension _AudioPlaybackControllerTransport on AudioPlaybackController {
         );
       }
       if (_snapshotNotifier.value.currentItem?.endSeconds == null) {
-        final appendRc = client.command(<String>['loadfile', targetUri, 'append']);
+        final appendRc = client.command(<String>[
+          'loadfile',
+          targetUri,
+          'append',
+        ]);
         if (appendRc >= 0) {
-          _expectedAppendPlaylistEntryId =
-              (_engine.currentPlaylistEntryId ?? 0) + 1;
+          // 播放列表项 ID 由内核分配，清空及替换队列后不保证连续。
+          final count = client.getPropertyInt64('playlist-count') ?? 0;
+          final entryId = count > 1
+              ? client.getPropertyInt64('playlist/${count - 1}/id')
+              : null;
+          if (entryId != null && entryId > 0) {
+            _expectedAppendPlaylistEntryId = entryId;
+          } else {
+            // 无法确认原生队列归属时，保留控制器曲终推进路径，不让未知条目自动播放。
+            client.command(<String>['playlist-clear']);
+            _clearPrefetchTracking(releaseBridge: true);
+          }
+        } else {
+          _clearPrefetchTracking(releaseBridge: true);
         }
       }
-    } catch (_) {}
+    } catch (_) {
+      if (isCurrent()) _clearPrefetchTracking(releaseBridge: true);
+    }
   }
 
   void _promotePrefetchedTrack({required int playlistEntryId}) {
@@ -576,15 +642,13 @@ extension _AudioPlaybackControllerTransport on AudioPlaybackController {
     final targetIdx = snap.queue.indexWhere((q) => q.itemId == prefetchedId);
     if (targetIdx < 0) return;
 
-    final oldMain = _engine.promotePrefetchLeaseToMain(
-      playlistEntryId: playlistEntryId,
-    );
-    if (oldMain != null) {
-      unawaited(_streamBridge.unregisterSession(oldMain));
-    }
+    _engine.promotePrefetchLeaseToMain(playlistEntryId: playlistEntryId);
+    _replaceMainStreamToken(_prefetchedStreamToken);
     _clearPrefetchTracking(releaseBridge: false);
 
     final nextItem = snap.queue[targetIdx];
+    _rawDurationSeconds = nextItem.durationSeconds;
+    _lastConfirmedAudioPosSeconds = nextItem.startSeconds;
     final playOrderPos = snap.playOrder.indexOf(targetIdx);
     _positionNotifier.value = Duration.zero;
     _applyLogicalTrackDuration(nextItem);
@@ -593,6 +657,8 @@ extension _AudioPlaybackControllerTransport on AudioPlaybackController {
       snap.copyWith(
         currentIndex: targetIdx,
         playOrderPos: playOrderPos >= 0 ? playOrderPos : snap.playOrderPos,
+        isBuffering: true,
+        audioTrackEndActionPending: false,
         clearErrorMessage: true,
       ),
     );
@@ -601,14 +667,23 @@ extension _AudioPlaybackControllerTransport on AudioPlaybackController {
     _syncAndroidMediaSession(forcePosition: true);
   }
 
+  void _replaceMainStreamToken(String? token) {
+    final previous = _mainStreamToken;
+    _mainStreamToken = token;
+    if (previous != null && previous != token) {
+      unawaited(_streamBridge.unregisterSession(previous));
+    }
+  }
+
   void _clearPrefetchTracking({required bool releaseBridge}) {
-    if (releaseBridge) {
-      final oldPrefetch = _engine.releasePrefetchLease();
-      if (oldPrefetch != null) {
-        unawaited(_streamBridge.unregisterSession(oldPrefetch));
-      } else if (_prefetchedStreamToken != null) {
-        unawaited(_streamBridge.unregisterSession(_prefetchedStreamToken!));
+    _prefetchGeneration++;
+    final token = _prefetchedStreamToken;
+    if (releaseBridge && token != null) {
+      // 仅释放自身持有的租约，切换舞台后不触碰其他播放器的预取流。
+      if (_engine.prefetchStreamLease?.leaseToken == token) {
+        _engine.releasePrefetchLease();
       }
+      unawaited(_streamBridge.unregisterSession(token));
     }
     _prefetchedItemId = null;
     _prefetchedStreamToken = null;
@@ -626,6 +701,7 @@ extension _AudioPlaybackControllerTransport on AudioPlaybackController {
       return currentPos + 1;
     }
     if (snap.loopMode == AudioLoopMode.loopAll ||
+        snap.loopMode == AudioLoopMode.shuffle ||
         (manual && snap.loopMode == AudioLoopMode.loopOne)) {
       return 0;
     }
@@ -639,7 +715,8 @@ extension _AudioPlaybackControllerTransport on AudioPlaybackController {
     if (currentPos - 1 >= 0) {
       return currentPos - 1;
     }
-    if (snap.loopMode == AudioLoopMode.loopAll) {
+    if (snap.loopMode == AudioLoopMode.loopAll ||
+        snap.loopMode == AudioLoopMode.shuffle) {
       return snap.playOrder.length - 1;
     }
     return null;

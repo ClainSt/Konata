@@ -146,6 +146,9 @@ final class VideoPlaybackEnvironment {
   final bool enablePeriodicTimers;
 }
 
+/// 视频舞台与两类小窗的互斥显示形态。
+enum VideoMiniMode { stage, floating, desktop }
+
 /// 内置视频播放页面完整不可变视图状态（高频进度与悬浮坐标分离至叶子监听器）。
 @immutable
 class VideoPlaybackState {
@@ -156,7 +159,7 @@ class VideoPlaybackState {
     this.hasFirstFrame = false,
     this.isPlaying = false,
     this.isClosing = false,
-    this.isMiniPlayer = false,
+    this.miniMode = VideoMiniMode.stage,
     this.currentWork,
     this.currentBundle,
     required this.currentEpisode,
@@ -185,7 +188,6 @@ class VideoPlaybackState {
     this.subtitleDelaySeconds = 0.0,
     this.audioDelaySeconds = 0.0,
     this.subtitleOpenCcMode = SubtitleOpenCcMode.none,
-    this.secondarySubtitleTrackId,
     this.activeSubtitleSubsetState,
     this.isApplyingCloudSubset = false,
     this.trackMemory = const CrossEpisodeTrackMemory(),
@@ -225,7 +227,8 @@ class VideoPlaybackState {
   final bool hasFirstFrame;
   final bool isPlaying;
   final bool isClosing;
-  final bool isMiniPlayer;
+  final VideoMiniMode miniMode;
+  bool get isMiniPlayer => miniMode != VideoMiniMode.stage;
   final WorkRecord? currentWork;
   final VideoWorkBundle? currentBundle;
   final EpisodeRecord currentEpisode;
@@ -256,9 +259,6 @@ class VideoPlaybackState {
 
   /// 当前主字幕的内存繁简转换模式。
   final SubtitleOpenCcMode subtitleOpenCcMode;
-
-  /// 当前激活的副字幕轨道编号。
-  final int? secondarySubtitleTrackId;
 
   /// 当前外挂字幕字体子集化三态检测结果。
   final SubtitleSubsetState? activeSubtitleSubsetState;
@@ -297,7 +297,7 @@ class VideoPlaybackState {
     bool? hasFirstFrame,
     bool? isPlaying,
     bool? isClosing,
-    bool? isMiniPlayer,
+    VideoMiniMode? miniMode,
     WorkRecord? currentWork,
     VideoWorkBundle? currentBundle,
     EpisodeRecord? currentEpisode,
@@ -327,8 +327,6 @@ class VideoPlaybackState {
     double? subtitleDelaySeconds,
     double? audioDelaySeconds,
     SubtitleOpenCcMode? subtitleOpenCcMode,
-    int? secondarySubtitleTrackId,
-    bool clearSecondarySubtitleTrackId = false,
     SubtitleSubsetState? activeSubtitleSubsetState,
     bool clearActiveSubtitleSubsetState = false,
     bool? isApplyingCloudSubset,
@@ -349,7 +347,7 @@ class VideoPlaybackState {
       hasFirstFrame: hasFirstFrame ?? this.hasFirstFrame,
       isPlaying: isPlaying ?? this.isPlaying,
       isClosing: isClosing ?? this.isClosing,
-      isMiniPlayer: isMiniPlayer ?? this.isMiniPlayer,
+      miniMode: miniMode ?? this.miniMode,
       currentWork: currentWork ?? this.currentWork,
       currentBundle: currentBundle ?? this.currentBundle,
       currentEpisode: currentEpisode ?? this.currentEpisode,
@@ -380,9 +378,6 @@ class VideoPlaybackState {
       subtitleDelaySeconds: subtitleDelaySeconds ?? this.subtitleDelaySeconds,
       audioDelaySeconds: audioDelaySeconds ?? this.audioDelaySeconds,
       subtitleOpenCcMode: subtitleOpenCcMode ?? this.subtitleOpenCcMode,
-      secondarySubtitleTrackId: clearSecondarySubtitleTrackId
-          ? null
-          : (secondarySubtitleTrackId ?? this.secondarySubtitleTrackId),
       activeSubtitleSubsetState: clearActiveSubtitleSubsetState
           ? null
           : (activeSubtitleSubsetState ?? this.activeSubtitleSubsetState),

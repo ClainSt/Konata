@@ -27,7 +27,7 @@ Konata v3 番剧详情页、正片 / 特典 / CD 编排、正片单并发流式�
 - **三端同源 UI 与弹窗（`lib/src/ui/`）**：
   - `WorkDetailPage`、`DetailWideOverlayStageLayout`、`DetailPortraitStageLayout`（Android 手机纯竖屏锁定与 `portraitBackdropRef` 吸色溶底；Windows/平板横屏清澈 16:9 原画舞台并完整保留桌面窗口控制栏；统一所有外部扩展动作进入唯一 `⚙`）；
   - `DetailHeroInfo`（统一保留 `[开始/继续播放]` + `[系列胶囊]` 双胶囊主操作行）、`DetailStylizedTitleBlock`、`SeriesSwitcherDropdown` + `showSeriesSelectorModal`（手机底部全宽抽屉 / 桌面平板居中宽弹窗，支持 `全部 / TV / 剧场版 / OVA` 筛选与实时搜索）；
-  - `DetailSecondaryFilterBar`、`DetailBottomDrawer`（三端统一单条毛玻璃分类胶囊、展开态右端弹性伸出 `⊞`、彻底移除 `⌄`、三端保留横向大剧照选集卡轨道）、`EpisodeDrawerCard`、`CdDrawerCard`、`DetailGearMenu`、`DetailFullListDialog`；
+  - `DetailSecondaryFilterBar`、`DetailBottomDrawer`（三端统一单条毛玻璃分类胶囊、展开态右端弹性伸出 `⊞`、彻底移除 `⌄`、三端保留横向大剧照选集卡轨道）、`EpisodeDrawerCard`、`CdDrawerCard`、`DetailGearMenu`（九项内置管理动作按固定顺序展示，移除作品需二次确认）、`DetailFullListDialog`；
   - `WorkArtworkPickerDialog`（含 `WorkArtworkKind.portraitBackdrop` 竖版无字原画挑选、本地裁切与重置）、`ArtworkCropDialog`、`VideoFrameCandidateTile`、`WorkManualEditDialog`、`ManualMatchDialog`、`SeriesManageDialog`、`VariantPickerDialog`、`EpisodeMediaInfoDialog`、`FileMappingPanel`、`EpisodeSlotPickerButton`、`SupplementaryScopePanel`、`SourceFilesReviewDialog`、`WorkMergeTargetDialog`。
 
 ## 验证说明

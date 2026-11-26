@@ -1,5 +1,7 @@
 import 'package:engine_playback/engine_playback.dart';
 import 'package:feature_player_audio/feature_player_audio.dart';
+import 'package:flutter/gestures.dart'
+    show kSecondaryMouseButton, PointerDeviceKind;
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -77,6 +79,7 @@ void main() {
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
     final spyWindow = SpyHostWindowPort();
+    addTearDown(spyWindow.dispose);
     final h = createHarness(windowPort: spyWindow);
     h.prefsRepo.update((p) => p.copyWith(exclusiveAudioOutput: true));
     addTearDown(() async {
@@ -126,10 +129,119 @@ void main() {
     expect(find.text('01:05'), findsOneWidget);
     expect(outerBuilds, 1);
 
-    // 点击桌面迷你窗切换按钮触发宿主窗口端口。
+    // 模拟缩窗后的真实视口，确认仍使用同一音频实例、曲目及播放位置。
+    final loadCount = mpv.commands.where((c) => c.first == 'loadfile').length;
+    final trackId = h.controller.snapshot.currentItem!.itemId;
     await tester.tap(find.byIcon(Icons.picture_in_picture_alt_rounded));
     await tester.pump();
+    await tester.binding.setSurfaceSize(const Size(336, 76));
+    await tester.pump();
     expect(spyWindow.enterMiniCount, 1);
+    expect(spyWindow.lastMiniWidth, 336);
+    expect(spyWindow.lastMiniHeight, 76);
+    expect(
+      find.byKey(const ValueKey('audio_desktop_mini_stage')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('mini_audio_expanded_capsule')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('salt_smoke_playback_capsule')),
+      findsNothing,
+    );
+    expect(find.text('First Song'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    expect(h.clients.single, same(mpv));
+    expect(h.controller.currentTrackPositionSeconds, closeTo(65, 0.1));
+    spyWindow.moveEvents.add(null);
+    await tester.pump();
+    expect(spyWindow.snapCount, 1);
+    expect(
+      find.byKey(const ValueKey('mini_audio_expanded_capsule')),
+      findsOneWidget,
+    );
+    spyWindow.nextDockSide = DesktopMiniDockSide.left;
+    spyWindow.moveEvents.add(null);
+    await tester.pump();
+    await tester.binding.setSurfaceSize(const Size(40, 88));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('mini_audio_tucked_tab')), findsOneWidget);
+    expect(find.byIcon(Icons.chevron_right_rounded), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('mini_audio_tucked_tab')));
+    await tester.pump();
+    await tester.binding.setSurfaceSize(const Size(72, 72));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('mini_audio_disc_surface')));
+    await tester.pump();
+    await tester.binding.setSurfaceSize(const Size(336, 76));
+    await tester.pump();
+    spyWindow.nextDockSide = DesktopMiniDockSide.right;
+    spyWindow.moveEvents.add(null);
+    await tester.pump();
+    await tester.binding.setSurfaceSize(const Size(40, 88));
+    await tester.pump();
+    expect(find.byIcon(Icons.chevron_left_rounded), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('mini_audio_tucked_tab')));
+    await tester.pump();
+    await tester.binding.setSurfaceSize(const Size(72, 72));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('mini_audio_disc_surface')));
+    await tester.pump();
+    await tester.binding.setSurfaceSize(const Size(336, 76));
+    await tester.pump();
+    await tester.tap(find.byTooltip('收起'));
+    await tester.pump();
+    await tester.binding.setSurfaceSize(const Size(72, 72));
+    await tester.pump();
+    expect(spyWindow.lastMiniWidth, 72);
+    expect(spyWindow.lastMiniHeight, 72);
+    expect(
+      find.byKey(const ValueKey('mini_audio_disc_surface')),
+      findsOneWidget,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('mini_audio_disc_surface')),
+      buttons: kSecondaryMouseButton,
+      kind: PointerDeviceKind.mouse,
+    );
+    await tester.pump();
+    await tester.binding.setSurfaceSize(const Size(40, 88));
+    await tester.pump();
+    expect(spyWindow.lastMiniWidth, 40);
+    expect(spyWindow.lastMiniHeight, 88);
+    expect(find.byKey(const ValueKey('mini_audio_tucked_tab')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('mini_audio_tucked_tab')));
+    await tester.pump();
+    await tester.binding.setSurfaceSize(const Size(72, 72));
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('mini_audio_disc_surface')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey('mini_audio_disc_surface')));
+    await tester.pump();
+    await tester.binding.setSurfaceSize(const Size(336, 76));
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('mini_audio_expanded_capsule')),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('First Song'));
+    await tester.binding.setSurfaceSize(const Size(1280, 800));
+    await tester.pump();
+    expect(spyWindow.exitMiniCount, 1);
+    expect(
+      find.byKey(const ValueKey('audio_desktop_mini_stage')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('salt_smoke_playback_capsule')),
+      findsOneWidget,
+    );
+    expect(h.controller.snapshot.currentItem!.itemId, trackId);
+    expect(mpv.commands.where((c) => c.first == 'loadfile').length, loadCount);
   });
 
   testWidgets(
@@ -217,6 +329,117 @@ void main() {
     },
   );
 
+  test('桌面音频小窗失败时回滚状态，保留原播放会话并允许重试', () async {
+    final host = SpyHostWindowPort();
+    final h = createHarness(windowPort: host);
+    addTearDown(() async {
+      h.controller.dispose();
+      await h.db.close();
+    });
+    await h.controller.playCdCollection(
+      work: makeTestWork(),
+      variants: [
+        makeTestCdVariant(id: 'v1', relativePath: 'CD/01. First Song.flac'),
+      ],
+      sources: [makeTestSource()],
+    );
+    final mpv = h.clients.single;
+    mpv.emitDuration(240);
+    mpv.emitTimePos(65);
+    await Future<void>.delayed(Duration.zero);
+    final loads = mpv.commands.where((c) => c.first == 'loadfile').length;
+    host.failEnterMini = true;
+    await expectLater(
+      h.controller.setDesktopMiniWindow(true),
+      throwsStateError,
+    );
+    expect(h.controller.snapshot.isDesktopMiniWindow, isFalse);
+    host.failEnterMini = false;
+    await h.controller.setDesktopMiniWindow(true);
+    host.failEnterMini = true;
+    await expectLater(
+      h.controller.resizeDesktopMiniWindow(width: 72, height: 72),
+      throwsStateError,
+    );
+    expect(h.controller.snapshot.isDesktopMiniWindow, isTrue);
+    host.failEnterMini = false;
+    await h.controller.resizeDesktopMiniWindow(width: 72, height: 72);
+    expect(host.lastMiniWidth, 72);
+    host.failExitMini = true;
+    await expectLater(
+      h.controller.setDesktopMiniWindow(false),
+      throwsStateError,
+    );
+    expect(h.controller.snapshot.isDesktopMiniWindow, isTrue);
+    await expectLater(h.controller.stopAndClose(), throwsStateError);
+    expect(h.controller.snapshot.isDesktopMiniWindow, isTrue);
+    expect(h.controller.activeListenable.value, isTrue);
+    expect(mpv.isDisposed, isFalse);
+    host.failExitMini = false;
+    await h.controller.setDesktopMiniWindow(false);
+    expect(h.controller.snapshot.isDesktopMiniWindow, isFalse);
+    expect(h.clients.single, same(mpv));
+    expect(mpv.commands.where((c) => c.first == 'loadfile').length, loads);
+    expect(h.controller.currentTrackPositionSeconds, closeTo(65, 0.1));
+  });
+  testWidgets('长队列定位当前曲目，普通重建不抢占滚动，换曲重新定位且边缘渐隐', (tester) async {
+    final h = createHarness();
+    addTearDown(() async {
+      h.controller.dispose();
+      await h.db.close();
+    });
+    final source = makeTestSource();
+    final queue = AudioPlaybackQueueBuilder.buildInitialQueue(
+      work: makeTestWork(),
+      variants: [
+        for (var i = 0; i < 48; i++)
+          makeTestCdVariant(
+            id: 'track_$i',
+            relativePath: 'CD/${i.toString().padLeft(2, '0')}. Song $i.flac',
+          ),
+      ],
+      sourceById: {source.id.value: source},
+    );
+    AudioPlaybackSnapshot snapshot(int index) =>
+        AudioPlaybackSnapshot(queue: queue, currentIndex: index);
+    Widget app(int index) => _wrapWithApp(
+      Center(
+        child: SizedBox(
+          width: 300,
+          height: 280,
+          child: AudioQueueListView(
+            controller: h.controller,
+            snapshot: snapshot(index),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpWidget(app(40));
+    await tester.pump();
+    final list = find.byType(ListView);
+    final scroll = tester.widget<ListView>(list).controller!;
+    expect(scroll.offset, greaterThan(0));
+    final current = find.text(queue[40].title);
+    expect(current, findsOneWidget);
+    expect(tester.getRect(list).contains(tester.getCenter(current)), isTrue);
+    expect(find.byType(ShaderMask), findsOneWidget);
+    expect(find.byKey(const ValueKey('audio_playing_bars')), findsOneWidget);
+    scroll.jumpTo(0);
+    await tester.pump();
+    await tester.pumpWidget(app(40));
+    await tester.pump();
+    expect(scroll.offset, 0);
+    await tester.pumpWidget(app(25));
+    await tester.pump();
+    expect(scroll.offset, greaterThan(0));
+    expect(
+      tester
+          .getRect(list)
+          .contains(tester.getCenter(find.text(queue[25].title))),
+      isTrue,
+    );
+    expect(tester.takeException(), isNull);
+  });
   testWidgets('MiniAudioBar 拖拽直连叶子 ValueNotifier<Offset> 且支持点击展开胶囊控制与暂停止钟', (
     tester,
   ) async {
@@ -276,14 +499,31 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('First Song'), findsOneWidget);
+    expect(find.byKey(const ValueKey('audio_playing_bars')), findsOneWidget);
+    expect(find.text('CD'), findsNothing);
 
     await tester.tap(find.text('First Song'));
     await tester.pump();
     expect(expandCalled, 1);
 
-    // 暂停后重新渲染确保平稳无残留挂起动画。
-    await h.controller.setPlaying(false);
+    // 贴边时仍展示播放状态；暂停后停止持续重绘。
+    await tester.drag(
+      find.byKey(const ValueKey('mini_audio_expanded_capsule')),
+      const Offset(-900, 0),
+    );
     await tester.pump();
+    expect(find.byKey(const ValueKey('mini_audio_tucked_tab')), findsOneWidget);
+    expect(find.byKey(const ValueKey('audio_playing_bars')), findsOneWidget);
+    await h.controller.setPlaying(false);
+    await tester.pumpAndSettle();
+    expect(tester.binding.transientCallbackCount, 0);
+    await tester.tap(find.byKey(const ValueKey('mini_audio_tucked_tab')));
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('mini_audio_disc_surface')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('SettingsAudioPanel 与 featurePlayerAudioManifest 正确协同持久化和装配', (
@@ -433,7 +673,7 @@ void main() {
     final coverArt = tester.widget<AudioCoverArtworkView>(
       find.byType(AudioCoverArtworkView).first,
     );
-    expect(coverArt.showBorder, isTrue);
+    expect(coverArt.showBorder, isFalse);
     expect(find.byType(ImageFiltered), findsWidgets);
 
     // 3. 宽屏底部呈现超轻烟熏玻璃顶边发光进度胶囊，右侧一键切换歌词/队列。
@@ -449,8 +689,30 @@ void main() {
     final queue = find.byKey(const ValueKey('audio_desktop_queue_button'));
     expect(queue, findsOneWidget);
     await tester.tap(queue);
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(
+      find.byKey(const ValueKey('audio_desktop_queue_stage')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('audio_desktop_lyrics_stage')),
+      findsNothing,
+    );
+    expect(find.byType(KonataGlassSideSheet), findsNothing);
+    expect(find.byKey(const ValueKey('audio_playing_bars')), findsOneWidget);
     expect(find.text('Second Song'), findsOneWidget);
+    await tester.tap(queue);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(
+      find.byKey(const ValueKey('audio_desktop_lyrics_stage')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('audio_desktop_queue_stage')),
+      findsNothing,
+    );
     expect(tester.takeException(), isNull);
   });
 

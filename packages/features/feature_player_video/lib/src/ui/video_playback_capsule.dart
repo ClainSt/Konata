@@ -33,7 +33,6 @@ class VideoPlaybackCapsule extends StatefulWidget {
     required this.onSeek,
     required this.onPreviousEpisode,
     required this.onNextEpisode,
-    required this.onSelectSpeed,
     required this.onVolumeChanged,
     required this.onToggleMute,
     required this.onOpenEpisodesSheet,
@@ -41,7 +40,7 @@ class VideoPlaybackCapsule extends StatefulWidget {
     required this.onOpenAudioSheet,
     required this.onOpenVideoSheet,
     required this.onToggleFullscreen,
-    this.onCaptureScreenshot,
+    this.onOpenScreenshotMenu,
     this.thumbnailService,
     this.onVolumePopupActiveChanged,
     this.onUserInteraction,
@@ -126,9 +125,6 @@ class VideoPlaybackCapsule extends StatefulWidget {
   /// 切换下一话回调。
   final VoidCallback? onNextEpisode;
 
-  /// 调整倍速回调。
-  final ValueChanged<double> onSelectSpeed;
-
   /// 音量调整回调（输入范围 0.0 到 100.0）。
   final ValueChanged<double> onVolumeChanged;
 
@@ -150,8 +146,8 @@ class VideoPlaybackCapsule extends StatefulWidget {
   /// 切换全屏回调。
   final VoidCallback onToggleFullscreen;
 
-  /// 可选原画截图回调。
-  final VoidCallback? onCaptureScreenshot;
+  /// 可选原画截图菜单入口，由舞台统一管理菜单和播放器生命周期。
+  final ValueChanged<BuildContext>? onOpenScreenshotMenu;
 
   /// 音量竖条弹出交互锁回调。
   final ValueChanged<bool>? onVolumePopupActiveChanged;
@@ -176,17 +172,6 @@ class VideoPlaybackCapsule extends StatefulWidget {
 }
 
 class _VideoPlaybackCapsuleState extends State<VideoPlaybackCapsule> {
-  static const List<double> _speedOptions = <double>[
-    0.5,
-    0.75,
-    1.0,
-    1.25,
-    1.5,
-    2.0,
-    2.5,
-    3.0,
-  ];
-
   final ValueNotifier<double?> _dragSecondsNotifier = ValueNotifier<double?>(
     null,
   );
@@ -198,26 +183,6 @@ class _VideoPlaybackCapsuleState extends State<VideoPlaybackCapsule> {
     _dragSecondsNotifier.dispose();
     _previewNotifier.dispose();
     super.dispose();
-  }
-
-  Future<void> _showSpeedMenu(BuildContext anchorContext) async {
-    widget.onUserInteraction?.call();
-    final chosen = await showKonataGlassMenu<double>(
-      anchorContext: anchorContext,
-      minWidth: 132,
-      items: <KonataGlassMenuItem<double>>[
-        for (final spd in _speedOptions)
-          KonataGlassMenuItem<double>(
-            value: spd,
-            label:
-                '${spd.toStringAsFixed(spd == spd.roundToDouble() ? 1 : 2)}x'
-                '${(spd - widget.speed).abs() < 0.01 ? ' ✓' : ''}',
-          ),
-      ],
-    );
-    if (chosen != null) {
-      widget.onSelectSpeed(chosen);
-    }
   }
 
   String _formatSpeedLabel(double speed) {
@@ -452,18 +417,23 @@ class _VideoPlaybackCapsuleState extends State<VideoPlaybackCapsule> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Builder(
-            builder: (btnCtx) {
-              return MouseRegion(
+          if (widget.showDesktopControls && (widget.speed - 1.0).abs() >= 0.01)
+            Semantics(
+              button: true,
+              label: '播放倍速',
+              child: MouseRegion(
                 cursor: SystemMouseCursors.click,
                 child: GestureDetector(
                   key: const ValueKey('video_speed_button'),
                   behavior: HitTestBehavior.opaque,
-                  onTap: () => _showSpeedMenu(btnCtx),
+                  onTap: () {
+                    widget.onUserInteraction?.call();
+                    widget.onOpenVideoSheet();
+                  },
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 7,
-                      vertical: 6,
+                      horizontal: 5,
+                      vertical: 4,
                     ),
                     child: Text(
                       _formatSpeedLabel(widget.speed),
@@ -476,9 +446,8 @@ class _VideoPlaybackCapsuleState extends State<VideoPlaybackCapsule> {
                     ),
                   ),
                 ),
-              );
-            },
-          ),
+              ),
+            ),
           KonataCapsuleIconButton(
             key: const ValueKey('video_episodes_sheet_button'),
             icon: Icons.view_list_rounded,
@@ -518,24 +487,22 @@ class _VideoPlaybackCapsuleState extends State<VideoPlaybackCapsule> {
               widget.onOpenAudioSheet();
             },
           ),
-          KonataCapsuleIconButton(
-            key: const ValueKey('video_capsule_screenshot_button'),
-            icon: Icons.camera_alt_outlined,
-            tooltip: '原画截图',
-            color: fg,
-            size: 18,
-            fixedSize: actionButtonSize,
-            padding: EdgeInsets.zero,
-            onTap: widget.onCaptureScreenshot != null
-                ? () {
-                    widget.onUserInteraction?.call();
-                    widget.onCaptureScreenshot!();
-                  }
-                : () {
-                    widget.onUserInteraction?.call();
-                    widget.onOpenVideoSheet();
-                  },
-          ),
+          if (widget.onOpenScreenshotMenu != null)
+            Builder(
+              builder: (anchor) => KonataCapsuleIconButton(
+                key: const ValueKey('video_capsule_screenshot_button'),
+                icon: Icons.camera_alt_outlined,
+                tooltip: '原画截图',
+                color: fg,
+                size: 18,
+                fixedSize: actionButtonSize,
+                padding: EdgeInsets.zero,
+                onTap: () {
+                  widget.onUserInteraction?.call();
+                  widget.onOpenScreenshotMenu!(anchor);
+                },
+              ),
+            ),
           if (widget.showDesktopControls) ...[
             KonataVolumeControl(
               volume: (widget.volume / 100.0).clamp(0.0, 1.0),

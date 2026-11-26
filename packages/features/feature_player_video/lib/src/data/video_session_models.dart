@@ -11,6 +11,7 @@ class VideoLaunchRequest {
     this.episodeId,
     this.variantId,
     this.initialPositionSeconds,
+    this.initialPlaying = true,
     this.initialBundle,
   });
 
@@ -25,6 +26,9 @@ class VideoLaunchRequest {
 
   /// 可选外部指定跳转起点（整秒）。
   final int? initialPositionSeconds;
+
+  /// 冷恢复时保存的播放或暂停态，常规起播默认播放。
+  final bool initialPlaying;
 
   /// 可选调用方已缓存的作品视频聚合数据包（加速首帧拉起，省去重复查库）。
   final VideoWorkBundle? initialBundle;
@@ -50,11 +54,17 @@ class VideoLaunchRequest {
       other.workId == workId &&
       other.episodeId == episodeId &&
       other.variantId == variantId &&
-      other.initialPositionSeconds == initialPositionSeconds;
+      other.initialPositionSeconds == initialPositionSeconds &&
+      other.initialPlaying == initialPlaying;
 
   @override
-  int get hashCode =>
-      Object.hash(workId, episodeId, variantId, initialPositionSeconds);
+  int get hashCode => Object.hash(
+    workId,
+    episodeId,
+    variantId,
+    initialPositionSeconds,
+    initialPlaying,
+  );
 }
 
 /// 视频播放所需的作品、剧集、物理版本、媒体源与续播记录只读聚合包。

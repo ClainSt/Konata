@@ -1,11 +1,9 @@
 import 'dart:convert';
 import 'dart:developer' as developer;
-import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:konata_contracts/konata_contracts.dart'
     show EpisodeTitleFormatter;
-import 'package:path/path.dart' as p;
 
 import '../formatting/video_frame_selector.dart';
 import '../matching/directory_grouper.dart';
@@ -14,7 +12,6 @@ import '../matching/season_zero_main_matcher.dart';
 import '../matching/supplementary_subclassifier.dart';
 import '../matching/work_matcher.dart';
 import '../models/episode.dart';
-import '../models/media_source.dart';
 import '../models/media_variant.dart';
 import '../models/tmdb_models.dart';
 import '../models/work.dart';
@@ -24,13 +21,16 @@ import '../scraping/bangumi_models.dart';
 import '../scraping/directory_analyzer.dart';
 import '../scraping/scrape_rules.dart' as rules;
 import 'library_repository.dart';
+import 'work_artwork_storage.dart';
 
 /// 刮削结果持久化器。
 ///
 /// 负责将归组作品、季级详情、Top-5 复核候选、逻辑剧集与多版本物理文件写入仓储。
 class ScrapeWorkPersister {
   /// 创建持久化器。
-  const ScrapeWorkPersister(this._repository);
+  const ScrapeWorkPersister(this._repository, {this._photosStorage});
+
+  final WorkArtworkStoragePort? _photosStorage;
 
   final LibraryRepository _repository;
 
@@ -1160,10 +1160,7 @@ class ScrapeWorkPersister {
 
     for (final staleStill in supersededLocalStills) {
       try {
-        final f = File(staleStill);
-        if (f.existsSync()) {
-          f.deleteSync();
-        }
+        await _photosStorage?.deleteManagedStill(work.id, staleStill);
       } catch (error) {
         developer.log(
           '清理已被官方剧照替换的本地抽帧文件失败已忽略',
@@ -1417,44 +1414,6 @@ class ScrapeWorkPersister {
       }
     }
     return null;
-  }
-
-  /// 将人工指定的 TMDB ID 写回本地顶层目录名称并同步更新变体路径。
-  Future<List<MediaVariant>> tryAppendTmdbIdToLocalFolder(
-    List<MediaVariant> variants,
-    int tmdbId,
-  ) async {
-    final first = variants.first;
-    final source = await _repository.findSourceById(first.sourceId);
-    if (source == null || source.kind != MediaSourceKind.local) return variants;
-
-    final topFolder = first.relativePath.split('/').first;
-    if (topFolder.isEmpty || topFolder == first.fileName) return variants;
-    if (RegExp(r'\[tmdbid=\d+\]', caseSensitive: false).hasMatch(topFolder)) {
-      return variants;
-    }
-
-    final oldDir = Directory(p.join(source.location, topFolder));
-    if (!oldDir.existsSync()) return variants;
-
-    final newFolderName = '$topFolder [tmdbid=$tmdbId]';
-    final newDir = Directory(p.join(source.location, newFolderName));
-    if (newDir.existsSync()) return variants;
-
-    await oldDir.rename(newDir.path);
-    final updatedVariants = <MediaVariant>[];
-    for (final variant in variants) {
-      if (!variant.relativePath.startsWith('$topFolder/')) {
-        updatedVariants.add(variant);
-        continue;
-      }
-      final newRel =
-          '$newFolderName/${variant.relativePath.substring(topFolder.length + 1)}';
-      final nextVariant = variant.copyWith(relativePath: newRel);
-      await _repository.upsertMediaVariant(nextVariant);
-      updatedVariants.add(nextVariant);
-    }
-    return updatedVariants;
   }
 }
 

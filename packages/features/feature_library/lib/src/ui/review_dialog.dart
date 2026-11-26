@@ -1,7 +1,8 @@
 import 'package:engine_scraping/engine_scraping.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:konata_contracts/konata_contracts.dart' show WorkId;
+import 'package:konata_contracts/konata_contracts.dart'
+    show DiagnosticSubsystem, WorkId;
 import 'package:konata_design_system/konata_design_system.dart';
 
 import '../data/library_models.dart';
@@ -34,6 +35,7 @@ class _ReviewDialogState extends ConsumerState<_ReviewDialog> {
 
   bool _loadingMeta = false;
   String _loadedFingerprint = '';
+  String? _failedFingerprint;
   bool _batchRetrying = false;
   int _batchDone = 0;
   int _batchTotal = 0;
@@ -44,13 +46,23 @@ class _ReviewDialogState extends ConsumerState<_ReviewDialog> {
     super.dispose();
   }
 
-  Future<void> _syncWorkSummaries(List<Work> pending) async {
-    final fingerprint = pending
-        .map((w) => '${w.id}:${w.reviewReason ?? ""}')
-        .join('|');
-    if (_loadingMeta || fingerprint == _loadedFingerprint) return;
-    _loadedFingerprint = fingerprint;
-    _loadingMeta = true;
+  String _fingerprint(List<Work> pending) =>
+      pending.map((w) => '${w.id}:${w.reviewReason ?? ""}').join('|');
+
+  Future<void> _syncWorkSummaries(
+    List<Work> pending, {
+    bool retry = false,
+  }) async {
+    final fingerprint = _fingerprint(pending);
+    if (_loadingMeta ||
+        fingerprint == _loadedFingerprint ||
+        (!retry && fingerprint == _failedFingerprint)) {
+      return;
+    }
+    setState(() {
+      _loadingMeta = true;
+      _failedFingerprint = null;
+    });
     try {
       final mgmt = ref.read(workManagementControllerProvider);
       final sourcesById = await mgmt.loadSourcesById();
@@ -66,15 +78,38 @@ class _ReviewDialogState extends ConsumerState<_ReviewDialog> {
         nextCounts[w.id] = variants.length;
         nextCands[w.id] = await mgmt.getScrapeCandidates(w.id);
       }
-      if (!mounted) return;
+      if (!mounted ||
+          fingerprint !=
+              _fingerprint(ref.read(libraryControllerProvider).reviewWorks)) {
+        return;
+      }
       setState(() {
-        _folderLabels.addAll(nextFolders);
-        _variantCounts.addAll(nextCounts);
-        _candidatesByWork.addAll(nextCands);
+        _loadedFingerprint = fingerprint;
+        _folderLabels
+          ..clear()
+          ..addAll(nextFolders);
+        _variantCounts
+          ..clear()
+          ..addAll(nextCounts);
+        _candidatesByWork
+          ..clear()
+          ..addAll(nextCands);
       });
-    } catch (_) {
+    } catch (error, stack) {
+      if (!mounted) return;
+      ref
+          .read(featureLibraryDependenciesProvider)
+          .diagnosticLog
+          .logError(
+            subsystem: DiagnosticSubsystem.ui,
+            code: 'review_summary_load_failed',
+            message: '待复核信息读取失败',
+            error: error,
+            stackTrace: stack,
+          );
+      setState(() => _failedFingerprint = fingerprint);
     } finally {
-      _loadingMeta = false;
+      if (mounted) setState(() => _loadingMeta = false);
     }
   }
 
@@ -87,6 +122,19 @@ class _ReviewDialogState extends ConsumerState<_ReviewDialog> {
           .getScrapeCandidates(workId);
       if (!mounted) return;
       setState(() => _candidatesByWork[workId] = list);
+    } catch (error, stack) {
+      if (!mounted) return;
+      ref
+          .read(featureLibraryDependenciesProvider)
+          .diagnosticLog
+          .logError(
+            subsystem: DiagnosticSubsystem.ui,
+            code: 'review_candidates_load_failed',
+            message: '复核候选读取失败',
+            error: error,
+            stackTrace: stack,
+          );
+      showKonataToast(context, '候选读取失败，请重试', isError: true);
     } finally {
       if (mounted) {
         setState(() => _loadingCandidateIds.remove(workId));
@@ -252,6 +300,7 @@ class _ReviewDialogState extends ConsumerState<_ReviewDialog> {
       listenable: controller,
       builder: (_, _) {
         final pending = controller.reviewWorks;
+        final summaryFailed = _failedFingerprint == _fingerprint(pending);
         if (pending.isNotEmpty) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) _syncWorkSummaries(pending);
@@ -331,6 +380,28 @@ class _ReviewDialogState extends ConsumerState<_ReviewDialog> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: <Widget>[
+                    if (_failedFingerprint ==
+                        _fingerprint(pending)) ...<Widget>[
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              '复核信息读取失败',
+                              style: KonataTheme.captionStyle(p),
+                            ),
+                          ),
+                          KonataPillButton.secondary(
+                            label: '重新读取',
+                            compact: true,
+                            onPressed: _loadingMeta
+                                ? null
+                                : () =>
+                                      _syncWorkSummaries(pending, retry: true),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                    ],
                     if (networkWorks.isNotEmpty) ...<Widget>[
                       _ReviewNetworkBatchRetryBar(
                         count: networkWorks.length,
@@ -347,7 +418,7 @@ class _ReviewDialogState extends ConsumerState<_ReviewDialog> {
                         builder: (_, sc) => ListView.separated(
                           controller: sc,
                           shrinkWrap: true,
-                          padding: const EdgeInsets.only(right: 12),
+                          padding: EdgeInsets.zero,
                           itemCount: pending.length,
                           separatorBuilder: (_, _) =>
                               const SizedBox(height: 10),
@@ -358,7 +429,9 @@ class _ReviewDialogState extends ConsumerState<_ReviewDialog> {
                                 _busyWorkIds.contains(work.id);
                             return ReviewWorkItemCard(
                               work: work,
-                              folderLabel: _folderLabels[work.id] ?? '正在读取目录…',
+                              folderLabel:
+                                  _folderLabels[work.id] ??
+                                  (summaryFailed ? '目录未读取' : '正在读取目录…'),
                               variantCount: _variantCounts[work.id] ?? 0,
                               candidates:
                                   _candidatesByWork[work.id] ??

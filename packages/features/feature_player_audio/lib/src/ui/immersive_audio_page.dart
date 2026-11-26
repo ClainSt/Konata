@@ -15,6 +15,7 @@ import 'audio_lyrics_slot.dart';
 import 'audio_playback_capsule.dart';
 import 'immersive_audio_queue_and_safety.dart';
 import 'immersive_audio_stages.dart';
+import 'mini_audio_bar.dart';
 
 /// Salt 风格全屏流光音频舞台主页面。
 ///
@@ -76,7 +77,6 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
 
   AudioStageRightTab _rightTab = AudioStageRightTab.lyrics;
   bool _portraitShowLyrics = false;
-  bool _sideQueueOpen = false;
   bool _portraitQueueOpen = false;
   bool _menuOpen = false;
   bool _topChromeHovered = false;
@@ -128,7 +128,7 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
       if (_activeSidePanel?.id == panel.id) {
         _activeSidePanel = null;
       } else {
-        _sideQueueOpen = false;
+        _rightTab = AudioStageRightTab.lyrics;
         _portraitQueueOpen = false;
         _activeSidePanel = panel;
       }
@@ -147,7 +147,9 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
     setState(() {
       _menuOpen = false;
       _activeSidePanel = null;
-      _sideQueueOpen = !_sideQueueOpen;
+      _rightTab = _rightTab == AudioStageRightTab.lyrics
+          ? AudioStageRightTab.queue
+          : AudioStageRightTab.lyrics;
     });
   }
 
@@ -184,14 +186,18 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
         );
         return KeyEventResult.handled;
       case LogicalKeyboardKey.escape:
+        if (widget.controller.snapshot.isDesktopMiniWindow) {
+          unawaited(_toggleDesktopMiniWindow(false));
+          return KeyEventResult.handled;
+        }
         if (_menuOpen ||
             _activeSidePanel != null ||
-            _sideQueueOpen ||
+            _rightTab == AudioStageRightTab.queue ||
             _portraitQueueOpen) {
           setState(() {
             _menuOpen = false;
             _activeSidePanel = null;
-            _sideQueueOpen = false;
+            _rightTab = AudioStageRightTab.lyrics;
             _portraitQueueOpen = false;
           });
           return KeyEventResult.handled;
@@ -238,6 +244,25 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
     super.dispose();
   }
 
+  Future<void> _closePlayback() async {
+    try {
+      await widget.controller.stopAndClose();
+      if (mounted) widget.onClosePage?.call();
+    } catch (_) {
+      if (mounted) showKonataToast(context, '关闭失败，请重试', isError: true);
+    }
+  }
+
+  Future<void> _toggleDesktopMiniWindow(bool enabled) async {
+    try {
+      await widget.controller.setDesktopMiniWindow(enabled);
+    } catch (_) {
+      if (mounted) {
+        showKonataToast(context, '窗口切换失败，请重试', isError: true);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Theme(
@@ -249,6 +274,14 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
         child: ValueListenableBuilder<AudioPlaybackSnapshot>(
           valueListenable: widget.controller.snapshotListenable,
           builder: (context, snap, _) {
+            if (snap.isDesktopMiniWindow) {
+              return MiniAudioBar(
+                controller: widget.controller,
+                desktopMiniWindowSupported: true,
+                onClose: widget.onClosePage,
+                onReturnToInternal: widget.onMinimizeToMiniBar,
+              );
+            }
             final currentItem = snap.currentItem;
             final sidePanels = _eligibleSidePanels;
 
@@ -291,18 +324,39 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
                             // 核心舞台：Android 手机锁纯竖屏，桌面与平板横屏双栏。
                             Expanded(
                               child: isVertical
-                                  ? PortraitPhoneAudioStage(
-                                      controller: widget.controller,
-                                      snapshot: snap,
-                                      alignmentCache: widget.alignmentCache,
-                                      showingLyrics: _portraitShowLyrics,
-                                      isTabletPortrait: isTabletPortrait,
-                                      onToggleShowLyrics: () => setState(
-                                        () => _portraitShowLyrics =
-                                            !_portraitShowLyrics,
-                                      ),
-                                      lyricsViewportBuilder:
-                                          widget.lyricsViewportBuilder,
+                                  ? AnimatedSwitcher(
+                                      duration: KonataTheme.motionStandard,
+                                      child: _portraitQueueOpen
+                                          ? Padding(
+                                              key: const ValueKey(
+                                                'audio_portrait_queue_stage',
+                                              ),
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 18,
+                                                  ),
+                                              child: AudioQueueListView(
+                                                controller: widget.controller,
+                                                snapshot: snap,
+                                              ),
+                                            )
+                                          : PortraitPhoneAudioStage(
+                                              controller: widget.controller,
+                                              snapshot: snap,
+                                              alignmentCache:
+                                                  widget.alignmentCache,
+                                              showingLyrics:
+                                                  _portraitShowLyrics,
+                                              isTabletPortrait:
+                                                  isTabletPortrait,
+                                              onToggleShowLyrics: () =>
+                                                  setState(
+                                                    () => _portraitShowLyrics =
+                                                        !_portraitShowLyrics,
+                                                  ),
+                                              lyricsViewportBuilder:
+                                                  widget.lyricsViewportBuilder,
+                                            ),
                                     )
                                   : DesktopAudioDualStage(
                                       controller: widget.controller,
@@ -347,7 +401,9 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
                                           snapshot: snap,
                                           sidePanels: const [],
                                           compact: false,
-                                          isQueueOpen: _sideQueueOpen,
+                                          isQueueOpen:
+                                              _rightTab ==
+                                              AudioStageRightTab.queue,
                                           activeSidePanelId:
                                               _activeSidePanel?.id,
                                           onToggleQueue: () =>
@@ -366,37 +422,21 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
                                   ),
                           ],
                         ),
-                        // 桌面/平板右侧自定义扩展面板或队列抽屉。
-                        if ((_sideQueueOpen || _activeSidePanel != null) &&
-                            !isVertical)
+                        // 独立扩展面板不占用歌词与队列的舞台切换路径。
+                        if (_activeSidePanel != null && !isVertical)
                           Positioned.fill(
                             child: KonataGlassSideSheet(
-                              title:
-                                  _activeSidePanel?.label ??
-                                  '播放队列 (${snap.queue.length})',
+                              title: _activeSidePanel!.label,
                               width: math.min(420.0, width * 0.46),
                               bottomInset: 96.0,
-                              onClose: () => setState(() {
-                                _sideQueueOpen = false;
-                                _activeSidePanel = null;
-                              }),
-                              child: _activeSidePanel != null
-                                  ? _buildSidePanelContent(
-                                      context,
-                                      _activeSidePanel!,
-                                      currentItem,
-                                    )
-                                  : AudioQueueListView(
-                                      controller: widget.controller,
-                                      snapshot: snap,
-                                    ),
+                              onClose: () =>
+                                  setState(() => _activeSidePanel = null),
+                              child: _buildSidePanelContent(
+                                context,
+                                _activeSidePanel!,
+                                currentItem,
+                              ),
                             ),
-                          ),
-                        // 竖屏暗色玻璃队列底部弹出层。
-                        if (_portraitQueueOpen && isVertical)
-                          _buildPortraitQueueOverlay(
-                            snap: snap,
-                            maxHeight: height,
                           ),
                         // 右上角菜单统一弹层：整合双语译文、歌词延迟、词源切换与无损输出链路信息。
                         if (_menuOpen)
@@ -430,7 +470,7 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
     final activeChrome =
         _topChromeHovered ||
         _menuOpen ||
-        _sideQueueOpen ||
+        _rightTab == AudioStageRightTab.queue ||
         _activeSidePanel != null;
     final quickPanels = sidePanels
         .where((p) => p.id != 'lyrics_control')
@@ -453,8 +493,9 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
             children: [
               if (widget.onMinimizeToMiniBar != null) ...[
                 KonataCapsuleIconButton(
+                  key: const ValueKey('audio_minimize_button'),
                   icon: Icons.keyboard_arrow_down_rounded,
-                  tooltip: '收起为悬浮迷你唱片 (Esc)',
+                  tooltip: '悬浮小窗',
                   color: Colors.white.withValues(alpha: 0.92),
                   size: 24,
                   fixedSize: 38.0,
@@ -467,15 +508,13 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
                   icon: snap.isDesktopMiniWindow
                       ? Icons.open_in_full_rounded
                       : Icons.picture_in_picture_alt_rounded,
-                  tooltip: snap.isDesktopMiniWindow ? '还原主窗口' : '置顶便携小窗',
+                  tooltip: snap.isDesktopMiniWindow ? '恢复窗口' : '桌面小窗',
                   color: Colors.white.withValues(alpha: 0.90),
                   highlighted: snap.isDesktopMiniWindow,
                   size: 19,
                   fixedSize: 36.0,
                   onTap: () => unawaited(
-                    widget.controller.setDesktopMiniWindow(
-                      !snap.isDesktopMiniWindow,
-                    ),
+                    _toggleDesktopMiniWindow(!snap.isDesktopMiniWindow),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -484,14 +523,11 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
                 const SizedBox(width: 4),
                 KonataCapsuleIconButton(
                   icon: Icons.close_rounded,
-                  tooltip: '关闭音频播放会话',
+                  tooltip: '关闭',
                   color: Colors.white.withValues(alpha: 0.88),
                   size: 20,
                   fixedSize: 36.0,
-                  onTap: () {
-                    unawaited(widget.controller.stopAndClose());
-                    widget.onClosePage?.call();
-                  },
+                  onTap: () => unawaited(_closePlayback()),
                 ),
               ],
               Expanded(
@@ -548,13 +584,13 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
               KonataCapsuleIconButton(
                 key: const ValueKey('audio_top_menu_button'),
                 icon: Icons.tune_rounded,
-                tooltip: '歌词控制与无损输出菜单',
+                tooltip: '播放设置',
                 color: Colors.white.withValues(alpha: 0.92),
                 highlighted: _menuOpen,
                 size: 19,
                 fixedSize: 36.0,
                 onTap: () => setState(() {
-                  _sideQueueOpen = false;
+                  _rightTab = AudioStageRightTab.lyrics;
                   _activeSidePanel = null;
                   _menuOpen = !_menuOpen;
                 }),
@@ -562,7 +598,7 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
               if (widget.desktopRelayAvailable)
                 KonataCapsuleIconButton(
                   icon: Icons.open_in_new_rounded,
-                  tooltip: '接力到外部发烧播放器',
+                  tooltip: '外部播放器',
                   color: Colors.white,
                   fixedSize: 36,
                   size: 19,
@@ -591,8 +627,9 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
         children: [
           if (widget.onMinimizeToMiniBar != null)
             KonataCapsuleIconButton(
+              key: const ValueKey('audio_minimize_button'),
               icon: Icons.keyboard_arrow_down_rounded,
-              tooltip: '收起为悬浮迷你唱片',
+              tooltip: '悬浮小窗',
               color: Colors.white.withValues(alpha: 0.90),
               size: 26,
               fixedSize: 44.0,
@@ -655,7 +692,7 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
           KonataCapsuleIconButton(
             key: const ValueKey('audio_top_menu_button'),
             icon: Icons.tune_rounded,
-            tooltip: '歌词控制与无损输出菜单',
+            tooltip: '播放设置',
             color: Colors.white.withValues(alpha: 0.90),
             highlighted: _menuOpen,
             size: 21,
@@ -669,14 +706,11 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
             const SizedBox(width: 2),
             KonataCapsuleIconButton(
               icon: Icons.close_rounded,
-              tooltip: '关闭音频播放会话',
+              tooltip: '关闭',
               color: Colors.white.withValues(alpha: 0.84),
               size: 20,
               fixedSize: 40.0,
-              onTap: () {
-                unawaited(widget.controller.stopAndClose());
-                widget.onClosePage?.call();
-              },
+              onTap: () => unawaited(_closePlayback()),
             ),
           ],
         ],
@@ -689,14 +723,16 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
     required bool isTabletPortrait,
   }) {
     final loopIcon = switch (snap.loopMode) {
-      AudioLoopMode.sequence => Icons.repeat_rounded,
+      AudioLoopMode.sequence => Icons.trending_flat_rounded,
       AudioLoopMode.loopAll => Icons.repeat_rounded,
       AudioLoopMode.loopOne => Icons.repeat_one_rounded,
+      AudioLoopMode.shuffle => Icons.shuffle_rounded,
     };
     final loopTooltip = switch (snap.loopMode) {
       AudioLoopMode.sequence => '顺序播放',
       AudioLoopMode.loopAll => '列表循环',
       AudioLoopMode.loopOne => '单曲循环',
+      AudioLoopMode.shuffle => '随机播放',
     };
     final loopActive = snap.loopMode != AudioLoopMode.sequence;
 
@@ -785,8 +821,11 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
                   fixedSize: 48.0,
                 ),
                 KonataCapsuleIconButton(
-                  icon: Icons.queue_music_rounded,
-                  tooltip: '播放队列 (${snap.queue.length})',
+                  key: const ValueKey('audio_portrait_queue_button'),
+                  icon: _portraitQueueOpen
+                      ? Icons.lyrics_outlined
+                      : Icons.queue_music_rounded,
+                  tooltip: _portraitQueueOpen ? '歌词' : '播放队列',
                   color: Colors.white.withValues(alpha: 0.84),
                   highlighted: _portraitQueueOpen,
                   onTap: () => _handleToggleQueue(true),
@@ -797,65 +836,6 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildPortraitQueueOverlay({
-    required AudioPlaybackSnapshot snap,
-    required double maxHeight,
-  }) {
-    return Positioned.fill(
-      key: const ValueKey('audio_portrait_queue_sheet'),
-      child: Stack(
-        children: [
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () => setState(() => _portraitQueueOpen = false),
-            child: ColoredBox(color: Colors.black.withValues(alpha: 0.48)),
-          ),
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 560.0),
-              child: KonataFollowFingerSheetSurface(
-                height: math.min(480.0, maxHeight * 0.72),
-                surfaceColor: const Color(0xE014111C),
-                borderColor: Colors.white.withValues(alpha: 0.14),
-                onDismiss: () => setState(() => _portraitQueueOpen = false),
-                headerBuilder: (_) => Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 6, 12, 10),
-                  child: Row(
-                    children: [
-                      Text(
-                        '播放队列 (${snap.queue.length})',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const Spacer(),
-                      KonataGlassCloseButton(
-                        onPressed: () =>
-                            setState(() => _portraitQueueOpen = false),
-                      ),
-                    ],
-                  ),
-                ),
-                body: Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(10, 0, 10, 14),
-                    child: AudioQueueListView(
-                      controller: widget.controller,
-                      snapshot: snap,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -950,13 +930,6 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
                           ),
                         );
                       },
-                    ),
-                    KonataPillButton.secondary(
-                      key: const ValueKey('audio_menu_shuffle_button'),
-                      label: snap.shuffleEnabled ? '随机：已开启' : '随机播放',
-                      icon: Icons.shuffle_rounded,
-                      compact: true,
-                      onPressed: widget.controller.toggleShuffle,
                     ),
                     if (widget.desktopRelayAvailable)
                       KonataPillButton.secondary(

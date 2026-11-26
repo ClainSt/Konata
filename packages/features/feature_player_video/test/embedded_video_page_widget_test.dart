@@ -80,6 +80,101 @@ void main() {
       );
     });
 
+    testWidgets('桌面置顶独立舞台与应用内悬浮模式共用原有播放实例', (tester) async {
+      tester.view.physicalSize = const Size(1280, 720);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final harness = await VideoTestHarness.create();
+      addTearDown(harness.dispose);
+      final seeded = await harness.seedSampleAnime();
+      final clients = <FakeLibMpvClient>[];
+      final controller = harness.createController(
+        enablePeriodicTimers: false,
+        libMpvClientFactory: () {
+          final client = FakeLibMpvClient();
+          clients.add(client);
+          return client;
+        },
+      );
+      addTearDown(controller.dispose);
+      await controller.initialize(VideoLaunchRequest(workId: seeded.work.id));
+      controller.handleDurationUpdate(1200);
+      controller.handlePositionUpdate(320);
+      final mpv = clients.first;
+      final loads = mpv.commands.where((c) => c.first == 'loadfile').length;
+      expect(loads, greaterThan(0));
+      await tester.pumpWidget(
+        wrapVideoTestApp(
+          child: EmbeddedVideoPage(
+            request: VideoLaunchRequest(workId: seeded.work.id),
+            controller: controller,
+            videoSurfaceBuilder: (_, _) =>
+                const SizedBox.expand(key: ValueKey('shared_video_surface')),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(clients.length, greaterThanOrEqualTo(2));
+      for (final client in clients.skip(1)) {
+        client.emitEvent(const MpvFileLoadedEvent());
+      }
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('video_mini_mode_button')));
+      await tester.pump();
+      tester.view.physicalSize = const Size(360, 203);
+      await tester.pump();
+      expect(controller.state.miniMode, VideoMiniMode.desktop);
+      expect(harness.hostWindow.desktopMiniMode, isTrue);
+      expect(
+        find.byKey(const ValueKey('video_desktop_mini_stage')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('shared_video_surface')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('embedded_video_top_bar')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('video_capsule_progress_rail')),
+        findsNothing,
+      );
+      expect(tester.takeException(), isNull);
+      await tester.tap(find.byKey(const ValueKey('mini_player_expand_button')));
+      tester.view.physicalSize = const Size(1280, 720);
+      await tester.pump();
+      expect(controller.state.miniMode, VideoMiniMode.stage);
+      expect(harness.hostWindow.desktopMiniMode, isFalse);
+      expect(
+        find.byKey(const ValueKey('shared_video_surface')),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const ValueKey('video_collapse_button')));
+      await tester.pump();
+      expect(controller.state.miniMode, VideoMiniMode.floating);
+      expect(harness.hostWindow.desktopMiniMode, isFalse);
+      expect(
+        find.byKey(const ValueKey('video_floating_mini_player')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('shared_video_surface')),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const ValueKey('mini_player_expand_button')));
+      await tester.pump();
+      expect(controller.state.miniMode, VideoMiniMode.stage);
+      expect(controller.positionNotifier.value.inSeconds, 320);
+      expect(mpv.commands.where((c) => c.first == 'loadfile').length, loads);
+      expect(mpv.isDisposed, isFalse);
+      expect(clients.first, same(mpv));
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    });
     testWidgets('支持自定义画面构建器并动态挂载视频模式 PlayerSidePanelContribution', (
       tester,
     ) async {
@@ -181,6 +276,138 @@ void main() {
     });
   });
 
+  testWidgets('播放侧栏与全局设置共享输出模式，透传与独占互斥', (tester) async {
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final h = await VideoTestHarness.create();
+    addTearDown(h.dispose);
+    final seeded = await h.seedSampleAnime();
+    final clients = <FakeLibMpvClient>[];
+    final controller = h.createController(
+      libMpvClientFactory: () {
+        final client = FakeLibMpvClient();
+        clients.add(client);
+        return client;
+      },
+      enablePeriodicTimers: false,
+    );
+    addTearDown(controller.dispose);
+    await controller.initialize(VideoLaunchRequest(workId: seeded.work.id));
+    await tester.pumpWidget(
+      wrapVideoTestApp(
+        child: Stack(
+          children: [
+            VideoSideSheet(
+              controller: controller,
+              initialTab: VideoSideSheetTab.audio,
+              onClose: () {},
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final client = clients.first;
+    for (final auxiliary in clients.skip(1)) {
+      auxiliary.emitEvent(const MpvFileLoadedEvent());
+    }
+    await tester.pump();
+    final route = find.byKey(const ValueKey('video_audio_route_mode'));
+    await tester.ensureVisible(route);
+    await tester.tap(route);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('HDMI / S/PDIF 透传').last);
+    await tester.pumpAndSettle();
+    expect(h.preferencesStore.read().bitstreamPassthrough, isTrue);
+    expect(
+      h.preferencesStore.read().qualityConfig.exclusiveAudioOutput,
+      isFalse,
+    );
+    expect(
+      client.properties['audio-spdif'],
+      AudiophileSafetyPolicy.defaultSpdifCodecs,
+    );
+    expect(client.properties['af'], '');
+    await tester.pumpWidget(
+      wrapVideoTestApp(
+        dependencies: h.buildDependencies(),
+        child: const SingleChildScrollView(child: SettingsPlayersPanel()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(route);
+    expect(
+      tester.widget<KonataDropdown<AudioOutputRouteMode>>(route).value,
+      AudioOutputRouteMode.bitstreamPassthrough,
+    );
+    await tester.tap(route);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('WASAPI 独占').last);
+    await tester.pumpAndSettle();
+    expect(h.preferencesStore.read().bitstreamPassthrough, isFalse);
+    expect(
+      h.preferencesStore.read().qualityConfig.exclusiveAudioOutput,
+      isTrue,
+    );
+    expect(client.properties['audio-spdif'], '');
+    expect(
+      client.properties['af'],
+      AudiophileSafetyPolicy.postDspSafetyLimiterFilter,
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+    controller.dispose();
+    await tester.pump(const Duration(seconds: 11));
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets('云字体同步偏好不自动授权，本机显式授权与撤销直接更新协调器', (tester) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final h = await VideoTestHarness.create();
+    addTearDown(h.dispose);
+    final auth = CloudSubsetAuthorizationStore();
+    final coordinator = CloudSubsetCoordinator(
+      playbackEngine: h.engine,
+      cloudClient: FontInAssCloudClient(
+        authorizationStore: auth,
+        storageRoot: h.storageRoot,
+      ),
+    );
+    final endpoint = Uri.parse('http://127.0.0.1:54321/api/subset');
+    final origin = CloudSubsetOrigin.fromUri(endpoint).key;
+    h.preferencesStore.updateCloudSubsetSettings(
+      enabled: true,
+      endpointUrl: endpoint.toString(),
+    );
+    h.preferencesStore.authorizeCloudSubsetOrigin(origin);
+    await tester.pumpWidget(
+      wrapVideoTestApp(
+        dependencies: h.buildDependencies(),
+        child: SingleChildScrollView(
+          child: SettingsPlayersPanel(cloudSubsetCoordinator: coordinator),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(auth.isAuthorized(endpoint), isFalse);
+    expect(find.text('待本机授权'), findsOneWidget);
+    final grant = find.text('本机授权');
+    await tester.ensureVisible(grant);
+    await tester.tap(grant);
+    await tester.pumpAndSettle();
+    expect(auth.isAuthorized(endpoint), isTrue);
+    expect(find.text('本机已授权'), findsOneWidget);
+    final revoke = find.text('撤销授权');
+    await tester.ensureVisible(revoke);
+    await tester.tap(revoke);
+    await tester.pumpAndSettle();
+    expect(auth.isAuthorized(endpoint), isFalse);
+    expect(h.preferencesStore.read().authorizedCloudSubsetOrigins, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
   group('设置面板组件渲染与交互验证', () {
     testWidgets('SettingsPlayersPanel 与 SettingsExternalToolsPanel 正常渲染交互', (
       tester,
@@ -271,6 +498,73 @@ void main() {
     });
   });
 
+  testWidgets('常速不常驻倍速入口，非正常倍速进入统一画面设置，原画菜单双模式调用实际控制器', (tester) async {
+    tester.view.physicalSize = const Size(1280, 720);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final harness = await VideoTestHarness.create();
+    addTearDown(harness.dispose);
+    final seeded = await harness.seedSampleAnime();
+    final client = FakeLibMpvClient();
+    var created = 0;
+    final controller = harness.createController(
+      libMpvClientFactory: () => created++ == 0 ? client : FakeLibMpvClient(),
+      enablePeriodicTimers: false,
+    );
+    addTearDown(controller.dispose);
+    await controller.initialize(VideoLaunchRequest(workId: seeded.work.id));
+    controller.handleDurationUpdate(1200);
+    await tester.pumpWidget(
+      wrapVideoTestApp(
+        child: EmbeddedVideoPage(
+          request: VideoLaunchRequest(workId: seeded.work.id),
+          controller: controller,
+          autoHideDelay: const Duration(seconds: 3),
+        ),
+      ),
+    );
+    await tester.pump();
+    final speedButton = find.byKey(const ValueKey('video_speed_button'));
+    final screenshot = find.byKey(
+      const ValueKey('video_capsule_screenshot_button'),
+    );
+    expect(speedButton, findsNothing);
+    controller.setPlaybackSpeed(1.5);
+    await tester.pump();
+    expect(speedButton, findsOneWidget);
+    expect(
+      find.descendant(of: speedButton, matching: find.text('1.5x')),
+      findsOneWidget,
+    );
+    await tester.tap(speedButton);
+    await tester.pumpAndSettle();
+    expect(find.text('播放倍速'), findsWidgets);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    controller.setPlaybackSpeed(1.0);
+    await tester.pump();
+    expect(speedButton, findsNothing);
+    await tester.tap(screenshot);
+    await tester.pumpAndSettle();
+    expect(find.text('纯净原画'), findsOneWidget);
+    expect(find.text('含字幕原画'), findsOneWidget);
+    await tester.tap(find.text('纯净原画'));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.tap(screenshot);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('含字幕原画'));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 500));
+    final modes = client.commands
+        .where((args) => args.first == 'screenshot-to-file')
+        .map((args) => args.last);
+    expect(modes, orderedEquals(['video', 'subtitles']));
+    await tester.pumpWidget(const SizedBox.shrink());
+    controller.dispose();
+    await tester.pump();
+  });
   group('Wave 2 第十节视频精修契约与三端横屏零溢出回归', () {
     testWidgets('顶底单层毛玻璃胶囊保留桌面窗口三键且底栏显隐联动字幕 sub-pos 避让', (tester) async {
       tester.view.physicalSize = const Size(1280, 720);
@@ -367,6 +661,7 @@ void main() {
         closeTo(100.0 - expectedLift, 0.35),
       );
       expect(fakeClient.options['sub-ass-override'], 'no');
+      expect(fakeClient.properties['sub-ass-override'], 'scale');
 
       // 播放后经过 3 秒自动隐藏控制层，字幕抬升立即归零复原。
       await controller.setPlaying(true);
@@ -379,6 +674,7 @@ void main() {
       );
       expect(controller.currentSubtitleHudLiftPercent, 0.0);
       expect(fakeClient.properties['sub-pos'] as double, closeTo(100.0, 0.05));
+      expect(fakeClient.properties['sub-ass-override'], 'no');
 
       await tester.pumpWidget(const SizedBox.shrink());
       controller.dispose();
@@ -441,7 +737,6 @@ void main() {
               onSeek: (sec) => controller.handlePositionUpdate(sec),
               onPreviousEpisode: () {},
               onNextEpisode: () {},
-              onSelectSpeed: (_) {},
               onVolumeChanged: (_) {},
               onToggleMute: () {},
               onOpenEpisodesSheet: () {},
@@ -576,6 +871,28 @@ void main() {
             'DeviceOrientation.landscapeLeft',
             'DeviceOrientation.landscapeRight',
           ]);
+
+          // 原生 PiP 回调先到或窗口先缩小时均只保留视频，不产生控制层溢出。
+          final top = find.byKey(const ValueKey('embedded_video_top_bar'));
+          final bottom = find.byKey(
+            const ValueKey('embedded_video_bottom_capsule'),
+          );
+          controller.setSystemPipActive(true);
+          await tester.pump();
+          expect(top, findsNothing);
+          expect(bottom, findsNothing);
+          expect(controller.currentSubtitleHudLiftPercent, 0);
+          tester.view.physicalSize = const Size(190, 108);
+          controller.setSystemPipActive(false);
+          await tester.pump();
+          expect(top, findsNothing);
+          expect(bottom, findsNothing);
+          expect(tester.takeException(), isNull);
+          tester.view.physicalSize = entry.size;
+          await tester.pump();
+          expect(top, findsOneWidget);
+          expect(bottom, findsOneWidget);
+          expect(tester.takeException(), isNull);
 
           // 验证触屏左侧防误触锁钮仅在触屏端显示，并控制底栏与字幕抬升。
           final lockFinder = find.byKey(

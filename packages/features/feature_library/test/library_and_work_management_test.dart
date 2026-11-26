@@ -342,10 +342,21 @@ void main() {
     final sub = eventBus.on<LibraryWorkChangedEvent>().listen(workEvents.add);
     addTearDown(() => unawaited(sub.cancel()));
 
+    final priorVariant = db.library.mediaVariants.findById(
+      const VariantId.trusted('var_del_1'),
+    )!;
     await mgmt.deleteWork('w_del_1', ignoreFolderOnRescan: true);
     await Future<void>.delayed(Duration.zero);
 
     expect(await repo.findWorkById('w_del_1'), isNull);
+    expect(await repo.getEpisodesByWork('w_del_1'), isEmpty);
+    expect(await repo.getVariantsByWork('w_del_1'), isEmpty);
+    expect(
+      db.library.mediaVariants
+          .findById(const VariantId.trusted('var_del_1'), includeDeleted: true)
+          ?.deletedAtMs,
+      priorVariant.updatedAtMs > 99999 ? priorVariant.updatedAtMs : 99999,
+    );
     expect(await repo.getIgnoredFolders('src_del'), ['MyAnime']);
     expect(workEvents.any((e) => e.reason == 'deleted'), isTrue);
 
@@ -380,6 +391,9 @@ void main() {
       const Work(
         id: 'w_target',
         title: '目标作品',
+        tmdbId: 123456,
+        tmdbMediaType: TmdbMediaType.tv,
+        matchedSeason: 1,
         scrapeStatus: ScrapeStatus.matched,
       ),
     );
@@ -414,6 +428,21 @@ void main() {
       ),
     );
 
+    await repo.upsertWork(
+      const Work(
+        id: 'w_sibling',
+        title: '目标作品第二季',
+        tmdbId: 123456,
+        tmdbMediaType: TmdbMediaType.tv,
+        matchedSeason: 2,
+        scrapeStatus: ScrapeStatus.matched,
+      ),
+    );
+    final diagnosticLog = DiagnosticLogStore();
+    db.library.engine.execute("""
+      CREATE TRIGGER test_reject_series_group BEFORE INSERT ON series_groups
+      BEGIN SELECT RAISE(ABORT, '注入系列编组失败'); END;
+    """);
     final mgmt = WorkManagementController(
       databases: db,
       storageRoot: storageRoot,
@@ -422,6 +451,7 @@ void main() {
       httpClient: _FakeHttpClient(),
       photosStorage: photos,
       nowMs: () => 77777,
+      diagnosticLog: diagnosticLog,
     );
 
     final outcome = await mgmt.mergeWorkIntoTarget(
@@ -430,6 +460,21 @@ void main() {
     );
     expect(outcome.movedVariantCount, 1);
     expect(outcome.sourceDeleted, isTrue);
+    expect(outcome.seriesReconciliationFailed, isTrue);
+    expect(
+      diagnosticLog.snapshotEvents().any(
+        (e) => e.code == 'work_merge_series_reconcile_failed',
+      ),
+      isTrue,
+    );
+    db.library.engine.execute('DROP TRIGGER test_reject_series_group');
+    await SeriesAutoLinker.reconcileAll(
+      repository: repo,
+      focusWorkIds: {'w_target'},
+    );
+    final groupId = (await repo.findWorkById('w_target'))?.seriesId;
+    expect(groupId, isNotNull);
+    expect((await repo.findWorkById('w_sibling'))?.seriesId, groupId);
     expect(outcome.targetWork.isManualLocked, isTrue);
     expect(outcome.targetWork.bangumiScore, 8.1);
     expect(await repo.findWorkById('w_source'), isNull);

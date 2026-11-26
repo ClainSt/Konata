@@ -39,10 +39,7 @@ void main() {
       databases.library.mediaSources.upsert(srcLocal);
 
       databases.library.seriesGroups.upsert(
-        SeriesGroupRecord(
-          id: SeriesGroupId('series_1'),
-          title: '测试系列',
-        ),
+        SeriesGroupRecord(id: SeriesGroupId('series_1'), title: '测试系列'),
       );
 
       final workA = WorkRecord(
@@ -63,10 +60,7 @@ void main() {
         tmdbMediaType: TmdbMediaType.tv,
         matchedSeason: 2,
       );
-      final workOther = WorkRecord(
-        id: WorkId('work_other'),
-        title: '无关作品',
-      );
+      final workOther = WorkRecord(id: WorkId('work_other'), title: '无关作品');
       databases.library.works.upsert(workA);
       databases.library.works.upsert(workB);
       databases.library.works.upsert(workOther);
@@ -143,10 +137,11 @@ void main() {
 
       expect(controller.state.workTitle, '第一季');
       expect(controller.state.showSeriesSharedBadge, isTrue);
-      expect(
-        controller.state.allScans.map((v) => v.id).toList(),
-        ['v_a1', 'v_a2', 'v_b_shared'],
-      );
+      expect(controller.state.allScans.map((v) => v.id).toList(), [
+        'v_a1',
+        'v_a2',
+        'v_b_shared',
+      ]);
       expect(controller.state.sourcesById.containsKey('src_1'), isTrue);
       expect(controller.state.scanSummary.chips.length, 3);
 
@@ -157,11 +152,11 @@ void main() {
       expect(controller.state.visibleScans.length, 1);
 
       // 验证静态可用性判定方法与动态清单扩展点。
-      expect(ScanViewerAvailability.hasScansForWork(databases, workA.id), isTrue);
       expect(
-        ScanViewerAvailability.countScansForWork(databases, workA.id),
-        3,
+        ScanViewerAvailability.hasScansForWork(databases, workA.id),
+        isTrue,
       );
+      expect(ScanViewerAvailability.countScansForWork(databases, workA.id), 3);
       expect(
         ScanViewerAvailability.hasScansForWork(databases, workOther.id),
         isFalse,
@@ -172,7 +167,7 @@ void main() {
       );
       final tab = dynamicManifest.detailTabs.single;
       expect(tab.id, 'scan_viewer');
-      expect(tab.label, '扫图');
+      expect(tab.label, 'Scan');
       expect(tab.iconKey, 'scan_viewer');
       expect(tab.order, 40);
       expect(await tab.isVisibleForWork!(workA.id), isTrue);

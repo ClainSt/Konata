@@ -498,14 +498,16 @@ class AudioPlaybackCapsule extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final loopIcon = switch (snapshot.loopMode) {
-      AudioLoopMode.sequence => Icons.repeat_rounded,
+      AudioLoopMode.sequence => Icons.trending_flat_rounded,
       AudioLoopMode.loopAll => Icons.repeat_rounded,
       AudioLoopMode.loopOne => Icons.repeat_one_rounded,
+      AudioLoopMode.shuffle => Icons.shuffle_rounded,
     };
     final loopTooltip = switch (snapshot.loopMode) {
       AudioLoopMode.sequence => '顺序播放',
       AudioLoopMode.loopAll => '列表循环',
       AudioLoopMode.loopOne => '单曲循环',
+      AudioLoopMode.shuffle => '随机播放',
     };
     final loopActive = snapshot.loopMode != AudioLoopMode.sequence;
     final quickSidePanels = sidePanels
@@ -571,8 +573,10 @@ class AudioPlaybackCapsule extends StatelessWidget {
                         fixedSize: 40.0,
                       ),
                       KonataCapsuleIconButton(
-                        icon: Icons.queue_music_rounded,
-                        tooltip: '播放队列 (${snapshot.queue.length})',
+                        icon: isQueueOpen
+                            ? Icons.lyrics_outlined
+                            : Icons.queue_music_rounded,
+                        tooltip: isQueueOpen ? '歌词' : '播放队列',
                         color: Colors.white.withValues(alpha: 0.84),
                         highlighted: isQueueOpen,
                         onTap: onToggleQueue,
@@ -600,7 +604,6 @@ class AudioPlaybackCapsule extends StatelessWidget {
           final showVolume = maxW >= 600.0;
           final showSpecPill =
               maxW >= 680.0 && snapshot.formattedAudioSpec.isNotEmpty;
-          final showShuffleInBar = maxW >= 620.0;
 
           return Container(
             key: const ValueKey('salt_smoke_playback_capsule'),
@@ -663,7 +666,7 @@ class AudioPlaybackCapsule extends StatelessWidget {
                               ),
                             ),
                             const SizedBox(width: 12),
-                            // 居中：通透播控簇（循环、随机、上一曲、磨砂播放/暂停、下一曲）。
+                            // 居中：通透播控簇（播放模式、上一曲、磨砂播放/暂停、下一曲）。
                             Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
@@ -678,24 +681,6 @@ class AudioPlaybackCapsule extends StatelessWidget {
                                   size: 18,
                                   fixedSize: 34.0,
                                 ),
-                                if (showShuffleInBar) ...[
-                                  const SizedBox(width: 2),
-                                  KonataCapsuleIconButton(
-                                    icon: Icons.shuffle_rounded,
-                                    tooltip: snapshot.shuffleEnabled
-                                        ? '关闭随机播放'
-                                        : '开启随机播放',
-                                    color: Colors.white.withValues(
-                                      alpha: snapshot.shuffleEnabled
-                                          ? 0.96
-                                          : 0.68,
-                                    ),
-                                    highlighted: snapshot.shuffleEnabled,
-                                    onTap: controller.toggleShuffle,
-                                    size: 18,
-                                    fixedSize: 34.0,
-                                  ),
-                                ],
                                 const SizedBox(width: 4),
                                 KonataCapsuleIconButton(
                                   icon: Icons.skip_previous_rounded,
@@ -736,8 +721,10 @@ class AudioPlaybackCapsule extends StatelessWidget {
                                   key: const ValueKey(
                                     'audio_desktop_queue_button',
                                   ),
-                                  icon: Icons.queue_music_rounded,
-                                  tooltip: '播放队列 (${snapshot.queue.length})',
+                                  icon: isQueueOpen
+                                      ? Icons.lyrics_outlined
+                                      : Icons.queue_music_rounded,
+                                  tooltip: isQueueOpen ? '歌词' : '播放队列',
                                   color: Colors.white,
                                   highlighted: isQueueOpen,
                                   fixedSize: 34,
@@ -790,7 +777,7 @@ class AudioPlaybackCapsule extends StatelessWidget {
                                       if (onRelayToDesktop != null) ...[
                                         KonataCapsuleIconButton(
                                           icon: Icons.open_in_new_rounded,
-                                          tooltip: '接力到外部发烧播放器',
+                                          tooltip: '外部播放器',
                                           color: Colors.white.withValues(
                                             alpha: 0.82,
                                           ),
@@ -807,8 +794,8 @@ class AudioPlaybackCapsule extends StatelessWidget {
                                               : Icons
                                                     .picture_in_picture_alt_rounded,
                                           tooltip: snapshot.isDesktopMiniWindow
-                                              ? '还原主窗口'
-                                              : '置顶便携小窗',
+                                              ? '恢复窗口'
+                                              : '桌面小窗',
                                           color: Colors.white.withValues(
                                             alpha: 0.82,
                                           ),

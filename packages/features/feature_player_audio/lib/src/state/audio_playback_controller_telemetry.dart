@@ -83,6 +83,7 @@ extension _AudioPlaybackControllerTelemetry on AudioPlaybackController {
               ),
             );
 
+            _syncAndroidMediaSession();
             if (hasNewLyrics && _lyricPort != null) {
               final updated = _snapshotNotifier.value.currentItem;
               if (updated != null) {
@@ -200,7 +201,9 @@ extension _AudioPlaybackControllerTelemetry on AudioPlaybackController {
         durationSeconds: currentTrackDurationSeconds,
         positionSeconds: currentTrackPositionSeconds,
         isPlaying: _playingNotifier.value,
-        coverKey: snap.coverVariantTag ?? item.itemId,
+        coverKey: coverBytes == null || coverBytes.isEmpty
+            ? ''
+            : snap.coverVariantTag ?? item.itemId,
         coverBytes: coverBytes,
         forcePositionSync: forcePosition,
       ),

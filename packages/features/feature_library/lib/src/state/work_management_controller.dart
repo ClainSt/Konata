@@ -10,7 +10,6 @@ import 'work_manual_bind_helper.dart';
 /// 作品管理与纠偏动作控制器（零 `Riverpod` 纯构造注入业务逻辑层）。
 ///
 /// 职责边界：
-/// - 隐藏与恢复作品显示；
 /// - 软删除作品索引与清理本机 `photos/` 艺术图缓存（严格只读，绝不触碰或删除媒体源物理文件）；
 /// - 作品跨源/同源手动合并、目标锁定与残余空壳软删除清理；
 /// - 待复核作品重新匹配、人工跳过确认、TMDB 绑定、Bangumi 独立绑定与双源混合绑定；
@@ -91,7 +90,6 @@ class WorkManagementController {
   }) async {
     final now = _nowMs();
     final variants = await _repository.getVariantsByWork(workId);
-    final episodes = await _repository.getEpisodesByWork(workId);
 
     final ignoredPairs = <(String sourceId, String relFolder)>{};
     if (ignoreFolderOnRescan) {
@@ -106,20 +104,6 @@ class WorkManagementController {
       }
     }
 
-    for (final v in variants) {
-      databases.library.mediaVariants.softDelete(
-        VariantId.trusted(v.id),
-        deletedAtMs: now,
-        sourceDeviceId: sourceDeviceId,
-      );
-    }
-    for (final ep in episodes) {
-      databases.library.episodes.softDelete(
-        EpisodeId.trusted(ep.id),
-        deletedAtMs: now,
-        sourceDeviceId: sourceDeviceId,
-      );
-    }
     databases.library.works.softDelete(
       WorkId.trusted(workId),
       deletedAtMs: now,
@@ -357,6 +341,7 @@ class WorkManagementController {
       }
     }
 
+    var seriesReconciliationFailed = false;
     try {
       await SeriesAutoLinker.reconcileAll(
         repository: _repository,
@@ -365,7 +350,18 @@ class WorkManagementController {
         },
         focusWorkIds: {targetWorkId},
       );
-    } catch (_) {}
+    } catch (error, stack) {
+      // 文件归属和墓碑已提交，后置编组失败不能被误报为整个合并失败。
+      seriesReconciliationFailed = true;
+      diagnosticLog?.logError(
+        subsystem: DiagnosticSubsystem.ui,
+        code: 'work_merge_series_reconcile_failed',
+        message: '作品已合并，系列编组更新失败',
+        severity: DiagnosticSeverity.warn,
+        error: error,
+        stackTrace: stack,
+      );
+    }
 
     _publishWorkChanged(targetWorkId, 'merged_target');
     _publishWorkChanged(
@@ -380,6 +376,7 @@ class WorkManagementController {
       movedVariantCount: movedVariants,
       movedEpisodeCount: movedEpisodes,
       sourceDeleted: moveAllSource,
+      seriesReconciliationFailed: seriesReconciliationFailed,
     );
   }
 
@@ -488,7 +485,6 @@ class WorkManagementController {
     required String workId,
     required int tmdbId,
     required TmdbMediaType mediaType,
-    bool writeIdToFolderName = false,
     bool markManualLocked = true,
     bool resetManualLocks = false,
   }) async {
@@ -497,7 +493,6 @@ class WorkManagementController {
       workId,
       tmdbId,
       mediaType,
-      writeIdToFolderName: writeIdToFolderName,
       markManualLocked: markManualLocked,
       resetManualLocks: resetManualLocks,
     );

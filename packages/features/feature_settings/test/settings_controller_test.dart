@@ -515,6 +515,32 @@ void main() {
     )..createSync(recursive: true);
     orphanScan.writeAsBytesSync(List<int>.filled(700, 3));
 
+    final external = Directory(p.join(tempDir.path, 'external-media'))
+      ..createSync();
+    final original = File(p.join(external.path, 'original.jpg'))
+      ..writeAsStringSync('媒体源');
+    final linkedDir = Directory(p.join(photosRoot.path, '目录链接 [linked]'))
+      ..createSync();
+    final link = Link(p.join(linkedDir.path, 'thumbnails'));
+    if (Platform.isWindows) {
+      final result = await Process.run('cmd.exe', [
+        '/c',
+        'mklink',
+        '/J',
+        link.path,
+        external.path,
+      ]);
+      expect(result.exitCode, 0, reason: result.stderr.toString());
+    } else {
+      await link.create(external.path);
+    }
+    addTearDown(() async {
+      if (Platform.isWindows) {
+        await Process.run('cmd.exe', ['/c', 'rmdir', link.path]);
+      } else {
+        await link.delete();
+      }
+    });
     final controller = SettingsController(
       databases: db,
       scopedPrefs: scopedPrefs,
@@ -542,7 +568,7 @@ void main() {
     );
 
     final customResult = await controller.clearCustomPhotos(
-      workDirKeys: const <String>{'轻音少女 [work_a]'},
+      workDirKeys: const <String>{'轻音少女 [work_a]', '目录链接 [linked]'},
       categories: const <PhotoStorageCategory>{PhotoStorageCategory.thumbnails},
     );
     expect(customResult.removedFiles, equals(1));
@@ -554,5 +580,6 @@ void main() {
     final removed = await controller.clearRegenerableCaches();
     expect(removed, equals(1));
     expect(orphanScan.existsSync(), isFalse);
+    expect(original.readAsStringSync(), '媒体源');
   });
 }

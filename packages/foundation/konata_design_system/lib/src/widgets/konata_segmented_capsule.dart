@@ -198,8 +198,7 @@ class _KonataSegmentedCapsuleState<T> extends State<KonataSegmentedCapsule<T>> {
         : Row(mainAxisSize: MainAxisSize.min, children: items);
 
     final innerTrack = Container(
-      // Use an actual stadium outline, not an oversized rounded rectangle.
-      // The inset protects the full thumb outline; do not clip its paint layer.
+      // 使用真实胶囊轮廓，内边距保留滑块的完整描边，避免裁剪绘制层。
       padding: EdgeInsets.all(trackPadding),
       decoration: ShapeDecoration(
         color: trackBg,

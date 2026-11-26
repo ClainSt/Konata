@@ -51,12 +51,24 @@ void main() {
       );
       expect(summary.byVariantId['a']?.chipLabel, contains('Release Sigh'));
       expect(summary.byVariantId['d']?.volumeKey, isNull);
-      expect(
-        SupplementarySubclassifier.groupScanVariants(
-          scans.take(2).toList(),
-        ).chips,
-        hasLength(1),
+      final singleGroup = SupplementarySubclassifier.groupScanVariants(
+        scans.take(2).toList(),
       );
+      expect(singleGroup.chips, hasLength(1));
+      expect(singleGroup.hasMultipleSubdirs, isFalse);
+      expect(singleGroup.byVariantId, hasLength(2));
+
+      final mixedGroups = SupplementarySubclassifier.groupScanVariants([
+        scans.first,
+        scans.last,
+      ]);
+      expect(mixedGroups.chips, hasLength(1));
+      expect(mixedGroups.hasMultipleSubdirs, isTrue);
+      expect(mixedGroups.byVariantId, hasLength(2));
+
+      final empty = SupplementarySubclassifier.groupScanVariants([]);
+      expect(empty.chips, isEmpty);
+      expect(empty.hasMultipleSubdirs, isFalse);
     });
     test('决策点 1：文件名显式类型语义优先于父目录；纯歌名回退父目录 MV', () {
       // MVs 目录下带メイキング显式语义 -> 归入 sp 特别篇与花絮

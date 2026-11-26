@@ -38,7 +38,7 @@ final class LyricSourceDescriptor {
 
 /// `feature_lyrics` 向宿主外壳注册的静态声明清单。
 ///
-/// 挂载音频播放器「歌词换源与校准」侧栏、设置页「在线歌词来源与注音」分区及多源歌词贡献声明。
+/// 挂载音频播放器「歌词设置」侧栏、设置页「在线歌词来源与注音」分区及多源歌词贡献声明。
 final FeatureManifest featureLyricsManifest = _buildManifest(
   syncSlices: const <SyncSliceContributor<Object?>>[],
   dataProviders: _staticDataProviders,
@@ -155,7 +155,7 @@ FeatureManifest _buildManifest({
     playerSidePanels: <PlayerSidePanelContribution>[
       PlayerSidePanelContribution(
         id: 'lyrics_control',
-        label: '歌词换源与校准',
+        label: '歌词设置',
         iconKey: 'lyrics',
         order: 20,
         supportedModes: const <PlayerMediaMode>{PlayerMediaMode.audio},

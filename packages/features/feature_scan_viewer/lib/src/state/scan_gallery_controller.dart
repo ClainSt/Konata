@@ -231,7 +231,7 @@ final class ScanGalleryController extends ChangeNotifier {
 
       final validVolumeKey =
           preferredVolumeKey != null &&
-              dataset.scanSummary.chips.isNotEmpty &&
+              dataset.scanSummary.hasMultipleSubdirs &&
               dataset.scanSummary.chips.any((c) => c.key == preferredVolumeKey)
           ? preferredVolumeKey
           : null;
@@ -316,7 +316,7 @@ final class ScanGalleryController extends ChangeNotifier {
     if (_disposed || _state.selectedVolumeKey == volumeKey) return;
     final nextKey =
         volumeKey != null &&
-            _state.scanSummary.chips.isNotEmpty &&
+            _state.scanSummary.hasMultipleSubdirs &&
             _state.scanSummary.chips.any((c) => c.key == volumeKey)
         ? volumeKey
         : null;

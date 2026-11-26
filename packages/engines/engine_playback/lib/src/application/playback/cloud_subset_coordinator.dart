@@ -4,8 +4,7 @@ import 'unified_playback_engine.dart';
 
 /// 云端子集化按域编排协调器（严格绑定 `PlaybackTaskDomain.cloudSubset` 与逐 Origin 撤权即时中止）。
 ///
-/// 当用户在途关闭云端子集化开关或撤销某 Origin 授权时，仅递增 `PlaybackTaskDomain.cloudSubset`
-/// 域代数并立即中断当前活跃网络请求，绝不误杀原始字幕拉取、歌词检索或封面取色等其余三域任务。
+/// 关闭开关取消整个子集化域，撤销来源只中断该来源请求，不影响其余播放任务域。
 class CloudSubsetCoordinator {
   /// 创建云端子集化协调器。
   CloudSubsetCoordinator({
@@ -32,7 +31,6 @@ class CloudSubsetCoordinator {
   void revokeOriginAndCancel(Uri endpointUri) {
     final origin = CloudSubsetOrigin.fromUri(endpointUri);
     cloudClient.authorizationStore.revoke(endpointUri);
-    playbackEngine.cancelTaskDomain(PlaybackTaskDomain.cloudSubset);
     final handles = _activeHandlesByOrigin.remove(origin);
     if (handles != null) {
       for (final handle in handles) {
@@ -58,6 +56,8 @@ class CloudSubsetCoordinator {
     required String originalAssContent,
   }) async {
     final origin = CloudSubsetOrigin.fromUri(endpointUri);
+    // 新意图取代旧意图时同时断开在途连接，不等待下一段响应。
+    cancelAllCloudSubsetTasks();
     final token = playbackEngine.acquireTaskToken(
       PlaybackTaskDomain.cloudSubset,
     );

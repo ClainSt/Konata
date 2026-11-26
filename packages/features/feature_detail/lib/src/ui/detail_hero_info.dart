@@ -78,11 +78,7 @@ class DetailHeroInfo extends StatelessWidget {
         'Bangumi ${work.bangumiScore!.toStringAsFixed(1)}',
     ];
 
-    final primaryActionLabel = resumePlan?.buttonLabel ?? '开始播放';
-    final primarySubLabel = _buildResumeSubLabel(bundle);
-    final playButtonText = primarySubLabel != null
-        ? '$primaryActionLabel · $primarySubLabel'
-        : primaryActionLabel;
+    final playButtonText = resumePlan?.buttonLabel ?? '开始播放';
     final useLightInk = !onDarkBackdrop && !p.isDark;
 
     return Column(
@@ -207,17 +203,5 @@ class DetailHeroInfo extends StatelessWidget {
         ),
       ],
     );
-  }
-
-  String? _buildResumeSubLabel(WorkDetailBundle bundle) {
-    final plan = bundle.resumePlan;
-    if (plan == null) return null;
-    final ep = plan.targetEpisode;
-    if (ep.episodeNumber == null) return null;
-    if (bundle.work.tmdbMediaType == TmdbMediaType.movie &&
-        bundle.mainEpisodes.length <= 1) {
-      return null;
-    }
-    return '第 ${ep.episodeNumber} 话';
   }
 }

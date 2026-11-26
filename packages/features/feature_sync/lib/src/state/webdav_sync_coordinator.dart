@@ -93,7 +93,9 @@ final class WebDavSyncCoordinator {
     ];
 
     await _transport.ensureSyncDirectories(config);
-    final existingManifest = await _transport.fetchManifest(config);
+    final initialSnapshot = await _transport.fetchManifest(config);
+    final existingManifest = initialSnapshot.manifest;
+    _requireCompatibleVersions(existingManifest, activeSlices);
 
     // 第一阶段：按 SHA-256 过滤并下载存在更新的远端切片分片。
     var downloadedShardsCount = 0;
@@ -171,7 +173,6 @@ final class WebDavSyncCoordinator {
       if (plannedRuns.isEmpty) continue;
 
       final roundNow = _nowMs();
-      final pendingFutures = <Future<void>>[];
       _databases.library.engine.runTransaction((libTx) {
         _databases.userState.engine.runTransaction((userTx) {
           final txCtx = DatabaseBundleSyncTransactionContext(
@@ -181,13 +182,10 @@ final class WebDavSyncCoordinator {
             userStateTx: userTx,
           );
           for (final item in plannedRuns) {
-            pendingFutures.add(item.apply(txCtx));
+            item.apply(txCtx);
           }
         });
       });
-      if (pendingFutures.isNotEmpty) {
-        await Future.wait(pendingFutures);
-      }
 
       for (final wm in roundWatermarks) {
         _deviceStore.writeRemoteSliceSha256(wm.sliceId, wm.deviceId, wm.sha256);
@@ -197,8 +195,7 @@ final class WebDavSyncCoordinator {
     // 第三阶段：导出本机最新切片并按 SHA-256 跳过未变分片，仅上传改动项并更新 manifest.json。
     var uploadedShardsCount = 0;
     var skippedUploadsCount = 0;
-    var nextManifest = existingManifest;
-    var manifestDirty = false;
+    final pendingWatermarks = <WebDavSliceWatermark>[];
     final uploadNow = _nowMs();
 
     for (final contributor in activeSlices) {
@@ -221,9 +218,11 @@ final class WebDavSyncCoordinator {
         continue;
       }
 
+      initialSnapshot.requireWritable();
       final shardPath = WebDavSyncTransport.buildShardRelativePath(
         sliceId: contributor.sliceId,
         deviceId: localDeviceId,
+        sha256: localSha,
       );
       final nextWatermark = WebDavSliceWatermark(
         sliceId: contributor.sliceId,
@@ -241,14 +240,41 @@ final class WebDavSyncCoordinator {
         watermark: nextWatermark,
         payload: localPayload,
       );
-      _deviceStore.writeLocalSliceSha256(contributor.sliceId, localSha);
-      nextManifest = nextManifest.withEntry(nextWatermark);
+      pendingWatermarks.add(nextWatermark);
       uploadedShardsCount++;
-      manifestDirty = true;
     }
 
-    if (manifestDirty) {
-      await _transport.uploadManifest(config, nextManifest);
+    if (pendingWatermarks.isNotEmpty) {
+      var snapshot = initialSnapshot;
+      for (var attempt = 0; ; attempt++) {
+        var nextManifest = snapshot.manifest;
+        for (final wm in pendingWatermarks) {
+          final original = existingManifest.findEntry(wm.sliceId, wm.deviceId);
+          final latest = snapshot.manifest.findEntry(wm.sliceId, wm.deviceId);
+          if (latest?.sha256 != original?.sha256 &&
+              latest?.sha256 != wm.sha256) {
+            throw const WebDavSyncException('同一设备分片已被其他会话更新，请重新同步');
+          }
+          nextManifest = nextManifest.withEntry(wm);
+        }
+        try {
+          await _transport.uploadManifest(
+            config,
+            nextManifest,
+            expected: snapshot,
+          );
+          break;
+        } on WebDavSyncException catch (error) {
+          if (error.statusCode != 412 || attempt >= 3) rethrow;
+          // 仅合并本轮变更，保留其他设备已经发布的水位。
+          snapshot = await _transport.fetchManifest(config);
+          _requireCompatibleVersions(snapshot.manifest, activeSlices);
+        }
+      }
+      // 清单成功发布后才记录本机上传水位。
+      for (final wm in pendingWatermarks) {
+        _deviceStore.writeLocalSliceSha256(wm.sliceId, wm.sha256);
+      }
     }
 
     final outcomes = <KonataSlicePreview>[
@@ -304,6 +330,22 @@ final class WebDavSyncCoordinator {
 
     return result;
   }
+
+  /// 已启用切片的所有设备须使用兼容版本；降级后的本机水位也不能覆盖。
+  void _requireCompatibleVersions(
+    WebDavSyncManifest manifest,
+    List<SyncSliceContributor<Object?>> activeSlices,
+  ) {
+    final versions = {
+      for (final slice in activeSlices) slice.sliceId: slice.schemaVersion,
+    };
+    for (final entry in manifest.slices.values) {
+      final version = versions[entry.sliceId];
+      if (version != null && entry.schemaVersion != version) {
+        throw WebDavSyncException('同步切片 ${entry.sliceId} 版本不兼容，请统一客户端版本');
+      }
+    }
+  }
 }
 
 final class _CoordinatorPlannedApply {
@@ -315,7 +357,7 @@ final class _CoordinatorPlannedApply {
   final SyncSliceContributor<Object?> contributor;
   final SyncMergePlan<Object?> plan;
 
-  Future<void> apply(SyncTransactionContext tx) {
+  SyncApplyCompletion apply(SyncTransactionContext tx) {
     return contributor.applyMergePlan(tx, plan);
   }
 }

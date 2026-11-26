@@ -38,12 +38,32 @@ class PipPlaybackRecoverySnapshot {
 
   /// 校验当前快照是否仍在有效复播时间窗口内。
   bool isFresh({DateTime? now}) {
-    if (workId.trim().isEmpty || variantId.trim().isEmpty) {
+    if (workId.trim().isEmpty ||
+        episodeId.trim().isEmpty ||
+        variantId.trim().isEmpty ||
+        positionSeconds < 0) {
       return false;
     }
     final currentMs = (now ?? DateTime.now()).millisecondsSinceEpoch;
     final ageMs = currentMs - updatedAtMs;
     return ageMs >= 0 && ageMs <= maxFreshAge.inMilliseconds;
+  }
+
+  /// 恢复必须匹配仍存在的作品、逻辑分集、物理视频版本与媒体源。
+  bool matchesLibrary(KonataDatabaseBundle databases) {
+    final library = databases.library;
+    final work = WorkId.trusted(workId);
+    final episode = EpisodeId.trusted(episodeId);
+    final variant = library.mediaVariants.findById(
+      VariantId.trusted(variantId),
+    );
+    return library.works.findById(work) != null &&
+        library.episodes.findById(episode)?.workId == work &&
+        variant != null &&
+        variant.workId == work &&
+        variant.episodeId == episode &&
+        variant.assetKind == AssetKind.video &&
+        library.mediaSources.findById(variant.sourceId) != null;
   }
 
   /// 序列化为本机自治存储字典。
@@ -57,24 +77,32 @@ class PipPlaybackRecoverySnapshot {
   };
 
   /// 从序列化字典还原恢复快照；字段缺失或格式无效时返回空值。
-  static PipPlaybackRecoverySnapshot? tryFromJson(
-    Map<String, Object?> json,
-  ) {
-    final workId = (json['workId'] as String?)?.trim() ?? '';
-    final episodeId = (json['episodeId'] as String?)?.trim() ?? '';
-    final variantId = (json['variantId'] as String?)?.trim() ?? '';
+  static PipPlaybackRecoverySnapshot? tryFromJson(Map<String, Object?> json) {
+    final workId = json['workId'];
+    final episodeId = json['episodeId'];
+    final variantId = json['variantId'];
     final updatedAt = json['updatedAtMs'];
-    if (workId.isEmpty || variantId.isEmpty || updatedAt is! int) {
+    final rawPos = json['positionSeconds'];
+    final playing = json['isPlaying'];
+    if (workId is! String ||
+        workId.trim().isEmpty ||
+        episodeId is! String ||
+        episodeId.trim().isEmpty ||
+        variantId is! String ||
+        variantId.trim().isEmpty ||
+        updatedAt is! int ||
+        rawPos is! num ||
+        !rawPos.isFinite ||
+        rawPos < 0 ||
+        playing is! bool) {
       return null;
     }
-    final rawPos = json['positionSeconds'];
-    final posSeconds = rawPos is int ? rawPos : (rawPos is num ? rawPos.round() : 0);
     return PipPlaybackRecoverySnapshot(
-      workId: workId,
-      episodeId: episodeId,
-      variantId: variantId,
-      positionSeconds: posSeconds < 0 ? 0 : posSeconds,
-      isPlaying: json['isPlaying'] as bool? ?? false,
+      workId: workId.trim(),
+      episodeId: episodeId.trim(),
+      variantId: variantId.trim(),
+      positionSeconds: rawPos.round(),
+      isPlaying: playing,
       updatedAtMs: updatedAt,
     );
   }
@@ -100,9 +128,8 @@ final TypedPrefsSlice<PipPlaybackRecoverySnapshot?> _pipRecoveryPrefsSlice =
       syncPolicy: SyncPolicy.deviceLocal,
       defaultValue: null,
       encode: (value) => value?.toJson() ?? const <String, Object?>{},
-      decode: (json, _) => json.isEmpty
-          ? null
-          : PipPlaybackRecoverySnapshot.tryFromJson(json),
+      decode: (json, _) =>
+          json.isEmpty ? null : PipPlaybackRecoverySnapshot.tryFromJson(json),
     );
 
 /// 基于 [ScopedPrefsStore] 的设备本地画中画恢复状态持久化实现。

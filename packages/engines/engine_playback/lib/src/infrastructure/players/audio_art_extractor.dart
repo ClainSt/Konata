@@ -521,8 +521,7 @@ class AudioAssetExtractor {
     if (maxBytes <= 0) return null;
     try {
       var end = start + maxBytes - 1;
-      // Cloud gateways validate the exact range, unlike HTTP servers which
-      // may clamp a range extending past EOF. Never request beyond EOF.
+      // 云盘网关严格校验字节范围，不像 HTTP 服务可能自动截断越界范围，因此先限制到文件末尾。
       if (gateway is CloudDriveGateway) {
         final length = await gateway.probeFileLength(relativePath);
         if (length == null || length <= start) return null;

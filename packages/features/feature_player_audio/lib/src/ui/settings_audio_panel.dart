@@ -85,7 +85,7 @@ class SettingsAudioPanel extends StatelessWidget {
                     subtitle: '未经物理电平实证或新接入 DAC 时在末端强制串联限幅与 150ms 淡入斜坡',
                     trailing: KonataSwitch(
                       value: prefs.audiophileSafetyLimiterEnabled,
-                      semanticLabel: '发烧安全限幅开关',
+                      semanticLabel: '安全限幅',
                       onChanged: (val) {
                         final ctrl = controller;
                         if (ctrl != null) {

@@ -549,8 +549,9 @@ class _ImmersiveLyricsViewportState extends State<ImmersiveLyricsViewport> {
                   text: scrubLine.primaryText,
                   style: TextStyle(
                     fontSize: fontSize,
-                    fontWeight:
-                        isFocusActive ? FontWeight.w700 : FontWeight.w600,
+                    fontWeight: isFocusActive
+                        ? FontWeight.w700
+                        : FontWeight.w600,
                   ),
                 ),
                 textDirection: Directionality.of(context),
@@ -629,7 +630,8 @@ class _ImmersiveLyricsViewportState extends State<ImmersiveLyricsViewport> {
                                   activeDrag: true,
                                 );
                               }
-                            } else if (notification is ScrollUpdateNotification) {
+                            } else if (notification
+                                is ScrollUpdateNotification) {
                               if (!_programmaticScroll &&
                                   (notification.dragDetails != null ||
                                       _isUserScrolling)) {

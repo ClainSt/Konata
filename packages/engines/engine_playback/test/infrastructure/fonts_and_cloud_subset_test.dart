@@ -42,7 +42,8 @@ void main() {
         familyName: 'KonataLatinOnly',
         includeCjk: false,
       );
-      final assText = '''
+      final assText =
+          '''
 [Script Info]
 ScriptType: v4.00+
 
@@ -59,8 +60,14 @@ Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,测试字幕
       expect(extracted.length, 2);
       expect(extracted[0].fontName, 'KonataFontA_0.ttf');
       expect(extracted[0].bytes, equals(ttfA));
-      expect(AssUueFontDecoder.fontBytesContainCodePoint(extracted[0].bytes), isTrue);
-      expect(AssUueFontDecoder.fontBytesContainCodePoint(extracted[1].bytes), isFalse);
+      expect(
+        AssUueFontDecoder.fontBytesContainCodePoint(extracted[0].bytes),
+        isTrue,
+      );
+      expect(
+        AssUueFontDecoder.fontBytesContainCodePoint(extracted[1].bytes),
+        isFalse,
+      );
     });
   });
 
@@ -95,11 +102,16 @@ Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,测试字幕
       final resolved = await pool.resolveInPlaceSiblingFontsDir(videoFile.path);
       expect(resolved, isNotNull);
       expect(resolved!.kind, FontSetResolutionKind.inPlaceSiblingDirectory);
-      expect(p.canonicalize(resolved.directoryPath), p.canonicalize(siblingFontsDir.path));
+      expect(
+        p.canonicalize(resolved.directoryPath),
+        p.canonicalize(siblingFontsDir.path),
+      );
       expect(resolved.fontCount, 1);
 
       final cacheRoot = await storageRoot.resolveCacheRootPath();
-      final poolDir = Directory(p.join(cacheRoot, StoragePathNames.fontPoolSubdir));
+      final poolDir = Directory(
+        p.join(cacheRoot, StoragePathNames.fontPoolSubdir),
+      );
       expect(poolDir.existsSync(), isFalse);
     });
 
@@ -137,14 +149,11 @@ Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,测试字幕
       expect(reused.reusedFromLease, isTrue);
 
       for (final name in const ['PackB', 'PackC', 'PackD']) {
-        final smallZip = PlaybackTestFixtures.buildMinimalZip(
-          {
-            '$name.ttf': PlaybackTestFixtures.generateMinimalDualGlyphTtf(
-              familyName: name,
-            ),
-          },
-          deflate: true,
-        );
+        final smallZip = PlaybackTestFixtures.buildMinimalZip({
+          '$name.ttf': PlaybackTestFixtures.generateMinimalDualGlyphTtf(
+            familyName: name,
+          ),
+        }, deflate: true);
         await pool.ingestFontZipBytes(smallZip);
       }
 
@@ -157,34 +166,36 @@ Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,测试字幕
       final systemFontsDir = Directory(p.join(tempRoot.path, 'system_fonts'))
         ..createSync(recursive: true);
 
-      File(p.join(systemFontsDir.path, 'NotoSansLatin-Regular.ttf'))
-          .writeAsBytesSync(
-            PlaybackTestFixtures.generateMinimalDualGlyphTtf(
-              familyName: 'NotoLatin',
-              includeCjk: false,
-            ),
-          );
+      File(
+        p.join(systemFontsDir.path, 'NotoSansLatin-Regular.ttf'),
+      ).writeAsBytesSync(
+        PlaybackTestFixtures.generateMinimalDualGlyphTtf(
+          familyName: 'NotoLatin',
+          includeCjk: false,
+        ),
+      );
       File(p.join(systemFontsDir.path, 'NotoColorEmoji.ttf')).writeAsBytesSync(
         PlaybackTestFixtures.generateMinimalDualGlyphTtf(
           familyName: 'Emoji',
           includeCjk: true,
         ),
       );
-      File(p.join(systemFontsDir.path, 'CorruptCJK.ttf')).writeAsBytesSync(
-        utf8.encode('not-a-valid-sfnt-font'),
-      );
-      final realCjkFont = File(
-        p.join(systemFontsDir.path, 'NotoSansCJKsc-Regular.ttf'),
-      )..writeAsBytesSync(
-          PlaybackTestFixtures.generateMinimalDualGlyphTtf(
-            familyName: 'NotoSansCJK',
-            includeCjk: true,
-          ),
-        );
+      File(
+        p.join(systemFontsDir.path, 'CorruptCJK.ttf'),
+      ).writeAsBytesSync(utf8.encode('not-a-valid-sfnt-font'));
+      final realCjkFont =
+          File(p.join(systemFontsDir.path, 'NotoSansCJKsc-Regular.ttf'))
+            ..writeAsBytesSync(
+              PlaybackTestFixtures.generateMinimalDualGlyphTtf(
+                familyName: 'NotoSansCJK',
+                includeCjk: true,
+              ),
+            );
 
-      final verified = await SubtitleFontPoolManager.discoverVerifiedSystemCjkFonts(
-        searchRootsOverride: [systemFontsDir],
-      );
+      final verified =
+          await SubtitleFontPoolManager.discoverVerifiedSystemCjkFonts(
+            searchRootsOverride: [systemFontsDir],
+          );
       expect(verified.map((f) => p.basename(f.path)).toList(), [
         'NotoSansCJKsc-Regular.ttf',
       ]);
@@ -218,18 +229,23 @@ Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,测试字幕
       expect(brokenStale.existsSync(), isFalse);
       expect(badSubfont.existsSync(), isTrue);
       expect(
-        AssUueFontDecoder.fontBytesContainCodePoint(badSubfont.readAsBytesSync()),
+        AssUueFontDecoder.fontBytesContainCodePoint(
+          badSubfont.readAsBytesSync(),
+        ),
         isTrue,
       );
       expect(
-        File(p.join(preFontsDir.path, p.basename(realCjkFont.path))).existsSync(),
+        File(
+          p.join(preFontsDir.path, p.basename(realCjkFont.path)),
+        ).existsSync(),
         isTrue,
       );
 
       final emptySystemFonts = Directory(p.join(tempRoot.path, 'empty_fonts'))
         ..createSync(recursive: true);
-      final fallbackMpvDir = Directory(p.join(tempRoot.path, 'mpv_asset_fallback'))
-        ..createSync(recursive: true);
+      final fallbackMpvDir = Directory(
+        p.join(tempRoot.path, 'mpv_asset_fallback'),
+      )..createSync(recursive: true);
       final fallbackBytes = Uint8List.fromList([
         ...PlaybackTestFixtures.generateMinimalDualGlyphTtf(
           familyName: 'BundledCJK',
@@ -283,7 +299,8 @@ Dialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,{\\an8\\pos(640,120)}第一行
       final validTtf = PlaybackTestFixtures.generateMinimalDualGlyphTtf(
         familyName: 'SubsetAlias',
       );
-      final validSubsetAss = '''
+      final validSubsetAss =
+          '''
 [Script Info]
 ScriptType: v4.00+
 
@@ -313,7 +330,10 @@ Dialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,{\\an8\\pos(640,120)}第一行
         if (mode == 'redirect') {
           req.response
             ..statusCode = HttpStatus.temporaryRedirect
-            ..headers.set(HttpHeaders.locationHeader, 'https://evil.example/leak');
+            ..headers.set(
+              HttpHeaders.locationHeader,
+              'https://evil.example/leak',
+            );
           await req.response.close();
           return;
         }
@@ -410,6 +430,17 @@ Dialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,{\\an8\\pos(640,120)}第一行
       expect(cached.fromLocalCache, isTrue);
       expect(cached.cachedFilePath, first.cachedFilePath);
       expect(requestCount, 3);
+      // 读取已验证缓存期间意图失效，同样不得向播放器返回结果。
+      var checks = 0;
+      await expectLater(
+        client.requestSubset(
+          endpointUri: endpoint,
+          originalAssContent: originalAss,
+          isTaskAlive: () => ++checks == 1,
+        ),
+        throwsA(isA<CloudSubsetCancelledException>()),
+      );
+      expect(requestCount, 3);
     });
 
     test('在途撤权通过 CloudSubsetCoordinator 即时中止连接且不误杀其余三域任务', () async {
@@ -428,7 +459,9 @@ Dialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,{\\an8\\pos(640,120)}第一行
       final rawSubToken = engine.acquireTaskToken(
         PlaybackTaskDomain.rawSubtitleFetch,
       );
-      final lyricToken = engine.acquireTaskToken(PlaybackTaskDomain.lyricLookup);
+      final lyricToken = engine.acquireTaskToken(
+        PlaybackTaskDomain.lyricLookup,
+      );
       final colorToken = engine.acquireTaskToken(
         PlaybackTaskDomain.artworkColor,
       );
@@ -449,7 +482,8 @@ Dialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,{\\an8\\pos(640,120)}第一行
 
       final future = coordinator.runCloudSubset(
         endpointUri: endpoint,
-        originalAssContent: '[Events]\nDialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,测试\n',
+        originalAssContent:
+            '[Events]\nDialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,测试\n',
       );
       await arrived.future;
 

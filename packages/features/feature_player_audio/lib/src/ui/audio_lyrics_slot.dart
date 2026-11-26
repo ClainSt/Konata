@@ -41,7 +41,4 @@ final class AudioLyricsViewportContext {
 
 /// 音频舞台可选外挂歌词视图构建器签名。
 typedef AudioLyricsViewportBuilder =
-    Widget Function(
-      BuildContext context,
-      AudioLyricsViewportContext viewport,
-    );
+    Widget Function(BuildContext context, AudioLyricsViewportContext viewport);

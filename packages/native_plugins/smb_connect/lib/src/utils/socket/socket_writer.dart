@@ -1,8 +1,6 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:smb_connect/src/utils/extensions.dart';
-
 class SocketWriter {
   final bool debugPrint;
   final Socket _socket;
@@ -16,13 +14,13 @@ class SocketWriter {
     _socket.add(buf);
     lastWrite += buf.length;
     if (debugPrint) {
-      print("write[$length]: ${buf.toHexString2(offset, length)}");
+      print("SMB 发送字节数：$length");
     }
   }
 
   Future<void> flush() async {
     if (debugPrint) {
-      print("write flush $lastWrite");
+      print("SMB 刷新字节数：$lastWrite");
     }
     await _socket.flush();
     lastWrite = 0;

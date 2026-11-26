@@ -1,14 +1,16 @@
 import 'dart:async';
 
 import 'package:engine_playback/engine_playback.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:konata_design_system/konata_design_system.dart';
 
 import '../data/data.dart';
 import '../state/state.dart';
+import 'audio_playing_bars.dart';
 
 /// 专辑队列列表（支持普通曲目、`CUE` 分轨动态展开/折叠与激活高光）。
-class AudioQueueListView extends StatelessWidget {
+class AudioQueueListView extends StatefulWidget {
   /// 创建队列列表。
   const AudioQueueListView({
     super.key,
@@ -20,12 +22,61 @@ class AudioQueueListView extends StatelessWidget {
   final AudioPlaybackSnapshot snapshot;
 
   @override
+  State<AudioQueueListView> createState() => _AudioQueueListViewState();
+}
+
+class _AudioQueueListViewState extends State<AudioQueueListView> {
+  final _scrollController = ScrollController();
+  ({String id, int index, int count, double extent})? _lastTarget;
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  // 仅在当前曲目或列表结构改变时定位，普通滚动和播放进度不抢占用户操作。
+  void _revealActive(List<AudioQueueDisplayRow> rows, double extent) {
+    final index = rows.indexWhere((row) => row.isActive);
+    if (index < 0) {
+      _lastTarget = null;
+      return;
+    }
+    final target = (
+      id: rows[index].item.itemId,
+      index: index,
+      count: rows.length,
+      extent: extent,
+    );
+    if (_lastTarget == target) return;
+    _lastTarget = target;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _lastTarget != target || !_scrollController.hasClients) {
+        return;
+      }
+      final position = _scrollController.position;
+      if (!position.hasContentDimensions) return;
+      final start = 24 + index * extent;
+      final end = start + extent;
+      if (start >= position.pixels + 12 &&
+          end <= position.pixels + position.viewportDimension - 12) {
+        return;
+      }
+      final next = (start - (position.viewportDimension - extent) / 2)
+          .clamp(position.minScrollExtent, position.maxScrollExtent)
+          .toDouble();
+      if (next != position.pixels) _scrollController.jumpTo(next);
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final rows = AudioPlaybackQueueBuilder.buildDisplayRows(
-      queue: snapshot.queue,
-      currentIndex: snapshot.currentIndex,
+      queue: widget.snapshot.queue,
+      currentIndex: widget.snapshot.currentIndex,
     );
     if (rows.isEmpty) {
+      _lastTarget = null;
       return Center(
         child: Text(
           '当前播放队列为空',
@@ -37,52 +88,84 @@ class AudioQueueListView extends StatelessWidget {
       );
     }
 
-    return ListView.separated(
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
-      itemCount: rows.length,
-      separatorBuilder: (_, _) => const SizedBox(height: 4),
-      itemBuilder: (context, idx) {
-        final row = rows[idx];
-        final item = row.item;
-        final isActive = row.isActive;
-        final isCueHeader = row.kind == AudioQueueDisplayRowKind.cueHeader;
-        final cuePath = item.cueSheetPath;
-        final isCueExpanded =
-            cuePath != null &&
-            snapshot.expandedCuePaths.contains(
-              AudioPlaybackQueueBuilder.normalizeQueuePath(
-                cuePath,
-              ).toLowerCase(),
+    final scaler = MediaQuery.textScalerOf(context);
+    final extent =
+        30 +
+        1.3 *
+            (scaler.scale(KonataPlaybackTokens.queueRowTitleActiveFontSize) +
+                scaler.scale(KonataPlaybackTokens.queueRowSubtitleFontSize));
+    _revealActive(rows, extent);
+    return KonataDraggableScrollbar(
+      controller: _scrollController,
+      trackInsets: const EdgeInsets.only(top: 24, bottom: 32, right: 4),
+      builder: (_, scrollController) => ShaderMask(
+        shaderCallback: (bounds) => const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Colors.transparent,
+            Colors.white,
+            Colors.white,
+            Colors.transparent,
+          ],
+          stops: [0, 0.06, 0.94, 1],
+        ).createShader(bounds),
+        blendMode: BlendMode.dstIn,
+        child: ListView.builder(
+          controller: scrollController,
+          padding: const EdgeInsets.fromLTRB(4, 24, 6, 32),
+          itemCount: rows.length,
+          itemExtent: extent,
+          itemBuilder: (context, idx) {
+            final row = rows[idx];
+            final item = row.item;
+            final isActive = row.isActive;
+            final isCueHeader = row.kind == AudioQueueDisplayRowKind.cueHeader;
+            final cuePath = item.cueSheetPath;
+            final isCueExpanded =
+                cuePath != null &&
+                widget.snapshot.expandedCuePaths.contains(
+                  AudioPlaybackQueueBuilder.normalizeQueuePath(
+                    cuePath,
+                  ).toLowerCase(),
+                );
+
+            if (isCueHeader && cuePath != null) {
+              return _QueueRowTile(
+                title: item.isCueTrack ? item.album : item.title,
+                subtitle: null,
+                leadingIcon: Icons.album_outlined,
+                trailingText: isCueExpanded ? '收起' : '展开',
+                isActive: isActive,
+                playing: widget.controller.playingListenable,
+                onTap: () =>
+                    unawaited(widget.controller.toggleCueExpansion(cuePath)),
+              );
+            }
+
+            final durSec = item.durationSeconds.round();
+            return _QueueRowTile(
+              title: item.title,
+              subtitle: item.artist.isNotEmpty ? item.artist : item.album,
+              leadingText: item.cueTrackIndex != null
+                  ? item.cueTrackIndex!.toString().padLeft(2, '0')
+                  : '${row.queueIndex + 1}'.padLeft(2, '0'),
+              trailingText: durSec > 0
+                  ? PlaybackRecordHelper.formatClock(durSec)
+                  : null,
+              isActive: isActive,
+              playing: widget.controller.playingListenable,
+              indented: row.kind == AudioQueueDisplayRowKind.cueTrack,
+              onTap: () => unawaited(
+                widget.controller.playQueueIndex(
+                  row.queueIndex,
+                  manualSelection: true,
+                ),
+              ),
             );
-
-        if (isCueHeader && cuePath != null) {
-          return _QueueRowTile(
-            title: item.isCueTrack ? item.album : item.title,
-            subtitle: isCueExpanded ? '已展开分轨 · 点击可折叠' : '点击展开 .cue 分轨清单',
-            leadingIcon: Icons.album_outlined,
-            trailingText: isCueExpanded ? '收起' : '展开',
-            isActive: isActive,
-            onTap: () => unawaited(controller.toggleCueExpansion(cuePath)),
-          );
-        }
-
-        final durSec = item.durationSeconds.round();
-        return _QueueRowTile(
-          title: item.title,
-          subtitle: item.artist.isNotEmpty ? item.artist : item.album,
-          leadingText: item.cueTrackIndex != null
-              ? item.cueTrackIndex!.toString().padLeft(2, '0')
-              : '${row.queueIndex + 1}'.padLeft(2, '0'),
-          trailingText: durSec > 0
-              ? PlaybackRecordHelper.formatClock(durSec)
-              : null,
-          isActive: isActive,
-          indented: row.kind == AudioQueueDisplayRowKind.cueTrack,
-          onTap: () => unawaited(
-            controller.playQueueIndex(row.queueIndex, manualSelection: true),
-          ),
-        );
-      },
+          },
+        ),
+      ),
     );
   }
 }
@@ -110,7 +193,7 @@ Future<void> showAudiophileSafetyDialog(
           };
 
           return KonataGlassDialog(
-            title: '发烧音频与 -12 dBFS 安全护耳链',
+            title: '音频安全设置',
             width: 500,
             child: SingleChildScrollView(
               child: Column(
@@ -156,8 +239,9 @@ Future<void> showAudiophileSafetyDialog(
                             : '实证当前硬件直通链路',
                         compact: true,
                         icon: Icons.fact_check_outlined,
-                        onPressed: () =>
-                            unawaited(controller.verifyAudiophileHardwareRoute()),
+                        onPressed: () => unawaited(
+                          controller.verifyAudiophileHardwareRoute(),
+                        ),
                       ),
                       KonataPillButton.primary(
                         label: '解锁当次会话满幅输出',
@@ -227,6 +311,7 @@ class _QueueRowTile extends StatelessWidget {
     required this.isActive,
     required this.onTap,
     this.indented = false,
+    this.playing,
   });
 
   final String title;
@@ -237,6 +322,7 @@ class _QueueRowTile extends StatelessWidget {
   final bool isActive;
   final VoidCallback onTap;
   final bool indented;
+  final ValueListenable<bool>? playing;
 
   @override
   Widget build(BuildContext context) {
@@ -245,22 +331,19 @@ class _QueueRowTile extends StatelessWidget {
       child: Container(
         margin: EdgeInsets.only(left: indented ? 14 : 0),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-        decoration: BoxDecoration(
-          color: isActive
-              ? Colors.white.withValues(alpha: 0.14)
-              : Colors.white.withValues(alpha: 0.05),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: isActive
-                ? Colors.white.withValues(alpha: 0.28)
-                : Colors.white.withValues(alpha: 0.08),
-          ),
-        ),
         child: Row(
           children: [
             SizedBox(
               width: 28,
-              child: leadingIcon != null
+              child: isActive && playing != null
+                  ? Align(
+                      alignment: Alignment.centerLeft,
+                      child: AudioPlayingBars(
+                        playing: playing!,
+                        color: Colors.white,
+                      ),
+                    )
+                  : leadingIcon != null
                   ? Icon(
                       leadingIcon,
                       size: 18,
@@ -284,6 +367,7 @@ class _QueueRowTile extends StatelessWidget {
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Text(
                     title,
@@ -293,8 +377,10 @@ class _QueueRowTile extends StatelessWidget {
                       color: isActive
                           ? Colors.white
                           : Colors.white.withValues(alpha: 0.90),
-                      fontSize: 13.5,
-                      fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
+                      fontSize: isActive
+                          ? KonataPlaybackTokens.queueRowTitleActiveFontSize
+                          : KonataPlaybackTokens.queueRowTitleInactiveFontSize,
+                      fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
                     ),
                   ),
                   if (subtitle != null && subtitle!.isNotEmpty) ...[

@@ -4,7 +4,7 @@ import 'package:engine_playback/engine_playback.dart';
 import 'package:konata_contracts/konata_contracts.dart';
 import 'package:konata_storage/konata_storage.dart';
 
-/// 音频列表循环模式。
+/// 音频队列互斥播放模式。
 enum AudioLoopMode {
   /// 顺序播放至队尾停止。
   sequence,
@@ -13,7 +13,10 @@ enum AudioLoopMode {
   loopAll,
 
   /// 单曲循环。
-  loopOne;
+  loopOne,
+
+  /// 随机顺序播放，遍历队列后继续循环。
+  shuffle;
 
   /// 按名称解析循环模式，未知值回退列表循环。
   static AudioLoopMode parse(Object? raw) {
@@ -44,10 +47,7 @@ final class MemoryAudioCover extends AudioCoverSource {
 /// 回退使用作品管理海报引用或远端海报链接。
 final class ManagedPosterAudioCover extends AudioCoverSource {
   /// 构造托管海报回退封面。
-  const ManagedPosterAudioCover({
-    this.artworkRef,
-    this.fallbackUrl,
-  });
+  const ManagedPosterAudioCover({this.artworkRef, this.fallbackUrl});
 
   /// 契约级作品海报引用。
   final ArtworkRef? artworkRef;
@@ -305,7 +305,6 @@ class AudioPlaybackSnapshot {
     this.playOrder = const [],
     this.playOrderPos = -1,
     this.loopMode = AudioLoopMode.loopAll,
-    this.shuffleEnabled = false,
     this.cover = const EmptyAudioCover(),
     this.coverVariantTag,
     this.volume = 85.0,
@@ -355,9 +354,6 @@ class AudioPlaybackSnapshot {
 
   /// 循环模式。
   final AudioLoopMode loopMode;
-
-  /// 是否开启随机乱序模式。
-  final bool shuffleEnabled;
 
   /// 当前生效的封面图来源。
   final AudioCoverSource cover;
@@ -449,7 +445,6 @@ class AudioPlaybackSnapshot {
     List<int>? playOrder,
     int? playOrderPos,
     AudioLoopMode? loopMode,
-    bool? shuffleEnabled,
     AudioCoverSource? cover,
     String? coverVariantTag,
     bool clearCoverVariantTag = false,
@@ -478,7 +473,6 @@ class AudioPlaybackSnapshot {
       playOrder: playOrder ?? this.playOrder,
       playOrderPos: playOrderPos ?? this.playOrderPos,
       loopMode: loopMode ?? this.loopMode,
-      shuffleEnabled: shuffleEnabled ?? this.shuffleEnabled,
       cover: cover ?? this.cover,
       coverVariantTag: clearCoverVariantTag
           ? null

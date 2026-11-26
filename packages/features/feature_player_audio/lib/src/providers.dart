@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:engine_playback/engine_playback.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:konata_contracts/konata_contracts.dart';
@@ -26,6 +28,7 @@ class FeaturePlayerAudioDependencies {
     this.playbackRecordDao,
     this.photosStorage,
     this.artworkCacheStore,
+    this.posterLoader,
     this.storageRoot,
     this.domainEventBus,
     this.desktopRelayGateway,
@@ -76,6 +79,9 @@ class FeaturePlayerAudioDependencies {
   /// 可选统一艺术图缓存接口。
   final ArtworkCacheStore? artworkCacheStore;
 
+  /// 宿主按需提供受管作品海报字节，未注入时仅使用本地缓存。
+  final Future<Uint8List?> Function(String path, String workId)? posterLoader;
+
   /// 便携路径根目录解析端口。
   final StorageRootPort? storageRoot;
 
@@ -106,13 +112,12 @@ class FeaturePlayerAudioDependencies {
 
 /// 音频垂直业务包核心外部依赖 Provider（由宿主应用组装根 `overrideWithValue` 注入）。
 final Provider<FeaturePlayerAudioDependencies>
-featurePlayerAudioDependenciesProvider = Provider<FeaturePlayerAudioDependencies>((
-  ref,
-) {
-  throw UnimplementedError(
-    'featurePlayerAudioDependenciesProvider 必须在根 ProviderScope 覆盖注入后再读取。',
-  );
-});
+featurePlayerAudioDependenciesProvider =
+    Provider<FeaturePlayerAudioDependencies>((ref) {
+      throw UnimplementedError(
+        'featurePlayerAudioDependenciesProvider 必须在根 ProviderScope 覆盖注入后再读取。',
+      );
+    });
 
 /// 音频垂直设置仓库 Provider（隔离在 `playback_audio` 切片）。
 final Provider<AudioPlaybackPreferences> audioPlaybackPrefsRepoProvider =
@@ -126,7 +131,13 @@ final Provider<AudioPlaybackPreferences> audioPlaybackPrefsRepoProvider =
 
 /// 音频内嵌与专辑封面资源缓存 Provider。
 final Provider<AudioPlaybackAssets> audioPlaybackAssetsProvider =
-    Provider<AudioPlaybackAssets>((ref) => AudioPlaybackAssets());
+    Provider<AudioPlaybackAssets>(
+      (ref) => AudioPlaybackAssets(
+        posterLoader: ref
+            .watch(featurePlayerAudioDependenciesProvider)
+            .posterLoader,
+      ),
+    );
 
 /// 音频流光色板聚簇缓存 Provider。
 final Provider<ArtworkPaletteCache> artworkPaletteCacheProvider =

@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:konata_contracts/konata_contracts.dart';
 import 'package:konata_design_system/konata_design_system.dart';
+import 'package:konata_storage/konata_storage.dart';
 
 import 'support/detail_test_fixtures.dart';
 
@@ -219,7 +220,34 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text('编辑竖版原画'), findsNothing);
         expect(find.text('编辑封面海报'), findsOneWidget);
-        expect(find.text('编辑横版背景原画 / 抽帧'), findsOneWidget);
+        expect(find.text('编辑横版背景'), findsOneWidget);
+        const expectedLabels = [
+          '重新抓取数据',
+          '手动编辑信息',
+          '手动精确匹配',
+          '管理系列编组',
+          '并入其他作品',
+          '编辑封面海报',
+          '编辑横版背景',
+          '编辑标题徽标',
+          '移除这部作品',
+        ];
+        Finder menuLabel(String label) => find.descendant(
+          of: find.byType(KonataPopoverOptionTile),
+          matching: find.text(label),
+        );
+        for (final label in expectedLabels) {
+          expect(menuLabel(label), findsOneWidget);
+        }
+        for (var i = 1; i < expectedLabels.length; i++) {
+          expect(
+            tester.getTopLeft(menuLabel(expectedLabels[i])).dy,
+            greaterThan(tester.getTopLeft(menuLabel(expectedLabels[i - 1])).dy),
+          );
+        }
+        for (final label in ['刷新源目录变更', '全剧标为已看完', '清空观看进度', '从主媒体库隐藏']) {
+          expect(menuLabel(label), findsNothing);
+        }
         expect(
           find.byKey(
             const ValueKey<String>('detail_ext_gear_mock_primary_action'),
@@ -233,6 +261,27 @@ void main() {
         );
         await tester.pumpAndSettle();
         expect(invokedActionWorkIds, <WorkId>[const WorkId.trusted('w_ui_1')]);
+
+        final primaryPlay = find.byKey(const Key('detail_primary_play_button'));
+        expect(
+          find.descendant(of: primaryPlay, matching: find.text('开始播放')),
+          findsOneWidget,
+        );
+
+        // 取消移除必须保留作品及其资源关系。
+        await tester.tap(find.byKey(const Key('detail_gear_menu_button')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('移除这部作品'));
+        await tester.pumpAndSettle();
+        expect(find.text('确认移出'), findsOneWidget);
+        await tester.tap(find.text('取消'));
+        await tester.pumpAndSettle();
+        expect(find.byType(WorkDetailPage), findsOneWidget);
+        expect(await harness.repository.findWorkById('w_ui_1'), isNotNull);
+        expect(
+          await harness.repository.getVariantsByWork('w_ui_1'),
+          hasLength(5),
+        );
 
         // 2. 点击动态扩展标签并校验 viewBuilder 被调用
         await tester.tap(
@@ -326,6 +375,113 @@ void main() {
       await ctrl.load();
     });
 
+    testWidgets('续播按钮只显示继续播放，目标剧集及原断点保持不变', (tester) async {
+      tester.view.physicalSize = const Size(1440, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      harness.databases.userState.playbackRecords.upsert(
+        const PlaybackRecordEntity(
+          id: 'resume-ui',
+          workId: WorkId.trusted('w_ui_1'),
+          episodeId: EpisodeId.trusted('ep_ui_2'),
+          variantId: VariantId.trusted('var_ui_2'),
+          playedAtMs: 1000,
+          updatedAtMs: 1000,
+          episodeNumber: 2,
+          positionSeconds: 245,
+          durationSeconds: 1440,
+        ),
+      );
+      await tester.runAsync(ctrl.load);
+      expect(ctrl.bundle!.resumePlan!.startSeconds, 245);
+      await tester.pumpWidget(
+        wrapDetailTestApp(
+          dependencies: harness.buildDependencies(),
+          child: WorkDetailPage(
+            workId: const WorkId.trusted('w_ui_1'),
+            controllerOverride: ctrl,
+            imageLoaderOverride: createStubImageLoader(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final button = find.byKey(const Key('detail_primary_play_button'));
+      expect(
+        find.descendant(of: button, matching: find.text('继续播放')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: button, matching: find.byType(Text)),
+        findsOneWidget,
+      );
+      await tester.tap(button);
+      await tester.pumpAndSettle();
+      expect(
+        harness.navigator.videoPlayerCalls.single.episodeId?.value,
+        'ep_ui_2',
+      );
+      expect(
+        harness.navigator.videoPlayerCalls.single.variantId?.value,
+        'var_ui_2',
+      );
+      expect(ctrl.bundle!.resumePlan!.startSeconds, 245);
+    });
+    testWidgets('正片卡片保持标准与紧凑剧照尺寸和字体层级', (tester) async {
+      final bundle = ctrl.bundle!;
+      for (final (compact, width, titleSize, fileSize, lines) in [
+        (false, 244.0, 14.0, 12.0, 3),
+        (true, 208.0, 13.0, 11.5, 2),
+      ]) {
+        for (final dpr in [1.0, 2.0]) {
+          tester.view.devicePixelRatio = dpr;
+          tester.view.physicalSize = Size(390 * dpr, 780 * dpr);
+          await tester.pumpWidget(
+            wrapDetailTestApp(
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: DetailBottomDrawer(
+                  bundle: bundle,
+                  imageLoader: createStubImageLoader(),
+                  displayPreferences: const DetailDisplayPreferences(),
+                  expanded: true,
+                  compact: compact,
+                  onTapEpisode: (_) {},
+                  onTapCdVariant: (_) {},
+                  onInspectEpisodeInfo: (_) {},
+                  onOpenFullList: (_) {},
+                ),
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+          final card = find.byKey(const ValueKey('episode_card_ep_ui_1'));
+          expect(card, findsOneWidget);
+          expect(tester.widget<EpisodeDrawerCard>(card).compactMeta, compact);
+          final still = find
+              .descendant(of: card, matching: find.byType(AspectRatio))
+              .first;
+          final rect = tester.getSize(still);
+          expect(rect.width, closeTo(width, 3));
+          expect(rect.width / rect.height, closeTo(16 / 9, 0.02));
+          final metadata = tester
+              .widgetList<EllipsisTextWithTooltip>(
+                find.descendant(
+                  of: card,
+                  matching: find.byType(EllipsisTextWithTooltip),
+                ),
+              )
+              .toList();
+          expect(metadata[0].style.fontSize, titleSize);
+          expect(metadata[0].maxLines, 1);
+          expect(metadata[1].style.fontSize, fileSize);
+          expect(metadata[1].maxLines, lines);
+          expect(tester.takeException(), isNull);
+        }
+      }
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
     testWidgets('点击高亮分类弹出/收回 ⊞，支持点击背景/Esc 收起且实时响应 shared prefs', (
       tester,
     ) async {
@@ -387,6 +543,18 @@ void main() {
       );
       final dialog = find.byType(KonataGlassDialog);
 
+      final list = find.byKey(const ValueKey('detail_full_list_episodes'));
+      final bar = find.descendant(
+        of: dialog,
+        matching: find.byType(KonataDraggableScrollbar),
+      );
+      expect((tester.widget<ListView>(list).padding! as EdgeInsets).right, 0);
+      expect(
+        tester.getRect(bar).right - tester.getRect(list).right,
+        greaterThanOrEqualTo(
+          KonataTheme.scrollbarMaxThickness + KonataTheme.scrollbarContentGap,
+        ),
+      );
       final initialDialog = tester.widget<KonataGlassDialog>(dialog);
       expect(initialDialog.width, closeTo(1280 * 0.84, 0.01));
       expect(initialDialog.height, closeTo(800 * 0.82, 0.01));

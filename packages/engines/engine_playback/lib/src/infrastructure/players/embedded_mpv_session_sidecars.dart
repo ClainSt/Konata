@@ -64,7 +64,8 @@ extension EmbeddedMpvSessionSidecars on EmbeddedMpvSession {
           applySubFontsDir(ingested.directoryPath);
           return;
         } on Object catch (e) {
-          PlaybackLogHelper.record(logStore, 
+          PlaybackLogHelper.record(
+            logStore,
             'mpv-fonts',
             '解析本地字体压缩包 ${p.basename(candidate.path)} 失败：$e',
           );
@@ -94,25 +95,36 @@ extension EmbeddedMpvSessionSidecars on EmbeddedMpvSession {
           audioTargets: const <String>[],
         );
       }
-      
-      final mediaAbs = PlaybackSidecarHelpers.resolveLocalSafePath(source.location, variant.relativePath);
+
+      final mediaAbs = PlaybackSidecarHelpers.resolveLocalSafePath(
+        source.location,
+        variant.relativePath,
+      );
       final candidates = <String>[];
       try {
         final parentRel = SubtitleAndAudioChoices.parentDirOf(
           variant.relativePath,
         );
-        final entries = await PlaybackSidecarHelpers.listLocalDirectory(source.location, parentRel);
+        final entries = await PlaybackSidecarHelpers.listLocalDirectory(
+          source.location,
+          parentRel,
+        );
         for (final entry in entries) {
           if (!entry.isDirectory) {
             candidates.add(entry.relativePath);
           } else if (SubtitleAndAudioChoices.isSidecarSubdirName(entry.name)) {
             try {
-              final subEntries = await PlaybackSidecarHelpers.listLocalDirectory(source.location, entry.relativePath);
+              final subEntries =
+                  await PlaybackSidecarHelpers.listLocalDirectory(
+                    source.location,
+                    entry.relativePath,
+                  );
               for (final sub in subEntries) {
                 if (!sub.isDirectory) candidates.add(sub.relativePath);
               }
             } on Object catch (e) {
-              PlaybackLogHelper.record(logStore, 
+              PlaybackLogHelper.record(
+                logStore,
                 'mpv-sidecar',
                 '枚举本地附属子目录 ${entry.name} 忽略：$e',
               );
@@ -120,7 +132,12 @@ extension EmbeddedMpvSessionSidecars on EmbeddedMpvSession {
           }
         }
       } on Object catch (e) {
-        PlaybackLogHelper.record(logStore, 'mpv-sidecar', '枚举本地同级目录失败：$e', isError: true);
+        PlaybackLogHelper.record(
+          logStore,
+          'mpv-sidecar',
+          '枚举本地同级目录失败：$e',
+          isError: true,
+        );
       }
 
       // 刚通过 listDirectory 枚举出的本地同级文件天然存在，免去逐个串行 File.exists 磁盘往返；
@@ -139,7 +156,10 @@ extension EmbeddedMpvSessionSidecars on EmbeddedMpvSession {
         ...matchedSubPaths,
         ...variant.externalSubtitles,
       }) {
-        final abs = PlaybackSidecarHelpers.resolveLocalSafePath(source.location, rel);
+        final abs = PlaybackSidecarHelpers.resolveLocalSafePath(
+          source.location,
+          rel,
+        );
         if (discoveredSet.contains(rel)) {
           absSubs.add(abs);
         } else {
@@ -161,7 +181,8 @@ extension EmbeddedMpvSessionSidecars on EmbeddedMpvSession {
             candidatePaths: candidates,
           );
       final absAudio = <String>[
-        for (final rel in matchedAudioRel) PlaybackSidecarHelpers.resolveLocalSafePath(source.location, rel),
+        for (final rel in matchedAudioRel)
+          PlaybackSidecarHelpers.resolveLocalSafePath(source.location, rel),
       ];
 
       return (
@@ -184,7 +205,9 @@ extension EmbeddedMpvSessionSidecars on EmbeddedMpvSession {
       mainTarget = prewarmedTarget;
     } else {
       final gwFactory = gatewayFactory;
-      if (gwFactory == null) { throw StateError('未注入远程媒体源网关工厂'); }
+      if (gwFactory == null) {
+        throw StateError('未注入远程媒体源网关工厂');
+      }
       final mainGw = await gwFactory.create(source);
       if (mainGw is! ByteRangeReadableGateway) {
         await mainGw.close();
@@ -295,7 +318,11 @@ extension EmbeddedMpvSessionSidecars on EmbeddedMpvSession {
                 }
               }
             } on Object catch (e) {
-              PlaybackLogHelper.record(logStore, 'mpv-sidecar', '续扫远程字幕子目录 $subDir 失败：$e');
+              PlaybackLogHelper.record(
+                logStore,
+                'mpv-sidecar',
+                '续扫远程字幕子目录 $subDir 失败：$e',
+              );
             }
           }
           _putSessionDirectoryCache(
@@ -342,8 +369,7 @@ extension EmbeddedMpvSessionSidecars on EmbeddedMpvSession {
           var scannedSubdirs = 0;
           for (final subDir in candidateSubdirs) {
             if (_disposed || generation != _loadGeneration) return;
-            if (scannedSubdirs >=
-                4) {
+            if (scannedSubdirs >= 4) {
               break;
             }
             scannedSubdirs += 1;
@@ -359,7 +385,11 @@ extension EmbeddedMpvSessionSidecars on EmbeddedMpvSession {
                 }
               }
             } on Object catch (e) {
-              PlaybackLogHelper.record(logStore, 'mpv-sidecar', '扫描远程字幕子目录 $subDir 失败：$e');
+              PlaybackLogHelper.record(
+                logStore,
+                'mpv-sidecar',
+                '扫描远程字幕子目录 $subDir 失败：$e',
+              );
             }
           }
           final remainingSubdirs = scannedSubdirs < candidateSubdirs.length
@@ -378,7 +408,12 @@ extension EmbeddedMpvSessionSidecars on EmbeddedMpvSession {
           validatorsByPath.addAll(discoveredValidators);
         }
       } on Object catch (e) {
-        PlaybackLogHelper.record(logStore, 'mpv-sidecar', '拉取远程同级目录清单失败：$e', isError: true);
+        PlaybackLogHelper.record(
+          logStore,
+          'mpv-sidecar',
+          '拉取远程同级目录清单失败：$e',
+          isError: true,
+        );
       }
 
       if (_disposed || generation != _loadGeneration) return;
@@ -437,7 +472,8 @@ extension EmbeddedMpvSessionSidecars on EmbeddedMpvSession {
           stagedAudioTokens.add(reg.token);
           audioUrls.add(reg.url.toString());
         } on Object catch (e) {
-          PlaybackLogHelper.record(logStore, 
+          PlaybackLogHelper.record(
+            logStore,
             'mpv-sidecar',
             '注册远程外挂音轨流失败（$audioRel）：$e',
             isError: true,
@@ -505,7 +541,8 @@ extension EmbeddedMpvSessionSidecars on EmbeddedMpvSession {
           final remaining =
               SubtitleFontPoolManager.maxTotalExtractBytes - totalBytes;
           if (remaining <= 0) break;
-          final singleCap = remaining < SubtitleFontPoolManager.maxSingleFontBytes
+          final singleCap =
+              remaining < SubtitleFontPoolManager.maxSingleFontBytes
               ? remaining
               : SubtitleFontPoolManager.maxSingleFontBytes;
           final bytes = await _downloadCappedBytes(
@@ -528,7 +565,11 @@ extension EmbeddedMpvSessionSidecars on EmbeddedMpvSession {
           applySubFontsDir(resolved.directoryPath);
         }
       } on Object catch (e) {
-        PlaybackLogHelper.record(logStore, 'mpv-fonts', '拉取远程 Fonts/ 字体目录失败：$e');
+        PlaybackLogHelper.record(
+          logStore,
+          'mpv-fonts',
+          '拉取远程 Fonts/ 字体目录失败：$e',
+        );
       }
     }
   }
@@ -573,8 +614,7 @@ extension EmbeddedMpvSessionSidecars on EmbeddedMpvSession {
       if (f != null && f.isNotEmpty) {
         final base = p.basename(f.split('?').first).toLowerCase();
         mountedNames.add(base);
-        if (t.type == MpvTrackType.subtitle &&
-            !f.startsWith('memory://')) {
+        if (t.type == MpvTrackType.subtitle && !f.startsWith('memory://')) {
           rawAutoLoadedSubIdsByBase.putIfAbsent(base, () => <int>[]).add(t.id);
         }
       }
@@ -761,36 +801,19 @@ extension EmbeddedMpvSessionSidecars on EmbeddedMpvSession {
     );
   }
 
-  /// 同步零延迟热更新字幕字号、底部边距、双语主上副下排布与 ASS 样式覆写模式（拖动滑块时 60fps 即时生效，零解复用 Seek 与磁盘抖动）。
-  void applyLiveSubtitleStyle(
-    PlaybackQualityConfig config, {
-    bool? hasSecondarySubtitle,
-  }) {
+  /// 同步零延迟热更新字幕字号、底部边距与 ASS 样式覆写模式（拖动滑块时 60fps 即时生效，零解复用 Seek 与磁盘抖动）。
+  void applyLiveSubtitleStyle(PlaybackQualityConfig config) {
     _lastQualityConfig = config;
-    if (hasSecondarySubtitle != null) {
-      _hasSecondarySubtitle = hasSecondarySubtitle;
-    }
     final client = _client;
     if (_disposed || client == null || client.isDisposed) return;
     MpvQualityProfile.applyLiveSubtitleStyleUpdate(
       client,
       config: config,
-      hasSecondarySubtitle: _hasSecondarySubtitle,
       logStore: logStore,
     );
-  }
-
-  /// 同步双语副字幕启用态对应的底部主上副下排版定位（主字幕自动上抬一层，关闭副字幕后立即复位）。
-  void applySecondarySubtitleLayout(bool active) {
-    _hasSecondarySubtitle = active;
-    final client = _client;
-    if (_disposed || client == null || client.isDisposed) return;
-    MpvQualityProfile.applyLiveSubtitleStyleUpdate(
-      client,
-      config: _lastQualityConfig,
-      hasSecondarySubtitle: _hasSecondarySubtitle,
-      logStore: logStore,
-    );
+    if (_subtitleHudLiftPercent > 0.0) {
+      _applyCurrentSubtitleHudLift(client);
+    }
   }
 
   /// 调整音频延迟秒数。

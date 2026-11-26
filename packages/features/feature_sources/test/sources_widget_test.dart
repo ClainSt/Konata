@@ -623,7 +623,7 @@ void main() {
     expect(find.text('已选目录 · 0（点击管理）'), findsOneWidget);
     final scanButton = find.byKey(const ValueKey('source_start_scan'));
     expect(tester.widget<KonataPillButton>(scanButton).onPressed, isNull);
-    expect(find.byTooltip('需要选择扫描目录'), findsOneWidget);
+    expect(find.byTooltip('选择扫描目录'), findsOneWidget);
     expect(find.text('仅保存范围'), findsNothing);
     expect(find.text('忽略缓存重扫'), findsNothing);
 

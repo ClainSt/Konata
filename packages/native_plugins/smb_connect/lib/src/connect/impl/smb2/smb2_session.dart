@@ -12,7 +12,6 @@ import 'package:smb_connect/src/dialect_version.dart';
 import 'package:smb_connect/src/exceptions.dart';
 import 'package:smb_connect/src/smb/request_param.dart';
 import 'package:smb_connect/src/smb/ssp_context.dart';
-import 'package:smb_connect/src/utils/extensions.dart';
 
 class Smb2Session extends SmbSession {
   Smb2Session(super.config, super.transport, [super.credentials]);
@@ -29,7 +28,7 @@ class Smb2Session extends SmbSession {
     var res = await transport.ensureConnected();
     if (!res) {
       if (config.debugPrint) {
-        print("Can't connect!");
+        print("SMB 连接失败");
       }
       return false;
     }
@@ -55,18 +54,12 @@ class Smb2Session extends SmbSession {
     Smb2SessionSetupResponse response1 = await transport
         .sendrecv(request1, params: {RequestParam.RETAIN_PAYLOAD});
     if (config.debugPrint) {
-      print("SessionId: ${response1.sessionId}");
+      print("SMB 初次会话应答已接收");
     }
     token = response1.blob;
 
-    if (config.debugPrint) {
-      print("Smb session token1: ${token?.toHexString()}");
-    }
 
     token = createToken(ctx, token!);
-    if (config.debugPrint) {
-      print("Smb session createToken1: ${token?.toHexString()}");
-    }
     var request2 = Smb2SessionSetupRequest(
         config, securityMode, negoResp.commonCapabilities, 0, token,
         credit: 512, retainPayload: true);
@@ -74,25 +67,18 @@ class Smb2Session extends SmbSession {
     Smb2SessionSetupResponse response2 = await transport
         .sendrecv(request2, params: {RequestParam.RETAIN_PAYLOAD});
     token = response2.blob;
-    if (config.debugPrint) {
-      print("Smb session token2: ${token?.toHexString()}");
-    }
     if (token == null) {
       final s = SmbException.getMessageByCode(response2.status);
       throw SmbAuthException(s);
     }
 
     token = createToken(ctx, token);
-    if (config.debugPrint) {
-      print("Smb session createToken2: ${token?.toHexString()}");
-    }
 
     if (token == null && ctx.isEstablished()) {
       sessionId = response2.getSessionId();
       Uint8List? signingKey = sessionKey = ctx.getSigningKey();
       if (config.debugPrint) {
-        print(
-            "Context is established SessionId=$sessionId (${sessionId.toRadixString(16)}), SessionKey=${sessionKey?.toHexString()}");
+        print("SMB 会话认证完成");
       }
       bool signed = response2.isSigned();
       if (!anonymous && (isSignatureSetupRequired() || signed)) {

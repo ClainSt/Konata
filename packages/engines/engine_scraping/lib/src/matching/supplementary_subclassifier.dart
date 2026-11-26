@@ -1010,7 +1010,9 @@ abstract final class SupplementarySubclassifier {
     return ScanVolumeGroupSummary(
       chips: chips,
       byVariantId: byVariantId,
-      hasMultipleSubdirs: chips.length >= 2,
+      hasMultipleSubdirs:
+          byVariantId.values.map((group) => group.volumeKey).toSet().length >=
+          2,
     );
   }
 

@@ -112,7 +112,6 @@ class ScanGalleryView extends StatefulWidget {
 class _ScanGalleryViewState extends State<ScanGalleryView> {
   static const double _defaultFrameRatio = 3 / 4;
   static const double _spacing = 10.0;
-  static const double _rightPad = 16.0;
 
   ScanGalleryMode _localMode = ScanGalleryMode.uniformFrame;
   ScanGalleryDensity _localDensity = ScanGalleryDensity.standard;
@@ -358,17 +357,23 @@ class _ScanGalleryViewState extends State<ScanGalleryView> {
         Expanded(
           child: Listener(
             onPointerSignal: _handleCtrlWheelDensity,
-            child: LayoutBuilder(
-              builder: (_, constraints) {
-                final usableWidth = math.max(
-                  140.0,
-                  constraints.maxWidth - _rightPad,
-                );
-                if (_effectiveMode == ScanGalleryMode.uniformFrame) {
-                  return _buildUniformFrameGrid(usableWidth: usableWidth);
-                }
-                return _buildJustifiedStream(usableWidth: usableWidth);
-              },
+            child: KonataDraggableScrollbar(
+              controller: widget.scrollController,
+              builder: (_, ctrl) => LayoutBuilder(
+                builder: (_, constraints) {
+                  final usableWidth = constraints.maxWidth;
+                  if (_effectiveMode == ScanGalleryMode.uniformFrame) {
+                    return _buildUniformFrameGrid(
+                      usableWidth: usableWidth,
+                      controller: ctrl,
+                    );
+                  }
+                  return _buildJustifiedStream(
+                    usableWidth: usableWidth,
+                    controller: ctrl,
+                  );
+                },
+              ),
             ),
           ),
         ),
@@ -376,7 +381,10 @@ class _ScanGalleryViewState extends State<ScanGalleryView> {
     );
   }
 
-  Widget _buildUniformFrameGrid({required double usableWidth}) {
+  Widget _buildUniformFrameGrid({
+    required double usableWidth,
+    required ScrollController controller,
+  }) {
     final maxExtent = _effectiveDensity.uniformMaxExtent;
     final columns = math.max(
       2,
@@ -384,90 +392,81 @@ class _ScanGalleryViewState extends State<ScanGalleryView> {
     );
     final rowCount = (widget.items.length + columns - 1) ~/ columns;
 
-    return KonataDraggableScrollbar(
-      controller: widget.scrollController,
-      builder: (_, ctrl) => ListView.separated(
-        key: const ValueKey('scan_gallery_uniform_list'),
-        controller: ctrl,
-        addAutomaticKeepAlives: false,
-        padding: EdgeInsets.only(
-          right: _rightPad,
-          bottom: math.max(8.0, widget.bottomPadding),
-        ),
-        itemCount: rowCount,
-        separatorBuilder: (_, _) => const SizedBox(height: _spacing),
-        itemBuilder: (_, rowIdx) {
-          final start = rowIdx * columns;
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (var col = 0; col < columns; col++) ...[
-                if (col > 0) const SizedBox(width: _spacing),
-                Expanded(
-                  child: start + col < widget.items.length
-                      ? _buildScanTile(
-                          index: start + col,
-                          frameAspectRatio: _defaultFrameRatio,
-                        )
-                      : const SizedBox.shrink(),
-                ),
-              ],
+    return ListView.separated(
+      key: const ValueKey('scan_gallery_uniform_list'),
+      controller: controller,
+      addAutomaticKeepAlives: false,
+      padding: EdgeInsets.only(bottom: math.max(8.0, widget.bottomPadding)),
+      itemCount: rowCount,
+      separatorBuilder: (_, _) => const SizedBox(height: _spacing),
+      itemBuilder: (_, rowIdx) {
+        final start = rowIdx * columns;
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (var col = 0; col < columns; col++) ...[
+              if (col > 0) const SizedBox(width: _spacing),
+              Expanded(
+                child: start + col < widget.items.length
+                    ? _buildScanTile(
+                        index: start + col,
+                        frameAspectRatio: _defaultFrameRatio,
+                      )
+                    : const SizedBox.shrink(),
+              ),
             ],
-          );
-        },
-      ),
+          ],
+        );
+      },
     );
   }
 
-  Widget _buildJustifiedStream({required double usableWidth}) {
+  Widget _buildJustifiedStream({
+    required double usableWidth,
+    required ScrollController controller,
+  }) {
     final rows = _buildJustifiedRows(
       usableWidth: usableWidth,
       targetRowHeight: _effectiveDensity.justifiedTargetHeight,
     );
 
-    return KonataDraggableScrollbar(
-      controller: widget.scrollController,
-      builder: (_, ctrl) => ListView.separated(
-        key: const ValueKey('scan_gallery_justified_list'),
-        controller: ctrl,
-        addAutomaticKeepAlives: false,
-        padding: EdgeInsets.only(
-          right: _rightPad,
-          bottom: math.max(8.0, widget.bottomPadding),
-        ),
-        itemCount: rows.length,
-        separatorBuilder: (_, _) => const SizedBox(height: _spacing),
-        itemBuilder: (_, rowIdx) {
-          final row = rows[rowIdx];
-          return SizedBox(
-            height: row.height,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                for (var k = 0; k < row.indices.length; k++) ...[
-                  if (k > 0) const SizedBox(width: _spacing),
-                  if (row.isLastIncompleteRow)
-                    SizedBox(
-                      width: row.ratios[k] * row.height,
-                      child: _buildScanTile(
-                        index: row.indices[k],
-                        frameAspectRatio: row.ratios[k],
-                      ),
-                    )
-                  else
-                    Expanded(
-                      flex: math.max(10, (row.ratios[k] * 1000).round()),
-                      child: _buildScanTile(
-                        index: row.indices[k],
-                        frameAspectRatio: row.ratios[k],
-                      ),
+    return ListView.separated(
+      key: const ValueKey('scan_gallery_justified_list'),
+      controller: controller,
+      addAutomaticKeepAlives: false,
+      padding: EdgeInsets.only(bottom: math.max(8.0, widget.bottomPadding)),
+      itemCount: rows.length,
+      separatorBuilder: (_, _) => const SizedBox(height: _spacing),
+      itemBuilder: (_, rowIdx) {
+        final row = rows[rowIdx];
+        return SizedBox(
+          height: row.height,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (var k = 0; k < row.indices.length; k++) ...[
+                if (k > 0) const SizedBox(width: _spacing),
+                if (row.isLastIncompleteRow)
+                  SizedBox(
+                    width: row.ratios[k] * row.height,
+                    child: _buildScanTile(
+                      index: row.indices[k],
+                      frameAspectRatio: row.ratios[k],
                     ),
-                ],
+                  )
+                else
+                  Expanded(
+                    flex: math.max(10, (row.ratios[k] * 1000).round()),
+                    child: _buildScanTile(
+                      index: row.indices[k],
+                      frameAspectRatio: row.ratios[k],
+                    ),
+                  ),
               ],
-            ),
-          );
-        },
-      ),
+            ],
+          ),
+        );
+      },
     );
   }
 

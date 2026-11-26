@@ -365,7 +365,7 @@ class WindowControlsState extends State<WindowControls>
           },
         ),
         _WindowControlButton(
-          tooltip: _isMaximized ? '向下还原' : '最大化',
+          tooltip: _isMaximized ? '还原' : '最大化',
           icon: _isMaximized
               ? Icons.filter_none_rounded
               : Icons.crop_square_rounded,

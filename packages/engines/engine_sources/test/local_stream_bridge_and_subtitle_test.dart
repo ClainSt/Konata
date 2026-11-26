@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -131,7 +132,9 @@ void main() {
     setUp(() async {
       tempRoot = await Directory.systemTemp.createTemp('konata_bridge_test_');
       bridge = LocalStreamBridge(
-        storageRoot: PortableStorageRootService(overrideRootPath: tempRoot.path),
+        storageRoot: PortableStorageRootService(
+          overrideRootPath: tempRoot.path,
+        ),
       );
     });
 
@@ -232,7 +235,9 @@ void main() {
     });
 
     test('支持虚拟 CUE 与 M3U8 专辑会话（含 UTF-8 BOM）与本地影子 CUE 落盘', () async {
-      final track1 = Uint8List.fromList(List<int>.generate(512, (i) => i % 256));
+      final track1 = Uint8List.fromList(
+        List<int>.generate(512, (i) => i % 256),
+      );
       final track2 = Uint8List.fromList(
         List<int>.generate(256, (i) => (i + 7) % 256),
       );
@@ -324,7 +329,9 @@ void main() {
     });
 
     test('支持元信息预热、故障诊断追踪与空闲会话回收', () async {
-      final payload = Uint8List.fromList(List<int>.generate(2048, (i) => i % 251));
+      final payload = Uint8List.fromList(
+        List<int>.generate(2048, (i) => i % 251),
+      );
       final gw = _InMemoryByteGateway(<String, Uint8List>{
         'Anime/ep01.mkv': payload,
       });
@@ -675,57 +682,198 @@ void main() {
       expect(closedClients, equals(1));
     });
 
-    test(
-      'WebDavSourceGateway 精确编码特殊字符路径且内网地址强制直连绕过代理',
-      () async {
-        Uri? capturedUri;
-        final mockClient = MockClient((request) async {
-          capturedUri = request.url;
-          return http.Response.bytes(
-            const <int>[0x66, 0x4C, 0x61, 0x43],
-            206,
-            headers: const <String, String>{'content-range': 'bytes 0-3/4'},
-          );
-        });
-        final gw = WebDavSourceGateway(
-          rootUri: Uri.parse('http://192.168.1.247:29798/dav'),
-          httpClient: mockClient,
+    test('WebDavSourceGateway 精确编码特殊字符路径且内网地址强制直连绕过代理', () async {
+      Uri? capturedUri;
+      final mockClient = MockClient((request) async {
+        capturedUri = request.url;
+        return http.Response.bytes(
+          const <int>[0x66, 0x4C, 0x61, 0x43],
+          206,
+          headers: const <String, String>{'content-range': 'bytes 0-3/4'},
         );
-        final stream = await gw.openByteRange(
-          '未添加TMDB ID/加速世界 TV+Movie/[SweetSub&VCB] {tmdb-217512}/ドラマ + CD-1.flac',
+      });
+      final gw = WebDavSourceGateway(
+        rootUri: Uri.parse('http://192.168.1.247:29798/dav'),
+        httpClient: mockClient,
+      );
+      final stream = await gw.openByteRange(
+        '未添加TMDB ID/加速世界 TV+Movie/[SweetSub&VCB] {tmdb-217512}/ドラマ + CD-1.flac',
+        start: 0,
+        endInclusive: 3,
+      );
+      final bytes = await stream.expand((c) => c).toList();
+      expect(bytes, equals(const <int>[0x66, 0x4C, 0x61, 0x43]));
+      expect(capturedUri, isNotNull);
+      final rawUrl = capturedUri.toString();
+      expect(rawUrl, contains('TV%2BMovie'));
+      expect(rawUrl, contains('SweetSub%26VCB'));
+      expect(rawUrl, contains('%20%2B%20CD-1.flac'));
+      expect(rawUrl, isNot(contains('%25')));
+
+      expect(
+        WebDavGatewayConfig.resolveSmartProxy(
+          Uri.parse('http://192.168.1.247:29798/dav'),
+        ),
+        equals('DIRECT'),
+      );
+      expect(
+        WebDavGatewayConfig.resolveSmartProxy(
+          Uri.parse('http://100.88.12.34:5244/dav'),
+        ),
+        equals('DIRECT'),
+      );
+      expect(
+        WebDavGatewayConfig.resolveSmartProxy(
+          Uri.parse('http://127.0.0.1:61325/stream/abc/01.flac'),
+        ),
+        equals('DIRECT'),
+      );
+    });
+
+    test('关闭真实 WebDAV 网关时终止活动流和未监听响应，拒绝新请求', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final release = Completer<void>();
+      var requests = 0;
+      server.listen((req) async {
+        requests++;
+        final res = req.response;
+        res.statusCode = 206;
+        res.headers.set(HttpHeaders.contentRangeHeader, 'bytes 0-65535/65536');
+        res.headers.set(HttpHeaders.etagHeader, '"v1"');
+        res.bufferOutput = false;
+        res.add(List<int>.filled(1024, 1));
+        await res.flush();
+        await release.future;
+        try {
+          await res.close();
+        } on Object {
+          // 客户端主动注销时套接字可能已关闭。
+        }
+      });
+      final gateway = WebDavSourceGateway(
+        rootUri: Uri.parse('http://127.0.0.1:${server.port}/dav/'),
+        requestTimeout: const Duration(seconds: 3),
+      );
+      try {
+        final active = await gateway.openByteRange(
+          'a.flac',
           start: 0,
-          endInclusive: 3,
+          endInclusive: 65535,
         );
-        final bytes = await stream.expand((c) => c).toList();
-        expect(bytes, equals(const <int>[0x66, 0x4C, 0x61, 0x43]));
-        expect(capturedUri, isNotNull);
-        final rawUrl = capturedUri.toString();
-        expect(rawUrl, contains('TV%2BMovie'));
-        expect(rawUrl, contains('SweetSub%26VCB'));
-        expect(rawUrl, contains('%20%2B%20CD-1.flac'));
-        expect(rawUrl, isNot(contains('%25')));
-
-        expect(
-          WebDavGatewayConfig.resolveSmartProxy(
-            Uri.parse('http://192.168.1.247:29798/dav'),
-          ),
-          equals('DIRECT'),
+        final unopened = await gateway.openByteRange(
+          'b.flac',
+          start: 0,
+          endInclusive: 65535,
         );
-        expect(
-          WebDavGatewayConfig.resolveSmartProxy(
-            Uri.parse('http://100.88.12.34:5244/dav'),
-          ),
-          equals('DIRECT'),
+        final first = Completer<void>();
+        final done = active.forEach((chunk) {
+          if (!first.isCompleted) first.complete();
+        });
+        final checked = expectLater(
+          done.timeout(const Duration(seconds: 3)),
+          throwsStateError,
         );
-        expect(
-          WebDavGatewayConfig.resolveSmartProxy(
-            Uri.parse('http://127.0.0.1:61325/stream/abc/01.flac'),
-          ),
-          equals('DIRECT'),
+        await first.future.timeout(const Duration(seconds: 3));
+        await gateway.close().timeout(const Duration(seconds: 3));
+        await checked;
+        await expectLater(
+          unopened.drain<void>().timeout(const Duration(seconds: 3)),
+          throwsStateError,
         );
-      },
-    );
-
+        await expectLater(
+          gateway.openByteRange('c.flac', start: 0, endInclusive: 65535),
+          throwsStateError,
+        );
+        expect(requests, 2);
+      } finally {
+        release.complete();
+        await gateway.close();
+        await server.close(force: true);
+      }
+    });
+    test('真实 HTTP 上游截断后强验证器续传，错误范围或版本变化拒绝拼接', () async {
+      final bytes = Uint8List.fromList(List.generate(65536, (i) => i % 251));
+      for (final fault in ['same', 'offset', 'etag', 'missing-etag', 'whole']) {
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        final requests = <({int start, String? validator})>[];
+        final methods = <String>[];
+        server.listen((req) async {
+          methods.add(req.method);
+          final res = req.response;
+          final range = RegExp(
+            r'^bytes=(\d+)-(\d+)$',
+          ).firstMatch(req.headers.value(HttpHeaders.rangeHeader) ?? '');
+          if (req.method != 'GET' || range == null) {
+            res.statusCode = 405;
+            await res.close();
+            return;
+          }
+          final start = int.parse(range.group(1)!);
+          final end = int.parse(range.group(2)!);
+          requests.add((
+            start: start,
+            validator: req.headers.value(HttpHeaders.ifRangeHeader),
+          ));
+          final initial = requests.length == 1;
+          final actualStart = !initial && fault == 'offset' ? 0 : start;
+          res.statusCode = !initial && fault == 'whole' ? 200 : 206;
+          res.headers.set(
+            HttpHeaders.contentRangeHeader,
+            'bytes $actualStart-$end/${bytes.length}',
+          );
+          if (fault != 'missing-etag') {
+            res.headers.set(
+              HttpHeaders.etagHeader,
+              !initial && fault == 'etag' ? '"v2"' : '"v1"',
+            );
+          }
+          // 声明完整范围但在首段提前结束，由真实 HTTP 客户端识别截断。
+          res.add(bytes.sublist(actualStart, initial ? 32768 : end + 1));
+          await res.close();
+        });
+        final gateway = WebDavSourceGateway(
+          rootUri: Uri.parse('http://127.0.0.1:${server.port}/dav/'),
+          requestTimeout: const Duration(seconds: 3),
+        );
+        try {
+          final reader = RemoteWindowReader(
+            gateway: gateway,
+            relativePath: 'test.flac',
+            totalLength: bytes.length,
+            maxRetries: 2,
+          );
+          final collected = <int>[];
+          final future = reader
+              .read(start: 0, endInclusive: bytes.length - 1)
+              .forEach(collected.addAll)
+              .timeout(const Duration(seconds: 8));
+          if (fault == 'same') {
+            await future;
+            expect(collected, bytes);
+            expect(requests.length, 2);
+            expect(requests.last.start, 32768);
+            expect(requests.last.validator, '"v1"');
+            expect(reader.lockedStrongValidator, '"v1"');
+          } else {
+            await expectLater(
+              future,
+              throwsA(isA<UpstreamRangeMismatchException>()),
+              reason: fault,
+            );
+            expect(collected, bytes.sublist(0, 32768), reason: fault);
+            expect(
+              requests.length,
+              fault == 'missing-etag' ? 1 : 2,
+              reason: fault,
+            );
+          }
+          expect(methods.toSet(), {'GET'});
+        } finally {
+          await gateway.close();
+          await server.close(force: true);
+        }
+      }
+    });
     test('WebDAV 206 必须校验 Content-Range，并正确返回精确切片', () async {
       final gateway = WebDavSourceGateway(
         rootUri: Uri.parse('http://localhost:29798/dav/'),

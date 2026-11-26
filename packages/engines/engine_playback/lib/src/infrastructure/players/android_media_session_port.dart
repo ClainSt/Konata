@@ -120,11 +120,22 @@ class AndroidMediaSessionSyncFilter {
     _lastSyncAt = now;
     if (coverNeedsPush) {
       _lastSentCoverKey = coverKey;
-    } else if (coverKey.isEmpty) {
+    } else if (coverKey != _lastSentCoverKey) {
       _lastSentCoverKey = '';
     }
     lastBuiltPayload = payload;
     return payload;
+  }
+
+  /// 有已尝试发布的会话时，即使通道失败也需要通知原生停止。
+  bool get hasActiveSession => _sessionActive || _lastMetaSignature.isNotEmpty;
+
+  /// 通道未确认送达时使去重状态失效，下次同步重发完整封面和元数据。
+  void invalidateDelivery() {
+    _lastMetaSignature = '';
+    _lastSentCoverKey = '';
+    _lastSyncAt = null;
+    lastBuiltPayload = null;
   }
 
   /// 判断当前是否处于活跃会话且需要通知原生停止。

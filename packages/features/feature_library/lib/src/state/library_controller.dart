@@ -20,7 +20,7 @@ const int desktopKeepAliveWorkLimit = 400;
 /// - 聚合每部作品的视频变体、分集数、压制组标签与跨媒体源重复角标；
 /// - 通过 `ScopedPrefsStore` 强类型切片读写排序与多维筛选偏好；
 /// - 协调 `ChinesePinyinCollator` 拼音自然排序与 `LibrarySearchMatcher` 本地搜索；
-/// - 暴露高速滚动降载与全屏播放态停用卡片保活等性能协同状态。
+/// - 暴露全屏播放态等低频性能协同状态，滚动冷却由界面叶子管理。
 class LibraryController extends ChangeNotifier {
   /// 创建媒体库主视图控制器。
   LibraryController({
@@ -61,7 +61,6 @@ class LibraryController extends ChangeNotifier {
   LibraryPrefsState _prefs;
   String _searchQuery = '';
   bool _isLoading = true;
-  bool _isFastScrolling = false;
   bool _videoPlaybackActive = false;
   bool _disposed = false;
 
@@ -80,9 +79,6 @@ class LibraryController extends ChangeNotifier {
 
   /// 是否仍处于首次快照载入中。
   bool get isLoading => _isLoading;
-
-  /// 是否处于鼠标滚轮或触控惯性高速滚动冷却期内。
-  bool get isFastScrolling => _isFastScrolling;
 
   /// 宿主当前是否正在进行全屏视频播放（用于释放桌面离屏卡片保活句柄）。
   bool get videoPlaybackActive => _videoPlaybackActive;
@@ -338,13 +334,6 @@ class LibraryController extends ChangeNotifier {
       _searchQuery = '';
     }
     _updatePrefs(clearedPrefs);
-  }
-
-  /// 通知当前是否正处于高速滚动冷却期（用于抑制离屏悬停动画与工具提示挂载）。
-  void setFastScrolling(bool active) {
-    if (_isFastScrolling == active) return;
-    _isFastScrolling = active;
-    notifyListeners();
   }
 
   /// 通知宿主视频全屏播放状态变化（开播时关闭桌面卡片离屏保活）。

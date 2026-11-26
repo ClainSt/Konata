@@ -49,7 +49,7 @@ void main() {
       local: await sb.exportSlice(localDeviceId: 'b'),
       remote: payload,
     );
-    await b.library.engine.runTransaction(
+    b.library.engine.runTransaction(
       (tx) => sb.applyMergePlan(
         DatabaseBundleSyncTransactionContext(
           localDeviceId: 'b',

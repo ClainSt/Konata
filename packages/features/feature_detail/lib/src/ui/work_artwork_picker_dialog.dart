@@ -614,7 +614,7 @@ class _WorkArtworkPickerDialogState extends State<WorkArtworkPickerDialog> {
         slivers: [
           if (_extractedFrames.isNotEmpty)
             SliverPadding(
-              padding: const EdgeInsets.fromLTRB(4, 4, 14, 10),
+              padding: const EdgeInsets.fromLTRB(4, 4, 4, 10),
               sliver: SliverGrid(
                 gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
                   maxCrossAxisExtent: 260,
@@ -640,7 +640,7 @@ class _WorkArtworkPickerDialogState extends State<WorkArtworkPickerDialog> {
             if (_extractedFrames.isNotEmpty)
               SliverToBoxAdapter(
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(4, 6, 14, 10),
+                  padding: const EdgeInsets.fromLTRB(4, 6, 4, 10),
                   child: Text(
                     _buildCandidateHeaderText(),
                     style: KonataTheme.bodyLabelStyle(
@@ -652,7 +652,7 @@ class _WorkArtworkPickerDialogState extends State<WorkArtworkPickerDialog> {
                 ),
               ),
             SliverPadding(
-              padding: const EdgeInsets.fromLTRB(4, 0, 14, 6),
+              padding: const EdgeInsets.fromLTRB(4, 0, 4, 6),
               sliver: SliverGrid(
                 gridDelegate: gridDelegate,
                 delegate: SliverChildBuilderDelegate((_, index) {

@@ -195,7 +195,7 @@ class DesktopAudioDualStage extends StatelessWidget {
                           size: coverSize,
                           borderRadius: 14.0,
                           reflectionHeight: reflectionH,
-                          showBorder: true,
+                          showBorder: false,
                         ),
                       ],
                     ),
@@ -209,16 +209,27 @@ class DesktopAudioDualStage extends StatelessWidget {
                 child: Column(
                   children: [
                     Expanded(
-                      child: rightTab == AudioStageRightTab.lyrics
-                          ? AudioLyricsSlotPane(
-                              controller: controller,
-                              snapshot: snapshot,
-                              lyricsViewportBuilder: lyricsViewportBuilder,
-                            )
-                          : AudioQueueListView(
-                              controller: controller,
-                              snapshot: snapshot,
-                            ),
+                      child: AnimatedSwitcher(
+                        duration: KonataTheme.motionStandard,
+                        switchInCurve: Curves.easeOutCubic,
+                        switchOutCurve: Curves.easeInCubic,
+                        child: rightTab == AudioStageRightTab.lyrics
+                            ? AudioLyricsSlotPane(
+                                key: const ValueKey(
+                                  'audio_desktop_lyrics_stage',
+                                ),
+                                controller: controller,
+                                snapshot: snapshot,
+                                lyricsViewportBuilder: lyricsViewportBuilder,
+                              )
+                            : AudioQueueListView(
+                                key: const ValueKey(
+                                  'audio_desktop_queue_stage',
+                                ),
+                                controller: controller,
+                                snapshot: snapshot,
+                              ),
+                      ),
                     ),
                   ],
                 ),

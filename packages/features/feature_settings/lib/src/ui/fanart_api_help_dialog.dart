@@ -40,7 +40,7 @@ class _FanartApiHelpDialog extends StatelessWidget {
       child: KonataDraggableScrollbar(
         builder: (_, ctrl) => SingleChildScrollView(
           controller: ctrl,
-          padding: const EdgeInsets.only(right: 14),
+          padding: EdgeInsets.zero,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,

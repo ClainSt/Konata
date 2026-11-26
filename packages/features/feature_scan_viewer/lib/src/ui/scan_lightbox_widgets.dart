@@ -10,7 +10,7 @@ extension _ScanLightboxDialogViews on _ScanLightboxDialogState {
     required double dialogWidth,
     required bool compact,
   }) {
-    final hasVolumes = _scanSummary.chips.isNotEmpty;
+    final hasVolumes = _scanSummary.hasMultipleSubdirs;
     final activeVolumeLabel = _selectedVolumeKey == null
         ? '全部分卷 (${widget.scans.length})'
         : (_scanSummary.chips
@@ -80,7 +80,7 @@ extension _ScanLightboxDialogViews on _ScanLightboxDialogState {
             const SizedBox(width: 8),
             Builder(
               builder: (anchorCtx) => _GlassPillTrigger(
-                tooltip: '切换画册分卷范围',
+                tooltip: '分卷',
                 onTap: () => unawaited(_showVolumeGlassMenu(anchorCtx)),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -113,7 +113,7 @@ extension _ScanLightboxDialogViews on _ScanLightboxDialogState {
             const SizedBox(width: 6),
             Builder(
               builder: (anchorCtx) => _GlassPillTrigger(
-                tooltip: '缩放适应模式',
+                tooltip: '缩放模式',
                 onTap: () => unawaited(_showFitModeGlassMenu(anchorCtx)),
                 child: Text(
                   '${(_currentScale * 100).round()}%',
@@ -128,7 +128,7 @@ extension _ScanLightboxDialogViews on _ScanLightboxDialogState {
             ),
             KonataCapsuleIconButton(
               icon: Icons.fit_screen_rounded,
-              tooltip: '重置缩放（双击画面也可还原）',
+              tooltip: '重置缩放',
               color: KonataTheme.pureWhite,
               size: 19,
               fixedSize: buttonFixedSize,
@@ -139,7 +139,7 @@ extension _ScanLightboxDialogViews on _ScanLightboxDialogState {
                 icon: _showFilmstrip
                     ? Icons.view_carousel_rounded
                     : Icons.view_carousel_outlined,
-                tooltip: _showFilmstrip ? '隐藏底部胶片条' : '显示底部胶片条',
+                tooltip: _showFilmstrip ? '隐藏胶片条' : '显示胶片条',
                 color: KonataTheme.pureWhite,
                 size: 19,
                 fixedSize: buttonFixedSize,
@@ -149,7 +149,7 @@ extension _ScanLightboxDialogViews on _ScanLightboxDialogState {
             Builder(
               builder: (anchorCtx) => KonataCapsuleIconButton(
                 icon: Icons.more_horiz_rounded,
-                tooltip: '更多画册操作',
+                tooltip: '更多操作',
                 color: KonataTheme.pureWhite,
                 size: 20,
                 fixedSize: buttonFixedSize,
@@ -163,7 +163,7 @@ extension _ScanLightboxDialogViews on _ScanLightboxDialogState {
             icon: _fullscreen
                 ? Icons.fullscreen_exit_rounded
                 : Icons.fullscreen_rounded,
-            tooltip: _fullscreen ? '退出全屏 (F)' : '沉浸全屏 (F)',
+            tooltip: _fullscreen ? '退出全屏' : '全屏',
             color: KonataTheme.pureWhite,
             size: 20,
             fixedSize: buttonFixedSize,
@@ -172,7 +172,7 @@ extension _ScanLightboxDialogViews on _ScanLightboxDialogState {
           if (!denseHeader && isWindows)
             KonataCapsuleIconButton(
               icon: Icons.open_in_new_rounded,
-              tooltip: '用系统图片查看器打开',
+              tooltip: '外部查看器',
               color: KonataTheme.pureWhite,
               size: 19,
               fixedSize: buttonFixedSize,
@@ -181,7 +181,7 @@ extension _ScanLightboxDialogViews on _ScanLightboxDialogState {
           if (!denseHeader && _scopedScans.length > 1) ...[
             KonataCapsuleIconButton(
               icon: Icons.chevron_left_rounded,
-              tooltip: '上一张 (←)',
+              tooltip: '上一张',
               color: KonataTheme.pureWhite,
               size: 22,
               fixedSize: buttonFixedSize,
@@ -191,7 +191,7 @@ extension _ScanLightboxDialogViews on _ScanLightboxDialogState {
             ),
             KonataCapsuleIconButton(
               icon: Icons.chevron_right_rounded,
-              tooltip: '下一张 (→)',
+              tooltip: '下一张',
               color: KonataTheme.pureWhite,
               size: 22,
               fixedSize: buttonFixedSize,
@@ -202,7 +202,7 @@ extension _ScanLightboxDialogViews on _ScanLightboxDialogState {
           ],
           KonataCapsuleIconButton(
             icon: Icons.close_rounded,
-            tooltip: '关闭 (Esc)',
+            tooltip: '关闭',
             color: KonataTheme.pureWhite,
             size: 20,
             fixedSize: buttonFixedSize,
@@ -280,7 +280,7 @@ extension _ScanLightboxDialogViews on _ScanLightboxDialogState {
       if (_scopedScans.length > 1)
         KonataGlassMenuItem<String>(
           value: 'toggle_filmstrip',
-          label: _showFilmstrip ? '隐藏底部胶片条' : '显示底部胶片条',
+          label: _showFilmstrip ? '隐藏胶片条' : '显示胶片条',
           icon: _showFilmstrip
               ? Icons.view_carousel_rounded
               : Icons.view_carousel_outlined,

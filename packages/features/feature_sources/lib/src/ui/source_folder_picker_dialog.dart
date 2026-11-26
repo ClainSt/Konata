@@ -298,7 +298,7 @@ class _SourceFolderPickerDialogState
           onPressed: _busy ? null : () => Navigator.of(context).pop(),
         ),
         KonataTooltip(
-          message: sortedSelected.isEmpty ? '需要选择扫描目录' : '扫描',
+          message: sortedSelected.isEmpty ? '选择扫描目录' : '扫描',
           child: KonataPillButton.primary(
             key: const ValueKey('source_start_scan'),
             label: '扫描',
@@ -520,7 +520,7 @@ class _SourceFolderPickerDialogState
         ),
         const SizedBox(width: 6),
         KonataTooltip(
-          message: _currentPath.isEmpty ? '全选或取消全选根路径下的全部目录' : '勾选或取消勾选当前目录',
+          message: _currentPath.isEmpty ? '全选目录' : '选择当前目录',
           child: Checkbox(
             tristate: _currentPath.isEmpty,
             value: checkboxValue,
@@ -571,7 +571,7 @@ class _SourceFolderPickerDialogState
         const SizedBox(width: 6),
         KonataCapsuleIconButton(
           icon: Icons.refresh_rounded,
-          tooltip: '刷新当前目录',
+          tooltip: '刷新',
           color: p.textSecondary,
           size: 16,
           fixedSize: KonataAdaptiveTokens.isAndroid
@@ -700,7 +700,7 @@ class _SourceFolderPickerDialogState
             controller: _listScrollCtrl,
             builder: (_, ctrl) => ListView.separated(
               controller: ctrl,
-              padding: const EdgeInsets.only(right: 12),
+              padding: EdgeInsets.zero,
               itemCount: entries.length,
               separatorBuilder: (_, _) => Divider(
                 height: 1,

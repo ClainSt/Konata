@@ -1,9 +1,49 @@
 #include "flutter_window.h"
 
 #include <optional>
+#include <algorithm>
 
 #include "flutter/generated_plugin_registrant.h"
 
+namespace {
+// 统一使用 Win32 物理像素，保留任务栏工作区及负坐标副屏。
+std::string FitMiniWindow(HWND hwnd, const std::string& intent) {
+  RECT bounds{};
+  MONITORINFO info{};
+  info.cbSize = sizeof(info);
+  const HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+  if (!GetWindowRect(hwnd, &bounds) || !GetMonitorInfoW(monitor, &info)) {
+    return "unavailable";
+  }
+  const RECT work = info.rcWork;
+  const LONG width = bounds.right - bounds.left;
+  const LONG height = bounds.bottom - bounds.top;
+  const LONG max_x = (std::max)(work.left, work.right - width);
+  const LONG max_y = (std::max)(work.top, work.bottom - height);
+  const LONG threshold = MulDiv(24, GetDpiForWindow(hwnd), 96);
+  const LONG left_distance = bounds.left - work.left;
+  const LONG right_distance = work.right - bounds.right;
+  std::string side = "none";
+  if (intent == "left" ||
+      (intent == "snap" && left_distance <= threshold &&
+       left_distance <= right_distance)) {
+    side = "left";
+  } else if (intent == "right" ||
+             (intent == "snap" && right_distance <= threshold)) {
+    side = "right";
+  }
+  const LONG x = side == "left" ? work.left :
+      side == "right" ? max_x : std::clamp(bounds.left, work.left, max_x);
+  const LONG y = std::clamp(bounds.top, work.top, max_y);
+  if (x != bounds.left || y != bounds.top) {
+    if (!SetWindowPos(hwnd, nullptr, x, y, 0, 0,
+                     SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE)) {
+      return "unavailable";
+    }
+  }
+  return side;
+}
+}  // namespace
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
     : project_(project) {}
 
@@ -51,6 +91,28 @@ bool FlutterWindow::OnCreate() {
       std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
           flutter_controller_->engine()->messenger(), "konata/window_resize",
           &flutter::StandardMethodCodec::GetInstance());
+  mini_dock_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(), "konata/desktop_mini",
+          &flutter::StandardMethodCodec::GetInstance());
+  mini_dock_channel_->SetMethodCallHandler(
+      [this](const auto& call, auto result) {
+        if (call.method_name() != "fit") {
+          result->NotImplemented();
+          return;
+        }
+        const auto* intent = std::get_if<std::string>(call.arguments());
+        if (!intent || is_live_resizing_) {
+          result->Success(flutter::EncodableValue(std::string("none")));
+          return;
+        }
+        const auto side = FitMiniWindow(GetHandle(), *intent);
+        if (side == "unavailable") {
+          result->Error("dock_failed", "无法读取或调整屏幕工作区");
+        } else {
+          result->Success(flutter::EncodableValue(side));
+        }
+      });
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -66,6 +128,7 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  mini_dock_channel_.reset();
   resize_channel_.reset();
   is_live_resizing_ = false;
   if (file_picker_bridge_) {
@@ -99,15 +162,23 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   } else if (message == WM_ENTERSIZEMOVE) {
     if (!is_live_resizing_) {
       is_live_resizing_ = true;
+      moved_in_drag_ = false;
       if (resize_channel_) {
         resize_channel_->InvokeMethod(
             "resizeStateChanged",
             std::make_unique<flutter::EncodableValue>(true));
       }
     }
+  } else if (message == WM_MOVING && is_live_resizing_) {
+    moved_in_drag_ = true;
   } else if (message == WM_EXITSIZEMOVE) {
     if (is_live_resizing_) {
       is_live_resizing_ = false;
+      if (moved_in_drag_ && mini_dock_channel_) {
+        mini_dock_channel_->InvokeMethod(
+            "moveEnded", std::make_unique<flutter::EncodableValue>());
+      }
+      moved_in_drag_ = false;
       if (resize_channel_) {
         resize_channel_->InvokeMethod(
             "resizeStateChanged",

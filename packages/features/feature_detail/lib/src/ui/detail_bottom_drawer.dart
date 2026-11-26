@@ -472,8 +472,12 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
   }) {
     final b = widget.bundle;
     final showRawFileName = widget.displayPreferences.showRawVideoFilename;
-    final cardWidth = widget.compact ? 196.0 : 228.0;
-    final cardHeight = cardWidth * 9 / 16 + (showRawFileName ? 82.0 : 46.0);
+    final cardWidth = widget.compact
+        ? EpisodeDrawerCard.compactWidth
+        : EpisodeDrawerCard.standardWidth;
+    final cardHeight =
+        cardWidth / EpisodeDrawerCard.thumbnailAspectRatio +
+        (showRawFileName ? (widget.compact ? 68.0 : 82.0) : 46.0);
 
     return Listener(
       onPointerSignal: _handleTrackPointerSignal,
@@ -507,6 +511,7 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
               workPosterOwnerId: b.effectiveHeroBackdropOwnerId,
               onDarkBackdrop: widget.onDarkBackdrop,
               cardWidth: cardWidth,
+              compactMeta: widget.compact,
               onTap: () => widget.onTapEpisode(ep),
               onShowMediaInfo: () => widget.onInspectEpisodeInfo(ep),
             );

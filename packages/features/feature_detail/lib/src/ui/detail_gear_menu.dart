@@ -1,187 +1,71 @@
-import 'package:engine_scraping/engine_scraping.dart';
 import 'package:flutter/widgets.dart';
 import 'package:konata_contracts/konata_contracts.dart';
 import 'package:konata_design_system/konata_design_system.dart';
 
-/// 详情页内置齿轮菜单与外部动作扩展点统一动作标识。
+/// 详情页内置管理动作及其固定展示顺序。
 enum DetailBuiltInGearAction {
-  /// 重新抓取作品元数据与艺术图。
-  rescrape,
+  rescrape('重新抓取数据', Icons.refresh_rounded),
+  manualEdit('手动编辑信息', Icons.edit_outlined),
+  manualMatch('手动精确匹配', Icons.manage_search_rounded),
+  manageSeries('管理系列编组', Icons.collections_bookmark_outlined),
+  mergeIntoWork('并入其他作品', Icons.merge_type_rounded),
+  editPoster('编辑封面海报', Icons.photo_outlined),
+  editBackdrop('编辑横版背景', Icons.wallpaper_outlined),
+  editLogo('编辑标题徽标', Icons.title_rounded),
+  deleteFromLibrary('移除这部作品', Icons.delete_outline_rounded);
 
-  /// 同步所在源目录新增或删除的文件。
-  syncDirectory,
+  const DetailBuiltInGearAction(this.label, this.icon);
 
-  /// 编辑海报封面。
-  editPoster,
-
-  /// 编辑横版背景原画。
-  editBackdrop,
-
-  /// 编辑竖版无字原画。
-  editPortraitBackdrop,
-
-  /// 编辑透明标题徽标。
-  editLogo,
-
-  /// 手动编辑信息与文件映射。
-  manualEdit,
-
-  /// 手动精确纠错匹配。
-  manualMatch,
-
-  /// 管理系列编组。
-  manageSeries,
-
-  /// 并入库内其他作品。
-  mergeIntoWork,
-
-  /// 一键标为全部已看完。
-  markAllWatched,
-
-  /// 清空播放进度。
-  clearHistory,
-
-  /// 从媒体库移除记录。
-  deleteFromLibrary,
+  final String label;
+  final IconData icon;
 }
 
-/// 详情页主舞台右上/动作栏统一齿轮「更多」菜单触发器（严格通过 `showKonataGlassMenu` 弹出）。
-///
-/// 同时聚合内置管理操作与外部 Feature 通过 [DetailActionContribution] 注入的扩展菜单项。
+/// 详情页统一管理菜单触发器，保留声明式外部动作扩展契约。
 class DetailGearMenu extends StatelessWidget {
-  /// 创建详情页更多动作齿轮菜单。
   const DetailGearMenu({
     super.key,
-    required this.work,
     required this.onBuiltInAction,
     this.externalActions = const <DetailActionContribution>[],
     this.onInvokeExternalAction,
     this.compact = false,
   });
 
-  /// 当前作品领域实体。
-  final Work work;
-
-  /// 触发内置菜单动作回调。
   final ValueChanged<DetailBuiltInGearAction> onBuiltInAction;
-
-  /// 动态注入的外部 `gearMenu` 扩展动作清单。
   final List<DetailActionContribution> externalActions;
-
-  /// 触发外部扩展动作回调。
   final ValueChanged<DetailActionContribution>? onInvokeExternalAction;
-
-  /// 是否使用紧凑触发胶囊样式。
   final bool compact;
 
   Future<void> _openMenu(BuildContext anchorContext) async {
-    const extPrefix = '__ext__::';
-    final items = <KonataGlassMenuItem<String>>[
-      const KonataGlassMenuItem<String>(
-        value: 'rescrape',
-        label: '重新抓取元数据',
-        icon: Icons.refresh_rounded,
-      ),
-      const KonataGlassMenuItem<String>(
-        value: 'syncDirectory',
-        label: '刷新源目录变更',
-        icon: Icons.sync_rounded,
-      ),
-      const KonataGlassMenuItem<String>(
-        value: 'manualEdit',
-        label: '手动编辑信息与分集',
-        icon: Icons.edit_outlined,
-      ),
-      const KonataGlassMenuItem<String>(
-        value: 'manualMatch',
-        label: '手动精确匹配',
-        icon: Icons.manage_search_rounded,
-      ),
-      const KonataGlassMenuItem<String>(
-        value: 'manageSeries',
-        label: '管理系列编组',
-        icon: Icons.collections_bookmark_outlined,
-      ),
-      const KonataGlassMenuItem<String>(
-        value: 'mergeIntoWork',
-        label: '并入库内其他作品',
-        icon: Icons.merge_type_rounded,
-      ),
-      const KonataGlassMenuItem<String>(
-        value: 'editPoster',
-        label: '编辑封面海报',
-        icon: Icons.photo_outlined,
-      ),
-      const KonataGlassMenuItem<String>(
-        value: 'editBackdrop',
-        label: '编辑横版背景原画 / 抽帧',
-        icon: Icons.wallpaper_outlined,
-      ),
-      const KonataGlassMenuItem<String>(
-        value: 'editLogo',
-        label: '编辑透明标题徽标',
-        icon: Icons.title_rounded,
-      ),
-      for (final ext in externalActions)
-        KonataGlassMenuItem<String>(
-          key: ValueKey<String>('detail_ext_gear_${ext.id}'),
-          value: '$extPrefix${ext.id}',
-          label: ext.label,
-          icon: KonataIconRegistry.resolve(ext.iconKey),
-        ),
-      const KonataGlassMenuItem<String>(
-        value: 'markAllWatched',
-        label: '全剧标为已看完',
-        icon: Icons.done_all_rounded,
-      ),
-      const KonataGlassMenuItem<String>(
-        value: 'clearHistory',
-        label: '清空观看进度',
-        icon: Icons.history_toggle_off_rounded,
-      ),
-      const KonataGlassMenuItem<String>(
-        value: 'deleteFromLibrary',
-        label: '从媒体库移除记录',
-        icon: Icons.delete_outline_rounded,
-        isDanger: true,
-      ),
-    ];
-
-    final picked = await showKonataGlassMenu<String>(
+    final picked = await showKonataGlassMenu<Object>(
       anchorContext: anchorContext,
-      items: items,
+      items: [
+        for (final action in DetailBuiltInGearAction.values)
+          if (action != DetailBuiltInGearAction.deleteFromLibrary)
+            KonataGlassMenuItem<Object>(
+              value: action,
+              label: action.label,
+              icon: action.icon,
+            ),
+        for (final ext in externalActions)
+          KonataGlassMenuItem<Object>(
+            key: ValueKey<String>('detail_ext_gear_${ext.id}'),
+            value: ext,
+            label: ext.label,
+            icon: KonataIconRegistry.resolve(ext.iconKey),
+          ),
+        KonataGlassMenuItem<Object>(
+          value: DetailBuiltInGearAction.deleteFromLibrary,
+          label: DetailBuiltInGearAction.deleteFromLibrary.label,
+          icon: DetailBuiltInGearAction.deleteFromLibrary.icon,
+          isDanger: true,
+        ),
+      ],
       minWidth: 212,
     );
-    if (picked == null) return;
-    if (picked.startsWith(extPrefix)) {
-      final targetId = picked.substring(extPrefix.length);
-      for (final ext in externalActions) {
-        if (ext.id == targetId) {
-          onInvokeExternalAction?.call(ext);
-          break;
-        }
-      }
-      return;
-    }
-
-    final action = switch (picked) {
-      'rescrape' => DetailBuiltInGearAction.rescrape,
-      'syncDirectory' => DetailBuiltInGearAction.syncDirectory,
-      'editPoster' => DetailBuiltInGearAction.editPoster,
-      'editBackdrop' => DetailBuiltInGearAction.editBackdrop,
-      'editPortraitBackdrop' => DetailBuiltInGearAction.editPortraitBackdrop,
-      'editLogo' => DetailBuiltInGearAction.editLogo,
-      'manualEdit' => DetailBuiltInGearAction.manualEdit,
-      'manualMatch' => DetailBuiltInGearAction.manualMatch,
-      'manageSeries' => DetailBuiltInGearAction.manageSeries,
-      'mergeIntoWork' => DetailBuiltInGearAction.mergeIntoWork,
-      'markAllWatched' => DetailBuiltInGearAction.markAllWatched,
-      'clearHistory' => DetailBuiltInGearAction.clearHistory,
-      'deleteFromLibrary' => DetailBuiltInGearAction.deleteFromLibrary,
-      _ => null,
-    };
-    if (action != null) {
-      onBuiltInAction(action);
+    if (picked is DetailBuiltInGearAction) {
+      onBuiltInAction(picked);
+    } else if (picked is DetailActionContribution) {
+      onInvokeExternalAction?.call(picked);
     }
   }
 
@@ -202,7 +86,7 @@ class DetailGearMenu extends StatelessWidget {
         child: KonataCapsuleIconButton(
           key: const Key('detail_gear_menu_button'),
           icon: Icons.tune_rounded,
-          tooltip: '更多操作与管理',
+          tooltip: '管理作品',
           color: p.textPrimary,
           size: compact ? 18 : 20,
           fixedSize: side,

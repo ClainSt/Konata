@@ -260,8 +260,9 @@ class _VideoTouchGestureLayerState extends State<VideoTouchGestureLayer> {
               onDoubleTapDown: _gesturesActive
                   ? (details) => _lastTapLocal = details.localPosition
                   : null,
-              onDoubleTap:
-                  _gesturesActive ? () => _handleDoubleTap(width) : null,
+              onDoubleTap: _gesturesActive
+                  ? () => _handleDoubleTap(width)
+                  : null,
               onLongPressStart: _gesturesActive
                   ? (_) {
                       widget.onLongPressBoostStart();
@@ -271,8 +272,9 @@ class _VideoTouchGestureLayerState extends State<VideoTouchGestureLayer> {
               onLongPressEnd: _gesturesActive
                   ? (_) => widget.onLongPressBoostEnd()
                   : null,
-              onHorizontalDragStart:
-                  _gesturesActive ? _onHorizontalStart : null,
+              onHorizontalDragStart: _gesturesActive
+                  ? _onHorizontalStart
+                  : null,
               onHorizontalDragUpdate: _gesturesActive
                   ? (details) => _onHorizontalUpdate(details, width)
                   : null,
@@ -334,7 +336,7 @@ class _VideoTouchGestureLayerState extends State<VideoTouchGestureLayer> {
                     icon: widget.screenLocked
                         ? Icons.lock_rounded
                         : Icons.lock_open_rounded,
-                    tooltip: widget.screenLocked ? '解锁屏幕手势' : '锁定屏幕防误触',
+                    tooltip: widget.screenLocked ? '解锁' : '锁定',
                     color: widget.screenLocked
                         ? p.progressFill
                         : KonataPlaybackTokens.osdTextPrimary,

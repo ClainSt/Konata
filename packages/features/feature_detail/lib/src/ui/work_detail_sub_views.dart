@@ -54,7 +54,7 @@ class WorkDetailTopBar extends StatelessWidget {
           button: true,
           label: '返回',
           child: KonataTooltip(
-            message: '返回上一页 (Esc)',
+            message: '返回',
             child: GestureDetector(
               key: const ValueKey<String>('detail_back_button'),
               behavior: HitTestBehavior.opaque,

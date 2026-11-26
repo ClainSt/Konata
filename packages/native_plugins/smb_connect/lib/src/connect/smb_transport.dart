@@ -143,7 +143,7 @@ class SmbTransport {
       }
       return true;
     } catch (e) {
-      print(e);
+      if (config.debugPrint) print("SMB 协商失败：${e.runtimeType}");
       return false;
     }
   }
@@ -619,7 +619,7 @@ class SmbTransport {
         try {
           var resp = await waitResponse(request.getMid(), response);
           if (config.debugPrint) {
-            print("Recv $resp");
+            print("SMB 接收响应类型：${resp.runtimeType}");
           }
           return resp as T;
         } on TimeoutException catch (_) {
@@ -654,7 +654,7 @@ class SmbTransport {
       request.credit = 1;
     }
     if (config.debugPrint) {
-      print("Send $request");
+      print("SMB 发送请求类型：${request.runtimeType}");
     }
     CommonServerMessageBlock smb = request as CommonServerMessageBlock;
     Uint8List buffer = getBufferCache().getBuffer();

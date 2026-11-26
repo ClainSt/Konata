@@ -1,4 +1,4 @@
-﻿param(
+param(
     [Parameter(Mandatory = $true)]
     [ValidateSet('new', 'status', 'sync-env', 'cleanup', 'lock-verify')]
     [string]$Action,
@@ -7,7 +7,7 @@
     [string]$Branch = '',
     [string]$Base = 'main',
     [switch]$Force,
-    [ValidateSet('Baseline', 'Module', 'Full')]
+    [ValidateSet('Baseline', 'Module', 'Full', 'Playback', 'WorkloadWindows', 'AndroidRuntime')]
     [string]$Mode = 'Module',
     [string]$StageTag = 'work',
     [int]$LockTimeoutSeconds = 3600

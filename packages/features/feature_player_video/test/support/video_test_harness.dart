@@ -80,6 +80,9 @@ final class FakePlaybackHostWindowPort implements PlaybackHostWindowPort {
   bool keepScreenOn = false;
   bool preferredLandscape = false;
   bool desktopMiniMode = false;
+  bool failEnterMini = false;
+  bool failExitMini = false;
+  bool _previousAlwaysOnTop = false;
   ({double width, double height})? lastMiniSize;
 
   @override
@@ -100,12 +103,17 @@ final class FakePlaybackHostWindowPort implements PlaybackHostWindowPort {
     required double width,
     required double height,
   }) async {
+    if (failEnterMini) throw StateError('窗口切换失败');
+    _previousAlwaysOnTop = alwaysOnTop;
+    alwaysOnTop = true;
     desktopMiniMode = true;
     lastMiniSize = (width: width, height: height);
   }
 
   @override
   Future<void> exitDesktopMiniWindow() async {
+    if (failExitMini) throw StateError('窗口恢复失败');
+    alwaysOnTop = _previousAlwaysOnTop;
     desktopMiniMode = false;
   }
 
@@ -458,6 +466,7 @@ final class FakeLibMpvClient implements LibMpvClient, LibMpvUnobservable {
 
   final Map<String, String> options = <String, String>{};
   final Map<String, Object?> properties = <String, Object?>{};
+  final List<(String, String)> stringWrites = [];
   final List<List<String>> commands = <List<String>>[];
   final Set<int> observedProperties = <int>{};
   List<MpvTrackInfo> trackList = const <MpvTrackInfo>[];
@@ -493,6 +502,7 @@ final class FakeLibMpvClient implements LibMpvClient, LibMpvUnobservable {
 
   @override
   int setPropertyString(String name, String value) {
+    stringWrites.add((name, value));
     properties[name] = value;
     return 0;
   }
@@ -695,6 +705,8 @@ final class VideoTestHarness {
   /// 构造内置视频控制器测试实例。
   VideoPlaybackController createController({
     LibMpvClient Function()? libMpvClientFactory,
+    AndroidVideoSurfacePort? androidSurfacePort,
+    KonataVideoTextureBridge? desktopSurfaceBridge,
     bool enablePeriodicTimers = true,
   }) {
     return VideoPlaybackController(
@@ -716,6 +728,8 @@ final class VideoTestHarness {
         desktopRelayGateway: desktopRelay,
         diagnosticLog: diagnosticLog,
         libMpvClientFactory: libMpvClientFactory,
+        androidSurfacePort: androidSurfacePort,
+        desktopSurfaceBridge: desktopSurfaceBridge,
         sourceDeviceId: 'test-device',
         nowMs: () => currentClockMs,
         enablePeriodicTimers: enablePeriodicTimers,

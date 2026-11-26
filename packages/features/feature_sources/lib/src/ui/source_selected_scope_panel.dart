@@ -414,7 +414,7 @@ class _SourceSelectedScopePanelState extends State<SourceSelectedScopePanel> {
                           controller: _scrollCtrl,
                           builder: (_, ctrl) => ListView.separated(
                             controller: ctrl,
-                            padding: const EdgeInsets.only(right: 4),
+                            padding: EdgeInsets.zero,
                             itemCount: widget.selectedPaths.length,
                             separatorBuilder: (_, _) =>
                                 SizedBox(height: shortLandscape ? 4 : 6),

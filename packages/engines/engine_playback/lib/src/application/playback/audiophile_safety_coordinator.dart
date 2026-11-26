@@ -165,6 +165,9 @@ class AudiophileSafetyCoordinator {
   final Map<Object, _AttachedAudioSession> _sessions = {};
   final Set<String> _knownWindowsDeviceNames = <String>{};
   String? _activeWindowsDeviceName;
+  int _androidRouteRevision = 0;
+  bool _disposed = false;
+  Future<AndroidBitPerfectNegotiationResult?>? _pendingAndroidRoute;
 
   AudioDeviceSafetyState _deviceSafetyState = const AudioDeviceSafetyState();
   AudioSafetyChainPlan _activePlan = AudiophileSafetyPolicy.buildPlan(
@@ -211,7 +214,12 @@ class AudiophileSafetyCoordinator {
   void detachSession(Object owner) {
     _sessions.remove(owner);
     if (_sessions.isEmpty) {
+      setBackendMeterVerified(false);
       _androidRouteBridge?.unbindRouteListeners(owner: this);
+      if ((_isAndroidOverride ?? Platform.isAndroid) &&
+          _androidRouteBridge != null) {
+        unawaited(_requestAndroidRoute(enable: false));
+      }
     }
   }
 
@@ -226,7 +234,8 @@ class AudiophileSafetyCoordinator {
       }
       return AudioOutputRouteMode.sharedResampled;
     }
-    if ((_isAndroidOverride ?? Platform.isAndroid) && prefs.androidBitPerfectUsb) {
+    if ((_isAndroidOverride ?? Platform.isAndroid) &&
+        prefs.androidBitPerfectUsb) {
       return AudioOutputRouteMode.androidBitPerfectUsb;
     }
     return AudioOutputRouteMode.sharedResampled;
@@ -237,13 +246,84 @@ class AudiophileSafetyCoordinator {
     AudiophileAudioPreferences prefs, {
     List<String> upstreamDspFilters = const [],
   }) {
+    final requestedMode = resolveRouteMode(prefs);
+    if (requestedMode != _activePlan.routeMode) {
+      setBackendMeterVerified(false);
+    }
     final plan = AudiophileSafetyPolicy.buildPlan(
-      requestedMode: resolveRouteMode(prefs),
+      requestedMode: requestedMode,
       safetyState: _deviceSafetyState,
       upstreamDspFilters: upstreamDspFilters,
     );
     _activePlan = plan;
     return plan;
+  }
+
+  // 仅接受当前路由代数及最近一次请求的结果；旧请求不得重新解锁安全门。
+  Future<AndroidBitPerfectNegotiationResult?> _requestAndroidRoute({
+    required bool enable,
+    int? preferredSampleRateHz,
+  }) {
+    final bridge = _androidRouteBridge;
+    if (bridge == null || _disposed) return Future.value(null);
+    final revision = ++_androidRouteRevision;
+    final epoch = _engine.audioOutputEpoch;
+    final future = () async {
+      AndroidBitPerfectNegotiationResult result;
+      try {
+        result = await bridge.negotiateBitPerfectUsb(
+          enable: enable,
+          preferredSampleRateHz: preferredSampleRateHz,
+        );
+      } catch (error) {
+        result = AndroidBitPerfectNegotiationResult(
+          supported: false,
+          engaged: false,
+          detail: 'USB 路由调用失败：${error.runtimeType}',
+        );
+      }
+      if (_disposed ||
+          revision != _androidRouteRevision ||
+          epoch != _engine.audioOutputEpoch) {
+        return null;
+      }
+      if (!result.operationSucceeded || (enable && !result.engaged)) {
+        final wasUnlocked = _deviceSafetyState.allowFullScaleBypass;
+        if (_deviceSafetyState.isBackendMeterVerified) {
+          setBackendMeterVerified(false);
+        }
+        PlaybackLogHelper.record(
+          _logStore,
+          'AUDIO-SAFETY',
+          enable ? 'USB 直通协商未成功，满幅解锁无效' : 'USB 直通撤销未确认，已保护当前会话',
+          isError: true,
+        );
+        if (!enable || wasUnlocked) {
+          // 撤销未确认或已解锁路由失效时，先静音暂停，禁止未知硬件路由继续满幅播放。
+          for (final entry in List<_AttachedAudioSession>.of(
+            _sessions.values,
+          )) {
+            final client = entry.clientProvider();
+            if (client != null && !client.isDisposed && client.isInitialized) {
+              client.setPropertyFlag('mute', true);
+              client.setPropertyDouble('volume', 0.0);
+              client.setPropertyFlag('pause', true);
+              final plan = compilePlan(entry.prefsProvider());
+              MpvQualityProfile.applyAudiophileSafetyChain(
+                client,
+                plan: plan,
+                logStore: _logStore,
+              );
+              entry.onPlanApplied?.call(plan);
+              entry.onTransientMuteAndPause('android_usb_route_unconfirmed');
+            }
+          }
+        }
+      }
+      return result;
+    }();
+    _pendingAndroidRoute = future;
+    return future;
   }
 
   /// 向指定底层 `libmpv` 客户端（视频或音频共享）下发完整安全滤镜链与 Android USB 逐位协商。
@@ -264,7 +344,7 @@ class AudiophileSafetyCoordinator {
     final bridge = androidRouteBridge;
     if ((_isAndroidOverride ?? Platform.isAndroid) && bridge != null) {
       unawaited(
-        bridge.negotiateBitPerfectUsb(
+        _requestAndroidRoute(
           preferredSampleRateHz: preferredSampleRateHz ?? 48000,
           enable: prefs.androidBitPerfectUsb,
         ),
@@ -279,10 +359,12 @@ class AudiophileSafetyCoordinator {
   ) async {
     _engine.advanceAudioOutputRoute();
     AudioSafetyChainPlan latestPlan = compilePlan(fallbackPrefs);
+    var hasLiveClient = false;
     for (final entry in List<_AttachedAudioSession>.of(_sessions.values)) {
       final prefs = entry.prefsProvider();
       final client = entry.clientProvider();
       if (client != null && !client.isDisposed && client.isInitialized) {
+        hasLiveClient = true;
         latestPlan = applyToClient(
           client,
           prefs: prefs,
@@ -293,17 +375,22 @@ class AudiophileSafetyCoordinator {
       }
       entry.onPlanApplied?.call(latestPlan);
     }
-    PlaybackLogHelper.record(_logStore, 
+    PlaybackLogHelper.record(
+      _logStore,
       'AUDIOPHILE',
       '音频安全链路热更新完成：routeEpoch=${_engine.audioOutputEpoch} stage=${_engine.activeStage.name} mode=${latestPlan.routeMode.name}',
     );
     final bridge = androidRouteBridge;
-    if (_sessions.isEmpty &&
+    if (!hasLiveClient &&
         (_isAndroidOverride ?? Platform.isAndroid) &&
         bridge != null) {
-      await bridge.negotiateBitPerfectUsb(
-        enable: fallbackPrefs.androidBitPerfectUsb,
-      );
+      // 已登记的控制器可能仍在等待解码实例，不能以登记数量代替活动路由。
+      setBackendMeterVerified(false);
+      latestPlan = compilePlan(fallbackPrefs);
+      await _requestAndroidRoute(enable: false);
+    } else if ((_isAndroidOverride ?? Platform.isAndroid) && bridge != null) {
+      await _pendingAndroidRoute;
+      latestPlan = _activePlan;
     }
     _onRevisionChanged?.call();
     return latestPlan;
@@ -317,7 +404,11 @@ class AudiophileSafetyCoordinator {
       nextBackendMeterVerified: false,
     );
     _engine.advanceAudioOutputRoute();
-    PlaybackLogHelper.record(_logStore, 'AUDIO-SAFETY', '检测到音频输出外设拔出（$reason），执行瞬态静音、复位安全门锁并暂停防爆音');
+    PlaybackLogHelper.record(
+      _logStore,
+      'AUDIO-SAFETY',
+      '检测到音频输出外设拔出（$reason），执行瞬态静音、复位安全门锁并暂停防爆音',
+    );
     for (final entry in List<_AttachedAudioSession>.of(_sessions.values)) {
       final client = entry.clientProvider();
       if (client != null && !client.isDisposed && client.isInitialized) {
@@ -347,7 +438,8 @@ class AudiophileSafetyCoordinator {
     );
     _deviceSafetyState = nextState;
     _engine.advanceAudioOutputRoute();
-    PlaybackLogHelper.record(_logStore, 
+    PlaybackLogHelper.record(
+      _logStore,
       'AUDIO-SAFETY',
       '检测到音频外设变更（${nextState.deviceFingerprint}），已复位安全衰减门锁并重新下发安全链路',
     );
@@ -460,15 +552,14 @@ class AudiophileSafetyCoordinator {
 
       if (activeClient != null) {
         final exclusiveFlag = activeClient.getPropertyFlag('audio-exclusive');
-        final currentAo =
-            (activeClient.getPropertyString('current-ao') ?? '').toLowerCase();
-        if (exclusiveFlag == false ||
-            (currentAo.isNotEmpty && currentAo != 'wasapi')) {
+        final currentAo = (activeClient.getPropertyString('current-ao') ?? '')
+            .toLowerCase();
+        if (exclusiveFlag != true || currentAo != 'wasapi') {
+          setBackendMeterVerified(false);
           return HardwareRouteVerificationResult(
             verified: false,
             deviceFingerprint: _deviceSafetyState.deviceFingerprint,
-            detail:
-                '当前播放会话未运行在 WASAPI 独占后端（ao=$currentAo），已维持 -12 dBFS 安全上限。',
+            detail: '当前播放会话未运行在 WASAPI 独占后端（ao=$currentAo），已维持 -12 dBFS 安全上限。',
           );
         }
         final activeDevice =
@@ -477,30 +568,24 @@ class AudiophileSafetyCoordinator {
             ? 'win:$activeDevice'
             : 'win:wasapi-exclusive';
         setBackendMeterVerified(true, deviceFingerprint: fingerprint);
-        PlaybackLogHelper.record(_logStore, 
+        PlaybackLogHelper.record(
+          _logStore,
           'AUDIO-SAFETY',
           '已完成 Windows WASAPI 独占链路核验：$fingerprint',
         );
         return HardwareRouteVerificationResult(
           verified: true,
           deviceFingerprint: fingerprint,
-          detail: '已核验 Windows WASAPI 独占直通链路（$fingerprint），可确认解锁本次会话满幅零 DSP 输出。',
+          detail:
+              '已核验 Windows WASAPI 独占直通链路（$fingerprint），可确认解锁本次会话满幅零 DSP 输出。',
         );
       }
 
-      final configured = prefs.qualityConfig.audioDevice.trim();
-      final fingerprint = configured.isNotEmpty && configured != 'auto'
-          ? 'win:$configured'
-          : 'win:wasapi-exclusive';
-      setBackendMeterVerified(true, deviceFingerprint: fingerprint);
-      PlaybackLogHelper.record(_logStore, 
-        'AUDIO-SAFETY',
-        '已预核验 Windows WASAPI 独占配置端点：$fingerprint',
-      );
+      setBackendMeterVerified(false);
       return HardwareRouteVerificationResult(
-        verified: true,
-        deviceFingerprint: fingerprint,
-        detail: '已核验 WASAPI 独占直通配置（$fingerprint），确认后将在起播时跳过软件限幅实现原生直出。',
+        verified: false,
+        deviceFingerprint: _deviceSafetyState.deviceFingerprint,
+        detail: '未检测到正在运行的音频会话，请播放媒体后重新核验。',
       );
     }
 
@@ -512,16 +597,53 @@ class AudiophileSafetyCoordinator {
           detail: '请先开启「USB DAC 逐位直通 (Android 14+)」，再检测硬件 USB 混音器能力。',
         );
       }
-      final bridge = _androidRouteBridge; if (bridge == null) { return HardwareRouteVerificationResult(verified: false, deviceFingerprint: _deviceSafetyState.deviceFingerprint, detail: '未注入 Android 音频路由端口'); } final res = await bridge.negotiateBitPerfectUsb(
-        enable: true,
-      );
-      if (!res.engaged) {
+      final bridge = _androidRouteBridge;
+      if (bridge == null) {
         return HardwareRouteVerificationResult(
           verified: false,
           deviceFingerprint: _deviceSafetyState.deviceFingerprint,
-          detail: res.detail.isNotEmpty
-              ? res.detail
-              : '系统未返回 MIXER_BEHAVIOR_BIT_PERFECT 硬件协商成功，已维持 -12 dBFS 安全上限。',
+          detail: '未注入 Android 音频路由端口',
+        );
+      }
+      final live = _sessions.entries.where((entry) {
+        final client = entry.value.clientProvider();
+        return client != null &&
+            !client.isDisposed &&
+            client.isInitialized &&
+            entry.value.prefsProvider().androidBitPerfectUsb;
+      }).firstOrNull;
+      if (live == null) {
+        setBackendMeterVerified(false);
+        return HardwareRouteVerificationResult(
+          verified: false,
+          deviceFingerprint: _deviceSafetyState.deviceFingerprint,
+          detail: '未检测到启用 USB 直通的活动播放会话',
+        );
+      }
+      final client = live.value.clientProvider();
+      final res = await _requestAndroidRoute(
+        enable: true,
+        preferredSampleRateHz: live.value.sampleRateProvider?.call(),
+      );
+      if (_disposed ||
+          res == null ||
+          _sessions[live.key] != live.value ||
+          live.value.clientProvider() != client ||
+          client == null ||
+          client.isDisposed ||
+          !client.isInitialized ||
+          !live.value.prefsProvider().androidBitPerfectUsb) {
+        return HardwareRouteVerificationResult(
+          verified: false,
+          deviceFingerprint: _deviceSafetyState.deviceFingerprint,
+          detail: '播放会话或音频路由已改变，请重新核验',
+        );
+      }
+      if (!res.operationSucceeded || !res.engaged) {
+        return HardwareRouteVerificationResult(
+          verified: false,
+          deviceFingerprint: _deviceSafetyState.deviceFingerprint,
+          detail: res.detail.isNotEmpty ? res.detail : '系统未确认 USB 直通协商成功',
         );
       }
       final devName = res.deviceName.trim().isNotEmpty
@@ -529,7 +651,8 @@ class AudiophileSafetyCoordinator {
           : 'usb-dac';
       final fingerprint = 'android-usb:$devName';
       setBackendMeterVerified(true, deviceFingerprint: fingerprint);
-      PlaybackLogHelper.record(_logStore, 
+      PlaybackLogHelper.record(
+        _logStore,
         'AUDIO-SAFETY',
         '已完成 Android 14+ USB DAC 逐位直通核验：$fingerprint',
       );
@@ -555,23 +678,30 @@ class AudiophileSafetyCoordinator {
     final after = before.confirmSessionFullScaleUnlock();
     _deviceSafetyState = after;
     if (!after.allowFullScaleBypass) {
-      PlaybackLogHelper.record(_logStore, 
+      PlaybackLogHelper.record(
+        _logStore,
         'AUDIO-SAFETY',
         '拒绝解锁满幅旁路：${AudiophileSafetyPolicy.unverifiedFullScaleLockReason}',
       );
       _onRevisionChanged?.call();
       return false;
     }
-    PlaybackLogHelper.record(_logStore, 
+    PlaybackLogHelper.record(
+      _logStore,
       'AUDIO-SAFETY',
       '用户已在当次会话二次确认解锁外设 ${after.deviceFingerprint} 的满幅直通输出',
     );
     await reapplyAll(fallbackPrefs);
-    return true;
+    if (_isAndroidOverride ?? Platform.isAndroid) {
+      await _pendingAndroidRoute;
+    }
+    return _deviceSafetyState.allowFullScaleBypass;
   }
 
   /// 释放所有绑定监听。
   void dispose() {
+    _disposed = true;
+    _androidRouteRevision++;
     _sessions.clear();
     _androidRouteBridge?.unbindRouteListeners(owner: this);
   }

@@ -221,7 +221,7 @@ class _SettingsDetailRouteState<T> extends State<_SettingsDetailRoute<T>> {
                         dimension: KonataAdaptiveTokens.touchTarget,
                         child: IconButton(
                           key: const ValueKey('settings_detail_back'),
-                          tooltip: '返回设置分类',
+                          tooltip: '返回',
                           onPressed: () => Navigator.of(context).pop(),
                           icon: const Icon(Icons.arrow_back_rounded),
                         ),

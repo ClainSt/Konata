@@ -1,4 +1,5 @@
 import 'package:engine_scraping/engine_scraping.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:konata_design_system/konata_design_system.dart';
 
@@ -17,6 +18,7 @@ class PosterCard extends StatefulWidget {
     this.onOpenMenu,
     this.imageLoaderOverride,
     this.suppressHoverCheck,
+    this.scrollingListenable,
     this.compactText = false,
     this.badgeFontSize = KonataTheme.fontSizeBadge,
     this.titleFontSize = KonataTheme.fontSizeBody,
@@ -41,6 +43,9 @@ class PosterCard extends StatefulWidget {
   /// 快速滚动或后台视频播放期间抑制桌面端悬停状态切换，避免闪烁与无谓模糊合成。
   final bool Function()? suppressHoverCheck;
 
+  /// 滚动冷却由页面持有，仅指针所在的卡片订阅其变化。
+  final ValueListenable<bool>? scrollingListenable;
+
   /// 是否启用手机窄屏紧凑排布尺寸。
   final bool compactText;
 
@@ -59,20 +64,47 @@ class PosterCard extends StatefulWidget {
 
 class _PosterCardState extends State<PosterCard> {
   bool _pointerInside = false;
+  bool _hovered = false;
 
-  bool get _isHoverSuppressed => widget.suppressHoverCheck?.call() ?? false;
+  bool get _resolvedHover =>
+      _pointerInside &&
+      !(widget.scrollingListenable?.value ?? false) &&
+      !(widget.suppressHoverCheck?.call() ?? false);
 
-  void _setPointerInside(bool inside) {
-    if (_pointerInside == inside) return;
-    setState(() => _pointerInside = inside);
+  void _syncHover() {
+    final next = _resolvedHover;
+    if (mounted && _hovered != next) {
+      setState(() => _hovered = next);
+    }
   }
 
-  void _syncHoverOnPointerMove() {
-    if (!_pointerInside) {
-      setState(() => _pointerInside = true);
-    } else {
-      setState(() {});
+  void _setPointerInside(bool inside) {
+    if (_pointerInside != inside) {
+      _pointerInside = inside;
+      if (inside) {
+        widget.scrollingListenable?.addListener(_syncHover);
+      } else {
+        widget.scrollingListenable?.removeListener(_syncHover);
+      }
     }
+    _syncHover();
+  }
+
+  @override
+  void didUpdateWidget(covariant PosterCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_pointerInside &&
+        !identical(oldWidget.scrollingListenable, widget.scrollingListenable)) {
+      oldWidget.scrollingListenable?.removeListener(_syncHover);
+      widget.scrollingListenable?.addListener(_syncHover);
+    }
+    _hovered = _resolvedHover;
+  }
+
+  @override
+  void dispose() {
+    if (_pointerInside) widget.scrollingListenable?.removeListener(_syncHover);
+    super.dispose();
   }
 
   @override
@@ -80,7 +112,7 @@ class _PosterCardState extends State<PosterCard> {
     final p = context.palette;
     final work = widget.item.work;
     final score = work.bangumiScore;
-    final effectiveHover = _pointerInside && !_isHoverSuppressed;
+    final effectiveHover = _hovered;
     final subtitleText = _buildSubtitleText(work);
     final hasSourceBadge =
         widget.item.crossSourceBadgeLabel != null &&
@@ -230,7 +262,7 @@ class _PosterCardState extends State<PosterCard> {
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => _setPointerInside(true),
-      onHover: (_) => _syncHoverOnPointerMove(),
+      onHover: (_) => _setPointerInside(true),
       onExit: (_) => _setPointerInside(false),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,

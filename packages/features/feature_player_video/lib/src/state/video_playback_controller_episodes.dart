@@ -84,7 +84,10 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
     bufferedNotifier.value = Duration.zero;
 
     final prefs = env.preferencesStore.read();
-    final quality = _resolveEffectiveQualityConfig(prefs.qualityConfig, variant);
+    final quality = _resolveEffectiveQualityConfig(
+      prefs.qualityConfig,
+      variant,
+    );
     final safety = _evaluateVariantHwdecSafety(variant);
 
     _setState(
@@ -98,7 +101,6 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
         subtitles: const <SubtitleChoice>[],
         audioTracks: const <AudioTrackChoice>[],
         clearSkipWindow: true,
-        clearSecondarySubtitleTrackId: true,
         clearActiveSubtitleSubsetState: true,
         subtitleDelaySeconds: 0.0,
         audioDelaySeconds: 0.0,
@@ -136,7 +138,10 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
     final currentSec = positionNotifier.value.inMilliseconds / 1000.0;
     final source = bundle.sourcesById[variant.sourceId];
     final prefs = env.preferencesStore.read();
-    final quality = _resolveEffectiveQualityConfig(prefs.qualityConfig, variant);
+    final quality = _resolveEffectiveQualityConfig(
+      prefs.qualityConfig,
+      variant,
+    );
 
     _setState(
       _state.copyWith(
@@ -213,7 +218,9 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
       totalDurationSeconds: dur,
       hasNextEpisode: hasNextEpisode,
     );
-    _updateSkipWindowForPosition(positionNotifier.value.inMilliseconds / 1000.0);
+    _updateSkipWindowForPosition(
+      positionNotifier.value.inMilliseconds / 1000.0,
+    );
   }
 
   void _updateSkipWindowForPosition(double posSeconds) {
@@ -234,7 +241,8 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
       return;
     }
 
-    if (window.kind == SkipActionKind.skipOp && !_autoSkippedOpeningForEpisode) {
+    if (window.kind == SkipActionKind.skipOp &&
+        !_autoSkippedOpeningForEpisode) {
       _autoSkippedOpeningForEpisode = true;
       unawaited(triggerActiveSkipWindow());
     } else if ((window.kind == SkipActionKind.skipEdToCPart ||
@@ -355,9 +363,9 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
       for (final v in bundle.variants) {
         if (v.id == targetVariantId) {
           final matchedEp = bundle.episodes.cast<EpisodeRecord?>().firstWhere(
-                (e) => e?.id == v.episodeId,
-                orElse: () => null,
-              );
+            (e) => e?.id == v.episodeId,
+            orElse: () => null,
+          );
           if (matchedEp != null) {
             return (episode: matchedEp, variant: v);
           }
@@ -369,17 +377,17 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
         request.episodeId ?? bundle.latestPlayback?.episodeId;
     if (targetEpisodeId != null) {
       final matchedEp = bundle.episodes.cast<EpisodeRecord?>().firstWhere(
-            (e) => e?.id == targetEpisodeId,
-            orElse: () => null,
-          );
+        (e) => e?.id == targetEpisodeId,
+        orElse: () => null,
+      );
       if (matchedEp != null) {
         final vars = bundle.variantsForEpisode(matchedEp.id);
         if (vars.isNotEmpty) {
           final latestVarId = bundle.latestPlayback?.variantId;
           final preferredVar = vars.cast<MediaVariantRecord?>().firstWhere(
-                (v) => v?.id == latestVarId,
-                orElse: () => vars.first,
-              );
+            (v) => v?.id == latestVarId,
+            orElse: () => vars.first,
+          );
           return (episode: matchedEp, variant: preferredVar!);
         }
       }
@@ -396,7 +404,8 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
     final fallbackEp =
         bundle.episodes.firstOrNull ??
         EpisodeRecord(
-          id: fallbackVar.episodeId ??
+          id:
+              fallbackVar.episodeId ??
               EpisodeId.trusted('ep:${fallbackVar.id.value}'),
           workId: bundle.work.id,
           seasonNumber: 1,

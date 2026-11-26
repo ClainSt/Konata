@@ -1082,6 +1082,7 @@ final class LibraryCatalogMergePlan {
     required this.variantsToUpsert,
     required this.ignoredFoldersToUpsert,
     this.clearExistingBeforeApply = false,
+    this.reconcileWorkIds = const <String>{},
   });
 
   final List<SyncLibrarySourceItem> sourcesToUpsert;
@@ -1093,6 +1094,9 @@ final class LibraryCatalogMergePlan {
 
   /// 是否在写入前以软删除清理现有本地目录（仅覆盖还原模式使用，仍保留复用媒体源与密码）。
   final bool clearExistingBeforeApply;
+
+  /// 合并后仍有有效子记录的已删除作品，由公共事务收敛墓碑。
+  final Set<String> reconcileWorkIds;
 }
 
 /// 媒体库目录与整理状态同步切片贡献者（`sliceId: 'library_catalog_slice'`）。
@@ -1502,6 +1506,14 @@ final class LibraryCatalogSyncSlice
           matched.remoteFileId != incoming.remoteFileId) {
         throw const FormatException('远端文件标识冲突，拒绝合并');
       }
+      // 已移除作品的旧关联墓碑不能覆盖本机已归入其他作品的有效文件。
+      if (incoming.isDeleted &&
+          !matched.isDeleted &&
+          matched.workId != incoming.workId &&
+          droppedRemoteWorkIds.contains(v.workId)) {
+        skippedCount++;
+        continue;
+      }
       final merged = _mergeVariant(matched, incoming);
       if (_variantChanged(matched, merged)) {
         if (!matched.isDeleted && merged.isDeleted) {
@@ -1558,6 +1570,34 @@ final class LibraryCatalogSyncSlice
       }
     }
 
+    // 用合并后的最终归属计算父墓碑级联；预览与实际写入采用同一批作品。
+    final reconcileWorkIds = <String>{};
+    final activeLocalEpisodes = <String>{
+      for (final ep in localCatalog.episodes)
+        if (!ep.isDeleted) ep.id,
+    };
+    final activeLocalVariants = <String>{
+      for (final v in localCatalog.variants)
+        if (!v.isDeleted) v.id,
+    };
+    final changedEpisodes = episodesToUpsert.map((e) => e.id).toSet();
+    final changedVariants = variantsToUpsert.map((v) => v.id).toSet();
+    for (final ep in localEpById.values) {
+      if (ep.isDeleted || localWorkById[ep.workId]?.isDeleted != true) continue;
+      reconcileWorkIds.add(ep.workId);
+      if (activeLocalEpisodes.contains(ep.id)) {
+        if (changedEpisodes.contains(ep.id)) updateCount--;
+        deleteCount++;
+      }
+    }
+    for (final v in localVarById.values) {
+      if (v.isDeleted || localWorkById[v.workId]?.isDeleted != true) continue;
+      reconcileWorkIds.add(v.workId);
+      if (activeLocalVariants.contains(v.id)) {
+        if (changedVariants.contains(v.id)) updateCount--;
+        deleteCount++;
+      }
+    }
     return SyncMergePlan<LibraryCatalogMergePlan>(
       sliceId: sliceId,
       insertCount: insertCount,
@@ -1565,6 +1605,7 @@ final class LibraryCatalogSyncSlice
       deleteCount: deleteCount,
       skippedCount: skippedCount,
       planData: LibraryCatalogMergePlan(
+        reconcileWorkIds: Set<String>.unmodifiable(reconcileWorkIds),
         sourcesToUpsert: List<SyncLibrarySourceItem>.unmodifiable(
           sourcesToUpsert,
         ),
@@ -1642,12 +1683,20 @@ final class LibraryCatalogSyncSlice
         f.copyWith(sourceId: sourceRemap[f.sourceId] ?? f.sourceId),
     ];
 
+    final deletedWorks = {
+      for (final w in remoteCatalog.works)
+        if (w.isDeleted) w.id,
+    };
     final activeInsertCount =
         sourcesToUpsert.where((s) => !s.isDeleted).length +
         remoteCatalog.series.where((s) => !s.isDeleted).length +
         remoteCatalog.works.where((w) => !w.isDeleted).length +
-        remoteCatalog.episodes.where((e) => !e.isDeleted).length +
-        variantsToUpsert.where((v) => !v.isDeleted).length +
+        remoteCatalog.episodes
+            .where((e) => !e.isDeleted && !deletedWorks.contains(e.workId))
+            .length +
+        variantsToUpsert
+            .where((v) => !v.isDeleted && !deletedWorks.contains(v.workId))
+            .length +
         ignoredToUpsert.where((f) => !f.isDeleted).length;
 
     return SyncMergePlan<LibraryCatalogMergePlan>(
@@ -1676,13 +1725,14 @@ final class LibraryCatalogSyncSlice
           ignoredToUpsert,
         ),
         clearExistingBeforeApply: true,
+        reconcileWorkIds: Set<String>.unmodifiable(deletedWorks),
       ),
       summaryLines: <String>['媒体库目录（覆盖还原）：恢复 $activeInsertCount 条有效记录'],
     );
   }
 
   @override
-  Future<void> applyMergePlan(
+  SyncApplyCompletion applyMergePlan(
     SyncTransactionContext tx,
     SyncMergePlan<LibraryCatalogMergePlan> plan,
   ) {
@@ -1695,9 +1745,10 @@ final class LibraryCatalogSyncSlice
         data.episodesToUpsert.isNotEmpty ||
         data.variantsToUpsert.isNotEmpty ||
         data.ignoredFoldersToUpsert.isNotEmpty ||
+        data.reconcileWorkIds.isNotEmpty ||
         data.clearExistingBeforeApply;
     if (!hasAnyWork) {
-      return Future<void>.value();
+      return SyncApplyCompletion.completed;
     }
     final db = _libraryDb;
     if (db == null) {
@@ -1705,14 +1756,11 @@ final class LibraryCatalogSyncSlice
     }
 
     final handle = tx.rawHandleFor('library');
-    if (handle is SqliteTransaction) {
-      _applyInTransaction(db, handle, tx, data);
-    } else {
-      db.engine.runTransaction(
-        (innerTx) => _applyInTransaction(db, innerTx, tx, data),
-      );
+    if (handle is! SqliteTransaction) {
+      throw StateError('目录同步缺少宿主写事务');
     }
-    return Future<void>.value();
+    _applyInTransaction(db, handle, tx, data);
+    return SyncApplyCompletion.completed;
   }
 
   void _applyInTransaction(
@@ -1903,6 +1951,10 @@ final class LibraryCatalogSyncSlice
     }
     for (final v in data.variantsToUpsert) {
       db.mediaVariants.upsertInTx(libTx, v.toRecord());
+    }
+    // 完成归属重映射后再收敛父墓碑，避免删除已合并到其他作品的资源。
+    for (final id in data.reconcileWorkIds) {
+      db.works.reconcileDeletedRelationsInTx(libTx, WorkId.trusted(id));
     }
     for (final folder in data.ignoredFoldersToUpsert) {
       db.ignoredFolders.upsertInTx(libTx, folder.toRecord());

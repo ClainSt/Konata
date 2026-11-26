@@ -206,7 +206,6 @@ class DetailWideOverlayStageLayout extends StatelessWidget {
                     onExpandedChanged: onDrawerExpandedChanged,
                     showGearButton: true,
                     gearButton: DetailGearMenu(
-                      work: work,
                       externalActions: mergedExternalActions,
                       onBuiltInAction: onBuiltInAction,
                       onInvokeExternalAction: onInvokeExternalAction,
@@ -481,7 +480,6 @@ class DetailPortraitStageLayout extends StatelessWidget {
             showDesktopChrome: showDesktopChrome,
             onBack: onBack,
             trailing: DetailGearMenu(
-              work: work,
               externalActions: mergedExternalActions,
               onBuiltInAction: onBuiltInAction,
               onInvokeExternalAction: onInvokeExternalAction,

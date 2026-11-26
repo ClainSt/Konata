@@ -74,6 +74,50 @@ void main() {
   });
 
   group('MainEpisodeFrameBackfillService 仅限正片抽帧且严格免疫特典', () {
+    test('旧缓存同名外部图片不被删除，仍可清理受管旧缓存', () async {
+      final h = await DetailTestHarness.create();
+      final external = File(p.join(h.tempRoot.path, 'video_frame_auto.png'))
+        ..writeAsStringSync('外部图片');
+      final ownedDir = await h.photosStorage.resolveSubfolderDirectory(
+        'safe',
+        PhotoSubfolder.backdrops,
+        title: '测试',
+      );
+      ownedDir.createSync(recursive: true);
+      final owned = File(p.join(ownedDir.path, 'video_frame_auto.png'))
+        ..writeAsStringSync('旧缓存');
+      final service = MainEpisodeFrameBackfillService(
+        repository: h.repository,
+        photosStorage: h.photosStorage,
+        extractor: MainEpisodeFrameExtractor(
+          streamBridge: h.streamBridge,
+          gatewayFactory: h.gatewayFactory,
+          logStore: h.diagnosticLog,
+        ),
+      );
+      for (final f in [external, owned]) {
+        final work = Work(
+          id: 'safe',
+          title: '测试',
+          posterPath: 'poster.png',
+          backdropPath: f.path,
+          backdropLocked: false,
+        );
+        await h.repository.upsertWork(work);
+        expect(
+          await service.backfillMissingMainVisuals(
+            work: work,
+            episodes: [],
+            variants: [],
+            sourcesById: {},
+          ),
+          isTrue,
+        );
+        expect((await h.repository.findWorkById('safe'))?.backdropPath, isNull);
+      }
+      expect(external.readAsStringSync(), '外部图片');
+      expect(owned.existsSync(), isFalse);
+    });
     test('对正片自动抽帧落盘 thumbnails/ 并更新数据库，绝不触发特典抽帧', () async {
       final harness = await DetailTestHarness.create();
       final mediaDir = Directory(p.join(harness.tempRoot.path, 'media'))
@@ -139,8 +183,14 @@ void main() {
       await harness.repository.upsertMediaVariant(mainVar);
       await harness.repository.upsertMediaVariant(extraVar);
 
-      expect(MainEpisodeFrameBackfillService.needsAutoMainEpisodeStill(mainEp), isTrue);
-      expect(MainEpisodeFrameBackfillService.needsAutoMainEpisodeStill(extraEp), isFalse);
+      expect(
+        MainEpisodeFrameBackfillService.needsAutoMainEpisodeStill(mainEp),
+        isTrue,
+      );
+      expect(
+        MainEpisodeFrameBackfillService.needsAutoMainEpisodeStill(extraEp),
+        isFalse,
+      );
 
       final createdClients = <FakeSoftwareFrameMpvClient>[];
       final extractor = MainEpisodeFrameExtractor(

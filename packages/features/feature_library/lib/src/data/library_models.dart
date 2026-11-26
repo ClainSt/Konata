@@ -198,6 +198,7 @@ class WorkMergeOutcome {
     required this.movedVariantCount,
     required this.movedEpisodeCount,
     required this.sourceDeleted,
+    this.seriesReconciliationFailed = false,
   });
 
   /// 合并接收方的目标作品。
@@ -211,6 +212,9 @@ class WorkMergeOutcome {
 
   /// 源作品是否已清空并通过软删除墓碑移出主库。
   final bool sourceDeleted;
+
+  /// 核心合并已完成但后置系列编组未成功。
+  final bool seriesReconciliationFailed;
 }
 
 /// 待复核原因标识翻译、候选评分理由展示与网络异常判别工具。

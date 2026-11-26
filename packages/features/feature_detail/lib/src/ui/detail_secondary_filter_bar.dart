@@ -100,7 +100,7 @@ class DetailSecondaryFilterBar extends StatelessWidget {
       for (final ext in externalTabs)
         (
           id: ext.id,
-          label: ext.id == 'scan_viewer' ? 'Scan' : ext.label,
+          label: ext.label,
 
           count: ext.id == 'scan_viewer' ? scanCount : null,
         ),
@@ -239,31 +239,18 @@ class DetailSubFilterBar extends StatelessWidget {
   final bool onDarkBackdrop;
 
   @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-    return Padding(
-      padding: const EdgeInsets.only(top: 8),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        physics: const BouncingScrollPhysics(),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (var i = 0; i < chips.length; i++) ...[
-              if (i > 0) const SizedBox(width: 6),
-              _SubFilterChip(
-                label: '${chips[i].label} (${chips[i].count})',
-                selected: activeId == chips[i].id,
-                onDarkBackdrop: onDarkBackdrop || p.isDark,
-                palette: p,
-                onTap: () => onSelected(chips[i].id),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(top: 8),
+    child: KonataSecondaryFilterBar<String>(
+      items: [
+        for (final chip in chips)
+          (value: chip.id, label: '${chip.label} (${chip.count})'),
+      ],
+      selected: activeId ?? '',
+      onSelected: onSelected,
+      onDarkBackdrop: onDarkBackdrop,
+    ),
+  );
 }
 
 class _TabSegmentButton extends StatefulWidget {
@@ -402,63 +389,6 @@ class _CapsuleFullListButtonState extends State<_CapsuleFullListButton> {
               Icons.grid_view_rounded,
               size: widget.compact ? 16 : 17,
               color: fg,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SubFilterChip extends StatelessWidget {
-  const _SubFilterChip({
-    required this.label,
-    required this.selected,
-    required this.onDarkBackdrop,
-    required this.palette,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool selected;
-  final bool onDarkBackdrop;
-  final KonataPalette palette;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = palette;
-    final bg = selected
-        ? (onDarkBackdrop ? const Color(0xE52E4665) : p.softFill)
-        : (onDarkBackdrop
-              ? const Color(0xDD151820)
-              : KonataPlaybackTokens.glassSurface(p));
-    final fg = selected
-        ? (onDarkBackdrop ? KonataTheme.pureWhite : p.textPrimary)
-        : (onDarkBackdrop ? KonataTheme.overlayWhiteTextHigh : p.textSecondary);
-    final border = selected
-        ? (onDarkBackdrop
-              ? KonataTheme.overlayWhiteBorderStrong
-              : p.hoverBorder)
-        : (onDarkBackdrop ? KonataTheme.overlayWhiteBorder : p.hairline);
-
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4.5),
-          decoration: BoxDecoration(
-            color: bg,
-            borderRadius: KonataTheme.borderRadiusPill,
-            border: Border.all(color: border, width: 0.9),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              color: fg,
-              fontSize: KonataTheme.fontSizeCaptionXs,
-              fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
             ),
           ),
         ),

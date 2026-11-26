@@ -197,7 +197,7 @@ void main() {
           expect(selected, 3);
           expect(find.text('页面_设置'), findsOneWidget);
 
-          await tester.tap(find.byTooltip('切换亮色模式'));
+          await tester.tap(find.byTooltip('浅色模式'));
           await tester.pump();
           expect(themeToggles, 1);
         } else {
@@ -304,7 +304,7 @@ void main() {
         findsOneWidget,
       );
 
-      await tester.tap(find.byTooltip('搜索媒体库 (Ctrl + K)'));
+      await tester.tap(find.byTooltip('搜索媒体库'));
       await tester.pumpAndSettle();
       expect(expanded, isTrue);
 

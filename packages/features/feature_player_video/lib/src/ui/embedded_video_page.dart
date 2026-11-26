@@ -15,6 +15,7 @@ import '../state/video_playback_state.dart';
 import 'embedded_video_overlays.dart';
 import 'video_cutout_symmetry.dart';
 import 'video_floating_mini_player.dart';
+import 'video_hardware_surface.dart';
 import 'video_probe_overlay.dart';
 import 'video_touch_gesture_layer.dart';
 
@@ -68,8 +69,6 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
   bool _lockButtonPeek = false;
   bool _hudVisible = true;
   Timer? _lockPeekTimer;
-  Size? _lastTextureViewport;
-  int? _lastViewportTextureId;
 
   bool _lockedAndroidLandscape = false;
   VideoPlaybackController? _landscapeLockedController;
@@ -203,7 +202,11 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
       return;
     }
     unawaited(() async {
-      await controller.closeSession();
+      try {
+        await controller.closeSession();
+      } catch (_) {
+        if (!controller.state.isClosing) return;
+      }
       if (!mounted) return;
       await controller.env.navigator?.pop();
     }());
@@ -224,6 +227,32 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
         listenable: controller,
         builder: (context, _) {
           final state = controller.state;
+          if (state.isMiniPlayer) {
+            if (state.miniMode == VideoMiniMode.desktop) {
+              return VideoFloatingMiniPlayer(
+                key: const ValueKey('video_desktop_mini_stage'),
+                controller: controller,
+                desktopWindow: true,
+                videoSurfaceBuilder: widget.videoSurfaceBuilder,
+                onExpand: () => unawaited(controller.exitMiniPlayerToStage()),
+                onClose: () => _handleExit(controller),
+              );
+            }
+            if (widget.onEnterMiniPlayer != null) {
+              return const SizedBox.expand();
+            }
+            return Stack(
+              children: [
+                VideoFloatingMiniPlayer(
+                  controller: controller,
+                  videoSurfaceBuilder: widget.videoSurfaceBuilder,
+                  viewportSize: MediaQuery.sizeOf(context),
+                  onExpand: () => unawaited(controller.exitMiniPlayerToStage()),
+                  onClose: () => _handleExit(controller),
+                ),
+              ],
+            );
+          }
           final mq = MediaQuery.maybeOf(context);
           final viewportSize = mq?.size ?? Size.zero;
           final viewPadding = mq?.viewPadding ?? EdgeInsets.zero;
@@ -236,6 +265,12 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
                 systemBarsHidden: state.isFullscreen,
               );
           final isTouchPlatform = _isAndroidDevice(controller);
+          // 原生回调与窗口尺寸变化可能乱序；极小视口先安全隐藏控制层。
+          final compactSystemSurface =
+              isTouchPlatform &&
+              (controller.systemPipActive ||
+                  (viewportSize.width > 0 &&
+                      (viewportSize.width < 320 || viewportSize.height < 180)));
 
           return MouseRegion(
             hitTestBehavior: HitTestBehavior.translucent,
@@ -264,7 +299,12 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
                 children: [
                   Padding(
                     padding: cutoutPadding,
-                    child: _buildVideoStage(context, state, controller),
+                    child: _buildVideoStage(
+                      context,
+                      state,
+                      controller,
+                      compactSystemSurface: compactSystemSurface,
+                    ),
                   ),
                   if (state.windowBrightness < 0.99 && !state.audioOnlyMode)
                     IgnorePointer(
@@ -276,71 +316,85 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
                         ),
                       ),
                     ),
-                  Positioned.fill(
-                    child: VideoTouchGestureLayer(
-                      isPlaying: state.isPlaying,
-                      durationSeconds: state.durationSeconds,
-                      positionListenable: controller.positionNotifier,
-                      currentVolume: state.volume,
-                      currentBrightness: state.windowBrightness,
-                      enableTouchGestures: isTouchPlatform,
-                      screenLocked: _screenLocked,
-                      showLockButton: _screenLocked
-                          ? _lockButtonPeek
-                          : _hudVisible,
-                      onToggleScreenLock: _toggleScreenLock,
-                      onSingleTap: _handleCanvasSingleTap,
-                      onDoubleTapCenter: () =>
-                          unawaited(controller.togglePlayPause()),
-                      onDoubleTapLeftSeek: () =>
-                          unawaited(controller.seekRelativeSeconds(-10)),
-                      onDoubleTapRightSeek: () =>
-                          unawaited(controller.seekRelativeSeconds(10)),
-                      onLongPressBoostStart: () =>
-                          controller.setTemporarySpeedBoost(true),
-                      onLongPressBoostEnd: () =>
-                          controller.setTemporarySpeedBoost(false),
-                      onSeekCommitted: (sec) =>
-                          unawaited(controller.seekToSeconds(sec)),
-                      onVolumeChanged: controller.setVolume,
-                      onBrightnessChanged: controller.setWindowBrightness,
-                    ),
-                  ),
-                  Positioned.fill(
-                    child: EmbeddedVideoOverlays(
-                      key: _overlaysKey,
-                      controller: controller,
-                      playerSidePanels: sidePanels,
-                      autoHideDelay: widget.autoHideDelay,
-                      isTouchPlatform: isTouchPlatform,
-                      screenLocked: _screenLocked,
-                      onHudVisibilityChanged: (visible) {
-                        if (_hudVisible != visible && mounted) {
-                          setState(() => _hudVisible = visible);
-                        }
-                      },
-                      onExitRequested: () => _handleExit(controller),
-                      onEnterMiniRequested:
-                          widget.onEnterMiniPlayer ??
-                          () => unawaited(controller.enterMiniPlayer()),
-                    ),
-                  ),
-                  if (state.probeOverlayVisible && !_screenLocked)
-                    Positioned(
-                      left: 16 + cutoutPadding.left,
-                      top: 68,
-                      child: VideoProbeOverlay(
-                        stats: state.probeStats,
-                        renderBackend: state.renderBackend,
-                        adapterName: state.adapterName,
-                        positionSeconds:
-                            controller.positionNotifier.value.inMilliseconds /
-                            1000.0,
+                  if (!compactSystemSurface)
+                    Positioned.fill(
+                      child: VideoTouchGestureLayer(
+                        isPlaying: state.isPlaying,
                         durationSeconds: state.durationSeconds,
-                        hwdecForcedReason: state.hwdecForcedSoftwareReason,
+                        positionListenable: controller.positionNotifier,
+                        currentVolume: state.volume,
+                        currentBrightness: state.windowBrightness,
+                        enableTouchGestures: isTouchPlatform,
+                        screenLocked: _screenLocked,
+                        showLockButton: _screenLocked
+                            ? _lockButtonPeek
+                            : _hudVisible,
+                        onToggleScreenLock: _toggleScreenLock,
+                        onSingleTap: _handleCanvasSingleTap,
+                        onDoubleTapCenter: () =>
+                            unawaited(controller.togglePlayPause()),
+                        onDoubleTapLeftSeek: () =>
+                            unawaited(controller.seekRelativeSeconds(-10)),
+                        onDoubleTapRightSeek: () =>
+                            unawaited(controller.seekRelativeSeconds(10)),
+                        onLongPressBoostStart: () =>
+                            controller.setTemporarySpeedBoost(true),
+                        onLongPressBoostEnd: () =>
+                            controller.setTemporarySpeedBoost(false),
+                        onSeekCommitted: (sec) =>
+                            unawaited(controller.seekToSeconds(sec)),
+                        onVolumeChanged: controller.setVolume,
+                        onBrightnessChanged: controller.setWindowBrightness,
                       ),
                     ),
-                  if (state.errorMessage != null &&
+                  if (!compactSystemSurface)
+                    Positioned.fill(
+                      child: EmbeddedVideoOverlays(
+                        key: _overlaysKey,
+                        controller: controller,
+                        playerSidePanels: sidePanels,
+                        autoHideDelay: widget.autoHideDelay,
+                        isTouchPlatform: isTouchPlatform,
+                        screenLocked: _screenLocked,
+                        onHudVisibilityChanged: (visible) {
+                          if (_hudVisible != visible && mounted) {
+                            setState(() => _hudVisible = visible);
+                          }
+                        },
+                        onExitRequested: () => _handleExit(controller),
+                        onEnterMiniRequested:
+                            widget.onEnterMiniPlayer ??
+                            () => unawaited(
+                              controller.enterMiniPlayer(
+                                desktopAlwaysOnTop: false,
+                              ),
+                            ),
+                      ),
+                    ),
+                  if (!compactSystemSurface &&
+                      state.probeOverlayVisible &&
+                      !_screenLocked)
+                    Positioned(
+                      left: 16 + cutoutPadding.left,
+                      right: 16 + cutoutPadding.right,
+                      top: 68,
+                      bottom: 16 + cutoutPadding.bottom,
+                      child: Align(
+                        alignment: Alignment.topLeft,
+                        child: VideoProbeOverlay(
+                          stats: state.probeStats,
+                          renderBackend: state.renderBackend,
+                          adapterName: state.adapterName,
+                          positionSeconds:
+                              controller.positionNotifier.value.inMilliseconds /
+                              1000.0,
+                          durationSeconds: state.durationSeconds,
+                          hwdecForcedReason: state.hwdecForcedSoftwareReason,
+                        ),
+                      ),
+                    ),
+                  if (!compactSystemSurface &&
+                      state.errorMessage != null &&
                       state.errorMessage!.isNotEmpty)
                     Center(
                       child: _FatalStageCard(
@@ -349,15 +403,6 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
                             unawaited(controller.initialize(widget.request)),
                         onClose: () => _handleExit(controller),
                       ),
-                    ),
-                  if (state.isMiniPlayer && widget.onEnterMiniPlayer == null)
-                    VideoFloatingMiniPlayer(
-                      controller: controller,
-                      videoSurfaceBuilder: widget.videoSurfaceBuilder,
-                      viewportSize: viewportSize,
-                      onExpand: () =>
-                          unawaited(controller.exitMiniPlayerToStage()),
-                      onClose: () => _handleExit(controller),
                     ),
                 ],
               ),
@@ -371,9 +416,13 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
   Widget _buildVideoStage(
     BuildContext context,
     VideoPlaybackState state,
-    VideoPlaybackController controller,
-  ) {
+    VideoPlaybackController controller, {
+    required bool compactSystemSurface,
+  }) {
     if (state.audioOnlyMode) {
+      if (compactSystemSurface) {
+        return const ColoredBox(color: KonataPlaybackTokens.cinemaPureBlack);
+      }
       return const Center(
         key: ValueKey('embedded_video_audio_only_stage'),
         child: Column(
@@ -386,7 +435,7 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
             ),
             SizedBox(height: 10),
             Text(
-              '纯音频省电模式 · 画面输出已关闭',
+              '纯音频模式 · 画面输出已关闭',
               style: TextStyle(
                 color: KonataPlaybackTokens.osdTextSecondary,
                 fontSize: 13.5,
@@ -398,54 +447,19 @@ class _EmbeddedVideoPageState extends ConsumerState<EmbeddedVideoPage> {
       );
     }
 
-    final customSurface = widget.videoSurfaceBuilder;
-    if (customSurface != null) {
-      final texture = customSurface(context, state.textureId);
-      // mpv 以真实物理渲染目标计算原始比例，避免外层拉伸。
-      if (_isAndroidDevice(controller) ||
-          state.windowsUnderlayActive ||
-          state.textureId == null ||
-          state.textureId! < 0) {
-        _lastTextureViewport = null;
-        _lastViewportTextureId = null;
-        return texture;
-      }
-      return LayoutBuilder(
-        builder: (context, constraints) {
-          if (!constraints.hasBoundedWidth || !constraints.hasBoundedHeight)
-            return texture;
-          final dpr = MediaQuery.devicePixelRatioOf(context);
-          final size = Size(
-            (constraints.maxWidth * dpr).roundToDouble(),
-            (constraints.maxHeight * dpr).roundToDouble(),
-          );
-          if (size.width > 0 &&
-              size.height > 0 &&
-              (_lastTextureViewport != size ||
-                  _lastViewportTextureId != state.textureId)) {
-            _lastTextureViewport = size;
-            _lastViewportTextureId = state.textureId;
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (!mounted ||
-                  _lastTextureViewport != size ||
-                  _lastViewportTextureId != state.textureId)
-                return;
-              unawaited(
-                controller.resizeDesktopSurfaceTarget(
-                  size.width.toInt(),
-                  size.height.toInt(),
-                ),
-              );
-            });
-          }
-          return ColoredBox(
-            color: KonataPlaybackTokens.cinemaPureBlack,
-            child: texture,
-          );
-        },
+    if (widget.videoSurfaceBuilder != null ||
+        VideoHardwareSurface.hasUnderlay(controller, state) ||
+        (state.textureId != null && state.textureId! >= 0)) {
+      return VideoHardwareSurface(
+        controller: controller,
+        state: state,
+        textureBuilder: widget.videoSurfaceBuilder,
+        fallback: const ColoredBox(color: KonataPlaybackTokens.cinemaPureBlack),
       );
     }
-
+    if (compactSystemSurface) {
+      return const ColoredBox(color: KonataPlaybackTokens.cinemaPureBlack);
+    }
     return Center(
       key: const ValueKey('embedded_video_placeholder_stage'),
       child: AspectRatio(

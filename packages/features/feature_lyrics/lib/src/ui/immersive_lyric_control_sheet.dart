@@ -188,7 +188,7 @@ class _ImmersiveLyricControlSheetState
 
           return KonataGlassSideSheet(
             key: const ValueKey('immersive_lyric_control_sheet'),
-            title: '歌词换源与校准',
+            title: '歌词设置',
             width: 440,
             onClose: widget.onClose,
             child: Column(
@@ -204,7 +204,7 @@ class _ImmersiveLyricControlSheetState
                     trackInsets: const EdgeInsets.only(right: 4, bottom: 10),
                     builder: (_, ctrl) => ListView(
                       controller: ctrl,
-                      padding: const EdgeInsets.fromLTRB(18, 0, 20, 20),
+                      padding: const EdgeInsets.fromLTRB(18, 0, 0, 20),
                       children: activeTabChildren,
                     ),
                   ),
@@ -477,7 +477,9 @@ class _ImmersiveLyricControlSheetState
                 label: _searching ? '正在检索…' : '搜索候选',
                 icon: Icons.search_rounded,
                 compact: true,
-                onPressed: _searching ? null : () => unawaited(_runManualSearch()),
+                onPressed: _searching
+                    ? null
+                    : () => unawaited(_runManualSearch()),
               ),
             ),
           ],
@@ -588,7 +590,8 @@ class _ImmersiveLyricControlSheetState
                       children: [
                         KonataSpecBadge(label: _sourceLabel(c.source)),
                         if (c.hasWordTiming) const KonataSpecBadge(label: '逐字'),
-                        if (c.hasTranslation) const KonataSpecBadge(label: '译文'),
+                        if (c.hasTranslation)
+                          const KonataSpecBadge(label: '译文'),
                         if (c.hasRomaji) const KonataSpecBadge(label: '罗马音'),
                       ],
                     ),
@@ -971,9 +974,8 @@ class _ImmersiveLyricControlSheetState
               key: ValueKey('${keyPrefix}_reset'),
               label: '归零',
               compact: true,
-              onPressed: () => unawaited(
-                widget.controller.setRouteOffsetMillis(kind, 0),
-              ),
+              onPressed: () =>
+                  unawaited(widget.controller.setRouteOffsetMillis(kind, 0)),
             ),
             KonataPillButton.secondary(
               key: ValueKey('${keyPrefix}_plus_100'),

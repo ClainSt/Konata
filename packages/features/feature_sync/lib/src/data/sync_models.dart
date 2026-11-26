@@ -27,9 +27,7 @@ abstract final class SyncSanitizer {
   static final RegExp _nonWordPattern = RegExp(
     r'[\s\-_:：·•.,，。!！?？()（）\[\]【】/\\]+',
   );
-  static final RegExp _windowsDrivePathPattern = RegExp(
-    r'^[A-Za-z]:[\\/]',
-  );
+  static final RegExp _windowsDrivePathPattern = RegExp(r'^[A-Za-z]:[\\/]');
   static final RegExp _uncPathPattern = RegExp(r'^\\\\[^\\]+\\');
   static final RegExp _unixAbsoluteLocalPattern = RegExp(
     r'^/(?:Users|home|storage/emulated|data/user|var|tmp|opt|etc|mnt|media)/',
@@ -336,9 +334,11 @@ final class KonataBackupArchive {
       platform: platform,
       appVersion: appVersion,
       sliceIds: List<String>.unmodifiable(sliceIds),
-      slices: Map<String, SyncSlicePayload>.unmodifiable(<String, SyncSlicePayload>{
-        for (final payload in slicePayloads) payload.sliceId: payload,
-      }),
+      slices: Map<String, SyncSlicePayload>.unmodifiable(
+        <String, SyncSlicePayload>{
+          for (final payload in slicePayloads) payload.sliceId: payload,
+        },
+      ),
       payloadSha256: digest,
     );
   }
@@ -401,8 +401,13 @@ final class KonataBackupArchive {
       throw const FormatException('备份文件顶层结构无效');
     }
     final root = SyncSanitizer.coerceStringKeyMap(decoded);
-    final schemaVersion = (root['schemaVersion'] as num?)?.toInt() ?? 0;
-    if (schemaVersion <= 0 || schemaVersion > currentSchemaVersion) {
+    if (root['schema'] == 'konata.sync.snapshot.v1') {
+      throw const FormatException('检测到旧版 Konata v1/v2 备份，需经专用迁移后恢复；当前未导入任何数据');
+    }
+    final schemaVersion = root['schemaVersion'];
+    if (schemaVersion is! int ||
+        schemaVersion <= 0 ||
+        schemaVersion > currentSchemaVersion) {
       throw FormatException('不支持的备份归档版本：$schemaVersion');
     }
     final format = (root['format'] ?? '').toString();
@@ -419,7 +424,7 @@ final class KonataBackupArchive {
     for (final entry in rawSlices.entries) {
       final sliceId = entry.key.toString().trim();
       final val = entry.value;
-      if (sliceId.isEmpty || val is! Map) {
+      if (sliceId.isEmpty || parsedSlices.containsKey(sliceId) || val is! Map) {
         throw const FormatException('备份归档中包含格式非法的切片条目');
       }
       final sliceMap = SyncSanitizer.coerceStringKeyMap(val);
@@ -462,8 +467,12 @@ final class KonataBackupArchive {
     Map<String, Object?> map,
   ) {
     final sliceId = (map['sliceId'] ?? expectedSliceId).toString().trim();
-    if (sliceId.isEmpty) {
-      throw const FormatException('切片缺少有效的 sliceId');
+    if (sliceId.isEmpty || sliceId != expectedSliceId) {
+      throw const FormatException('备份切片标识与索引不匹配');
+    }
+    final version = map['schemaVersion'] ?? 1;
+    if (version is! int || version <= 0) {
+      throw const FormatException('备份切片版本无效');
     }
     final rawData = map['data'];
     if (rawData is! Map) {
@@ -471,7 +480,7 @@ final class KonataBackupArchive {
     }
     return SyncSlicePayload(
       sliceId: sliceId,
-      schemaVersion: (map['schemaVersion'] as num?)?.toInt() ?? 1,
+      schemaVersion: version,
       exportedAtMs: (map['exportedAtMs'] as num?)?.toInt() ?? 0,
       sourceDeviceId: (map['sourceDeviceId'] ?? '').toString(),
       data: Map<String, Object?>.unmodifiable(
@@ -535,6 +544,7 @@ final class KonataBackupPreviewReport {
     required this.archiveSliceIds,
     required this.slicePreviews,
     this.unrecognizedSliceIds = const <String>[],
+    this.legacyFormatVersion,
   });
 
   /// 归档导出时间。
@@ -560,6 +570,9 @@ final class KonataBackupPreviewReport {
 
   /// 归档中有但本机当前未注册的外部切片标识列表。
   final List<String> unrecognizedSliceIds;
+
+  /// 旧版迁移来源版本；非空时只允许智能合并。
+  final int? legacyFormatVersion;
 
   /// 累计预计新增数量。
   int get totalInserts =>
@@ -668,7 +681,8 @@ final class WebDavSyncConfig {
   ];
 
   /// 规范化定时同步间隔分钟数。
-  static int normalizeIntervalMinutes(int minutes) => minutes <= 0 ? 0 : minutes;
+  static int normalizeIntervalMinutes(int minutes) =>
+      minutes <= 0 ? 0 : minutes;
 
   /// 将定时同步间隔格式化为中文标签。
   static String formatIntervalLabel(int minutes) {
@@ -806,7 +820,7 @@ final class WebDavSliceWatermark {
   /// 最近更新时间戳（UTC 毫秒）。
   final int updatedAtMs;
 
-  /// 相对同步根目录的 `.json.gz` 路径（格式 `slices/<sliceId>_<deviceId>.json.gz`）。
+  /// 相对同步根目录的 `.json.gz` 路径（新写入为内容版本路径，兼容读取已有 v2 固定路径）。
   final String shardPath;
 
   /// 切片主体的确定性 `SHA-256` 校验和。
@@ -842,7 +856,7 @@ final class WebDavSliceWatermark {
   }
 }
 
-/// WebDAV 远端总清单（`manifest.json`）：按 `(sliceId, deviceId)` 索引切片分片，零写入锁冲突。
+/// WebDAV 远端总清单（`manifest.json`）：按 `(sliceId, deviceId)` 索引切片分片。
 final class WebDavSyncManifest {
   /// 当前清单格式版本号。
   static const int currentSchemaVersion = 2;
@@ -890,26 +904,37 @@ final class WebDavSyncManifest {
     },
   };
 
-  /// 从 JSON 字典解析清单（非法或无效条目自动跳过）。
+  /// 严格解析当前清单，拒绝旧版或损坏数据，避免后续上传覆盖远端记录。
   factory WebDavSyncManifest.fromJson(Map<String, Object?> json) {
+    if (json['schemaVersion'] != currentSchemaVersion) {
+      throw const FormatException('远端同步清单版本不兼容，请使用独立同步目录');
+    }
     final rawSlices = json['slices'];
+    if (rawSlices is! Map) {
+      throw const FormatException('远端同步清单缺少有效的 slices');
+    }
     final map = <String, WebDavSliceWatermark>{};
-    if (rawSlices is Map) {
-      for (final entry in rawSlices.entries) {
-        if (entry.value is! Map) continue;
-        final wm = WebDavSliceWatermark.fromJson(
-          SyncSanitizer.coerceStringKeyMap(entry.value),
-        );
-        if (wm.sliceId.isNotEmpty &&
-            wm.deviceId.isNotEmpty &&
-            wm.shardPath.isNotEmpty) {
-          map[wm.compositeKey] = wm;
-        }
+    for (final entry in rawSlices.entries) {
+      final raw = entry.value;
+      if (raw is! Map ||
+          raw['schemaVersion'] is! int ||
+          raw['updatedAtMs'] is! int) {
+        throw const FormatException('远端同步清单分片结构无效');
       }
+      final wm = WebDavSliceWatermark.fromJson(
+        SyncSanitizer.coerceStringKeyMap(raw),
+      );
+      if (wm.sliceId.isEmpty ||
+          wm.deviceId.isEmpty ||
+          wm.shardPath.isEmpty ||
+          !RegExp(r'^[0-9a-f]{64}$').hasMatch(wm.sha256) ||
+          entry.key != wm.compositeKey ||
+          map.containsKey(wm.compositeKey)) {
+        throw const FormatException('远端同步清单分片水位无效');
+      }
+      map[wm.compositeKey] = wm;
     }
     return WebDavSyncManifest(
-      schemaVersion:
-          (json['schemaVersion'] as num?)?.toInt() ?? currentSchemaVersion,
       slices: Map<String, WebDavSliceWatermark>.unmodifiable(map),
     );
   }

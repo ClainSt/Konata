@@ -5,6 +5,7 @@ import 'package:konata_design_system/konata_design_system.dart';
 
 import '../state/video_playback_controller.dart';
 import '../state/video_playback_state.dart';
+import 'video_hardware_surface.dart';
 
 /// 16:9 比例可拖拽悬浮视频小窗（拖拽偏移坐标直连叶子 `ValueNotifier`，杜绝拖帧重建全树）。
 class VideoFloatingMiniPlayer extends StatefulWidget {
@@ -20,6 +21,7 @@ class VideoFloatingMiniPlayer extends StatefulWidget {
     this.width = KonataPlaybackTokens.floatingMiniVideoWidth,
     this.edgeMargin = KonataPlaybackTokens.floatingMiniEdgeMargin,
     this.initialOffset,
+    this.desktopWindow = false,
   });
 
   /// 视频播放核心状态控制器。
@@ -49,6 +51,9 @@ class VideoFloatingMiniPlayer extends StatefulWidget {
 
   /// 若当前坐标尚未初始化，使用的初始左上角偏移坐标。
   final Offset? initialOffset;
+
+  /// 桌面置顶窗口以整个视口承载小窗，不再使用应用内拖拽坐标。
+  final bool desktopWindow;
 
   @override
   State<VideoFloatingMiniPlayer> createState() =>
@@ -95,45 +100,46 @@ class _VideoFloatingMiniPlayerState extends State<VideoFloatingMiniPlayer> {
 
   @override
   Widget build(BuildContext context) {
-    final bounds = widget.viewportSize ?? MediaQuery.maybeSizeOf(context) ?? Size.zero;
+    final frame = MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: ListenableBuilder(
+        listenable: widget.controller,
+        builder: (context, _) => _MiniPlayerFrame(
+          state: widget.controller.state,
+          controller: widget.controller,
+          hovered: _hovered,
+          videoSurfaceBuilder: widget.videoSurfaceBuilder,
+          onExpand: widget.onExpand,
+          onClose: widget.onClose,
+          desktopWindow: widget.desktopWindow,
+        ),
+      ),
+    );
+    if (widget.desktopWindow) return SizedBox.expand(child: frame);
 
+    final bounds =
+        widget.viewportSize ?? MediaQuery.maybeSizeOf(context) ?? Size.zero;
     return ValueListenableBuilder<Offset>(
       valueListenable: _offsetNotifier,
-      builder: (context, rawOffset, _) {
+      child: frame,
+      builder: (context, rawOffset, child) {
         final effectiveOffset = _clampOffset(rawOffset, bounds);
         return Positioned(
           left: effectiveOffset.dx,
           top: effectiveOffset.dy,
           width: widget.width,
           height: _height,
-          child: MouseRegion(
-            onEnter: (_) => setState(() => _hovered = true),
-            onExit: (_) => setState(() => _hovered = false),
-            child: GestureDetector(
-              key: const ValueKey('video_floating_mini_player'),
-              behavior: HitTestBehavior.opaque,
-              onPanUpdate: (details) {
-                final next = _clampOffset(
-                  _offsetNotifier.value + details.delta,
-                  bounds,
-                );
-                _offsetNotifier.value = next;
-              },
-              child: ListenableBuilder(
-                listenable: widget.controller,
-                builder: (context, _) {
-                  final state = widget.controller.state;
-                  return _MiniPlayerFrame(
-                    state: state,
-                    controller: widget.controller,
-                    hovered: _hovered,
-                    videoSurfaceBuilder: widget.videoSurfaceBuilder,
-                    onExpand: widget.onExpand,
-                    onClose: widget.onClose,
-                  );
-                },
-              ),
-            ),
+          child: GestureDetector(
+            key: const ValueKey('video_floating_mini_player'),
+            behavior: HitTestBehavior.opaque,
+            onPanUpdate: (details) {
+              _offsetNotifier.value = _clampOffset(
+                effectiveOffset + details.delta,
+                bounds,
+              );
+            },
+            child: child,
           ),
         );
       },
@@ -149,11 +155,13 @@ class _MiniPlayerFrame extends StatelessWidget {
     required this.videoSurfaceBuilder,
     required this.onExpand,
     required this.onClose,
+    required this.desktopWindow,
   });
 
   final VideoPlaybackState state;
   final VideoPlaybackController controller;
   final bool hovered;
+  final bool desktopWindow;
   final Widget Function(BuildContext context, int? textureId)?
   videoSurfaceBuilder;
   final VoidCallback? onExpand;
@@ -162,37 +170,41 @@ class _MiniPlayerFrame extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final radius = BorderRadius.circular(
-      KonataPlaybackTokens.floatingMiniRadius,
+      desktopWindow ? 0 : KonataPlaybackTokens.floatingMiniRadius,
     );
-    final surface = videoSurfaceBuilder != null
-        ? videoSurfaceBuilder!(context, state.textureId)
-        : Container(
-            key: const ValueKey('video_mini_placeholder_surface'),
-            color: KonataPlaybackTokens.cinemaPureBlack,
-            alignment: Alignment.center,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(
-                  Icons.smart_display_outlined,
-                  size: KonataPlaybackTokens.floatingMiniFallbackIconSize,
-                  color: KonataPlaybackTokens.osdTextSecondary,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  state.currentWork?.title.isNotEmpty == true
-                      ? state.currentWork!.title
-                      : '视频小窗播放中',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: KonataPlaybackTokens.osdTextSecondary,
-                    fontSize: 11,
-                  ),
-                ),
-              ],
+    final surface = VideoHardwareSurface(
+      controller: controller,
+      state: state,
+      textureBuilder: videoSurfaceBuilder,
+      cornerRadius: desktopWindow ? 0 : KonataPlaybackTokens.floatingMiniRadius,
+      fallback: Container(
+        key: const ValueKey('video_mini_placeholder_surface'),
+        color: KonataPlaybackTokens.cinemaPureBlack,
+        alignment: Alignment.center,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.smart_display_outlined,
+              size: KonataPlaybackTokens.floatingMiniFallbackIconSize,
+              color: KonataPlaybackTokens.osdTextSecondary,
             ),
-          );
+            const SizedBox(height: 4),
+            Text(
+              state.currentWork?.title.isNotEmpty == true
+                  ? state.currentWork!.title
+                  : '视频小窗播放中',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: KonataPlaybackTokens.osdTextSecondary,
+                fontSize: 11,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
 
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -228,7 +240,12 @@ class _MiniPlayerFrame extends StatelessWidget {
                     unawaited(controller.exitMiniPlayerToStage());
                   }
                 },
-                child: surface,
+                child: desktopWindow
+                    ? KonataDesktopWindowChromeScope.wrapDragToMove(
+                        context,
+                        child: surface,
+                      )
+                    : surface,
               ),
               Positioned(
                 top: 6,
@@ -242,7 +259,7 @@ class _MiniPlayerFrame extends StatelessWidget {
                       KonataCapsuleIconButton(
                         key: const ValueKey('mini_player_expand_button'),
                         icon: Icons.open_in_full_rounded,
-                        tooltip: '回到全屏舞台',
+                        tooltip: '恢复播放器',
                         size: KonataPlaybackTokens.floatingMiniOverlayIconSize,
                         padding: const EdgeInsets.all(5),
                         color: KonataPlaybackTokens.osdTextPrimary,
@@ -286,6 +303,33 @@ class _MiniPlayerFrame extends StatelessWidget {
                   ),
                 ),
               ),
+              if (state.transientNotice case final notice?)
+                Center(
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: const BoxDecoration(
+                        color: KonataPlaybackTokens.osdSurfaceDark,
+                        borderRadius: KonataTheme.borderRadiusPill,
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        child: Text(
+                          notice.message,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: KonataPlaybackTokens.osdTextPrimary,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               Positioned(
                 left: 0,
                 right: 0,

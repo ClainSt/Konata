@@ -118,15 +118,37 @@ class PlaybackFormatters {
   static String formatVideoBitDepthLabel(String? pixelFormat) {
     final raw = (pixelFormat ?? '').trim().toLowerCase();
     if (raw.isEmpty) return '';
-    if (raw.contains('12') || raw.contains('p012')) return '12bit';
-    if (raw.contains('10') || raw.contains('p010')) return '10bit';
-    if (raw.contains('16') || raw.contains('f16') || raw.contains('p016')) {
+    // NV12 等名称中的数字是采样布局标识，不是单通道位深。
+    if (const {'nv12', 'nv21', 'nv16', 'nv24', 'nv42'}.contains(raw)) {
+      return '8bit';
+    }
+    final semiPlanar = RegExp(r'^p[024]([0-9]{2})(?:le|be)?$').firstMatch(raw);
+    if (semiPlanar != null) {
+      final depth = semiPlanar.group(1);
+      if (const {'10', '12', '16'}.contains(depth)) return '${depth}bit';
+    }
+    final planar = RegExp(
+      r'^(?:yuv[a-z]*\d{3}p|gbrap?|gray|ya)(9|10|12|14|16)(?:le|be)?$',
+    ).firstMatch(raw);
+    if (planar != null) return '${planar.group(1)}bit';
+    if (RegExp(
+      r'^(?:rgb|bgr)48(?:le|be)?$|^(?:rgba|bgra)64(?:le|be)?$',
+    ).hasMatch(raw)) {
       return '16bit';
     }
-    if (raw.contains('yuv') ||
-        raw.contains('nv12') ||
-        raw.contains('rgb') ||
-        raw.contains('bgra')) {
+    if (const {
+      'x2rgb10le',
+      'x2bgr10le',
+      'y210',
+      'y410',
+      'rgb30',
+      'bgr30',
+    }.contains(raw)) {
+      return '10bit';
+    }
+    if (RegExp(
+      r'^(?:yuvj?\d{3}p|yuva\d{3}p|gbrap?|gray8|rgb24|bgr24|rgba|bgra|argb|abgr|yuyv422|uyvy422)$',
+    ).hasMatch(raw)) {
       return '8bit';
     }
     return '';

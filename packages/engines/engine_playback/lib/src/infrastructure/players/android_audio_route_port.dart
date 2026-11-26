@@ -4,6 +4,7 @@ class AndroidBitPerfectNegotiationResult {
   const AndroidBitPerfectNegotiationResult({
     required this.supported,
     required this.engaged,
+    this.operationSucceeded = false,
     this.deviceName = '',
     this.sampleRateHz = 0,
     this.detail = '',
@@ -14,6 +15,9 @@ class AndroidBitPerfectNegotiationResult {
 
   /// 是否已成功向系统设置 `MIXER_BEHAVIOR_BIT_PERFECT` 优先属性。
   final bool engaged;
+
+  /// 系统确认本次设置或撤销成功；失败时不得将 engaged=false 当作已恢复默认路由。
+  final bool operationSucceeded;
 
   /// 命中的外接 USB 音频设备名称。
   final String deviceName;

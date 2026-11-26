@@ -20,10 +20,10 @@ extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
         .toDouble();
   }
 
-  /// 按底部播控胶囊真实占高同步 `libmpv` 主/副字幕垂直上抬比例，隐藏瞬间立即归零复原。
+  /// 按底部播控胶囊真实占高同步 `libmpv` 字幕垂直上抬比例，隐藏瞬间立即归零复原。
   ///
-  /// 底层仅平移常规对话字幕 `sub-pos` / `secondary-sub-pos`，绝不修改 `sub-ass-override`
-  /// 或干扰 ASS `\pos()` 绝对坐标屏幕字。
+  /// 底层在保真模式临时使用等倍率 scale 使 sub-pos 生效，
+  /// 隐藏时恢复用户模式，不强制覆盖原 ASS 样式。
   double updateHudSubtitleLift({
     required bool hudVisible,
     required double bottomCapsuleOccupiedHeight,
@@ -71,11 +71,18 @@ extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
     }
     final origin = CloudSubsetOrigin.fromUri(uri);
     final coordinator = env.cloudSubsetCoordinator;
-    if (coordinator != null) {
-      coordinator.authorizeOrigin(uri);
-    }
+    if (coordinator == null || uri.userInfo.isNotEmpty) return null;
     if (!prefs.authorizedCloudSubsetOrigins.contains(origin.key) &&
         !prefs.authorizedCloudSubsetOrigins.contains(raw)) {
+      return null;
+    }
+    await coordinator.cloudClient.authorizationStore.ensureHydrated();
+    final latest = env.preferencesStore.read();
+    if (!latest.enableCloudSubset ||
+        latest.fontInAssEndpoint.trim() != raw ||
+        (!latest.authorizedCloudSubsetOrigins.contains(origin.key) &&
+            !latest.authorizedCloudSubsetOrigins.contains(raw)) ||
+        !coordinator.cloudClient.authorizationStore.isAuthorized(uri)) {
       return null;
     }
     return uri;
@@ -98,6 +105,16 @@ extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
         'mpv-cloud-subset',
         '云端字体子集化命中 ${result.origin.key}（缓存复用=${result.fromLocalCache}）',
       );
+      final latest = env.preferencesStore.read();
+      if (_disposed ||
+          _closing ||
+          !latest.enableCloudSubset ||
+          Uri.tryParse(latest.fontInAssEndpoint.trim()) != endpointUri ||
+          !coordinator.cloudClient.authorizationStore.isAuthorized(
+            endpointUri,
+          )) {
+        return null;
+      }
       return result.subsettedAssContent;
     } on CloudSubsetCancelledException {
       return null;
@@ -179,7 +196,6 @@ extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
     if (choice == null) {
       final res = await engine.applyIntent(
         AuthoritativeSubtitleIntent.disable(
-          alsoDisableSecondary: false,
           beforeSelectPrimary: (_) {
             _session?.restoreBaselineSubFontsDir();
           },
@@ -253,48 +269,13 @@ extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
     );
   }
 
-  /// 设定或关闭双语对照副字幕轨道。
-  Future<void> selectSecondarySubtitleTrack(int? trackId) async {
-    if (_disposed || _closing) return;
-    _setState(
-      _state.copyWith(
-        secondarySubtitleTrackId: trackId,
-        clearSecondarySubtitleTrackId: trackId == null,
-      ),
-    );
-    final session = _session;
-    if (session == null) return;
-    final currentPrimary = _state.subtitles.cast<SubtitleChoice?>().firstWhere(
-          (s) => s?.selected ?? false,
-          orElse: () => null,
-        );
-    final engine = _ensureSubtitleMemoryEngine();
-    await engine.applyIntent(
-      AuthoritativeSubtitleIntent(
-        primary: currentPrimary?.mpvTrackId != null
-            ? SubtitleSlotRequest.existingTrack(currentPrimary!.mpvTrackId!)
-            : null,
-        secondary: trackId != null
-            ? SubtitleSlotRequest.existingTrack(trackId)
-            : null,
-        updateSecondary: true,
-      ),
-    );
-    session.applySecondarySubtitleLayout(trackId != null);
-    if (_currentSubtitleHudLiftPercent > 0.0) {
-      // 双语副字幕布局重算会重置基准 sub-pos，需重新触发底层应用当前底栏上抬比例。
-      session.setSubtitleHudLiftPercent(0.0);
-      session.setSubtitleHudLiftPercent(_currentSubtitleHudLiftPercent);
-    }
-  }
-
   /// 切换当前主字幕的内存即时繁简转换模式。
   Future<void> setSubtitleOpenCcMode(SubtitleOpenCcMode mode) async {
     if (_disposed || _closing) return;
     final currentPrimary = _state.subtitles.cast<SubtitleChoice?>().firstWhere(
-          (s) => s?.selected ?? false,
-          orElse: () => null,
-        );
+      (s) => s?.selected ?? false,
+      orElse: () => null,
+    );
     if (currentPrimary == null) {
       _setState(_state.copyWith(subtitleOpenCcMode: mode));
       return;
@@ -342,9 +323,9 @@ extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
   ) async {
     if (_disposed || _closing) return;
     final currentPrimary = _state.subtitles.cast<SubtitleChoice?>().firstWhere(
-          (s) => s?.selected ?? false,
-          orElse: () => null,
-        );
+      (s) => s?.selected ?? false,
+      orElse: () => null,
+    );
     final trackId = currentPrimary?.mpvTrackId;
     final rawSourcePath =
         (trackId != null
@@ -385,9 +366,9 @@ extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
   Future<void> applyCloudSubsetToCurrentSubtitle() async {
     if (_disposed || _closing || _state.isApplyingCloudSubset) return;
     final currentPrimary = _state.subtitles.cast<SubtitleChoice?>().firstWhere(
-          (s) => s?.selected ?? false,
-          orElse: () => null,
-        );
+      (s) => s?.selected ?? false,
+      orElse: () => null,
+    );
     final trackId = currentPrimary?.mpvTrackId;
     final rawSourcePath =
         (trackId != null
@@ -444,7 +425,10 @@ extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
     final pickedPath = await env.filePicker.pickSubtitleFile(
       dialogTitle: '选择外挂字幕文件',
     );
-    if (_disposed || _closing || pickedPath == null || pickedPath.trim().isEmpty) {
+    if (_disposed ||
+        _closing ||
+        pickedPath == null ||
+        pickedPath.trim().isEmpty) {
       return;
     }
     final trimmed = pickedPath.trim();
@@ -533,7 +517,7 @@ extension VideoPlaybackControllerSubtitles on VideoPlaybackController {
     final next = !_state.audioOnlyMode;
     _session?.setVideoTrackEnabled(!next);
     _setState(_state.copyWith(audioOnlyMode: next));
-    showTransientNotice(next ? '已开启纯音频省电模式' : '已恢复视频画面输出');
+    showTransientNotice(next ? '已开启纯音频模式' : '已恢复视频画面输出');
   }
 
   /// 热切换单个自定义着色器脚本的启用状态并即时生效。

@@ -71,7 +71,7 @@ const FeatureManifest featureScanViewerManifest = FeatureManifest(
   detailTabs: <DetailTabContribution>[
     DetailTabContribution(
       id: ScanViewerAvailability.detailTabId,
-      label: '扫图',
+      label: 'Scan',
       iconKey: 'scan_viewer',
       order: 40,
       viewBuilder: _buildScanViewerTabSlot,
@@ -89,7 +89,7 @@ FeatureManifest createFeatureScanViewerManifest({
     detailTabs: <DetailTabContribution>[
       DetailTabContribution(
         id: ScanViewerAvailability.detailTabId,
-        label: '扫图',
+        label: 'Scan',
         iconKey: 'scan_viewer',
         order: 40,
         viewBuilder: _buildScanViewerTabSlot,

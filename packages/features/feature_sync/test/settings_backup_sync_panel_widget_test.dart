@@ -91,14 +91,14 @@ final class _FakeWidgetExtraSlice
   }
 
   @override
-  Future<void> applyMergePlan(
+  SyncApplyCompletion applyMergePlan(
     SyncTransactionContext tx,
     SyncMergePlan<List<Map<String, Object?>>> plan,
   ) {
     for (final item in plan.planData) {
       entries[item['id'].toString()] = item;
     }
-    return Future<void>.value();
+    return SyncApplyCompletion.completed;
   }
 }
 
@@ -131,6 +131,7 @@ final class _WidgetFakeHttpClient extends http.BaseClient {
         Stream<List<int>>.value(data),
         200,
         contentLength: data.length,
+        headers: {'etag': '"widget-etag"'},
       );
     }
     if (method == 'PUT') {
@@ -232,6 +233,69 @@ void main() {
         toastCtrl.dispose();
       }
       tester.view.reset();
+    });
+
+    testWidgets('旧版 v2 恢复预览锁定全部迁移切片，取消不落库，确认一次性恢复', (tester) async {
+      tester.view.physicalSize = const Size(1440, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      final db = KonataDatabaseBundle.openInMemory();
+      addTearDown(db.close);
+      final toast = KonataToastController();
+      addTearDown(toast.dispose);
+      final bytes = File(
+        'test/fixtures/legacy_backup/legacy-complete-v2.konata',
+      ).readAsBytesSync();
+      await tester.pumpWidget(
+        _wrapForTest(
+          toastController: toast,
+          dependencies: FeatureSyncDependencies(
+            databases: db,
+            scopedPrefs: ScopedPrefsStore(db.userState),
+            secureStorage: InMemorySecureStorage(),
+            backupFilePort: _RecordingBackupFilePort()
+              ..pathToPick = '/virtual/legacy.konata',
+            readFileBytes: (_) async => bytes,
+          ),
+          child: const SettingsBackupSyncPanel(),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final importBtn = find.byKey(const Key('import_konata_button'));
+      Future<void> open() async {
+        await tester.ensureVisible(importBtn);
+        await tester.tap(importBtn);
+        await tester.pumpAndSettle();
+        expect(find.textContaining('须一次性智能合并全部项目'), findsOneWidget);
+        expect(find.byKey(const Key('restore_mode_segmented')), findsNothing);
+        for (final id in [
+          'library_catalog_slice',
+          'playback_history_slice',
+          'prefs_slice',
+        ]) {
+          final toggle = find.byKey(Key('preview_slice_$id'));
+          expect(tester.widget<KonataSwitch>(toggle).value, isTrue);
+          expect(tester.widget<KonataSwitch>(toggle).onChanged, isNull);
+        }
+      }
+
+      await open();
+      await tester.tap(find.byKey(const Key('restore_preview_cancel_button')));
+      await tester.pumpAndSettle();
+      expect(db.library.works.listVisible(), isEmpty);
+      await open();
+      await tester.tap(find.byKey(const Key('restore_preview_confirm_button')));
+      await tester.pumpAndSettle();
+      expect(db.library.works.listVisible().single.id.value, 'old-work');
+      expect(
+        db.userState.playbackRecords
+            .listAllWithTombstones()
+            .single
+            .positionSeconds,
+        42,
+      );
+      expect(tester.takeException(), isNull);
+      await tester.pump(const Duration(seconds: 5));
     });
 
     testWidgets('交互覆盖：选择性导出 .konata、干跑预览弹窗确认恢复、以及 WebDAV 凭据存储与立即同步', (

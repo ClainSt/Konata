@@ -1157,6 +1157,7 @@ class MainActivity : FlutterActivity() {
             return mapOf(
                 "supported" to false,
                 "engaged" to false,
+                "operationSucceeded" to !enable,
                 "detail" to "需要 Android 14 (API 34) 及以上系统以支持原生 USB 逐位直通"
             )
         }
@@ -1172,18 +1173,24 @@ class MainActivity : FlutterActivity() {
             ?: return mapOf(
                 "supported" to false,
                 "engaged" to false,
+                "operationSucceeded" to !enable,
                 "detail" to "当前未连接外接 USB DAC 音频设备"
             )
 
         if (!enable) {
-            try {
-                audioManager.clearPreferredMixerAttributes(mediaAttrs, usbDevice)
-            } catch (_: Exception) {}
+            val cleared = try {
+                audioManager.getPreferredMixerAttributes(mediaAttrs, usbDevice) == null ||
+                    audioManager.clearPreferredMixerAttributes(mediaAttrs, usbDevice)
+            } catch (error: Exception) {
+                android.util.Log.w("KonataAudioRoute", "撤销 USB 混音属性失败：${error.javaClass.simpleName}")
+                false
+            }
             return mapOf(
                 "supported" to true,
                 "engaged" to false,
+                "operationSucceeded" to cleared,
                 "deviceName" to (usbDevice.productName?.toString() ?: "USB DAC"),
-                "detail" to "已恢复系统默认混音路由"
+                "detail" to if (cleared) "已恢复系统默认混音路由" else "无法确认 USB 直通属性已撤销"
             )
         }
 
@@ -1214,6 +1221,7 @@ class MainActivity : FlutterActivity() {
         return mapOf(
             "supported" to true,
             "engaged" to ok,
+            "operationSucceeded" to ok,
             "deviceName" to (usbDevice.productName?.toString() ?: "USB DAC"),
             "sampleRateHz" to chosen.format.sampleRate,
             "detail" to if (ok) "已协商 Android 14+ 原生 USB 逐位直通" else "系统拒绝设置逐位混音器属性"

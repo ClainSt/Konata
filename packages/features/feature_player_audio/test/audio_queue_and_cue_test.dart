@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -42,7 +43,10 @@ FILE "album.flac" WAVE
         ),
         makeTestCdVariant(id: 'v_album', relativePath: 'CD/album.flac'),
         makeTestCdVariant(id: 'v_cue', relativePath: 'CD/album.cue'),
-        makeTestCdVariant(id: 'v_single', relativePath: 'Disc 2/04. Bonus.flac'),
+        makeTestCdVariant(
+          id: 'v_single',
+          relativePath: 'Disc 2/04. Bonus.flac',
+        ),
       ];
 
       final initialCue = CueParser.parseText(sampleCue);
@@ -133,6 +137,7 @@ FILE "album.flac" WAVE
       required Map<String, Uint8List> files,
       bool failLoadFile = false,
       LyricDisplayPort? lyricPort,
+      FakeStreamBridge? streamBridge,
     }) {
       return AudioPlaybackController(
         preferences: AudioPlaybackPreferences(store: store),
@@ -140,7 +145,7 @@ FILE "album.flac" WAVE
         engine: engine,
         safetyCoordinator: safetyCoordinator,
         gatewayFactory: FakeGatewayFactory(files),
-        streamBridge: FakeStreamBridge(),
+        streamBridge: streamBridge ?? FakeStreamBridge(),
         lyricPort: lyricPort,
         playbackRecordDao: db.userState.playbackRecords,
         isWindowsOverride: true,
@@ -197,10 +202,7 @@ FILE "album.flac" WAVE
         mpv.commands.where((c) => c.first == 'loadfile').length,
         loadCommandsBefore,
       );
-      expect(
-        controller.durationListenable.value.inSeconds,
-        closeTo(232, 1),
-      );
+      expect(controller.durationListenable.value.inSeconds, closeTo(232, 1));
     });
 
     test('支持循环模式切换、随机播放及超过 3 秒按上一曲优先归零重听', () async {
@@ -226,6 +228,8 @@ FILE "album.flac" WAVE
       controller.cycleLoopMode();
       expect(controller.snapshot.loopMode, AudioLoopMode.loopOne);
       controller.cycleLoopMode();
+      expect(controller.snapshot.loopMode, AudioLoopMode.shuffle);
+      controller.cycleLoopMode();
       expect(controller.snapshot.loopMode, AudioLoopMode.sequence);
 
       final mpv = spawnedClients.single;
@@ -238,10 +242,223 @@ FILE "album.flac" WAVE
       expect(controller.currentTrackPositionSeconds, closeTo(0.0, 0.01));
       expect(controller.snapshot.currentIndex, 0);
 
-      controller.toggleShuffle();
-      expect(controller.snapshot.shuffleEnabled, isTrue);
+      controller.setLoopMode(AudioLoopMode.shuffle);
+      expect(controller.snapshot.loopMode, AudioLoopMode.shuffle);
     });
 
+    test('慢速旧预取与主流注册不能覆盖快速切换后的租约', () async {
+      final bridge = FakeStreamBridge();
+      final controller = buildController(
+        files: {
+          for (var i = 1; i <= 4; i++) 'CD/0$i.flac': Uint8List.fromList([i]),
+        },
+        streamBridge: bridge,
+      );
+      addTearDown(controller.dispose);
+      await controller.playCdCollection(
+        work: makeTestWork(),
+        variants: [
+          for (var i = 1; i <= 4; i++)
+            makeTestCdVariant(id: 'v$i', relativePath: 'CD/0$i.flac'),
+        ],
+        sources: [makeTestSource()],
+      );
+      final client = spawnedClients.single;
+      final slow = Completer<void>();
+      var calls = 0;
+      bridge.beforeRegistrationCompletes = (path) async {
+        if (path == 'CD/02.flac' && calls++ == 0) await slow.future;
+      };
+      client.emitEvent(const MpvFileLoadedEvent());
+      await pumpEventQueue();
+      expect(calls, 1);
+      controller.setLoopMode(AudioLoopMode.loopOne);
+      controller.setLoopMode(AudioLoopMode.loopAll);
+      await pumpEventQueue();
+      final currentPrefetch = engine.prefetchStreamLease!.leaseToken;
+      expect(bridge.registeredTokens[currentPrefetch], 'CD/02.flac');
+      slow.complete();
+      await pumpEventQueue();
+      expect(engine.prefetchStreamLease!.leaseToken, currentPrefetch);
+      expect(
+        bridge.registeredTokens.values.where((p) => p == 'CD/02.flac'),
+        hasLength(1),
+      );
+      final delayedMain = Completer<void>();
+      controller.setLoopMode(AudioLoopMode.loopOne);
+      bridge.beforeRegistrationCompletes = (path) async {
+        if (path == 'CD/02.flac') await delayedMain.future;
+      };
+      final old = controller.playQueueIndex(1);
+      await pumpEventQueue();
+      await controller.playQueueIndex(2);
+      final currentMain = engine.mainStreamLease!.leaseToken;
+      expect(bridge.registeredTokens[currentMain], 'CD/03.flac');
+      delayedMain.complete();
+      await old;
+      await pumpEventQueue();
+      expect(controller.snapshot.currentIndex, 2);
+      expect(engine.mainStreamLease!.leaseToken, currentMain);
+      expect(bridge.registeredTokens.values, ['CD/03.flac']);
+      await controller.stopAndClose();
+      expect(bridge.activeSessionCount, 0);
+      expect(engine.mainStreamLease, isNull);
+      expect(engine.prefetchStreamLease, isNull);
+    });
+
+    test('视频驱逐音频时不重入原生释放队列且回收音频网桥', () async {
+      final bridge = FakeStreamBridge();
+      final controller = buildController(
+        files: {
+          'CD/01.flac': Uint8List.fromList([1]),
+          'CD/02.flac': Uint8List.fromList([2]),
+        },
+        streamBridge: bridge,
+      );
+      addTearDown(controller.dispose);
+      await controller.playCdCollection(
+        work: makeTestWork(),
+        variants: [
+          makeTestCdVariant(id: 'v1', relativePath: 'CD/01.flac'),
+          makeTestCdVariant(id: 'v2', relativePath: 'CD/02.flac'),
+        ],
+        sources: [makeTestSource()],
+      );
+      final oldClient = spawnedClients.single;
+      oldClient.emitEvent(const MpvFileLoadedEvent());
+      await pumpEventQueue();
+      expect(bridge.activeSessionCount, 2);
+      final videoClient = FakeLibMpvClient();
+      final next = await engine
+          .acquireExclusiveNativeClient(
+            stage: PlaybackStageKind.video,
+            factoryOverride: () => videoClient,
+          )
+          .timeout(const Duration(seconds: 3));
+      expect(next.client, same(videoClient));
+      expect(oldClient.isDisposed, isTrue);
+      expect(engine.liveNativeClientCount, 1);
+      expect(controller.playingListenable.value, isFalse);
+      expect(bridge.activeSessionCount, 0);
+      await engine.releaseNativeClient(videoClient);
+    });
+    test('原生预取项 ID 不连续时仅晋升一次，不重复装载下一曲', () async {
+      final bridge = FakeStreamBridge();
+      final controller = buildController(
+        files: {
+          for (var i = 1; i <= 3; i++) 'CD/0$i.flac': Uint8List.fromList([i]),
+        },
+        streamBridge: bridge,
+      );
+      addTearDown(controller.dispose);
+      await controller.playCdCollection(
+        work: makeTestWork(),
+        variants: [
+          for (var i = 1; i <= 3; i++)
+            makeTestCdVariant(id: 'v$i', relativePath: 'CD/0$i.flac'),
+        ],
+        sources: [makeTestSource()],
+      );
+      final client = spawnedClients.single;
+      final initial = client.getPropertyInt64('playlist/0/id')!;
+      client.emitEvent(MpvStartFileEvent(initial));
+      client.emitEvent(const MpvFileLoadedEvent());
+      await pumpEventQueue();
+      final appended = client.getPropertyInt64('playlist/1/id')!;
+      expect(appended, isNot(initial + 1));
+      final token = engine.prefetchStreamLease!.leaseToken;
+      client.emitEvent(
+        MpvEndFileEvent(
+          reason: MpvEndFileReason.eof,
+          errorCode: 0,
+          playlistEntryId: initial,
+        ),
+      );
+      await pumpEventQueue();
+      expect(controller.snapshot.currentIndex, 0);
+      client.emitEvent(MpvStartFileEvent(appended));
+      await pumpEventQueue();
+      expect(controller.snapshot.currentIndex, 1);
+      expect(controller.snapshot.audioTrackEndActionPending, isFalse);
+      expect(engine.mainStreamLease!.leaseToken, token);
+      expect(
+        client.commands.where(
+          (cmd) => cmd.first == 'loadfile' && cmd.last == 'replace',
+        ),
+        hasLength(1),
+      );
+      expect(bridge.activeSessionCount, 1);
+    });
+    test('四首随机队列遍历不重复，回环后按同一顺序推进', () async {
+      final controller = buildController(
+        files: {
+          for (var i = 1; i <= 4; i++) 'CD/0$i.flac': Uint8List.fromList([i]),
+        },
+      );
+      addTearDown(controller.dispose);
+      await controller.playCdCollection(
+        work: makeTestWork(),
+        variants: [
+          for (var i = 1; i <= 4; i++)
+            makeTestCdVariant(id: 'v$i', relativePath: 'CD/0$i.flac'),
+        ],
+        sources: [makeTestSource()],
+      );
+      controller.setLoopMode(AudioLoopMode.shuffle);
+      final order = controller.snapshot.playOrder;
+      expect(order.toSet(), {0, 1, 2, 3});
+      expect(order.first, controller.snapshot.currentIndex);
+      for (final index in [...order.skip(1), order.first]) {
+        await controller.next(manual: false);
+        expect(controller.snapshot.currentIndex, index);
+        expect(controller.snapshot.playOrder, order);
+      }
+    });
+    test('真实物理结束事件触发单曲重载，不把仅更新进度视为循环成功', () async {
+      final controller = buildController(
+        files: {
+          'CD/01.flac': Uint8List.fromList([1, 2, 3]),
+          'CD/02.flac': Uint8List.fromList([4, 5, 6]),
+        },
+      );
+      addTearDown(controller.dispose);
+      await controller.playCdCollection(
+        work: makeTestWork(),
+        variants: [
+          makeTestCdVariant(id: 'v1', relativePath: 'CD/01.flac'),
+          makeTestCdVariant(id: 'v2', relativePath: 'CD/02.flac'),
+        ],
+        sources: [makeTestSource()],
+      );
+      controller.setLoopMode(AudioLoopMode.loopOne);
+      final client = spawnedClients.single;
+      final before = client.commands
+          .where((cmd) => cmd.first == 'loadfile' && cmd.last == 'replace')
+          .length;
+      client.emitDuration(180);
+      client.emitTimePos(179.9);
+      await pumpEventQueue();
+      client.emitEvent(
+        const MpvEndFileEvent(
+          reason: MpvEndFileReason.eof,
+          errorCode: 0,
+          playlistEntryId: 1,
+        ),
+      );
+      await pumpEventQueue();
+      expect(controller.snapshot.currentIndex, 0);
+      expect(spawnedClients.single, same(client));
+      expect(
+        client.commands
+            .where((cmd) => cmd.first == 'loadfile' && cmd.last == 'replace')
+            .length,
+        before + 1,
+      );
+      expect(controller.playingListenable.value, isTrue);
+      client.emitTimePos(1);
+      await pumpEventQueue();
+      expect(controller.currentTrackPositionSeconds, closeTo(1, 0.01));
+    });
     test('连续 3 首读取失败触发断路熔断保护并进入明确错误态', () async {
       final files = <String, Uint8List>{
         'CD/01.flac': Uint8List.fromList([1]),

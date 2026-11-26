@@ -118,7 +118,7 @@ class SocketReader2 extends SocketReader {
     _subscription = _socket.listen(
       (event) {
         if (debugPrint) {
-          print("read[${event.length}]: ${event.toHexString()}");
+          print("SMB 接收字节数：${event.length}");
         }
         _chunks.add(event);
         _chunkBytes += event.length;
@@ -126,7 +126,7 @@ class SocketReader2 extends SocketReader {
       },
       onDone: () {
         if (debugPrint) {
-          print("Smb Reader closed");
+          print("SMB 读取已关闭");
         }
         // 当输出流正绑定未完成的 flush 时对端可能突然关闭触发 EOF；安全抑制流回调中的关流异常。
         _finish(const SocketException('SMB peer closed'), StackTrace.current);

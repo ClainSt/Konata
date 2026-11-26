@@ -12,9 +12,11 @@ import '../data/video_session_models.dart';
 import '../state/video_playback_controller.dart';
 import '../state/video_playback_state.dart';
 
+import 'video_audio_route_controls.dart';
 import 'video_playback_capsule.dart';
 
 part 'video_side_sheet_sections.dart';
+part 'video_side_sheet_track_widgets.dart';
 
 /// 右滑视频设置与剧集选择侧栏默认内置页签枚举。
 enum VideoSideSheetTab {
@@ -73,6 +75,7 @@ class VideoSideSheet extends StatefulWidget {
 class _VideoSideSheetState extends State<VideoSideSheet> {
   static const String _contribPrefix = 'contrib::';
   late String _selectedKey;
+  late Stream<VideoPlaybackPreferences> _prefsStream;
 
   List<PlayerSidePanelContribution> get _supportedPanels {
     final platform = widget.controller.env.platform;
@@ -86,6 +89,7 @@ class _VideoSideSheetState extends State<VideoSideSheet> {
   @override
   void initState() {
     super.initState();
+    _prefsStream = widget.controller.env.preferencesStore.watch();
     if (widget.initialContributionId != null &&
         widget.initialContributionId!.isNotEmpty) {
       _selectedKey = '$_contribPrefix${widget.initialContributionId}';
@@ -97,6 +101,9 @@ class _VideoSideSheetState extends State<VideoSideSheet> {
   @override
   void didUpdateWidget(covariant VideoSideSheet oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      _prefsStream = widget.controller.env.preferencesStore.watch();
+    }
     if (oldWidget.initialTab != widget.initialTab &&
         widget.initialContributionId == null) {
       _selectedKey = widget.initialTab.name;
@@ -193,7 +200,17 @@ class _VideoSideSheetState extends State<VideoSideSheet> {
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 8, 8),
-                    child: _buildSelectedBody(context, p, state, prefs, panels),
+                    child: StreamBuilder<VideoPlaybackPreferences>(
+                      stream: _prefsStream,
+                      initialData: prefs,
+                      builder: (context, snapshot) => _buildSelectedBody(
+                        context,
+                        p,
+                        state,
+                        snapshot.data ?? prefs,
+                        panels,
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -241,12 +258,16 @@ class _VideoSideSheetState extends State<VideoSideSheet> {
       case 'chapters':
         return _ChaptersSection(controller: widget.controller, state: state);
       case 'subtitles':
-        return _SubtitlesSection(controller: widget.controller, state: state);
+        return _SubtitlesSection(
+          controller: widget.controller,
+          state: state,
+          prefs: prefs,
+        );
       case 'audio':
         return _AudioSection(
           controller: widget.controller,
           state: state,
-          currentAudioDevice: prefs.qualityConfig.audioDevice,
+          prefs: prefs,
         );
       case 'video':
       default:

@@ -443,6 +443,8 @@ void main() {
     addTearDown(tester.view.reset);
 
     var suppressHover = true;
+    final scrolling = ValueNotifier(false);
+    addTearDown(scrolling.dispose);
     const item = WorkLibraryItem(
       work: Work(
         id: 'w_hover_1',
@@ -468,6 +470,7 @@ void main() {
                 item: item,
                 cardWidth: 180,
                 suppressHoverCheck: () => suppressHover,
+                scrollingListenable: scrolling,
                 imageLoaderOverride:
                     (
                       _, {
@@ -500,6 +503,19 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.byType(BackdropFilter), findsOneWidget);
+    // 鼠标静止时滚动开始/结束必须直接驱动当前叶子，不能依赖整页刷新。
+    scrolling.value = true;
+    await tester.pumpAndSettle();
+    expect(find.byType(BackdropFilter), findsNothing);
+    scrolling.value = false;
+    await tester.pumpAndSettle();
+    expect(find.byType(BackdropFilter), findsOneWidget);
+    await gesture.moveTo(Offset.zero);
+    await tester.pumpAndSettle();
+    scrolling.value = true;
+    scrolling.value = false;
+    await tester.pumpAndSettle();
+    expect(find.byType(BackdropFilter), findsNothing);
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
@@ -649,6 +665,14 @@ void main() {
       artworkCache: artworkCache,
       platform: KonataPlatform.windows,
     );
+    final management = _FailOnceReviewManagement(
+      databases: db,
+      storageRoot: storageRoot,
+      scopedPrefs: prefs,
+      eventBus: eventBus,
+      httpClient: deps.httpClient,
+      photosStorage: photos,
+    );
     final dialogs = _RecordingWorkDialogs();
     final toastController = KonataToastController();
     addTearDown(toastController.dispose);
@@ -662,6 +686,7 @@ void main() {
       ProviderScope(
         overrides: [
           featureLibraryDependenciesProvider.overrideWithValue(deps),
+          workManagementControllerProvider.overrideWithValue(management),
           workManageDialogPortProvider.overrideWithValue(dialogs),
         ],
         child: MaterialApp(
@@ -708,6 +733,14 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull, reason: 'review dialog');
     expect(find.text('待复核队列'), findsOneWidget);
+    expect(management.summaryAttempts, 1);
+    expect(find.text('复核信息读取失败'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 1));
+    expect(management.summaryAttempts, 1);
+    await tester.tap(find.text('重新读取'));
+    await tester.pumpAndSettle();
+    expect(management.summaryAttempts, 2);
+    expect(find.text('复核信息读取失败'), findsNothing);
     expect(find.byType(KonataDraggableScrollbar), findsAtLeastNWidgets(2));
     expect(find.text('1 项'), findsOneWidget);
     expect(find.text('重试网络项 (1)'), findsOneWidget);
@@ -777,5 +810,25 @@ final class _RecordingWorkDialogs implements WorkManageDialogPort {
   }) async {
     calls.add(('并入', sourceWorkId));
     return false;
+  }
+}
+
+class _FailOnceReviewManagement extends WorkManagementController {
+  _FailOnceReviewManagement({
+    required super.databases,
+    required super.storageRoot,
+    required super.scopedPrefs,
+    required super.eventBus,
+    required super.httpClient,
+    required super.photosStorage,
+  });
+
+  int summaryAttempts = 0;
+
+  @override
+  Future<Map<String, MediaSource>> loadSourcesById() async {
+    summaryAttempts++;
+    if (summaryAttempts == 1) throw StateError('注入一次读取失败');
+    return super.loadSourcesById();
   }
 }

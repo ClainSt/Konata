@@ -693,7 +693,6 @@ final class WorkDetailController extends ChangeNotifier {
     HybridMatchRequest? hybridRequest,
     ({int tmdbId, TmdbMediaType mediaType})? tmdbTarget,
     BangumiSubjectCandidate? bangumiOnlySubject,
-    bool writeTmdbIdToFolderName = false,
   }) async {
     final created = await _actionsService.splitVariantsToIndependentWork(
       sourceWorkId: workId.value,
@@ -701,7 +700,6 @@ final class WorkDetailController extends ChangeNotifier {
       hybridRequest: hybridRequest,
       tmdbTarget: tmdbTarget,
       bangumiOnlySubject: bangumiOnlySubject,
-      writeTmdbIdToFolderName: writeTmdbIdToFolderName,
     );
     await load();
     return created;
@@ -711,13 +709,11 @@ final class WorkDetailController extends ChangeNotifier {
   Future<Work> rebindWorkToTmdb({
     required int tmdbId,
     required TmdbMediaType mediaType,
-    bool writeIdToFolderName = false,
   }) async {
     final updated = await _actionsService.rebindWorkToTmdb(
       workId: workId.value,
       tmdbId: tmdbId,
       mediaType: mediaType,
-      writeIdToFolderName: writeIdToFolderName,
     );
     await load();
     return updated;

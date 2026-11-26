@@ -197,7 +197,12 @@ abstract final class PlaybackTestFixtures {
     final records = <({String tag, int offset, int length, Uint8List bytes})>[];
     for (final tag in tags) {
       final raw = tables[tag]!;
-      records.add((tag: tag, offset: dataOffset, length: raw.length, bytes: raw));
+      records.add((
+        tag: tag,
+        offset: dataOffset,
+        length: raw.length,
+        bytes: raw,
+      ));
       dataOffset += (raw.length + 3) & ~3;
     }
 
@@ -455,10 +460,21 @@ class FakeLibMpvClient implements LibMpvClient, LibMpvUnobservable {
   @override
   int command(List<String> args) {
     commands.add(List<String>.from(args));
-    if (args.isNotEmpty && args.first == 'screenshot-to-file' && args.length >= 2) {
+    if (args.isNotEmpty &&
+        args.first == 'screenshot-to-file' &&
+        args.length >= 2) {
       final f = File(args[1]);
       f.parent.createSync(recursive: true);
-      f.writeAsBytesSync(<int>[0x89, 0x50, 0x4E, 0x47, 1, 2, 3, 4], flush: true);
+      f.writeAsBytesSync(<int>[
+        0x89,
+        0x50,
+        0x4E,
+        0x47,
+        1,
+        2,
+        3,
+        4,
+      ], flush: true);
     } else if (args.isNotEmpty && args.first == 'sub-add' && args.length >= 2) {
       final newId = _nextTrackId++;
       final title = args.length >= 4 ? args[3] : '';
@@ -477,10 +493,14 @@ class FakeLibMpvClient implements LibMpvClient, LibMpvUnobservable {
       if (args.length >= 3 && args[2] == 'select') {
         stringProps['sid'] = '$newId';
       }
-    } else if (args.isNotEmpty && args.first == 'sub-remove' && args.length >= 2) {
+    } else if (args.isNotEmpty &&
+        args.first == 'sub-remove' &&
+        args.length >= 2) {
       final id = int.tryParse(args[1]);
       if (id != null) {
-        tracks.removeWhere((t) => t.id == id && t.type == MpvTrackType.subtitle);
+        tracks.removeWhere(
+          (t) => t.id == id && t.type == MpvTrackType.subtitle,
+        );
       }
     } else if (args.isNotEmpty && args.first == 'loadfile') {
       final eid = _nextPlaylistEntryId++;
@@ -528,7 +548,9 @@ class FakeLocalStreamBridge implements LocalStreamBridgePort {
     activeSessions[token] = relativePath;
     return (
       token: token,
-      url: Uri.parse('http://127.0.0.1:49152/stream/$token/${Uri.encodeComponent(fileName)}'),
+      url: Uri.parse(
+        'http://127.0.0.1:49152/stream/$token/${Uri.encodeComponent(fileName)}',
+      ),
     );
   }
 
@@ -555,7 +577,9 @@ class FakeLocalStreamBridge implements LocalStreamBridgePort {
     final token = 'alb_${++_seq}';
     final urls = <Uri>[
       for (final entry in audioEntries)
-        Uri.parse('http://127.0.0.1:49152/album/$token/${Uri.encodeComponent(entry.entryFileName)}'),
+        Uri.parse(
+          'http://127.0.0.1:49152/album/$token/${Uri.encodeComponent(entry.entryFileName)}',
+        ),
     ];
     final reg = VirtualAlbumRegistration(
       albumToken: token,
@@ -577,7 +601,9 @@ class FakeLocalStreamBridge implements LocalStreamBridgePort {
     final token = 'm3u_${++_seq}';
     final urls = <Uri>[
       for (final entry in audioEntries)
-        Uri.parse('http://127.0.0.1:49152/m3u/$token/${Uri.encodeComponent(entry.entryFileName)}'),
+        Uri.parse(
+          'http://127.0.0.1:49152/m3u/$token/${Uri.encodeComponent(entry.entryFileName)}',
+        ),
     ];
     final reg = VirtualAlbumRegistration(
       albumToken: token,
@@ -716,10 +742,12 @@ class FakeAndroidAudioRoutePort implements AndroidAudioRoutePort {
       const AndroidBitPerfectNegotiationResult(
         supported: true,
         engaged: true,
+        operationSucceeded: true,
         deviceName: 'Mock USB DAC',
         sampleRateHz: 96000,
       );
 
+  Future<AndroidBitPerfectNegotiationResult> Function(bool enable)? onNegotiate;
   int negotiateCallCount = 0;
   bool? lastNegotiateEnable;
 
@@ -750,6 +778,8 @@ class FakeAndroidAudioRoutePort implements AndroidAudioRoutePort {
   }) async {
     negotiateCallCount += 1;
     lastNegotiateEnable = enable;
+    final callback = onNegotiate;
+    if (callback != null) return callback(enable);
     return nextNegotiationResult;
   }
 

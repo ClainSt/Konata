@@ -64,13 +64,15 @@ object KonataMediaSessionDispatcher {
         val coverKey = (args["coverKey"] as? String).orEmpty()
         val coverBytes = args["coverBytes"] as? ByteArray
 
-        if (coverKey.isEmpty()) {
+        // 资源键改变时立即丢弃旧图；同键的省略字节仅代表发送端去重。
+        if (coverKey.isEmpty() || coverKey != cachedCoverKey) {
             cachedCoverKey = ""
             cachedCoverBitmap = null
-        } else if (coverBytes != null && coverBytes.isNotEmpty() && coverKey != cachedCoverKey) {
-            decodeScaledArtwork(coverBytes)?.let { decoded ->
-                cachedCoverKey = coverKey
-                cachedCoverBitmap = decoded
+            if (coverKey.isNotEmpty() && coverBytes != null && coverBytes.isNotEmpty()) {
+                decodeScaledArtwork(coverBytes)?.let { decoded ->
+                    cachedCoverKey = coverKey
+                    cachedCoverBitmap = decoded
+                }
             }
         }
 

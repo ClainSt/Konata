@@ -8,6 +8,50 @@ import 'support/video_test_harness.dart';
 
 void main() {
   group('VideoPlaybackController 播放状态、持久化与领域事件发布', () {
+    test('系统画中画进入保存断点、暂停刷新、关闭保留会话并清除快照', () async {
+      final harness = await VideoTestHarness.create();
+      addTearDown(harness.dispose);
+      final seeded = await harness.seedSampleAnime();
+      final client = FakeLibMpvClient();
+      final controller = harness.createController(
+        libMpvClientFactory: () => client,
+        enablePeriodicTimers: false,
+      );
+      addTearDown(controller.dispose);
+      await controller.initialize(
+        VideoLaunchRequest(
+          workId: seeded.work.id,
+          episodeId: seeded.ep1.id,
+          variantId: seeded.v1.id,
+          initialPositionSeconds: 18,
+          initialPlaying: false,
+        ),
+      );
+      expect(client.properties['pause'], isTrue);
+      expect(controller.positionNotifier.value.inSeconds, 18);
+      await controller.setPlaying(true);
+      client.properties['time-pos'] = 23.0;
+      controller.setSystemPipActive(true);
+      final snapshot = await controller.checkRecoverablePipSnapshot();
+      expect(snapshot?.positionSeconds, 23);
+      expect(snapshot?.isPlaying, isTrue);
+      client.properties['time-pos'] = 27.0;
+      await controller.setPlaying(false);
+      final paused = await controller.checkRecoverablePipSnapshot();
+      expect(paused?.positionSeconds, 27);
+      expect(paused?.isPlaying, isFalse);
+      await controller.dismissSystemPip();
+      expect(controller.systemPipActive, isFalse);
+      expect(controller.state.isClosing, isFalse);
+      expect(client.isDisposed, isFalse);
+      expect(client.properties['pause'], isTrue);
+      expect(await controller.checkRecoverablePipSnapshot(), isNull);
+      await controller.setPlaying(true);
+      controller.setSystemPipActive(true);
+      await controller.closeSession();
+      expect(await controller.checkRecoverablePipSnapshot(), isNull);
+    });
+
     test('无头初始化自动载入作品剧集并从既有未完播记录续播', () async {
       final harness = await VideoTestHarness.create();
       addTearDown(harness.dispose);
@@ -137,6 +181,43 @@ void main() {
       expect(controller.hasPreviousEpisode, isTrue);
     });
 
+    test('关闭详细信息时仍以事件驱动真实解码规格，未知不误报软解', () async {
+      final harness = await VideoTestHarness.create();
+      addTearDown(harness.dispose);
+      final seeded = await harness.seedSampleAnime();
+      final clients = <FakeLibMpvClient>[];
+      final controller = harness.createController(
+        libMpvClientFactory: () {
+          final client = FakeLibMpvClient();
+          clients.add(client);
+          return client;
+        },
+        enablePeriodicTimers: false,
+      );
+      addTearDown(controller.dispose);
+      await controller.initialize(VideoLaunchRequest(workId: seeded.work.id));
+      final client = clients.first;
+      controller.refreshProbeOnce();
+      expect(controller.state.probeOverlayVisible, isFalse);
+      expect(controller.state.probeStats.hwdecCurrent, isEmpty);
+      client.setPropertyInt64('video-params/w', 1920);
+      client.setPropertyInt64('video-params/h', 1080);
+      client.setPropertyString('video-codec', 'hevc');
+      client.setPropertyString('video-params/pixelformat', 'd3d11');
+      client.setPropertyString('video-params/hw-pixelformat', 'p010');
+      client.setPropertyString('hwdec-current', 'd3d11va');
+      client.emitEvent(const MpvVideoReconfigEvent());
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.state.probeOverlayVisible, isFalse);
+      expect(controller.state.probeStats.videoWidth, 1920);
+      expect(controller.state.probeStats.videoCodec, 'hevc');
+      expect(controller.state.probeStats.videoHwPixelFormat, 'p010');
+      expect(controller.state.probeStats.hwdecCurrent, 'd3d11va');
+      client.setPropertyString('hwdec-current', 'no');
+      client.emitEvent(const MpvVideoReconfigEvent());
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.state.probeStats.hwdecCurrent, 'no');
+    });
     test('关闭播放会话时取消缩略图预热并等待两个播放器客户端释放', () async {
       final harness = await VideoTestHarness.create();
       addTearDown(harness.dispose);
@@ -156,9 +237,12 @@ void main() {
       final thumbnails = controller.thumbnailService;
       await Future<void>.delayed(Duration.zero);
       expect(thumbnails.hasActiveNativeClient, isTrue);
-      final mediaClients = clients.where(
-        (client) => client.commands.any((command) => command.first == 'loadfile'),
-      ).toList();
+      final mediaClients = clients
+          .where(
+            (client) =>
+                client.commands.any((command) => command.first == 'loadfile'),
+          )
+          .toList();
       expect(mediaClients, hasLength(2));
 
       await controller.closeSession().timeout(const Duration(seconds: 6));
@@ -186,6 +270,7 @@ void main() {
 
       await controller.enterMiniPlayer(width: 400, height: 225);
       expect(controller.state.isMiniPlayer, isTrue);
+      expect(controller.state.miniMode, VideoMiniMode.desktop);
       expect(harness.hostWindow.desktopMiniMode, isTrue);
       expect(harness.hostWindow.alwaysOnTop, isTrue);
 
@@ -198,6 +283,17 @@ void main() {
       expect(harness.hostWindow.desktopMiniMode, isFalse);
       expect(harness.hostWindow.alwaysOnTop, isFalse);
       expect(await controller.checkRecoverablePipSnapshot(), isNull);
+
+      // 应用内小窗不触碰宿主置顶属性。
+      await harness.hostWindow.setAlwaysOnTop(true);
+      await controller.enterMiniPlayer(desktopAlwaysOnTop: false);
+      expect(controller.state.miniMode, VideoMiniMode.floating);
+      expect(harness.hostWindow.desktopMiniMode, isFalse);
+      await controller.exitMiniPlayerToStage();
+      expect(controller.state.miniMode, VideoMiniMode.stage);
+      expect(harness.hostWindow.alwaysOnTop, isTrue);
+      expect(controller.positionNotifier.value.inSeconds, 320);
+      await harness.hostWindow.setAlwaysOnTop(false);
 
       final launchResult = await controller.launchExternalVideoPlayer();
       expect(launchResult.launched, isTrue);
@@ -216,6 +312,82 @@ void main() {
       expect(recordAfterRelay.isCompleted, isTrue);
     });
 
+    test('旧路由销毁不关闭已回弹的同一个播放会话', () async {
+      final harness = await VideoTestHarness.create();
+      addTearDown(harness.dispose);
+      final seeded = await harness.seedSampleAnime();
+      var created = 0;
+      final manager = ActiveVideoSessionManager(
+        controllerFactory: () {
+          created++;
+          return harness.createController(enablePeriodicTimers: false);
+        },
+      );
+      addTearDown(manager.dispose);
+      final request = VideoLaunchRequest(workId: seeded.work.id);
+      final oldRoute = Object();
+      final newRoute = Object();
+      final controller = await manager.openOrReuseSession(
+        request,
+        routeOwner: oldRoute,
+      );
+      for (var i = 0; i < 100 && controller.state.isInitializing; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      expect(controller.state.isInitializing, isFalse);
+      expect(controller.state.errorMessage, isNull);
+      await manager.collapseToFloatingMini();
+      expect(manager.shouldShowFloatingMiniPlayer, isTrue);
+      final restored = await manager.openOrReuseSession(
+        request,
+        routeOwner: newRoute,
+      );
+      manager.handleStageRoutePopped(oldRoute);
+      expect(manager.controller, same(controller));
+      expect(restored, same(controller));
+      expect(manager.isStageExpanded, isTrue);
+      expect(controller.state.miniMode, VideoMiniMode.stage);
+      expect(created, 1);
+      expect(await manager.closeActiveSession(), isTrue);
+      manager.handleStageRoutePopped(newRoute);
+      expect(manager.hasActiveSession, isFalse);
+    });
+    test('小窗宿主切换失败保留播放会话并允许重试', () async {
+      final harness = await VideoTestHarness.create();
+      addTearDown(harness.dispose);
+      final seeded = await harness.seedSampleAnime();
+      final controller = harness.createController(enablePeriodicTimers: false);
+      addTearDown(controller.dispose);
+      await controller.initialize(VideoLaunchRequest(workId: seeded.work.id));
+      controller.handleDurationUpdate(1200);
+      controller.handlePositionUpdate(320);
+      final host = harness.hostWindow;
+      host.failEnterMini = true;
+      await controller.enterMiniPlayer();
+      expect(controller.state.miniMode, VideoMiniMode.stage);
+      expect(host.desktopMiniMode, isFalse);
+      expect(controller.state.transientNotice?.isError, isTrue);
+      expect(await controller.checkRecoverablePipSnapshot(), isNull);
+      host.failEnterMini = false;
+      await host.setAlwaysOnTop(true);
+      await controller.enterMiniPlayer();
+      expect(controller.state.miniMode, VideoMiniMode.desktop);
+      host.failExitMini = true;
+      await controller.exitMiniPlayerToStage();
+      expect(controller.state.miniMode, VideoMiniMode.desktop);
+      expect(host.desktopMiniMode, isTrue);
+      expect(controller.state.transientNotice?.isError, isTrue);
+      expect(await controller.checkRecoverablePipSnapshot(), isNotNull);
+      await expectLater(controller.closeSession(), throwsStateError);
+      expect(controller.state.isClosing, isFalse);
+      expect(controller.state.miniMode, VideoMiniMode.desktop);
+      expect(controller.positionNotifier.value.inSeconds, 320);
+      host.failExitMini = false;
+      await controller.exitMiniPlayerToStage();
+      expect(controller.state.miniMode, VideoMiniMode.stage);
+      expect(host.alwaysOnTop, isTrue);
+      expect(controller.positionNotifier.value.inSeconds, 320);
+    });
     test('支持显式章节片头跳过窗口触发与手动跳转定位', () async {
       final harness = await VideoTestHarness.create();
       addTearDown(harness.dispose);
@@ -249,17 +421,14 @@ void main() {
 
       controller.handlePositionUpdate(15.0);
       expect(controller.state.activeSkipWindow, isNotNull);
-      expect(
-        controller.state.activeSkipWindow!.kind,
-        SkipActionKind.skipOp,
-      );
+      expect(controller.state.activeSkipWindow!.kind, SkipActionKind.skipOp);
 
       await controller.triggerActiveSkipWindow();
       expect(controller.positionNotifier.value.inSeconds, 90);
       expect(controller.state.activeSkipWindow, isNull);
     });
 
-    test('底栏呼出按真实占高与 16dp 留白抬升 sub-pos 且隐藏瞬间复原 0 而不修改 sub-ass-override', () async {
+    test('底栏呼出临时启用等倍率 scale 抬升字幕且隐藏后恢复保真模式', () async {
       final harness = await VideoTestHarness.create();
       addTearDown(harness.dispose);
       final seeded = await harness.seedSampleAnime();
@@ -274,8 +443,25 @@ void main() {
       await controller.initialize(VideoLaunchRequest(workId: seeded.work.id));
       expect(controller.currentSubtitleHudLiftPercent, 0.0);
       expect(fakeClient.options['sub-ass-override'], 'no');
+      expect(fakeClient.options['secondary-sid'], 'no');
       final baselineSubPos = fakeClient.properties['sub-pos'] as double?;
       expect(baselineSubPos, 100.0);
+      fakeClient.trackList = const [
+        MpvTrackInfo(
+          id: 7,
+          type: MpvTrackType.subtitle,
+          codec: 'ass',
+          selected: true,
+        ),
+        MpvTrackInfo(id: 8, type: MpvTrackType.subtitle, codec: 'subrip'),
+      ];
+      fakeClient.properties['sid'] = '7';
+      fakeClient.stringWrites.clear();
+      final commandsBefore = fakeClient.commands.length;
+      List<String> sidWrites() => fakeClient.stringWrites
+          .where((entry) => entry.$1 == 'sid')
+          .map((entry) => entry.$2)
+          .toList();
 
       // 模拟 720p 视口下 20dp 底边距 + 52dp 胶囊 + 16dp 留白 = 88dp 占高。
       final lifted = controller.updateHudSubtitleLift(
@@ -293,22 +479,20 @@ void main() {
         fakeClient.properties['sub-pos'] as double,
         closeTo(100.0 - expectedPercent, 0.1),
       );
-      expect(
-        fakeClient.properties['secondary-sub-pos'] as double,
-        closeTo(100.0 - expectedPercent, 0.1),
-      );
-      // 严禁改写 sub-ass-override 以保障 ASS \pos() 绝对坐标屏幕字不受干扰。
+      // 原始启动偏好保持 no；运行时临时 scale，倍率保持 1.0。
       expect(fakeClient.options['sub-ass-override'], 'no');
-      expect(fakeClient.properties['sub-ass-override'], 'no');
-
-      // 切换双语副字幕轨道时保持当前 HUD 上抬比例不回落。
-      await controller.selectSecondarySubtitleTrack(2);
-      expect(
-        fakeClient.properties['secondary-sub-pos'] as double,
-        closeTo(100.0 - expectedPercent, 0.1),
+      expect(fakeClient.options['secondary-sid'], 'no');
+      expect(fakeClient.properties['sub-ass-override'], 'scale');
+      expect(fakeClient.properties['sub-scale'], 1.0);
+      expect(sidWrites(), ['no', '7']);
+      controller.updateHudSubtitleLift(
+        hudVisible: true,
+        bottomCapsuleOccupiedHeight: 96,
+        viewportHeight: 720,
       );
+      expect(sidWrites(), ['no', '7']);
 
-      // OSD 隐藏瞬间立即复原为 0.0，副字幕复原 100.0，主字幕复原双语基准位；关闭副字幕后主字幕复原 100.0。
+      // OSD 隐藏瞬间抬升量归零，字幕复原到 100.0。
       final restored = controller.updateHudSubtitleLift(
         hudVisible: false,
         bottomCapsuleOccupiedHeight: 88.0,
@@ -316,12 +500,28 @@ void main() {
       );
       expect(restored, 0.0);
       expect(controller.currentSubtitleHudLiftPercent, 0.0);
-      expect(
-        fakeClient.properties['secondary-sub-pos'] as double,
-        closeTo(100.0, 0.01),
-      );
-      await controller.selectSecondarySubtitleTrack(null);
+      expect(fakeClient.properties['sub-ass-override'], 'no');
       expect(fakeClient.properties['sub-pos'] as double, closeTo(100.0, 0.01));
+      expect(sidWrites(), ['no', '7', 'no', '7']);
+      expect(fakeClient.properties['sid'], '7');
+      expect(fakeClient.commands.length, commandsBefore);
+      // 图形、普通文本和关闭字幕均不能被 HUD 强制切轨。
+      for (final sid in ['8', 'no']) {
+        fakeClient.properties['sid'] = sid;
+        fakeClient.stringWrites.clear();
+        controller.updateHudSubtitleLift(
+          hudVisible: true,
+          bottomCapsuleOccupiedHeight: 88,
+          viewportHeight: 720,
+        );
+        controller.updateHudSubtitleLift(
+          hudVisible: false,
+          bottomCapsuleOccupiedHeight: 88,
+          viewportHeight: 720,
+        );
+        expect(sidWrites(), isEmpty);
+        expect(fakeClient.properties['sid'], sid);
+      }
     });
   });
 }

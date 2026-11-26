@@ -266,15 +266,6 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
     switch (action) {
       case DetailBuiltInGearAction.rescrape:
         await controller.rescrapeMetadata();
-      case DetailBuiltInGearAction.syncDirectory:
-        final res = await controller.syncWorkDirectory();
-        if (!mounted) return;
-        showKonataToast(
-          context,
-          res.workRemoved
-              ? '所在目录源文件已移除，已清理记录'
-              : (res.changed ? '源目录变更已同步更新' : '目录文件已是最新状态'),
-        );
       case DetailBuiltInGearAction.editPoster:
         await showKonataGlassDialog<bool>(
           context: context,
@@ -295,17 +286,6 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
             work: bundle.work,
             imageLoader: imageLoader,
             kind: WorkArtworkKind.backdrop,
-          ),
-        );
-      case DetailBuiltInGearAction.editPortraitBackdrop:
-        await showKonataGlassDialog<bool>(
-          context: context,
-          barrierDismissible: false,
-          builder: (_) => WorkArtworkPickerDialog(
-            controller: controller,
-            work: bundle.work,
-            imageLoader: imageLoader,
-            kind: WorkArtworkKind.portraitBackdrop,
           ),
         );
       case DetailBuiltInGearAction.editLogo:
@@ -366,16 +346,6 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
           await controller.switchSeriesMember(
             WorkId.trusted(outcome.targetWork.id),
           );
-        }
-      case DetailBuiltInGearAction.markAllWatched:
-        await controller.markAllMainEpisodesWatched();
-        if (mounted) {
-          showKonataToast(context, '已将全部正片标为已看完');
-        }
-      case DetailBuiltInGearAction.clearHistory:
-        await controller.clearWorkPlaybackHistory();
-        if (mounted) {
-          showKonataToast(context, '已清空作品播放记录');
         }
       case DetailBuiltInGearAction.deleteFromLibrary:
         await _confirmAndDeleteWork(controller, bundle.work);

@@ -35,6 +35,7 @@ class EmbeddedVideoLoadRequest {
     required this.variant,
     this.source,
     this.startSeconds = 0.0,
+    this.startPlaying = true,
     this.initialWidth = 1280,
     this.initialHeight = 720,
     this.prewarmedStreamToken,
@@ -45,6 +46,9 @@ class EmbeddedVideoLoadRequest {
   final MediaVariantRecord variant;
   final MediaSourceView? source;
   final double startSeconds;
+
+  /// 冷恢复时在装载之前恢复暂停态，避免短暂自动播放。
+  final bool startPlaying;
   final int initialWidth;
   final int initialHeight;
 
@@ -157,13 +161,13 @@ class EmbeddedMpvSession {
   final ExternalSubtitleMatchFn? externalSubtitleMatcher;
   final bool? isWindowsOverride;
   final bool? isAndroidOverride;
-  final Map<String, SubtitleDirectorySnapshot> _sessionDirectoryCache = <String, SubtitleDirectorySnapshot>{};
+  final Map<String, SubtitleDirectorySnapshot> _sessionDirectoryCache =
+      <String, SubtitleDirectorySnapshot>{};
   final SubtitleFontPoolManager _fontPoolManager;
 
   String _defaultSubFontsDir = '';
   String _baselineSubFontsDir = '';
   String _activeSubFontsDir = '';
-  bool _hasSecondarySubtitle = false;
 
   int? _textureIdValue;
   bool _underlayActiveValue = false;
@@ -291,8 +295,9 @@ class EmbeddedMpvSession {
   String get activeSubFontsDir => _activeSubFontsDir;
 
   /// 非云端子集化基准字体目录（原字幕切换回本地/默认字体对比时恢复此目录）。
-  String get baselineSubFontsDir =>
-      _baselineSubFontsDir.isNotEmpty ? _baselineSubFontsDir : _defaultSubFontsDir;
+  String get baselineSubFontsDir => _baselineSubFontsDir.isNotEmpty
+      ? _baselineSubFontsDir
+      : _defaultSubFontsDir;
 
   LibMpvClient? _client;
   StreamSubscription<MpvClientEvent>? _eventSub;
@@ -411,9 +416,10 @@ class EmbeddedMpvSession {
     _trackPreferences = trackPreferences;
     _lastQualityConfig = qualityConfig;
     _desiredVolume = initialVolume.clamp(0.0, 100.0);
-    final effectiveSurfaceSupplier = androidSurfaceSupplier ?? (androidSurfacePort != null ? () async => androidSurfacePort! : null);
-    _useAndroidSurfaceSession =
-        _isAndroid || effectiveSurfaceSupplier != null;
+    final effectiveSurfaceSupplier =
+        androidSurfaceSupplier ??
+        (androidSurfacePort != null ? () async => androidSurfacePort! : null);
+    _useAndroidSurfaceSession = _isAndroid || effectiveSurfaceSupplier != null;
     final useDesktopSurface = _isWindows && !_useAndroidSurfaceSession;
     final isRemote =
         request.source != null && request.source!.kind != MediaSourceKind.local;
@@ -433,7 +439,6 @@ class EmbeddedMpvSession {
     _defaultSubFontsDir = p.join(mpvDir.path, 'fonts');
     _baselineSubFontsDir = _defaultSubFontsDir;
     _activeSubFontsDir = _defaultSubFontsDir;
-    _hasSecondarySubtitle = false;
     final verifiedShaders = await MpvQualityProfile.filterExistingShaderPaths(
       qualityConfig.activeShaderPaths,
     );
@@ -521,7 +526,8 @@ class EmbeddedMpvSession {
         try {
           desc = await ctrl.surfaceChanges
               .where(
-                (AndroidSurfaceDescriptor? e) => e != null && e.wid > 0 && e.width > 0 && e.height > 0,
+                (AndroidSurfaceDescriptor? e) =>
+                    e != null && e.wid > 0 && e.width > 0 && e.height > 0,
               )
               .cast<AndroidSurfaceDescriptor>()
               .first
@@ -629,7 +635,8 @@ class EmbeddedMpvSession {
     onApplyAudiophileSafetyChain?.call(client);
 
     if (request.startSeconds > 0) {
-      final formattedStart = request.startSeconds == request.startSeconds.roundToDouble()
+      final formattedStart =
+          request.startSeconds == request.startSeconds.roundToDouble()
           ? request.startSeconds.toInt().toString()
           : request.startSeconds.toStringAsFixed(3);
       final startRc = client.setPropertyString('start', '+$formattedStart');
@@ -649,9 +656,13 @@ class EmbeddedMpvSession {
     if (onTriggerMicroFadeIn != null) {
       client.setPropertyDouble('volume', 0.0);
     }
-    client.setPropertyFlag('pause', false);
+    client.setPropertyFlag('pause', !request.startPlaying);
 
-    final rc = client.commandAsync(0, ['loadfile', resolved.mediaTarget, 'replace']);
+    final rc = client.commandAsync(0, [
+      'loadfile',
+      resolved.mediaTarget,
+      'replace',
+    ]);
     await _unregisterTokens(previousTokens);
     if (rc < 0) {
       onFatalError?.call('视频装载失败: ${client.errorString(rc)}');
@@ -669,7 +680,8 @@ class EmbeddedMpvSession {
 
     if (request.source != null &&
         request.source!.kind != MediaSourceKind.local) {
-      if ((Platform.environment.containsKey('FLUTTER_TEST') || Platform.environment.containsKey('DART_TEST'))) {
+      if ((Platform.environment.containsKey('FLUTTER_TEST') ||
+          Platform.environment.containsKey('DART_TEST'))) {
         unawaited(
           _discoverAndAttachRemoteSidecars(request, generation: generation),
         );
@@ -751,9 +763,7 @@ class EmbeddedMpvSession {
           onBufferingChanged?.call(false);
         } else if (_hwdecWasEnabled && !_hwdecFallbackAttempted) {
           // 音频已起播但硬件解码尚未产出任何像素帧，缩短看门狗以便迅速回落软解。
-          _scheduleFirstFrameWatchdog(
-            delay: const Duration(milliseconds: 450),
-          );
+          _scheduleFirstFrameWatchdog(delay: const Duration(milliseconds: 450));
         }
         _syncHwdecCurrent();
         _scheduleMediaMetadataSnapshot();
@@ -858,7 +868,8 @@ class EmbeddedMpvSession {
     final isBenignCapabilityNotice = trimmedText.toLowerCase().contains(
       'compiled without littlecms 2 support',
     );
-    PlaybackLogHelper.record(logStore, 
+    PlaybackLogHelper.record(
+      logStore,
       'mpv-video',
       '[${event.prefix}] $trimmedText',
       isError: !isBenignCapabilityNotice,
@@ -960,7 +971,7 @@ class EmbeddedMpvSession {
     );
   }
 
-  /// 轻量采集顶栏角标与画幅比所需的 5 项核心属性（关闭探针面板时消除 92%+ FFI 读取开销）。
+  /// 轻量采集顶栏角标及解码安全判断所需的核心属性。
   PlaybackProbeStats collectLightProbeStats({PlaybackProbeStats? previous}) {
     final client = _client;
     if (_disposed || client == null || client.isDisposed) {
@@ -984,7 +995,8 @@ class EmbeddedMpvSession {
   double get subtitleHudLiftPercent => _subtitleHudLiftPercent;
 
   /// 按底部播控胶囊与视频显示矩形的重叠百分比动态抬升常规字幕（`sub-pos`），
-  /// 不修改 `sub-ass-override`，严禁干扰 ASS `\pos()` 绝对坐标屏幕字；传入 `0` 即刻复原。
+  /// 保真模式仅在 HUD 显示期间临时启用等倍率 scale，隐藏后恢复 no 与原始位置。
+  /// 原生渲染验证：no 模式忽略 sub-pos，而 scale 模式可保留显式定位。
   void setSubtitleHudLiftPercent(double liftPercent) {
     final normalized = liftPercent.isFinite
         ? liftPercent.clamp(0.0, 45.0).toDouble()
@@ -1001,17 +1013,40 @@ class EmbeddedMpvSession {
   void _applyCurrentSubtitleHudLift(LibMpvClient client) {
     final subParams = MpvQualityProfile.resolveSubtitleParameters(
       _lastQualityConfig,
-      hasSecondarySubtitle: _hasSecondarySubtitle,
     );
     final liftedPrimary = (subParams.subPos - _subtitleHudLiftPercent)
         .clamp(15.0, 100.0)
         .toDouble();
-    final liftedSecondary =
-        (subParams.secondarySubPos - _subtitleHudLiftPercent)
-            .clamp(15.0, 100.0)
-            .toDouble();
-    client.setPropertyDouble('sub-pos', liftedPrimary);
-    client.setPropertyDouble('secondary-sub-pos', liftedSecondary);
+    final hudAssOverride =
+        _subtitleHudLiftPercent > 0.0 && subParams.assOverride == 'no'
+        ? 'scale'
+        : subParams.assOverride;
+    // 保真模式的基线缩放为 1.0，不使用 force/yes 强制覆盖原 ASS 样式。
+    // 覆写模式切换会令原生字幕解码器丢失已生效的长时 ASS 事件。
+    // 仅在模式实际改变时重新绑定原轨，不新增内存轨或主动跳转播放位置。
+    final setter = MpvSafePropertySetter(logStore: logStore);
+    final changed =
+        client.getPropertyString('sub-ass-override') != hudAssOverride;
+    final sid = changed
+        ? int.tryParse(client.getPropertyString('sid') ?? '')
+        : null;
+    final needsRebind =
+        sid != null &&
+        sid > 0 &&
+        client.readTrackList().any(
+          (track) =>
+              track.id == sid &&
+              track.type == MpvTrackType.subtitle &&
+              const {'ass', 'ssa'}.contains(track.codec.toLowerCase()),
+        );
+    final applied =
+        changed && setter.setString(client, 'sub-ass-override', hudAssOverride);
+    setter.setDouble(client, 'sub-pos', liftedPrimary);
+    if (applied && needsRebind && setter.setString(client, 'sid', 'no')) {
+      if (!setter.setString(client, 'sid', '$sid')) {
+        setter.setInt(client, 'sid', sid);
+      }
+    }
   }
 
   /// 应用播放/画质/字幕/着色器/音频设备实时更新（异步校验着色器路径，避免主线程同步盘检）。
@@ -1032,7 +1067,13 @@ class EmbeddedMpvSession {
     final verifiedShaders = await MpvQualityProfile.filterExistingShaderPaths(
       config.activeShaderPaths,
     );
-    if (_disposed || _closingSilenced || client.isDisposed) return;
+    if (_disposed ||
+        _closingSilenced ||
+        client.isDisposed ||
+        !identical(client, _client) ||
+        !identical(config, _lastQualityConfig)) {
+      return;
+    }
     _applyLiveQualityWithAndroidSurfaceGuard(
       client,
       config: config,
@@ -1075,7 +1116,12 @@ class EmbeddedMpvSession {
     } else {
       _suppressBufferingUntil = null;
     }
-    client.commandAsync(0, ['seek', target.toStringAsFixed(3), 'absolute', 'exact']);
+    client.commandAsync(0, [
+      'seek',
+      target.toStringAsFixed(3),
+      'absolute',
+      'exact',
+    ]);
     if (!(client.getPropertyFlag('pause') ?? false)) {
       onTriggerMicroFadeIn?.call(
         client,
@@ -1087,7 +1133,11 @@ class EmbeddedMpvSession {
   }
 
   void seekRelative(double deltaSeconds) {
-    _client?.commandAsync(0, ['seek', deltaSeconds.toStringAsFixed(3), 'relative']);
+    _client?.commandAsync(0, [
+      'seek',
+      deltaSeconds.toStringAsFixed(3),
+      'relative',
+    ]);
   }
 
   void stepFrameForward() {
@@ -1203,7 +1253,12 @@ class EmbeddedMpvSession {
     _androidSurface = null;
     if (androidSurf != null || _useAndroidSurfaceSession) {
       await _androidSurfaceSerial.catchError((Object e) {
-        PlaybackLogHelper.record(logStore, 'mpv-surface', '销毁期等待表面队列异常：$e', isError: true);
+        PlaybackLogHelper.record(
+          logStore,
+          'mpv-surface',
+          '销毁期等待表面队列异常：$e',
+          isError: true,
+        );
       });
       final activeClient = _client;
       if (activeClient != null &&
@@ -1235,7 +1290,10 @@ class EmbeddedMpvSession {
     // 必须待 libmpv 原生线程完全终止后再释放 Android 底层表面与 JNI 全局引用，杜绝跨线程悬垂访问。
     if (androidSurf != null) {
       await androidSurf.releaseSurface();
-      await androidSurf.dispose();
+      // 注入的宿主端口随应用存活，播放会话仅释放本次表面资源。
+      if (!identical(androidSurf, androidSurfacePort)) {
+        await androidSurf.dispose();
+      }
     }
 
     if (wasGpuNextUnderlay &&

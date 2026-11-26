@@ -487,7 +487,7 @@ final class PlaybackHistorySyncSlice
   }
 
   @override
-  Future<void> applyMergePlan(
+  SyncApplyCompletion applyMergePlan(
     SyncTransactionContext tx,
     SyncMergePlan<PlaybackHistoryMergePlan> plan,
   ) {
@@ -495,7 +495,7 @@ final class PlaybackHistorySyncSlice
     if (!plan.hasChanges &&
         items.isEmpty &&
         !plan.planData.clearExistingBeforeApply) {
-      return Future<void>.value();
+      return SyncApplyCompletion.completed;
     }
     final db = _databases;
     if (db == null) {
@@ -503,14 +503,11 @@ final class PlaybackHistorySyncSlice
     }
 
     final handle = tx.rawHandleFor('user_state');
-    if (handle is SqliteTransaction) {
-      _applyInTransaction(db, handle, tx, plan.planData);
-    } else {
-      db.userState.engine.runTransaction(
-        (innerTx) => _applyInTransaction(db, innerTx, tx, plan.planData),
-      );
+    if (handle is! SqliteTransaction) {
+      throw StateError('播放历史同步缺少宿主写事务');
     }
-    return Future<void>.value();
+    _applyInTransaction(db, handle, tx, plan.planData);
+    return SyncApplyCompletion.completed;
   }
 
   void _applyInTransaction(

@@ -472,7 +472,13 @@ abstract interface class SyncTransactionContext {
   Object? rawHandleFor(String databaseName);
 }
 
-/// 扩展点 7：一套协议统一 `.konata` 本地备份与 WebDAV 多设备分片同步的切片贡献者契约。
+/// 同步切片应用完成标记。原生同步事务不能等待 Future。
+enum SyncApplyCompletion {
+  /// 本次计划已在当前调用栈中执行完毕，尚待宿主提交事务。
+  completed,
+}
+
+/// 扩展点 7：统一备份与 WebDAV 多设备同步的切片贡献者契约。
 abstract interface class SyncSliceContributor<TPlan> {
   /// 切片全局唯一稳定标识（如 `prefs_slice`、`library_catalog_slice`）。
   String get sliceId;
@@ -492,8 +498,8 @@ abstract interface class SyncSliceContributor<TPlan> {
     required SyncSlicePayload remote,
   });
 
-  /// 在统一事务上下文内原子应用 [plan]。
-  Future<void> applyMergePlan(
+  /// 同步执行 [plan]，仅使用宿主事务句柄，失败须同步抛出；禁止异步或外部写入。
+  SyncApplyCompletion applyMergePlan(
     SyncTransactionContext tx,
     SyncMergePlan<TPlan> plan,
   );

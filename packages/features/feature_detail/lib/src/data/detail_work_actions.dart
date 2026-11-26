@@ -33,6 +33,14 @@ final class PhotosStorageArtworkPortAdapter implements WorkArtworkStoragePort {
   );
 
   @override
+  Future<bool> deleteManagedStill(String workId, String path) =>
+      _photosStorage.deleteManagedArtworkFile(
+        workId: workId,
+        subfolder: PhotoSubfolder.thumbnails,
+        path: path,
+      );
+
+  @override
   Future<void> deleteWorkPhotos(String workId) =>
       _photosStorage.deleteWorkPhotos(workId);
 }
@@ -536,29 +544,36 @@ final class DetailWorkActionsService {
     String workId, {
     bool addToIgnoreList = false,
   }) async {
-    final doomedWork = await _repository.findWorkById(workId);
+    final id = WorkId.trusted(workId);
+    final library = _databases.library;
+    if (library.works.findById(id) == null) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final ignoredPairs = <(String, String)>{};
     if (addToIgnoreList) {
-      final variants = await _repository.getVariantsByWork(workId);
-      if (variants.isNotEmpty) {
-        final folderRel = deriveFolderPath(variants.first.relativePath);
-        if (folderRel.isNotEmpty) {
-          await _repository.addIgnoredFolder(
-            variants.first.sourceId,
-            folderRel,
-          );
-        }
+      for (final variant in await _repository.getVariantsByWork(workId)) {
+        final folder = deriveFolderPath(variant.relativePath);
+        if (folder.isNotEmpty) ignoredPairs.add((variant.sourceId, folder));
+      }
+      for (final (source, folder) in ignoredPairs) {
+        await _repository.addIgnoredFolder(source, folder);
       }
     }
-    if (doomedWork != null) {
-      _databases.library.works.softDelete(
-        WorkId.trusted(workId),
-        deletedAtMs: DateTime.now().millisecondsSinceEpoch,
-        sourceDeviceId: sourceDeviceId,
-      );
-    } else {
-      await _repository.deleteWork(workId);
-    }
+    library.works.softDelete(
+      id,
+      deletedAtMs: now,
+      sourceDeviceId: sourceDeviceId,
+    );
+    await _repository.clearScrapeCandidates(workId);
     await _photosStorage.deleteWorkPhotos(workId);
+    for (final source in ignoredPairs.map((pair) => pair.$1).toSet()) {
+      _domainEventBus.publish(
+        MediaSourceChangedEvent(
+          sourceId: SourceId.trusted(source),
+          reason: 'ignored_folder_added',
+          occurredAtMs: now,
+        ),
+      );
+    }
     _publishWorkChanged(workId, 'deleted');
   }
 
@@ -639,13 +654,11 @@ final class DetailWorkActionsService {
     required String workId,
     required int tmdbId,
     required TmdbMediaType mediaType,
-    bool writeIdToFolderName = false,
   }) async {
     final updated = await _scrapePipeline.rebindWorkToTmdb(
       workId,
       tmdbId,
       mediaType,
-      writeIdToFolderName: writeIdToFolderName,
       resetManualLocks: true,
       markManualLocked: true,
     );
@@ -733,7 +746,6 @@ final class DetailWorkActionsService {
     HybridMatchRequest? hybridRequest,
     ({int tmdbId, TmdbMediaType mediaType})? tmdbTarget,
     BangumiSubjectCandidate? bangumiOnlySubject,
-    bool writeTmdbIdToFolderName = false,
   }) async {
     if (hybridRequest == null &&
         tmdbTarget == null &&
@@ -799,7 +811,6 @@ final class DetailWorkActionsService {
         newWorkId,
         tmdbTarget.tmdbId,
         tmdbTarget.mediaType,
-        writeIdToFolderName: writeTmdbIdToFolderName,
         resetManualLocks: false,
       );
       final newVariants = await _repository.getVariantsByWork(newWorkId);

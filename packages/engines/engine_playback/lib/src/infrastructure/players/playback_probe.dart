@@ -5,7 +5,7 @@ import 'libmpv_ffi.dart';
 class PlaybackProbeCollector {
   const PlaybackProbeCollector();
 
-  /// 轻量采集顶栏角标与画幅比所需的 5 项核心属性（探针面板关闭时替代全量 65+ 项 FFI 读取）。
+  /// 轻量采集顶栏角标与解码安全判断所需的核心属性，无需全量探针。
   PlaybackProbeStats collectLight(
     LibMpvClient client, {
     String gpuApiOverride = '',
@@ -22,7 +22,7 @@ class PlaybackProbeCollector {
         client.getPropertyString('video-codec') ??
         (client.getPropertyString('video-format') ?? '');
     final pixFmt = client.getPropertyString('video-params/pixelformat') ?? '';
-    final hwdec = client.getPropertyString('hwdec-current') ?? 'no';
+    final hwdec = client.getPropertyString('hwdec-current') ?? '';
     return PlaybackProbeStats(
       mpvVersion: mpvVersionCache ?? (previous?.mpvVersion ?? ''),
       ffmpegVersion: ffmpegVersionCache ?? (previous?.ffmpegVersion ?? ''),
@@ -32,6 +32,12 @@ class PlaybackProbeCollector {
       hwdecCurrent: hwdec,
       videoCodec: codec,
       videoPixelFormat: pixFmt,
+      videoHwPixelFormat:
+          client.getPropertyString('video-params/hw-pixelformat') ?? '',
+      videoProfile:
+          client.getPropertyString('current-tracks/video/codec-profile') ??
+          client.getPropertyString('video-params/profile') ??
+          '',
       videoWidth: width,
       videoHeight: height,
     );
@@ -69,7 +75,7 @@ class PlaybackProbeCollector {
           ffmpegVersionCache ??
           (client.getPropertyString('ffmpeg-version') ?? ''),
       voBackend: client.getPropertyString('current-vo') ?? '',
-      hwdecCurrent: client.getPropertyString('hwdec-current') ?? 'no',
+      hwdecCurrent: client.getPropertyString('hwdec-current') ?? '',
       hwdecInterop: client.getPropertyString('hwdec-interop') ?? '',
       gpuApi: gpuApiOverride.isNotEmpty
           ? gpuApiOverride
@@ -122,7 +128,8 @@ class PlaybackProbeCollector {
           (client.getPropertyString('audio-codec') ?? ''),
       audioSampleRateHz: client.getPropertyInt64('audio-params/samplerate'),
       audioChannelCount: client.getPropertyInt64('audio-params/channel-count'),
-      audioChannelLayout: client.getPropertyString('audio-params/channels') ?? '',
+      audioChannelLayout:
+          client.getPropertyString('audio-params/channels') ?? '',
       audioBitrateBps: client.getPropertyInt64('audio-bitrate'),
       audioFormat: client.getPropertyString('audio-params/format') ?? '',
       audioOutBackend: client.getPropertyString('current-ao') ?? '',

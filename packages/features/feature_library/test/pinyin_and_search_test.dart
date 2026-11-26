@@ -4,7 +4,8 @@ import 'dart:typed_data';
 import 'package:engine_scraping/engine_scraping.dart';
 import 'package:feature_library/feature_library.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:konata_contracts/konata_contracts.dart' show AssetDataLoaderPort;
+import 'package:konata_contracts/konata_contracts.dart'
+    show AssetDataLoaderPort;
 
 final class _FileLoader implements AssetDataLoaderPort {
   int calls = 0;
@@ -27,7 +28,10 @@ void main() {
         ChinesePinyinCollator.configure(null);
       });
       expect(ChinesePinyinCollator.isLoaded, isFalse);
-      expect(ChinesePinyinCollator.compareNames('Air 2', 'Air 10'), lessThan(0));
+      expect(
+        ChinesePinyinCollator.compareNames('Air 2', 'Air 10'),
+        lessThan(0),
+      );
       expect(loader.calls, 0);
 
       await Future.wait([
@@ -52,7 +56,10 @@ void main() {
       expect(covered, 20902);
       expect(ChinesePinyinCollator.pinyinInitialOfRune('啊'.runes.first), 'a');
       expect(ChinesePinyinCollator.pinyinInitialOfRune('轻'.runes.first), 'q');
-      expect(ChinesePinyinCollator.pinyinInitialOfRune('Z'.runes.first), isNull);
+      expect(
+        ChinesePinyinCollator.pinyinInitialOfRune('Z'.runes.first),
+        isNull,
+      );
     });
 
     test('遵循「符号 -> 自然数字 -> 英文 -> 中文拼音」并支持自然数字序', () {
@@ -145,6 +152,66 @@ void main() {
         rawQuery: '轻音',
       );
       expect(byTitle.map((e) => e.work.id), ['w1', 'w2']);
+    });
+
+    test('四级命中分桶保持同级输入顺序、多词取最差等级且结果不可修改', () {
+      const prefixLate = Work(id: 'p2', title: '轻音部日常', year: 2010);
+      const contains = Work(id: 'c1', title: '剧场版 轻音少女', year: 2011);
+      const original = Work(id: 'o1', title: 'K-ON', originalTitle: '轻音');
+      const byGroup = Work(id: 'g1', title: '其他作品');
+      const prefix = Work(id: 'p1', title: '轻音少女', year: 2009);
+      const miss = Work(id: 'm1', title: '孤独摇滚！', year: 2022);
+
+      final items = <({Work work, List<String> groups})>[
+        (work: byGroup, groups: ['轻音字幕组']),
+        (work: original, groups: const []),
+        (work: prefixLate, groups: const []),
+        (work: contains, groups: ['VCB-Studio']),
+        (work: miss, groups: ['喵萌奶茶屋']),
+        (work: prefix, groups: ['ＶＣＢ－Ｓｔｕｄｉｏ']),
+      ];
+      List<String> search(String query) => LibrarySearchMatcher.filterAndRank(
+        items: items,
+        workOf: (e) => e.work,
+        releaseGroupsOf: (e) => e.groups,
+        rawQuery: query,
+      ).map((e) => e.work.id).toList();
+      int? rank(Work work, List<String> groups, String query) =>
+          LibrarySearchMatcher.matchRank(
+            work: work,
+            releaseGroups: groups,
+            rawQuery: query,
+          );
+
+      expect(search('轻音'), ['p2', 'p1', 'c1', 'o1', 'g1']);
+      expect(rank(prefix, const [], '轻音'), 0);
+      expect(rank(contains, const [], '轻音'), 1);
+      expect(rank(original, const [], '轻音'), 2);
+      expect(rank(byGroup, const ['轻音字幕组'], '轻音'), 3);
+      expect(rank(miss, const [], '轻音'), isNull);
+
+      expect(search('轻音 2009'), ['p1']);
+      expect(rank(prefix, const [], '轻音 2009'), 3);
+      expect(search('ＶＣＢ'), ['c1', 'p1']);
+      expect(search('group:vcb studio'), ['c1', 'p1']);
+      expect(search('压制组:喵萌'), ['m1']);
+      expect(search('group:'), isEmpty);
+      expect(search('tmdb:99999999999999999999999999999'), isEmpty);
+
+      final unchanged = LibrarySearchMatcher.filterAndRank(
+        items: items,
+        workOf: (e) => e.work,
+        releaseGroupsOf: (e) => e.groups,
+        rawQuery: '  \t',
+      );
+      expect(identical(unchanged, items), isTrue);
+      final ranked = LibrarySearchMatcher.filterAndRank(
+        items: items,
+        workOf: (e) => e.work,
+        releaseGroupsOf: (e) => e.groups,
+        rawQuery: '轻',
+      );
+      expect(() => ranked.add(items.first), throwsUnsupportedError);
     });
   });
 }

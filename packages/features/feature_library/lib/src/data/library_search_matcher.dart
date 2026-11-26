@@ -27,112 +27,122 @@ abstract final class LibrarySearchMatcher {
         buffer.writeCharCode(unit);
       }
     }
-    return buffer.toString().toLowerCase().replaceAll(_whitespaceRe, ' ').trim();
+    return buffer
+        .toString()
+        .toLowerCase()
+        .replaceAll(_whitespaceRe, ' ')
+        .trim();
   }
 
-  /// 对单部作品计算检索命中等级（数字越小优先级越高；未命中返回 `null`）。
+  /// 对单部作品计算检索命中等级（数字越小优先级越高；未命中返回 null）。
   static int? matchRank({
     required Work work,
     required List<String> releaseGroups,
     required String rawQuery,
-  }) {
+  }) => _compile(rawQuery).rank(work, releaseGroups);
+
+  /// 每轮检索只解析一次查询，避免每部作品重复运行正则与分词。
+  static _CompiledQuery _compile(String rawQuery) {
     final query = normalizeForSearch(rawQuery);
-    if (query.isEmpty) return 0;
-
-    final tmdbMatch = _tmdbPrefixRe.firstMatch(query);
-    if (tmdbMatch != null) {
-      final targetId = int.tryParse(tmdbMatch.group(1)!);
-      if (targetId != null && work.tmdbId == targetId) return 0;
-      return null;
+    if (query.isEmpty) return const _CompiledQuery(_QueryKind.empty);
+    final tmdb = _tmdbPrefixRe.firstMatch(query);
+    if (tmdb != null) {
+      return _CompiledQuery(_QueryKind.tmdb, id: int.tryParse(tmdb.group(1)!));
     }
-
-    final bgmMatch = _bgmPrefixRe.firstMatch(query);
-    if (bgmMatch != null) {
-      final targetId = int.tryParse(bgmMatch.group(1)!);
-      if (targetId != null && work.bangumiId == targetId) return 0;
-      return null;
+    final bgm = _bgmPrefixRe.firstMatch(query);
+    if (bgm != null) {
+      return _CompiledQuery(_QueryKind.bgm, id: int.tryParse(bgm.group(1)!));
     }
-
-    final groupMatch = _groupPrefixRe.firstMatch(query);
-    if (groupMatch != null) {
-      final groupTerms = groupMatch
-          .group(1)!
+    final group = _groupPrefixRe.firstMatch(query);
+    return _CompiledQuery(
+      group == null ? _QueryKind.general : _QueryKind.group,
+      terms: (group?.group(1) ?? query)
           .split(_whitespaceRe)
           .where((s) => s.isNotEmpty)
-          .toList(growable: false);
-      if (groupTerms.isEmpty) return 0;
-      final normalizedGroups = [
-        for (final g in releaseGroups) normalizeForSearch(g),
-      ];
-      final matched = groupTerms.every(
-        (term) => normalizedGroups.any((g) => g.contains(term)),
-      );
-      return matched ? 0 : null;
-    }
-
-    final title = normalizeForSearch(work.title);
-    final originalTitle = normalizeForSearch(work.originalTitle ?? '');
-    final yearText = work.year?.toString() ?? '';
-    final normalizedGroups = [
-      for (final g in releaseGroups) normalizeForSearch(g),
-    ];
-
-    final terms = query
-        .split(_whitespaceRe)
-        .where((s) => s.isNotEmpty)
-        .toList(growable: false);
-    if (terms.isEmpty) return 0;
-
-    var worstRank = 0;
-    for (final term in terms) {
-      if (title.startsWith(term)) {
-        continue;
-      }
-      if (title.contains(term)) {
-        if (worstRank < 1) worstRank = 1;
-        continue;
-      }
-      if (originalTitle.contains(term)) {
-        if (worstRank < 2) worstRank = 2;
-        continue;
-      }
-      if (normalizedGroups.any((g) => g.contains(term)) ||
-          (yearText.isNotEmpty && yearText.contains(term))) {
-        if (worstRank < 3) worstRank = 3;
-        continue;
-      }
-      return null;
-    }
-    return worstRank;
+          .toList(growable: false),
+    );
   }
 
-  /// 对列表执行过滤并按检索相关性稳定排序（保持同等级项原本排列次序）。
+  /// 四级命中分桶保持原始顺序，无须为每个命中项分配排序记录。
   static List<T> filterAndRank<T>({
     required List<T> items,
     required Work Function(T item) workOf,
     required List<String> Function(T item) releaseGroupsOf,
     required String rawQuery,
   }) {
-    final query = rawQuery.trim();
-    if (query.isEmpty) return items;
-
-    final ranked = <({T item, int rank, int originalIndex})>[];
-    for (var i = 0; i < items.length; i++) {
-      final item = items[i];
-      final rank = matchRank(
-        work: workOf(item),
-        releaseGroups: releaseGroupsOf(item),
-        rawQuery: query,
-      );
-      if (rank != null) {
-        ranked.add((item: item, rank: rank, originalIndex: i));
-      }
+    if (rawQuery.trim().isEmpty) return items;
+    final query = _compile(rawQuery);
+    final buckets = List.generate(4, (_) => <T>[]);
+    for (final item in items) {
+      final rank = query.rank(workOf(item), releaseGroupsOf(item));
+      if (rank != null) buckets[rank].add(item);
     }
-    ranked.sort((a, b) {
-      final rankCmp = a.rank.compareTo(b.rank);
-      if (rankCmp != 0) return rankCmp;
-      return a.originalIndex.compareTo(b.originalIndex);
-    });
-    return List<T>.unmodifiable([for (final entry in ranked) entry.item]);
+    return List<T>.unmodifiable(buckets.expand((bucket) => bucket));
+  }
+}
+
+enum _QueryKind { empty, tmdb, bgm, group, general }
+
+/// 单次查询的临时解析结果，不缓存作品元数据或跨查询状态。
+final class _CompiledQuery {
+  const _CompiledQuery(this.kind, {this.id, this.terms = const []});
+
+  final _QueryKind kind;
+  final int? id;
+  final List<String> terms;
+
+  int? rank(Work work, List<String> releaseGroups) {
+    switch (kind) {
+      case _QueryKind.empty:
+        return 0;
+      case _QueryKind.tmdb:
+        return id != null && work.tmdbId == id ? 0 : null;
+      case _QueryKind.bgm:
+        return id != null && work.bangumiId == id ? 0 : null;
+      case _QueryKind.group:
+        if (terms.isEmpty) return 0;
+        final normalizedGroups = [
+          for (final group in releaseGroups)
+            LibrarySearchMatcher.normalizeForSearch(group),
+        ];
+        return terms.every(
+              (term) => normalizedGroups.any((group) => group.contains(term)),
+            )
+            ? 0
+            : null;
+      case _QueryKind.general:
+        final title = LibrarySearchMatcher.normalizeForSearch(work.title);
+        // 只有标题未命中时才归一化原名、压制组与年份。
+        String? originalTitle;
+        String? yearText;
+        List<String>? groups;
+        var worstRank = 0;
+        for (final term in terms) {
+          if (title.startsWith(term)) continue;
+          if (title.contains(term)) {
+            if (worstRank < 1) worstRank = 1;
+            continue;
+          }
+          originalTitle ??= LibrarySearchMatcher.normalizeForSearch(
+            work.originalTitle ?? '',
+          );
+          if (originalTitle.contains(term)) {
+            if (worstRank < 2) worstRank = 2;
+            continue;
+          }
+          groups ??= [
+            for (final group in releaseGroups)
+              LibrarySearchMatcher.normalizeForSearch(group),
+          ];
+          yearText ??= work.year?.toString() ?? '';
+          if (groups.any((group) => group.contains(term)) ||
+              (yearText.isNotEmpty && yearText.contains(term))) {
+            if (worstRank < 3) worstRank = 3;
+            continue;
+          }
+          return null;
+        }
+        return worstRank;
+    }
   }
 }

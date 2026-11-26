@@ -330,9 +330,10 @@ final class PhotosStorage {
     }
     final file = File(normalized);
     try {
-      if (await FileSystemEntity.type(file.path, followLinks: false) !=
-          FileSystemEntityType.file)
+      if (FileSystemEntity.typeSync(file.path, followLinks: false) !=
+          FileSystemEntityType.file) {
         return false;
+      }
       final realRoot = await root.resolveSymbolicLinks();
       final realPath = await file.resolveSymbolicLinks();
       final expected = p.joinAll([realRoot, ...segments]);

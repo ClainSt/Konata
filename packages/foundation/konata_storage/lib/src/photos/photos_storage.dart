@@ -252,7 +252,7 @@ final class PhotosStorage {
     if (!root.existsSync()) return;
 
     for (final dir in _findAllWorkDirsForId(root, cleanId)) {
-      if (!dir.existsSync()) continue;
+      if (!_isManagedDirectory(root, dir)) continue;
       for (final entity in dir.listSync(recursive: true, followLinks: false)) {
         if (entity is File) {
           await onEvictImageFile?.call(entity);
@@ -274,7 +274,9 @@ final class PhotosStorage {
     final tag = encodeWorkIdTag(cleanId);
     final cachedPath = _workDirPathByTag[tag];
     if (cachedPath != null && Directory(cachedPath).existsSync()) {
-      return Directory(cachedPath);
+      final dir = Directory(cachedPath);
+      if (_isManagedDirectory(root, dir)) return dir;
+      _workDirPathByTag.remove(tag);
     }
     final knownTitle = _knownTitleByWorkId[cleanId];
     if (knownTitle != null) {
@@ -284,7 +286,7 @@ final class PhotosStorage {
           formatWorkFolderName(workId: cleanId, title: knownTitle),
         ),
       );
-      if (candidate.existsSync()) {
+      if (_isManagedDirectory(root, candidate)) {
         _workDirPathByTag[tag] = candidate.path;
         return candidate;
       }
@@ -309,7 +311,12 @@ final class PhotosStorage {
     String? title,
   }) async {
     final workDir = await resolveWorkDirectory(workId, title: title);
-    return Directory(p.join(workDir.path, subfolder.dirName));
+    final dir = Directory(p.join(workDir.path, subfolder.dirName));
+    final root = await resolveRootDirectory();
+    if (!_isManagedDirectory(root, dir, allowMissing: true)) {
+      throw FileSystemException('图片目录链接或路径越界', dir.path);
+    }
+    return dir;
   }
 
   /// 仅删除当前作品指定子目录中的受管图片；拒绝外部路径、跨作品引用及链接重定向。
@@ -553,7 +560,7 @@ final class PhotosStorage {
         workFolders++;
         for (final sub in PhotoSubfolder.values) {
           final subDir = Directory(p.join(entity.path, sub.dirName));
-          if (!subDir.existsSync()) continue;
+          if (!_isManagedDirectory(root, subDir)) continue;
           var bytes = counts[sub]!.bytes;
           var files = counts[sub]!.files;
           for (final item in subDir.listSync(followLinks: false)) {
@@ -586,36 +593,120 @@ final class PhotosStorage {
     );
   }
 
+  /// 安全列举指定作品目录下的图片文件，拒绝跨目录链接及任意外部路径。
+  Future<List<File>> listManagedCategoryFiles({
+    required String workDirKey,
+    required PhotoStorageCategory category,
+  }) async {
+    final root = await resolveRootDirectory();
+    if (workDirKey.isEmpty || p.basename(workDirKey) != workDirKey) {
+      return const [];
+    }
+    final dir = Directory(p.join(root.path, workDirKey, category.dirName));
+    return _isManagedDirectory(root, dir)
+        ? dir.listSync(followLinks: false).whereType<File>().toList()
+        : const [];
+  }
+
   /// 按类别批量清理本地图片缓存（可选限定单个作品），并触发内存图像驱逐回调。
   Future<int> clearCategories(
     Set<PhotoStorageCategory> categories, {
     String? workId,
+  }) async =>
+      (await clearSelectedCategories(categories, workId: workId)).removedFiles;
+
+  /// 共享批量清理入口，按实际删除文件汇总数量和释放字节。
+  Future<({int removedFiles, int freedBytes})> clearSelectedCategories(
+    Set<PhotoStorageCategory> categories, {
+    String? workId,
+    Set<String>? workDirKeys,
   }) async {
-    if (categories.isEmpty) return 0;
+    if (categories.isEmpty || workDirKeys?.isEmpty == true) {
+      return (removedFiles: 0, freedBytes: 0);
+    }
     final root = await resolveRootDirectory();
-    if (!root.existsSync()) return 0;
-
-    final targetDirs = workId == null
-        ? root.listSync(followLinks: false).whereType<Directory>().toList()
+    if (!root.existsSync()) return (removedFiles: 0, freedBytes: 0);
+    final dirs = workId == null
+        ? root.listSync(followLinks: false).whereType<Directory>()
         : _findAllWorkDirsForId(root, workId.trim());
-
     var removed = 0;
-    for (final workDir in targetDirs) {
+    var freed = 0;
+    for (final dir in dirs) {
+      if (workDirKeys != null && !workDirKeys.contains(p.basename(dir.path))) {
+        continue;
+      }
       for (final cat in categories) {
-        final subDir = Directory(p.join(workDir.path, cat.dirName));
-        if (!subDir.existsSync()) continue;
-        for (final entity in subDir.listSync(followLinks: false)) {
-          if (entity is! File) continue;
-          await onEvictImageFile?.call(entity);
-          entity.deleteSync();
-          removed++;
+        final subDir = Directory(p.join(dir.path, cat.dirName));
+        if (!_isManagedDirectory(root, subDir)) continue;
+        for (final file
+            in subDir.listSync(followLinks: false).whereType<File>()) {
+          try {
+            await onEvictImageFile?.call(file);
+            // 驱逐回调可能异步等待，实际删除前再次确认父目录和文件仍为受管实体。
+            if (!_isManagedDirectory(root, subDir) ||
+                FileSystemEntity.typeSync(file.path, followLinks: false) !=
+                    FileSystemEntityType.file) {
+              continue;
+            }
+            final bytes = file.lengthSync();
+            file.deleteSync();
+            removed++;
+            freed += bytes;
+          } on FileSystemException catch (error) {
+            developer.log(
+              '图片分类清理未完成',
+              name: 'konata.photos_storage',
+              error: error,
+            );
+          }
         }
       }
     }
-    return removed;
+    return (removedFiles: removed, freedBytes: freed);
+  }
+
+  // 逐级校验真实目录归属，拒绝符号链接、目录联接点及缺失路径中的非目录实体。
+  static bool _isManagedDirectory(
+    Directory root,
+    Directory dir, {
+    bool allowMissing = false,
+  }) {
+    final rootPath = p.normalize(root.absolute.path);
+    final candidate = p.normalize(dir.absolute.path);
+    if (!p.isWithin(rootPath, candidate)) return false;
+    try {
+      final realRoot = root.existsSync()
+          ? root.resolveSymbolicLinksSync()
+          : rootPath;
+      final relative = p.split(p.relative(candidate, from: rootPath));
+      var current = rootPath;
+      var expected = realRoot;
+      for (final segment in relative) {
+        current = p.join(current, segment);
+        expected = p.join(expected, segment);
+        final type = FileSystemEntity.typeSync(current, followLinks: false);
+        if (type == FileSystemEntityType.notFound) return allowMissing;
+        if (type != FileSystemEntityType.directory) return false;
+        if (!p.equals(
+          Directory(current).resolveSymbolicLinksSync(),
+          expected,
+        )) {
+          return false;
+        }
+      }
+      return true;
+    } on FileSystemException {
+      return false;
+    }
   }
 
   Future<void> _writeAtomic(File target, Uint8List bytes) async {
+    final root = await resolveRootDirectory();
+    if (!_isManagedDirectory(root, target.parent, allowMissing: true) ||
+        FileSystemEntity.typeSync(target.path, followLinks: false) ==
+            FileSystemEntityType.link) {
+      throw FileSystemException('图片写入路径越界', target.path);
+    }
     target.parent.createSync(recursive: true);
     final part = File(
       '${target.path}.part.${DateTime.now().microsecondsSinceEpoch}',
@@ -636,7 +727,8 @@ final class PhotosStorage {
     for (final entity in root.listSync(followLinks: false)) {
       if (entity is! Directory) continue;
       final name = p.basename(entity.path);
-      if (name.endsWith(suffix) || name.endsWith(legacySuffix)) {
+      if ((name.endsWith(suffix) || name.endsWith(legacySuffix)) &&
+          _isManagedDirectory(root, entity)) {
         matches.add(entity);
       }
     }
@@ -644,7 +736,11 @@ final class PhotosStorage {
   }
 
   Future<void> _mergeOrRenameDirectory(Directory src, Directory dst) async {
-    if (!src.existsSync()) return;
+    final root = await resolveRootDirectory();
+    if (!_isManagedDirectory(root, src) ||
+        !_isManagedDirectory(root, dst, allowMissing: true)) {
+      return;
+    }
     if (!dst.existsSync()) {
       try {
         dst.parent.createSync(recursive: true);
@@ -663,6 +759,11 @@ final class PhotosStorage {
       if (entity is! File) continue;
       final rel = p.relative(entity.path, from: src.path);
       final targetFile = File(p.join(dst.path, rel));
+      if (!_isManagedDirectory(root, targetFile.parent, allowMissing: true) ||
+          FileSystemEntity.typeSync(targetFile.path, followLinks: false) ==
+              FileSystemEntityType.link) {
+        throw FileSystemException('图片合并目标路径越界', targetFile.path);
+      }
       targetFile.parent.createSync(recursive: true);
       if (!targetFile.existsSync()) {
         await entity.copy(targetFile.path);

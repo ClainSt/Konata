@@ -71,6 +71,67 @@ void main() {
     expect(evicted, hasLength(1));
   });
 
+  test('分类统计清理与新图片写入拒绝受管目录内的链接重定向', () async {
+    final temp = await Directory.systemTemp.createTemp(
+      'konata_photo_link_guard_',
+    );
+    final root = Directory('${temp.path}/photos')..createSync();
+    final external = Directory('${temp.path}/external')..createSync();
+    final protected = File('${external.path}/original.png')
+      ..writeAsStringSync('外部文件');
+    final storage = PhotosStorage(overrideRoot: root);
+    final work = await storage.resolveWorkDirectory('w_link', title: '测试');
+    work.createSync(recursive: true);
+    final link = Link('${work.path}/thumbnails');
+    if (Platform.isWindows) {
+      final result = await Process.run('cmd.exe', [
+        '/c',
+        'mklink',
+        '/J',
+        link.path.replaceAll('/', r'\'),
+        external.path.replaceAll('/', r'\'),
+      ]);
+      expect(result.exitCode, 0, reason: result.stderr.toString());
+    } else {
+      await link.create(external.path);
+    }
+    try {
+      expect(
+        await storage.listManagedCategoryFiles(
+          workDirKey: work.uri.pathSegments.where((s) => s.isNotEmpty).last,
+          category: PhotoStorageCategory.thumbnails,
+        ),
+        isEmpty,
+      );
+      expect((await storage.computeStats()).totalFiles, 0);
+      final removed = await storage.clearSelectedCategories({
+        PhotoStorageCategory.thumbnails,
+      });
+      expect(removed.removedFiles, 0);
+      expect(removed.freedBytes, 0);
+      await expectLater(
+        storage.saveCustomArtwork(
+          workId: 'w_link',
+          subfolder: PhotoSubfolder.thumbnails,
+          bytes: Uint8List.fromList([1, 2, 3]),
+        ),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(protected.readAsStringSync(), '外部文件');
+      expect(external.listSync(), hasLength(1));
+    } finally {
+      if (Platform.isWindows) {
+        await Process.run('cmd.exe', [
+          '/c',
+          'rmdir',
+          link.path.replaceAll('/', r'\'),
+        ]);
+      } else {
+        await link.delete();
+      }
+      await temp.delete(recursive: true);
+    }
+  });
   test('精准清理仅允许当前作品受管子目录内的图片，保护外部与其他作品', () async {
     final temp = await Directory.systemTemp.createTemp('konata_photo_guard_');
     addTearDown(() => temp.delete(recursive: true));

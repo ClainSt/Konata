@@ -12,16 +12,18 @@ void main() {
                 'test/scraping_parity/fixtures/r7_scrape_benchmark.json',
               ).readAsStringSync(),
             )
-            as Map<String, dynamic>;
+            as Map<String, Object?>;
     final videoExtension = RegExp(
       r'\.(mkv|mp4|avi|m2ts|ts|webm|mov|wmv)$',
       caseSensitive: false,
     );
     var count = 0;
-    for (final work in root['works'] as List) {
+    for (final work
+        in (root['works'] as List<Object?>).cast<Map<String, Object?>>()) {
       final path = work['path'] as String;
       final title = path.split('/').last;
-      for (final entry in work['files'] as List) {
+      for (final entry
+          in (work['files'] as List<Object?>).cast<List<Object?>>()) {
         final relative = entry[0] as String;
         if (!videoExtension.hasMatch(relative)) continue;
         final name = relative.split(RegExp(r'[/\\]')).last;

@@ -97,6 +97,33 @@ void main() {
     );
     expect(File('${current.path}/still.png').readAsBytesSync(), [1, 2, 3]);
   });
+  test('兼容标签扫描保留新旧作品目录并合并全部图片', () async {
+    final root = await Directory.systemTemp.createTemp('konata_tag_merge_');
+    addTearDown(() => root.delete(recursive: true));
+    final store = PhotosStorage(overrideRoot: root);
+    const workId = 'Work_ABC';
+    const legacyTag = 'workabc-7886ecf74a';
+    final modern = Directory('${root.path}/当前 [$workId]/posters')
+      ..createSync(recursive: true);
+    final old = Directory('${root.path}/旧版 [$legacyTag]/posters')
+      ..createSync(recursive: true);
+    final unrelated = Directory('${root.path}/其他 [Work_ABCD]/posters')
+      ..createSync(recursive: true);
+    File('${modern.path}/one.png').writeAsBytesSync([1]);
+    File('${old.path}/two.png').writeAsBytesSync([2]);
+    final protected = File('${unrelated.path}/three.png')
+      ..writeAsBytesSync([3]);
+    await store.renameWorkFolderIfNeeded(workId, '合并后');
+    final resolved = await store.resolveSubfolderDirectory(
+      workId,
+      PhotoSubfolder.posters,
+    );
+    expect(File('${resolved.path}/one.png').readAsBytesSync(), [1]);
+    expect(File('${resolved.path}/two.png').readAsBytesSync(), [2]);
+    expect(protected.readAsBytesSync(), [3]);
+    expect(modern.existsSync(), isFalse);
+    expect(old.existsSync(), isFalse);
+  });
   test('分类统计清理与新图片写入拒绝受管目录内的链接重定向', () async {
     final temp = await Directory.systemTemp.createTemp(
       'konata_photo_link_guard_',

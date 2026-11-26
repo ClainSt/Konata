@@ -174,21 +174,22 @@ final class PhotosStorage {
     final clean = workId.trim();
     if (clean.isEmpty) return false;
     if (tag == clean || tag == encodeWorkIdTag(clean)) return true;
+    return tag == _legacyWorkDirectoryTag(clean);
+  }
+
+  static String _legacyWorkDirectoryTag(String clean) {
     final prefix = clean.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
     final head = prefix.isEmpty
         ? 'w'
         : (prefix.length > 12 ? prefix.substring(0, 12) : prefix);
     final hash = sha256.convert(utf8.encode(clean)).toString().substring(0, 10);
-    return tag == '$head-$hash';
+    return '$head-$hash';
   }
 
-  static bool _matchesWorkDirectoryName(String name, String workId) {
+  static bool _matchesWorkDirectoryName(String name, Set<String> tags) {
     final start = name.lastIndexOf(' [');
     if (start < 0 || !name.endsWith(']')) return false;
-    return matchesWorkDirectoryTag(
-      name.substring(start + 2, name.length - 1),
-      workId,
-    );
+    return tags.contains(name.substring(start + 2, name.length - 1));
   }
 
   /// 拼接作品文件夹标准命名：`<安全作品名> [<workIdTag>]`。
@@ -743,11 +744,19 @@ final class PhotosStorage {
 
   List<Directory> _findAllWorkDirsForId(Directory root, String workId) {
     if (!root.existsSync() || workId.isEmpty) return const <Directory>[];
+    final clean = workId.trim();
+    if (clean.isEmpty) return const <Directory>[];
+    // 同一次目录扫描只计算一次兼容标签，保留原枚举顺序与逐目录安全校验。
+    final tags = <String>{
+      clean,
+      encodeWorkIdTag(clean),
+      _legacyWorkDirectoryTag(clean),
+    };
     final matches = <Directory>[];
     for (final entity in root.listSync(followLinks: false)) {
       if (entity is! Directory) continue;
       final name = p.basename(entity.path);
-      if (_matchesWorkDirectoryName(name, workId) &&
+      if (_matchesWorkDirectoryName(name, tags) &&
           _isManagedDirectory(root, entity)) {
         matches.add(entity);
       }

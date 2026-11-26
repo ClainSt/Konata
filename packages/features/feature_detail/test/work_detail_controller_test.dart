@@ -87,6 +87,256 @@ void main() {
   });
 
   group('WorkDetailController 数据聚合、重刮状态机、人工锁与系列切换', () {
+    for (final platform in [
+      KonataPlatform.windows,
+      KonataPlatform.androidPhone,
+    ]) {
+      test('跨季共享 SP/CD 按资源归属播放，独享及重复季度隔离：$platform', () async {
+        final h = await DetailTestHarness.create();
+        const source = MediaSource(
+          id: 'bd-source',
+          kind: MediaSourceKind.local,
+          label: 'BDRIP 隔离夹具',
+          location: 'D:/AuditOnly',
+        );
+        await h.repository.upsertMediaSource(source);
+        await h.repository.upsertSeriesGroup(
+          SeriesGroup(
+            id: 'bd-series',
+            title: 'BDRIP 系列',
+            createdAt: DateTime.utc(2025),
+            updatedAt: DateTime.utc(2025),
+          ),
+        );
+        for (final (id, season) in [('a', 1), ('b', 2), ('duplicate', 1)]) {
+          await h.repository.upsertWork(
+            Work(
+              id: id,
+              title: '收藏 $id',
+              seriesId: 'bd-series',
+              seriesOrder: season,
+              tmdbId: 90001,
+              tmdbMediaType: TmdbMediaType.tv,
+              matchedSeason: season,
+              scrapeStatus: ScrapeStatus.matched,
+            ),
+          );
+        }
+        Future<void> addVideo(
+          String owner,
+          String name,
+          EpisodeCategory category, {
+          SupplementaryAssetScope scope = SupplementaryAssetScope.workExclusive,
+          int versions = 1,
+        }) async {
+          final episodeId = '$owner-$name';
+          await h.repository.upsertEpisode(
+            Episode(
+              id: episodeId,
+              workId: owner,
+              seasonNumber: category == EpisodeCategory.main ? 1 : 0,
+              episodeNumber: 1,
+              category: category,
+              extraType: category == EpisodeCategory.extra
+                  ? ExtraKind.sp
+                  : null,
+              title: name,
+            ),
+          );
+          for (var i = 0; i < versions; i++) {
+            await h.repository.upsertMediaVariant(
+              MediaVariant(
+                id: '$episodeId-v$i',
+                workId: owner,
+                episodeId: episodeId,
+                sourceId: source.id,
+                relativePath: '$owner/$name/v$i.mkv',
+                fileName: 'v$i.mkv',
+                fileSize: 1024,
+                assetScope: scope,
+              ),
+            );
+          }
+        }
+
+        Future<void> addAsset(
+          String owner,
+          String name,
+          AssetKind kind,
+          SupplementaryAssetScope scope,
+        ) async {
+          await h.repository.upsertMediaVariant(
+            MediaVariant(
+              id: '$owner-$name',
+              workId: owner,
+              sourceId: source.id,
+              relativePath: '$owner/$name',
+              fileName: name,
+              fileSize: 512,
+              assetKind: kind,
+              assetScope: scope,
+            ),
+          );
+        }
+
+        await addVideo('a', 'main', EpisodeCategory.main, versions: 2);
+        await addVideo('b', 'main', EpisodeCategory.main);
+        await addVideo(
+          'b',
+          'SP-shared',
+          EpisodeCategory.extra,
+          scope: SupplementaryAssetScope.seriesShared,
+          versions: 2,
+        );
+        await addVideo('b', 'SP-private', EpisodeCategory.extra);
+        await addVideo(
+          'duplicate',
+          'SP-duplicate',
+          EpisodeCategory.extra,
+          scope: SupplementaryAssetScope.seriesShared,
+        );
+        await addAsset(
+          'a',
+          'own.flac',
+          AssetKind.cdAlbum,
+          SupplementaryAssetScope.workExclusive,
+        );
+        await addAsset(
+          'b',
+          'shared.flac',
+          AssetKind.cdAlbum,
+          SupplementaryAssetScope.seriesShared,
+        );
+        await addAsset(
+          'b',
+          'private.flac',
+          AssetKind.cdAlbum,
+          SupplementaryAssetScope.workExclusive,
+        );
+        await addAsset(
+          'duplicate',
+          'duplicate.flac',
+          AssetKind.cdAlbum,
+          SupplementaryAssetScope.seriesShared,
+        );
+        await addAsset(
+          'a',
+          'own.png',
+          AssetKind.scanGallery,
+          SupplementaryAssetScope.workExclusive,
+        );
+        await addAsset(
+          'b',
+          'shared.png',
+          AssetKind.scanGallery,
+          SupplementaryAssetScope.seriesShared,
+        );
+        await addAsset(
+          'b',
+          'private.png',
+          AssetKind.scanGallery,
+          SupplementaryAssetScope.workExclusive,
+        );
+        await addAsset(
+          'duplicate',
+          'duplicate.png',
+          AssetKind.scanGallery,
+          SupplementaryAssetScope.seriesShared,
+        );
+        final ctrl = h.createController(
+          const WorkId.trusted('a'),
+          platform: platform,
+        );
+        final bundle = (await ctrl.load())!;
+        expect(bundle.mainEpisodes.map((e) => e.id), ['a-main']);
+        expect(bundle.extraEpisodes.map((e) => e.id), ['b-SP-shared']);
+        expect(bundle.variantsForEpisode('a-main').map((v) => v.id), [
+          'a-main-v0',
+          'a-main-v1',
+        ]);
+        expect(bundle.variantsForEpisode('b-SP-shared').map((v) => v.id), [
+          'b-SP-shared-v0',
+          'b-SP-shared-v1',
+        ]);
+        expect(bundle.cdVariants.map((v) => v.id), [
+          'a-own.flac',
+          'b-shared.flac',
+        ]);
+        expect(bundle.visibleScanCount, 2);
+        expect(
+          bundle.editableSupplementaryItems.map((item) => item.variant.id),
+          containsAll(['b-SP-private-v0', 'b-private.flac', 'b-private.png']),
+        );
+
+        await ctrl.playEpisode(
+          episodeId: const EpisodeId.trusted('a-main'),
+          variantId: const VariantId.trusted('a-main-v1'),
+        );
+        await ctrl.playEpisode(
+          episodeId: const EpisodeId.trusted('b-SP-shared'),
+          variantId: const VariantId.trusted('b-SP-shared-v1'),
+        );
+        await ctrl.playEpisode(
+          episodeId: const EpisodeId.trusted('b-SP-shared'),
+        );
+        await ctrl.playCdAlbum(
+          variantId: const VariantId.trusted('a-own.flac'),
+        );
+        await ctrl.playCdAlbum(
+          variantId: const VariantId.trusted('b-shared.flac'),
+        );
+        await ctrl.playCdAlbum();
+        expect(h.navigator.videoPlayerCalls.map((c) => c.workId.value), [
+          'a',
+          'b',
+          'b',
+        ], reason: '共享特典必须按原始作品归属进入播放器');
+        expect(h.navigator.videoPlayerCalls.map((c) => c.variantId?.value), [
+          'a-main-v1',
+          'b-SP-shared-v1',
+          null,
+        ]);
+        expect(h.navigator.audioPlayerCalls.map((c) => c.workId.value), [
+          'a',
+          'b',
+          'a',
+        ], reason: '共享 CD 必须按原始作品归属进入播放器');
+        expect(h.navigator.audioPlayerCalls.map((c) => c.variantId?.value), [
+          'a-own.flac',
+          'b-shared.flac',
+          null,
+        ]);
+
+        // 播放器按传入作品查询实际索引；确认目标分集与版本都在该作品下。
+        for (final call in h.navigator.videoPlayerCalls) {
+          expect(
+            (await h.repository.getEpisodesByWork(
+              call.workId.value,
+            )).map((e) => e.id),
+            contains(call.episodeId!.value),
+          );
+          if (call.variantId != null) {
+            expect(
+              (await h.repository.getVariantsByWork(
+                call.workId.value,
+              )).map((v) => v.id),
+              contains(call.variantId!.value),
+            );
+          }
+        }
+        for (final call in h.navigator.audioPlayerCalls.where(
+          (c) => c.variantId != null,
+        )) {
+          expect(
+            (await h.repository.getVariantsByWork(
+              call.workId.value,
+            )).map((v) => v.id),
+            contains(call.variantId!.value),
+          );
+        }
+      });
+    }
+
     test('详情移除清理所属索引，保留系列兄弟和实际源文件', () async {
       final h = await DetailTestHarness.create();
       final file = File('${h.tempRoot.path}/source/A/01.mkv');

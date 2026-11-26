@@ -33,3 +33,4 @@ Konata v3 番剧详情页、正片 / 特典 / CD 编排、正片单并发流式�
 ## 验证说明
 
 - 通过 `dart run tool/verify.dart guard` 边界检查、`dart run tool/verify.dart analyze packages/features/feature_detail` 零告警静态分析、`dart run tool/verify.dart test packages/features/feature_detail` 单元测试与多视口 Widget 测试，以及 `pwsh -NoProfile -File scripts/check_comments.ps1` 纯简体中文注释校验。
+- 系列共享特典与 CD 路由采用聚合包中逻辑分集或物理版本的原始归属作品 ID，避免播放器按当前季度查询时丢失目标资源；自身分集多版本及默认播放归属保持不变。

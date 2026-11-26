@@ -415,19 +415,30 @@ final class WorkDetailController extends ChangeNotifier {
     return res;
   }
 
-  /// 路由至全屏视频播放舞台。
+  /// 路由至全屏视频播放舞台，共享特典使用逻辑分集的原始归属。
   Future<void> playEpisode({
     required EpisodeId episodeId,
     VariantId? variantId,
-  }) => _navigator.openVideoPlayer(
-    workId: workId,
-    episodeId: episodeId,
-    variantId: variantId,
-  );
+  }) {
+    final episode = _bundle?.episodes
+        .where((e) => e.id == episodeId.value)
+        .firstOrNull;
+    final owner = episode == null ? workId : WorkId.trusted(episode.workId);
+    return _navigator.openVideoPlayer(
+      workId: owner,
+      episodeId: episodeId,
+      variantId: variantId,
+    );
+  }
 
-  /// 路由至全屏音频播放舞台。
-  Future<void> playCdAlbum({VariantId? variantId}) =>
-      _navigator.openAudioPlayer(workId: workId, variantId: variantId);
+  /// 路由至全屏音频播放舞台，共享 CD 使用物理版本的原始归属。
+  Future<void> playCdAlbum({VariantId? variantId}) {
+    final variant = variantId == null
+        ? null
+        : _bundle?.cdVariants.where((v) => v.id == variantId.value).firstOrNull;
+    final owner = variant == null ? workId : WorkId.trusted(variant.workId);
+    return _navigator.openAudioPlayer(workId: owner, variantId: variantId);
+  }
 
   /// 在详情页内就地切换同系列作品成员。
   Future<void> switchSeriesMember(WorkId targetWorkId) =>

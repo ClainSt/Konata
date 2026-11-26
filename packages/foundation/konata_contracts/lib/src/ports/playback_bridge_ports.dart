@@ -110,6 +110,18 @@ abstract interface class PlaybackHostWindowPort {
   Future<void> setPreferredLandscape(bool landscape);
 }
 
+/// 桌面小窗所吸附的屏幕工作区水平边缘。
+enum DesktopMiniDockSide { left, right }
+
+/// 可选桌面吸附能力；未实现此端口的平台不参与系统窗口吸附。
+abstract interface class DesktopMiniDockPort {
+  /// 仅在系统完成窗口移动时通知，不转发高频坐标。
+  Stream<void> get desktopMiniMoveEnded;
+
+  /// 按真实窗口所在显示器工作区吸附；远离边缘时只修正越界，不收起。
+  Future<DesktopMiniDockSide?> snapDesktopMiniWindow();
+}
+
 /// 默认空宿主窗口控制端口（供测试与无窗口宿主环境兜底）。
 final class NoopPlaybackHostWindowPort implements PlaybackHostWindowPort {
   /// 创建默认空窗口控制端口。

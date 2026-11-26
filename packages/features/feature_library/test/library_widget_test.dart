@@ -846,6 +846,53 @@ void main() {
     expect(find.byKey(const ValueKey<String>('w_k1')), findsNothing);
     expect(find.text('CLANNAD'), findsOneWidget);
     expect(find.text('轻音少女'), findsNothing);
+    // 窄屏内联搜索恢复输入法组合保护与防抖契约。
+    tester.view.physicalSize = const Size(390, 780);
+    await tester.pumpAndSettle();
+    final searchController = ProviderScope.containerOf(
+      tester.element(find.byType(LibraryPage)),
+    ).read(libraryControllerProvider);
+    await tester.tap(find.byTooltip('搜索作品'));
+    await tester.pumpAndSettle();
+    final editable = find.byType(EditableText);
+    expect(editable, findsOneWidget);
+    await tester.showKeyboard(editable);
+    await tester.enterText(editable, '轻');
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(searchController.searchQuery, 'CLANNAD', reason: '内联搜索必须等待防抖');
+    tester.testTextInput.updateEditingValue(
+      const TextEditingValue(
+        text: '轻音',
+        selection: TextSelection.collapsed(offset: 2),
+        composing: TextRange(start: 0, end: 2),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(searchController.searchQuery, 'CLANNAD', reason: '输入法组合期间取消旧定时器');
+    tester.testTextInput.updateEditingValue(
+      const TextEditingValue(
+        text: '轻音',
+        selection: TextSelection.collapsed(offset: 2),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 149));
+    expect(searchController.searchQuery, 'CLANNAD');
+    await tester.pump(const Duration(milliseconds: 1));
+    await tester.pumpAndSettle();
+    expect(searchController.searchQuery, '轻音');
+    expect(find.byKey(const ValueKey<String>('w_k1')), findsOneWidget);
+    expect(find.byKey(const ValueKey<String>('w_k2')), findsNothing);
+    await tester.enterText(editable, '');
+    await tester.pump();
+    expect(searchController.searchQuery, '');
+    await tester.enterText(editable, 'CLANNAD');
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.tap(find.byTooltip('收起搜索'));
+    await tester.pump(const Duration(milliseconds: 250));
+    await tester.pumpAndSettle();
+    expect(searchController.searchQuery, '');
+    expect(find.byKey(const ValueKey<String>('w_k1')), findsOneWidget);
+    expect(find.byKey(const ValueKey<String>('w_k2')), findsOneWidget);
   });
 
   testWidgets('媒体库顶栏与待复核中心经宿主分派作品管理动作', (tester) async {
@@ -1067,6 +1114,7 @@ void main() {
     await tester.tap(find.byIcon(Icons.search_rounded));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), 'CLANNAD');
+    await tester.pump(KonataTheme.searchInputDebounce);
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey<String>('w_m2')), findsOneWidget);
     expect(find.byKey(const ValueKey<String>('w_m1')), findsNothing);

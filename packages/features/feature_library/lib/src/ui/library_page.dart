@@ -35,6 +35,9 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
 
+  Timer? _searchDebounce;
+  TextEditingValue _lastSearchEdit = TextEditingValue.empty;
+  bool _syncingSearchText = false;
   Timer? _scrollSettleTimer;
   final ValueNotifier<bool> _isFastScrolling = ValueNotifier(false);
   bool _searchExpanded = false;
@@ -56,9 +59,10 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   @override
   void initState() {
     super.initState();
+    _searchController.addListener(_handleSearchEdit);
     final initialHostQuery = _hostSearchQuery;
     if (initialHostQuery != null && initialHostQuery.isNotEmpty) {
-      _searchController.text = initialHostQuery;
+      _replaceSearchText(initialHostQuery);
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         ref.read(libraryControllerProvider).setSearchQuery(initialHostQuery);
@@ -74,7 +78,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     final prevHostQuery = prevRaw is String ? prevRaw : null;
     if (nextHostQuery != prevHostQuery && nextHostQuery != null) {
       if (_searchController.text != nextHostQuery) {
-        _searchController.text = nextHostQuery;
+        _replaceSearchText(nextHostQuery);
       }
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -85,6 +89,8 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
+    _searchController.removeListener(_handleSearchEdit);
     _scrollSettleTimer?.cancel();
     _isFastScrolling.dispose();
     _scrollController.dispose();
@@ -93,10 +99,60 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     super.dispose();
   }
 
+  /// 同步宿主或重置文本时取消旧输入任务，不把程序写入视为用户输入。
+  void _replaceSearchText(String text) {
+    _searchDebounce?.cancel();
+    _searchDebounce = null;
+    _syncingSearchText = true;
+    try {
+      _searchController.value = TextEditingValue(
+        text: text,
+        selection: TextSelection.collapsed(offset: text.length),
+      );
+      _lastSearchEdit = _searchController.value;
+    } finally {
+      _syncingSearchText = false;
+    }
+  }
+
+  void _handleSearchEdit() {
+    final value = _searchController.value;
+    final previous = _lastSearchEdit;
+    _lastSearchEdit = value;
+    if (_syncingSearchText ||
+        !_searchExpanded ||
+        _hasExternalDesktopSearchBar) {
+      return;
+    }
+    if (value.text == previous.text && value.composing == previous.composing) {
+      return;
+    }
+    _searchDebounce?.cancel();
+    _searchDebounce = null;
+    // 拼音组合尚未提交时取消旧任务；同文本结束组合也要触发搜索。
+    if (value.text.isNotEmpty &&
+        value.composing.isValid &&
+        !value.composing.isCollapsed) {
+      return;
+    }
+    final controller = ref.read(libraryControllerProvider);
+    if (value.text == controller.searchQuery) return;
+    if (value.text.isEmpty) {
+      controller.setSearchQuery('');
+      return;
+    }
+    _searchDebounce = Timer(KonataTheme.searchInputDebounce, () {
+      _searchDebounce = null;
+      if (mounted && _searchExpanded && !_hasExternalDesktopSearchBar) {
+        ref.read(libraryControllerProvider).setSearchQuery(value.text);
+      }
+    });
+  }
+
   void _openSearch() {
     final controller = ref.read(libraryControllerProvider);
     if (_searchController.text != controller.searchQuery) {
-      _searchController.text = controller.searchQuery;
+      _replaceSearchText(controller.searchQuery);
     }
     setState(() => _searchExpanded = true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -106,7 +162,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
 
   void _closeSearch({bool clearQuery = false}) {
     if (clearQuery) {
-      _searchController.clear();
+      _replaceSearchText('');
       ref.read(libraryControllerProvider).setSearchQuery('');
     }
     _searchFocusNode.unfocus();
@@ -293,7 +349,6 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                 searchFocusNode: _searchFocusNode,
                 onOpenSearch: _openSearch,
                 onCloseSearch: () => _closeSearch(clearQuery: true),
-                onSearchChanged: controller.setSearchQuery,
                 onToggleFilters: () {
                   setState(() => _filtersExpanded = !_filtersExpanded);
                 },
@@ -316,7 +371,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                         controller: controller,
                         compact: compact,
                         onClearAll: () {
-                          _searchController.clear();
+                          _replaceSearchText('');
                           controller.resetFilters(clearSearch: true);
                           setState(() => _filtersExpanded = false);
                         },
@@ -428,7 +483,7 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
                         label: '重置搜索与筛选',
                         icon: Icons.refresh_rounded,
                         onPressed: () {
-                          _searchController.clear();
+                          _replaceSearchText('');
                           controller.resetFilters(clearSearch: true);
                         },
                       )

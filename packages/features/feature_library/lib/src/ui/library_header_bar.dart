@@ -23,7 +23,6 @@ class LibraryHeaderBar extends StatelessWidget {
     required this.searchFocusNode,
     required this.onOpenSearch,
     required this.onCloseSearch,
-    required this.onSearchChanged,
     required this.onToggleFilters,
     required this.onOpenReview,
   });
@@ -67,9 +66,6 @@ class LibraryHeaderBar extends StatelessWidget {
   /// 收起内联搜索栏回调。
   final VoidCallback onCloseSearch;
 
-  /// 内联搜索词变更回调。
-  final ValueChanged<String> onSearchChanged;
-
   /// 展开或收起筛选与排序条回调。
   final VoidCallback onToggleFilters;
 
@@ -111,10 +107,9 @@ class LibraryHeaderBar extends StatelessWidget {
                     controller: searchController,
                     focusNode: searchFocusNode,
                     height: 36,
-                    onChanged: onSearchChanged,
                     onClear: () {
                       searchController.clear();
-                      onSearchChanged('');
+                      searchFocusNode.requestFocus();
                     },
                   ),
                 ),

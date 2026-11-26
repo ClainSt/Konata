@@ -25,6 +25,10 @@ class ActiveVideoSessionManager extends ChangeNotifier {
   bool _disposed = false;
   bool _closeInProgress = false;
   Object? _stageRouteOwner;
+  // 原生会话关闭与退出动画的通知器生命周期分离，旧路由回弹期间也可能重叠。
+  final _stageRouteControllers =
+      Map<Object, VideoPlaybackController>.identity();
+  final _retiredControllers = <VideoPlaybackController>{};
 
   /// 当前活跃视频起播请求（无活跃会话时为 `null`）。
   VideoLaunchRequest? get activeRequest => _activeRequest;
@@ -69,6 +73,7 @@ class ActiveVideoSessionManager extends ChangeNotifier {
         if (existing.state.isMiniPlayer) throw StateError('无法恢复播放舞台');
       }
       _stageRouteOwner = routeOwner;
+      _stageRouteControllers[routeOwner] = existing;
       _stageExpanded = true;
       _safeNotify();
       return existing;
@@ -84,6 +89,7 @@ class ActiveVideoSessionManager extends ChangeNotifier {
     _controller = created;
     _activeRequest = request;
     _stageRouteOwner = routeOwner;
+    _stageRouteControllers[routeOwner] = created;
     _stageExpanded = true;
     unawaited(created.initialize(request));
     _safeNotify();
@@ -101,7 +107,14 @@ class ActiveVideoSessionManager extends ChangeNotifier {
 
   /// 标记全屏视频舞台路由已退场；若未进入悬浮小窗态则同步安全销毁会话。
   void handleStageRoutePopped(Object routeOwner) {
-    if (_disposed || !identical(_stageRouteOwner, routeOwner)) return;
+    if (_disposed) return;
+    final released = _stageRouteControllers.remove(routeOwner);
+    if (released != null &&
+        !_stageRouteControllers.containsValue(released) &&
+        _retiredControllers.remove(released)) {
+      released.dispose();
+    }
+    if (!identical(_stageRouteOwner, routeOwner)) return;
     _stageRouteOwner = null;
     final ctrl = _controller;
     if (ctrl == null) {
@@ -141,7 +154,11 @@ class ActiveVideoSessionManager extends ChangeNotifier {
       _stageExpanded = false;
       _safeNotify();
       ctrl.removeListener(_onControllerChanged);
-      ctrl.dispose();
+      if (_stageRouteControllers.containsValue(ctrl)) {
+        _retiredControllers.add(ctrl);
+      } else {
+        ctrl.dispose();
+      }
     }
     return true;
   }
@@ -176,6 +193,11 @@ class ActiveVideoSessionManager extends ChangeNotifier {
       ctrl.removeListener(_onControllerChanged);
       unawaited(_disposeOldController(ctrl));
     }
+    _stageRouteControllers.clear();
+    for (final retired in _retiredControllers) {
+      retired.dispose();
+    }
+    _retiredControllers.clear();
     super.dispose();
   }
 }

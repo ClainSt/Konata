@@ -352,6 +352,87 @@ void main() {
       manager.handleStageRoutePopped(newRoute);
       expect(manager.hasActiveSession, isFalse);
     });
+    test('关闭原生会话后保留仍挂载路由的通知器直到最后退场', () async {
+      final harness = await VideoTestHarness.create();
+      addTearDown(harness.dispose);
+      final seeded = await harness.seedSampleAnime();
+      final manager = ActiveVideoSessionManager(
+        controllerFactory: () =>
+            harness.createController(enablePeriodicTimers: false),
+      );
+      addTearDown(manager.dispose);
+      final request = VideoLaunchRequest(workId: seeded.work.id);
+      final oldRoute = Object();
+      final newRoute = Object();
+      final controller = await manager.openOrReuseSession(
+        request,
+        routeOwner: oldRoute,
+      );
+      for (var i = 0; i < 100 && controller.state.isInitializing; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      expect(controller.state.isInitializing, isFalse);
+      expect(controller.state.errorMessage, isNull);
+      await manager.collapseToFloatingMini();
+      expect(
+        await manager.openOrReuseSession(request, routeOwner: newRoute),
+        same(controller),
+      );
+      expect(await manager.closeActiveSession(), isTrue);
+      expect(manager.hasActiveSession, isFalse);
+      expect(controller.state.isClosing, isTrue);
+      void listener() {}
+      // 退出动画中旧路由及回弹路由仍可能重新订阅进度。
+      expect(
+        () => controller.positionNotifier.addListener(listener),
+        returnsNormally,
+        reason: '关闭后仍挂载路由的通知器必须存活',
+      );
+      controller.positionNotifier.removeListener(listener);
+      manager.handleStageRoutePopped(newRoute);
+      expect(
+        () => controller.durationNotifier.addListener(listener),
+        returnsNormally,
+      );
+      controller.durationNotifier.removeListener(listener);
+      manager.handleStageRoutePopped(oldRoute);
+      expect(
+        () => controller.positionNotifier.addListener(listener),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            "错误信息",
+            contains("used after being disposed"),
+          ),
+        ),
+      );
+      // 重复退场通知不得影响后续会话。
+      manager.handleStageRoutePopped(oldRoute);
+      final nextRoute = Object();
+      final next = await manager.openOrReuseSession(
+        request,
+        routeOwner: nextRoute,
+      );
+      expect(next, isNot(same(controller)));
+      for (var i = 0; i < 100 && next.state.isInitializing; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      expect(next.state.isInitializing, isFalse);
+      manager.handleStageRoutePopped(oldRoute);
+      expect(manager.controller, same(next));
+      expect(await manager.closeActiveSession(), isTrue);
+      manager.handleStageRoutePopped(nextRoute);
+      expect(
+        () => next.durationNotifier.addListener(listener),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            "错误信息",
+            contains("used after being disposed"),
+          ),
+        ),
+      );
+    });
     test('小窗宿主切换失败保留播放会话并允许重试', () async {
       final harness = await VideoTestHarness.create();
       addTearDown(harness.dispose);

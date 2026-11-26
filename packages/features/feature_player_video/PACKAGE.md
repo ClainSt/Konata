@@ -14,6 +14,8 @@
   - 触屏左侧防误触锁钮与右侧 5-Tab 侧滑面板（底部自动避让播控胶囊上方呼吸间距）。
 - **状态分层**：`lib/src/data/` 与 `lib/src/state/` 保持零状态管理框架耦合，仅通过 `lib/src/providers.dart` 提供依赖装配与控制器生命周期管理；高频播放进度与悬浮小窗拖拽偏移直连叶子 `ValueNotifier`。主舞台与小窗共用 VideoHardwareSurface，由真实物理视口驱动 Windows 底层渲染和 Android SurfaceView；视口所有者隔离旧路由卸载与新路由显示。
 
+- **会话退出契约**：原生解码会话与活跃引用立即释放；已关闭控制器的通知器由仍挂载的关联路由持有，最后一条路由退出后销毁，旧路由退场不影响新会话。
+
 ## 公开出口
 
 - 清单与依赖：`featurePlayerVideoManifest`（`id: 'feature_player_video'`）、`FeaturePlayerVideoDependencies`、`featurePlayerVideoDependenciesProvider`、`videoPlaybackControllerProvider`、`activeVideoSessionManagerProvider`、`ActiveVideoSessionManager`。

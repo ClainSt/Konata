@@ -235,19 +235,29 @@ class _PosterCardState extends State<PosterCard> {
       ),
     );
 
-    final titleWidget = Text(
-      work.title,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: KonataTheme.textStyle(
-        color: effectiveHover
-            ? p.textPrimary
-            : p.textPrimary.withValues(alpha: 0.94),
-        fontSize: widget.titleFontSize,
-        weight: KonataTheme.weightActive,
-        height: 1.25,
-      ),
+    final titleStyle = KonataTheme.textStyle(
+      color: effectiveHover
+          ? p.textPrimary
+          : p.textPrimary.withValues(alpha: 0.94),
+      fontSize: widget.titleFontSize,
+      weight: KonataTheme.weightActive,
+      height: 1.25,
     );
+    // 仅当前允许悬停的卡片检测标题截断，滚动期保持普通文本。
+    final titleWidget = effectiveHover
+        ? EllipsisTextWithTooltip(
+            text: work.title,
+            style: titleStyle,
+            maxWidth: widget.cardWidth,
+            deferTooltipToHover: true,
+            suppressHoverCheck: () => !_resolvedHover,
+          )
+        : Text(
+            work.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: titleStyle,
+          );
 
     final subtitleWidget = Text(
       subtitleText,

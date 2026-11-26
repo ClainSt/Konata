@@ -312,6 +312,93 @@ class _ArtworkAuditHttp extends _FakeHttpClient {
 }
 
 void main() {
+  testWidgets('海报长标题仅在静止悬停时显示全文，短标题及滚动期不挂载提示', (tester) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final scrolling = ValueNotifier(false);
+    addTearDown(scrolling.dispose);
+    var blocked = false;
+    var taps = 0;
+    const longTitle = '轻音少女 K-ON!! 第二季 全24话 + 番外篇 特别收纳合集纪念版';
+    const shortTitle = '轻音少女';
+    Widget app(String title) => MaterialApp(
+      theme: KonataTheme.darkTheme(),
+      home: Scaffold(
+        body: Center(
+          child: SizedBox(
+            width: 140,
+            height: 280,
+            child: PosterCard(
+              key: ValueKey(title),
+              item: WorkLibraryItem(
+                work: Work(id: 'tooltip-audit', title: title),
+                variants: const [],
+                episodeCount: 1,
+                releaseGroups: const [],
+              ),
+              cardWidth: 140,
+              scrollingListenable: scrolling,
+              suppressHoverCheck: () => blocked,
+              onTap: () => taps++,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpWidget(app(longTitle));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip(longTitle), findsNothing);
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: Offset.zero);
+    addTearDown(mouse.removePointer);
+    final fullTitleCount = find
+        .text(longTitle, findRichText: true)
+        .evaluate()
+        .length;
+    final titleFinder = find.text(longTitle).last;
+    final point = tester.getCenter(titleFinder);
+
+    scrolling.value = true;
+    await mouse.moveTo(point);
+    await tester.pumpAndSettle();
+    expect(find.byTooltip(longTitle), findsNothing);
+    scrolling.value = false;
+    await tester.pumpAndSettle();
+    await mouse.moveTo(point + const Offset(2, 0));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip(longTitle), findsOneWidget, reason: '黄金源长标题全文提示必须恢复');
+    await tester.pump(
+      KonataTheme.tooltipWaitDuration + const Duration(milliseconds: 200),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.text(longTitle, findRichText: true).evaluate().length,
+      greaterThan(fullTitleCount),
+      reason: '实际浮层必须显示全文',
+    );
+
+    scrolling.value = true;
+    await tester.pumpAndSettle();
+    expect(find.byTooltip(longTitle), findsNothing);
+    scrolling.value = false;
+    blocked = true;
+    await mouse.moveTo(point + const Offset(4, 0));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip(longTitle), findsNothing);
+    blocked = false;
+    await mouse.moveTo(Offset.zero);
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(app(shortTitle));
+    await tester.pumpAndSettle();
+    await mouse.moveTo(tester.getCenter(find.text(shortTitle).last));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip(shortTitle), findsNothing);
+    await tester.tap(find.text(shortTitle).last);
+    expect(taps, 1);
+    expect(tester.takeException(), isNull);
+  });
+
   test('生产海报加载单次缓存探测并保留命中、回写和本地迁移语义', () async {
     final temp = await Directory.systemTemp.createTemp('konata_artwork_probe_');
     addTearDown(() => temp.delete(recursive: true));

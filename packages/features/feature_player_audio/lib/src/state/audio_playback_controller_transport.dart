@@ -167,7 +167,22 @@ extension _AudioPlaybackControllerTransport on AudioPlaybackController {
       );
 
       if (absStart > 0.05) {
-        activeClient.setPropertyDouble('start', absStart);
+        // MPV 的 start 为相对媒体起点的时间选项，使用与视频一致的字符串格式。
+        final formattedStart = absStart == absStart.roundToDouble()
+            ? absStart.toInt().toString()
+            : absStart.toStringAsFixed(3);
+        final startRc = activeClient.setPropertyString(
+          'start',
+          '+$formattedStart',
+        );
+        if (startRc < 0) {
+          final fallbackRc = activeClient.setPropertyDouble('start', absStart);
+          if (fallbackRc < 0) {
+            throw StateError(
+              '设置音频起播断点失败：${activeClient.errorString(fallbackRc)}',
+            );
+          }
+        }
       } else {
         activeClient.setPropertyString('start', 'none');
       }

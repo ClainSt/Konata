@@ -23,3 +23,5 @@ Konata v3 全屏流光音乐舞台、专辑队列、发烧音频安全链与悬�
 - 装配契约与清单：`FeaturePlayerAudioDependencies`、`featurePlayerAudioDependenciesProvider`、`audioPlaybackControllerProvider`、`audioPlaybackPrefsRepoProvider`、`featurePlayerAudioManifest`
 
 - 音频历史物理版本伴随 CUE 时先展开清单后定位轨号，以轨内时间计算物理起播位置；匹配失败不套用旧断点，异步加载检查会话代数。
+
+- 原生 MPV 音频断点使用 +秒数时间字符串，与视频装载格式一致；设置失败时尝试数值兼容路径，两者失败则进入原有加载错误处理。

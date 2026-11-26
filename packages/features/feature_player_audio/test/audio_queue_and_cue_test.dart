@@ -186,7 +186,7 @@ FILE "album.flac" WAVE
       expect(controller.snapshot.currentItem!.variantId, vAudio.id);
       expect(controller.snapshot.currentItem!.startSeconds, 203);
       final client = spawnedClients.single;
-      expect(client.properties['start'], 215.0);
+      expect(client.properties['start'], '+215');
       client.emitDuration(600);
       client.emitTimePos(215);
       await pumpEventQueue();

@@ -68,6 +68,7 @@ class LibraryController extends ChangeNotifier {
 
   List<WorkLibraryItem> _allVisibleItems = const <WorkLibraryItem>[];
   List<WorkLibraryItem> _displayedItems = const <WorkLibraryItem>[];
+  List<WorkLibraryItem> _filteredSortedItems = const <WorkLibraryItem>[];
   List<Work> _reviewWorks = const <Work>[];
   List<MediaSource> _sources = const <MediaSource>[];
   Map<String, int> _insertionOrder = const <String, int>{};
@@ -282,7 +283,7 @@ class LibraryController extends ChangeNotifier {
   void setSearchQuery(String query) {
     if (_searchQuery == query) return;
     _searchQuery = query;
-    _recomputeDisplayedItems();
+    _applySearch();
     notifyListeners();
   }
 
@@ -377,23 +378,26 @@ class LibraryController extends ChangeNotifier {
   }
 
   void _recomputeDisplayedItems() {
-    var filtered = <WorkLibraryItem>[
+    final filtered = <WorkLibraryItem>[
       for (final item in _allVisibleItems)
         if (_matchesPrefsFilters(item)) item,
     ];
 
     filtered.sort(_compareItems);
+    // 数据或筛选偏好变化时重建有序快照，输入搜索词仅复用该快照。
+    _filteredSortedItems = List<WorkLibraryItem>.unmodifiable(filtered);
+    _applySearch();
+  }
 
-    if (_searchQuery.trim().isNotEmpty) {
-      filtered = LibrarySearchMatcher.filterAndRank<WorkLibraryItem>(
-        items: filtered,
-        workOf: (item) => item.work,
-        releaseGroupsOf: (item) => item.releaseGroups,
-        rawQuery: _searchQuery,
-      );
-    }
-
-    _displayedItems = List<WorkLibraryItem>.unmodifiable(filtered);
+  void _applySearch() {
+    _displayedItems = _searchQuery.trim().isEmpty
+        ? _filteredSortedItems
+        : LibrarySearchMatcher.filterAndRank<WorkLibraryItem>(
+            items: _filteredSortedItems,
+            workOf: (item) => item.work,
+            releaseGroupsOf: (item) => item.releaseGroups,
+            rawQuery: _searchQuery,
+          );
   }
 
   bool _matchesPrefsFilters(WorkLibraryItem item) {

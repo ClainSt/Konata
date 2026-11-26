@@ -321,6 +321,51 @@ void main() {
     await controller.reload();
     expect(notifications, 0);
   });
+  test('搜索复用有序快照且筛选排序及数据变更使快照失效', () async {
+    void put(String id, String title, int year) {
+      db.library.works.upsert(
+        WorkRecord(
+          id: WorkId(id),
+          title: title,
+          year: year,
+          scrapeStatus: ScrapeStatus.matched,
+        ),
+      );
+    }
+
+    put('ten', 'Anime 10', 2020);
+    put('two', 'Anime 2', 2021);
+    put('other', 'Other', 2020);
+    final controller = LibraryController(
+      databases: db,
+      scopedPrefs: prefs,
+      eventBus: eventBus,
+      autoStart: false,
+    );
+    addTearDown(controller.dispose);
+    await controller.reload();
+    controller.setSortMode(LibrarySortMode.title);
+    List<String> ids() =>
+        controller.displayedItems.map((item) => item.work.id).toList();
+    controller.setSearchQuery('Anime');
+    expect(ids(), ['two', 'ten']);
+    controller.setSearchQuery('Anime 10');
+    expect(ids(), ['ten']);
+    controller.setSearchQuery('Anime');
+    controller.setSortOrder(LibrarySortOrder.descending);
+    expect(ids(), ['ten', 'two']);
+    controller.setYearFilter(2021);
+    expect(ids(), ['two']);
+    put('three', 'Anime 3', 2021);
+    await controller.reload();
+    expect(ids(), ['three', 'two']);
+    controller.setSearchQuery('');
+    expect(ids(), ['three', 'two']);
+    expect(() => controller.displayedItems.clear(), throwsUnsupportedError);
+    controller.setYearFilter(null);
+    expect(ids(), ['other', 'ten', 'three', 'two']);
+  });
+
   test('WorkManagementController 软删除仅清本地缓存与数据库墓碑，绝不触碰源文件', () async {
     final mediaDir = Directory('${tempRoot.path}/source_media/MyAnime');
     mediaDir.createSync(recursive: true);

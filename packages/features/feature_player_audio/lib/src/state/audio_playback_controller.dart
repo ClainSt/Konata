@@ -196,7 +196,7 @@ class AudioPlaybackController extends ChangeNotifier {
   }) async {
     if (_disposed) return;
     _activeWork = work;
-    _mediaOpenSeq++;
+    final collectionSeq = ++_mediaOpenSeq;
     _clearPrefetchTracking(releaseBridge: true);
 
     final sourceById = <String, MediaSourceView>{
@@ -226,7 +226,8 @@ class AudioPlaybackController extends ChangeNotifier {
       }
     }
 
-    final builtQueue = AudioPlaybackQueueBuilder.buildInitialQueue(
+    if (_disposed || collectionSeq != _mediaOpenSeq) return;
+    var builtQueue = AudioPlaybackQueueBuilder.buildInitialQueue(
       work: work,
       variants: variants,
       sourceById: sourceById,
@@ -235,6 +236,56 @@ class AudioPlaybackController extends ChangeNotifier {
       initialCueTrackIndex: initialCueTrackIndex,
       activeAlbumKey: activeAlbumKey,
     );
+
+    // 历史保存的是物理版本；恢复伴随 CUE 分轨时先展开清单再定位轨号。
+    if (initialCueTrackIndex != null &&
+        initialVariant != null &&
+        initialCueSheet == null) {
+      final target = builtQueue
+          .where((item) => item.variantId == initialVariant.id)
+          .firstOrNull;
+      if (target != null && target.cueSheetPath != null) {
+        try {
+          initialCueSheet = await _assets.loadCueSheet(
+            source: target.source,
+            cueRelativePath: target.cueSheetPath!,
+            gatewayFactory: _gatewayFactory,
+            knownFileSize: variants
+                .where(
+                  (v) =>
+                      v.sourceId == target.sourceId &&
+                      AudioPlaybackQueueBuilder.normalizeQueuePath(
+                            v.relativePath,
+                          ).toLowerCase() ==
+                          AudioPlaybackQueueBuilder.normalizeQueuePath(
+                            target.cueSheetPath!,
+                          ).toLowerCase(),
+                )
+                .firstOrNull
+                ?.fileSize,
+          );
+        } catch (error, stackTrace) {
+          _recordError(
+            code: 'AUDIO_CUE_RESUME_LOAD_FAIL',
+            message: '历史 CUE 分轨加载失败',
+            error: error,
+            stackTrace: stackTrace,
+          );
+        }
+        if (_disposed || collectionSeq != _mediaOpenSeq) return;
+        if (initialCueSheet != null) {
+          builtQueue = AudioPlaybackQueueBuilder.buildInitialQueue(
+            work: work,
+            variants: variants,
+            sourceById: sourceById,
+            initialVariant: initialVariant,
+            initialCueSheet: initialCueSheet,
+            initialCueTrackIndex: initialCueTrackIndex,
+            activeAlbumKey: activeAlbumKey,
+          );
+        }
+      }
+    }
 
     if (builtQueue.isEmpty) {
       _updateSnapshot(
@@ -258,6 +309,22 @@ class AudioPlaybackController extends ChangeNotifier {
       initialCueTrackIndex: initialCueTrackIndex,
     );
     if (targetIndex < 0) targetIndex = 0;
+    final targetItem = builtQueue[targetIndex];
+    final matchesResumeVariant =
+        initialVariant == null ||
+        targetItem.variantId == initialVariant.id ||
+        (targetItem.sourceId == initialVariant.sourceId &&
+            targetItem.cueSheetPath != null &&
+            AudioPlaybackQueueBuilder.normalizeQueuePath(
+                  targetItem.cueSheetPath!,
+                ).toLowerCase() ==
+                AudioPlaybackQueueBuilder.normalizeQueuePath(
+                  initialVariant.relativePath,
+                ).toLowerCase());
+    final matchesResumeTarget =
+        matchesResumeVariant &&
+        (initialCueTrackIndex == null ||
+            targetItem.cueTrackIndex == initialCueTrackIndex);
 
     final prefs = _preferences.read();
     final playOrder = AudioPlaybackQueueBuilder.buildPlayOrder(
@@ -295,7 +362,8 @@ class AudioPlaybackController extends ChangeNotifier {
 
     await playQueueIndex(
       targetIndex,
-      initialTrackSeconds: startPositionSeconds,
+      // 物理文件或轨号失效时，不将旧断点应用到回退曲目。
+      initialTrackSeconds: matchesResumeTarget ? startPositionSeconds : null,
       manualSelection: true,
     );
   }

@@ -7,16 +7,38 @@ final class _FakeNavigator implements AppNavigator {
   final List<({WorkId workId, EpisodeId? episodeId, VariantId? variantId})>
   videoCalls =
       <({WorkId workId, EpisodeId? episodeId, VariantId? variantId})>[];
-  final List<({WorkId workId, VariantId? variantId})> audioCalls =
-      <({WorkId workId, VariantId? variantId})>[];
+  final List<
+    ({
+      WorkId workId,
+      VariantId? variantId,
+      int? initialCueTrackIndex,
+      int? initialPositionSeconds,
+    })
+  >
+  audioCalls =
+      <
+        ({
+          WorkId workId,
+          VariantId? variantId,
+          int? initialCueTrackIndex,
+          int? initialPositionSeconds,
+        })
+      >[];
   final List<WorkId> detailCalls = <WorkId>[];
 
   @override
   Future<void> openAudioPlayer({
     required WorkId workId,
     VariantId? variantId,
+    int? initialCueTrackIndex,
+    int? initialPositionSeconds,
   }) async {
-    audioCalls.add((workId: workId, variantId: variantId));
+    audioCalls.add((
+      workId: workId,
+      variantId: variantId,
+      initialCueTrackIndex: initialCueTrackIndex,
+      initialPositionSeconds: initialPositionSeconds,
+    ));
   }
 
   @override
@@ -203,7 +225,13 @@ void main() {
 
     final today1 = DateTime(2026, 7, 10, 19, 30).toUtc().millisecondsSinceEpoch;
     final today2 = DateTime(2026, 7, 10, 18, 10).toUtc().millisecondsSinceEpoch;
-    final yesterday = DateTime(2026, 7, 9, 22, 15).toUtc().millisecondsSinceEpoch;
+    final yesterday = DateTime(
+      2026,
+      7,
+      9,
+      22,
+      15,
+    ).toUtc().millisecondsSinceEpoch;
     final older = DateTime(2026, 7, 3, 14, 0).toUtc().millisecondsSinceEpoch;
 
     db.userState.playbackRecords.upsert(
@@ -239,7 +267,7 @@ void main() {
       PlaybackRecordEntity(
         id: 'rec_cd',
         workId: const WorkId.trusted('w_bocchi'),
-        episodeId: const EpisodeId.trusted('cd::w_bocchi::track_1'),
+        episodeId: const EpisodeId.trusted('cd::v_b_ost#cue:2'),
         variantId: const VariantId.trusted('v_b_ost'),
         playedAtMs: yesterday,
         seasonNumber: 0,
@@ -308,6 +336,40 @@ void main() {
     await controller.resumePlayback(yesterdayAudioItem);
     expect(navigator.audioCalls.length, equals(1));
     expect(navigator.audioCalls.single.workId.value, equals('w_bocchi'));
+    expect(
+      navigator.audioCalls.single.initialPositionSeconds,
+      95,
+      reason: '历史音频续播必须传递已保存断点',
+    );
+    expect(navigator.audioCalls.single.initialCueTrackIndex, 2);
+    for (final (id, episode, completed, seconds, track) in [
+      ('ordinary', 'cd::v_b_ost', false, 12, null),
+      ('legacy', 'cd::v_b_ost::track_3', false, 95, 3),
+      ('completed', 'cd::v_b_ost#cue:2', true, 0, 2),
+    ]) {
+      db.userState.playbackRecords.upsert(
+        PlaybackRecordEntity(
+          id: id,
+          workId: const WorkId.trusted('w_bocchi'),
+          episodeId: EpisodeId.trusted(episode),
+          variantId: const VariantId.trusted('v_b_ost'),
+          playedAtMs: fixedNow.millisecondsSinceEpoch,
+          positionSeconds: completed ? 215 : seconds,
+          durationSeconds: 215,
+          isCompleted: completed,
+        ),
+      );
+      controller.refresh();
+      final entry = controller.dayGroups
+          .expand((d) => d.works)
+          .expand((w) => w.items)
+          .singleWhere((e) => e.record.id == id);
+      await controller.resumePlayback(entry);
+      final call = navigator.audioCalls.last;
+      expect(call.initialPositionSeconds, seconds);
+      expect(call.initialCueTrackIndex, track);
+      expect(call.variantId?.value, 'v_b_ost');
+    }
 
     await controller.openWorkDetail(const WorkId.trusted('w_frieren'));
     expect(navigator.detailCalls.single.value, equals('w_frieren'));

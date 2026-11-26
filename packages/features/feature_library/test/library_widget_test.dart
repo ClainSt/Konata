@@ -62,6 +62,8 @@ class _FakeNavigator implements AppNavigator {
   Future<void> openAudioPlayer({
     required WorkId workId,
     VariantId? variantId,
+    int? initialCueTrackIndex,
+    int? initialPositionSeconds,
   }) async {}
 
   @override

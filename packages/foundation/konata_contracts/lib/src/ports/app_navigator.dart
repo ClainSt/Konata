@@ -15,8 +15,13 @@ abstract interface class AppNavigator {
     VariantId? variantId,
   });
 
-  /// 启动全屏流光音频播放舞台（仅传作品及可选物理曲目标识）。
-  Future<void> openAudioPlayer({required WorkId workId, VariantId? variantId});
+  /// 启动全屏流光音频播放舞台（可选 CUE 轨号及轨内续播秒数；普通选曲不传断点）。
+  Future<void> openAudioPlayer({
+    required WorkId workId,
+    VariantId? variantId,
+    int? initialCueTrackIndex,
+    int? initialPositionSeconds,
+  });
 
   /// 打开设置容器，可选直接定位至指定设置分区标识。
   Future<void> openSettings({String? sectionId});

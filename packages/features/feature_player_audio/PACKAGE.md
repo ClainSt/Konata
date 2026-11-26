@@ -21,3 +21,5 @@ Konata v3 全屏流光音乐舞台、专辑队列、发烧音频安全链与悬�
 - 控制器：`AudioPlaybackController`（含 `positionListenable`、`durationListenable`、`playingListenable`、`activeListenable`、`snapshotListenable`）
 - 界面组件：`ImmersiveAudioPage`、`MiniAudioBar`、`SettingsAudioPanel`、`AudioLyricsViewportContext`、`AudioLyricsViewportBuilder`、`showAudiophileSafetyDialog`
 - 装配契约与清单：`FeaturePlayerAudioDependencies`、`featurePlayerAudioDependenciesProvider`、`audioPlaybackControllerProvider`、`audioPlaybackPrefsRepoProvider`、`featurePlayerAudioManifest`
+
+- 音频历史物理版本伴随 CUE 时先展开清单后定位轨号，以轨内时间计算物理起播位置；匹配失败不套用旧断点，异步加载检查会话代数。

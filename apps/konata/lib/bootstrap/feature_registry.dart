@@ -768,12 +768,16 @@ Widget buildVideoPlayerRoutePage({
 Widget buildAudioPlayerRoutePage({
   WorkId? workId,
   VariantId? variantId,
+  int? initialCueTrackIndex,
+  int? initialPositionSeconds,
   bool hasVideoFeature = true,
   required VoidCallback onClosePage,
 }) {
   return _HostAudioStageRoute(
     workId: workId,
     variantId: variantId,
+    initialCueTrackIndex: initialCueTrackIndex,
+    initialPositionSeconds: initialPositionSeconds,
     hasVideoFeature: hasVideoFeature,
     onClosePage: onClosePage,
   );
@@ -961,12 +965,16 @@ final class _HostAudioStageRoute extends ConsumerStatefulWidget {
   const _HostAudioStageRoute({
     this.workId,
     this.variantId,
+    this.initialCueTrackIndex,
+    this.initialPositionSeconds,
     required this.hasVideoFeature,
     required this.onClosePage,
   });
 
   final WorkId? workId;
   final VariantId? variantId;
+  final int? initialCueTrackIndex;
+  final int? initialPositionSeconds;
   final bool hasVideoFeature;
   final VoidCallback onClosePage;
 
@@ -1011,6 +1019,14 @@ final class _HostAudioStageRouteState
       }
     }
     if (!mounted) return;
+    // 历史续播不应在目标文件失效时把旧断点应用到其它曲目。
+    if (widget.initialPositionSeconds != null &&
+        (initialVariant == null ||
+            initialVariant.assetKind != AssetKind.cdAlbum)) {
+      showKonataToast(context, '未找到对应 CD 音频文件', isError: true);
+      widget.onClosePage();
+      return;
+    }
     if (widget.hasVideoFeature) {
       final videoMgr = ref.read(activeVideoSessionManagerProvider);
       if (videoMgr.hasActiveSession) {
@@ -1025,6 +1041,8 @@ final class _HostAudioStageRouteState
       variants: variants,
       sources: sources,
       initialVariant: initialVariant,
+      initialCueTrackIndex: widget.initialCueTrackIndex,
+      startPositionSeconds: widget.initialPositionSeconds?.toDouble(),
     );
   }
 

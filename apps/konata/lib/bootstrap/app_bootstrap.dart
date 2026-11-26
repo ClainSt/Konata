@@ -201,8 +201,15 @@ final class HostAppNavigator implements AppNavigator {
   Future<void> openAudioPlayer({
     required WorkId workId,
     VariantId? variantId,
+    int? initialCueTrackIndex,
+    int? initialPositionSeconds,
   }) async {
-    await _pushAudioStage(workId: workId, variantId: variantId);
+    await _pushAudioStage(
+      workId: workId,
+      variantId: variantId,
+      initialCueTrackIndex: initialCueTrackIndex,
+      initialPositionSeconds: initialPositionSeconds,
+    );
   }
 
   /// 从悬浮迷你唱片回弹展开当前已激活的音频全屏舞台（不重建既有解码会话）。
@@ -210,7 +217,12 @@ final class HostAppNavigator implements AppNavigator {
     await _pushAudioStage();
   }
 
-  Future<void> _pushAudioStage({WorkId? workId, VariantId? variantId}) async {
+  Future<void> _pushAudioStage({
+    WorkId? workId,
+    VariantId? variantId,
+    int? initialCueTrackIndex,
+    int? initialPositionSeconds,
+  }) async {
     final nav = navigatorKey.currentState;
     if (nav == null) return;
     onAudioStageVisibilityChanged?.call(true);
@@ -227,6 +239,8 @@ final class HostAppNavigator implements AppNavigator {
             child: buildAudioPlayerRoutePage(
               workId: workId,
               variantId: variantId,
+              initialCueTrackIndex: initialCueTrackIndex,
+              initialPositionSeconds: initialPositionSeconds,
               hasVideoFeature: hasVideoFeature,
               onClosePage: () {
                 unawaited(pop());

@@ -15,3 +15,5 @@
 - **7 大声明式扩展点**：`FeatureManifest`、`NavSectionContribution`、`SettingsSectionContribution`、`DetailTabContribution`、`DetailActionContribution`、`PlayerSidePanelContribution`、`DataProviderContribution`（含 `ProgressTrackerProvider`）、`SyncSliceContributor`（含 `SyncSlicePayload` / `SyncMergePlan` / `SyncTransactionContext`）。
 
 同步切片事务应用采用非 Future 的 SyncApplyCompletion 完成标记；应用计划须在当前调用栈内完成并同步抛出失败，不能自行打开写事务、异步写入或绕过宿主事务句柄。
+
+- 音频导航端口可选传递 CUE 轨号和轨内续播秒数；普通选曲及悬浮窗恢复不传历史参数。

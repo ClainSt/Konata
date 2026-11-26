@@ -157,6 +157,42 @@ FILE "album.flac" WAVE
       );
     }
 
+    test('CUE 物理版本历史续播定位第二轨及相对断点', () async {
+      final controller = buildController(
+        files: {
+          'CD/album.cue': Uint8List.fromList(utf8.encode(sampleCue)),
+          'CD/album.flac': Uint8List.fromList(List<int>.filled(1024, 1)),
+        },
+      );
+      addTearDown(controller.dispose);
+      final vCue = makeTestCdVariant(id: 'v_cue', relativePath: 'CD/album.cue');
+      final vAudio = makeTestCdVariant(
+        id: 'v_audio',
+        relativePath: 'CD/album.flac',
+      );
+      await controller.playCdCollection(
+        work: makeTestWork(),
+        variants: [vAudio, vCue],
+        sources: [makeTestSource()],
+        initialVariant: vAudio,
+        initialCueTrackIndex: 2,
+        startPositionSeconds: 12,
+      );
+      expect(
+        controller.snapshot.currentItem!.cueTrackIndex,
+        2,
+        reason: '物理文件历史必须先展开CUE并定位目标轨',
+      );
+      expect(controller.snapshot.currentItem!.variantId, vAudio.id);
+      expect(controller.snapshot.currentItem!.startSeconds, 203);
+      final client = spawnedClients.single;
+      expect(client.properties['start'], 215.0);
+      client.emitDuration(600);
+      client.emitTimePos(215);
+      await pumpEventQueue();
+      expect(controller.currentTrackPositionSeconds, closeTo(12, 0.01));
+      expect(controller.snapshot.currentItem!.cueTrackIndex, 2);
+    });
     test('同物理流 .cue 自然跨轨前进不重新调用 loadfile 且实时更新曲目索引与时长', () async {
       final files = <String, Uint8List>{
         'CD/album.cue': Uint8List.fromList(utf8.encode(sampleCue)),

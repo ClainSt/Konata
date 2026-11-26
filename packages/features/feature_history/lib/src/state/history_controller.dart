@@ -201,9 +201,19 @@ final class HistoryController extends ChangeNotifier {
   Future<void> resumePlayback(HistoryEntryView entry) async {
     try {
       if (entry.isAudio) {
+        final record = entry.record;
+        // 兼容当前物理版本#cue:轨号和旧版::track_轨号历史标识。
+        final match = RegExp(
+          r'^cd::.+(?:#cue:|::track_)(\d+)$',
+        ).firstMatch(record.episodeId.value);
+        final track = match == null ? null : int.tryParse(match.group(1)!);
         await _navigator.openAudioPlayer(
-          workId: entry.record.workId,
-          variantId: entry.record.variantId,
+          workId: record.workId,
+          variantId: record.variantId,
+          initialCueTrackIndex: track,
+          initialPositionSeconds: record.isCompleted
+              ? 0
+              : record.positionSeconds,
         );
         return;
       }

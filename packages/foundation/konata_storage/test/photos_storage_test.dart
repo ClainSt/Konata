@@ -71,6 +71,32 @@ void main() {
     expect(evicted, hasLength(1));
   });
 
+  test('旧刮削哈希目录可被当前公共存储发现，改名后图片仍保留', () async {
+    final root = await Directory.systemTemp.createTemp('konata_legacy_tag_');
+    addTearDown(() => root.delete(recursive: true));
+    final store = PhotosStorage(overrideRoot: root);
+    const workId = 'Work_ABC';
+    const oldTag = 'workabc-7886ecf74a';
+    final dir = Directory('${root.path}/旧标题 [$oldTag]/thumbnails')
+      ..createSync(recursive: true);
+    final file = File('${dir.path}/still.png')..writeAsBytesSync([1, 2, 3]);
+    expect(PhotosStorage.matchesWorkDirectoryTag(oldTag, workId), isTrue);
+    expect(
+      await store.readLocalWorkFile(
+        workId: workId,
+        subfolder: PhotoSubfolder.thumbnails,
+        fileName: 'still.png',
+      ),
+      [1, 2, 3],
+    );
+    await store.renameWorkFolderIfNeeded(workId, '新标题');
+    expect(file.existsSync(), isFalse);
+    final current = await store.resolveSubfolderDirectory(
+      workId,
+      PhotoSubfolder.thumbnails,
+    );
+    expect(File('${current.path}/still.png').readAsBytesSync(), [1, 2, 3]);
+  });
   test('分类统计清理与新图片写入拒绝受管目录内的链接重定向', () async {
     final temp = await Directory.systemTemp.createTemp(
       'konata_photo_link_guard_',

@@ -169,6 +169,28 @@ final class PhotosStorage {
     return '$head-$hash10';
   }
 
+  /// 识别当前、原始及旧刮削引擎标签，用于历史目录兼容，不生成旧格式新目录。
+  static bool matchesWorkDirectoryTag(String tag, String workId) {
+    final clean = workId.trim();
+    if (clean.isEmpty) return false;
+    if (tag == clean || tag == encodeWorkIdTag(clean)) return true;
+    final prefix = clean.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+    final head = prefix.isEmpty
+        ? 'w'
+        : (prefix.length > 12 ? prefix.substring(0, 12) : prefix);
+    final hash = sha256.convert(utf8.encode(clean)).toString().substring(0, 10);
+    return tag == '$head-$hash';
+  }
+
+  static bool _matchesWorkDirectoryName(String name, String workId) {
+    final start = name.lastIndexOf(' [');
+    if (start < 0 || !name.endsWith(']')) return false;
+    return matchesWorkDirectoryTag(
+      name.substring(start + 2, name.length - 1),
+      workId,
+    );
+  }
+
   /// 拼接作品文件夹标准命名：`<安全作品名> [<workIdTag>]`。
   static String formatWorkFolderName({
     required String workId,
@@ -721,13 +743,11 @@ final class PhotosStorage {
 
   List<Directory> _findAllWorkDirsForId(Directory root, String workId) {
     if (!root.existsSync() || workId.isEmpty) return const <Directory>[];
-    final suffix = ' [${encodeWorkIdTag(workId)}]';
-    final legacySuffix = ' [$workId]';
     final matches = <Directory>[];
     for (final entity in root.listSync(followLinks: false)) {
       if (entity is! Directory) continue;
       final name = p.basename(entity.path);
-      if ((name.endsWith(suffix) || name.endsWith(legacySuffix)) &&
+      if (_matchesWorkDirectoryName(name, workId) &&
           _isManagedDirectory(root, entity)) {
         matches.add(entity);
       }

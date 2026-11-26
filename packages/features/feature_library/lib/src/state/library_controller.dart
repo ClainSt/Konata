@@ -63,6 +63,8 @@ class LibraryController extends ChangeNotifier {
   bool _isLoading = true;
   bool _videoPlaybackActive = false;
   bool _disposed = false;
+  bool _reloadRequested = false;
+  Future<void>? _reloadFuture;
 
   List<WorkLibraryItem> _allVisibleItems = const <WorkLibraryItem>[];
   List<WorkLibraryItem> _displayedItems = const <WorkLibraryItem>[];
@@ -137,7 +139,25 @@ class LibraryController extends ChangeNotifier {
   }
 
   /// 主动从存储层全量重算可见作品墙与待复核列表。
-  Future<void> reload() async {
+  Future<void> reload() {
+    if (_disposed) return Future<void>.value();
+    _reloadRequested = true;
+    // 同一轮请求共享一次加载；加载期间的新变更必须在下一轮重新读取。
+    return _reloadFuture ??= Future<void>.microtask(_drainReloads);
+  }
+
+  Future<void> _drainReloads() async {
+    try {
+      while (_reloadRequested && !_disposed) {
+        _reloadRequested = false;
+        await _reloadOnce();
+      }
+    } finally {
+      _reloadFuture = null;
+    }
+  }
+
+  Future<void> _reloadOnce() async {
     if (_disposed) return;
     try {
       final results = await Future.wait<Object>(<Future<Object>>[

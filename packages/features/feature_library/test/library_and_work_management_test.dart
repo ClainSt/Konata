@@ -269,6 +269,58 @@ void main() {
     expect(restored.shouldEnableDesktopKeepAlive, isFalse);
   });
 
+  test('同一轮重复刷新合并，加载期间新增作品仍会重新读取', () async {
+    final controller = LibraryController(
+      databases: db,
+      scopedPrefs: prefs,
+      eventBus: eventBus,
+      autoStart: false,
+    );
+    addTearDown(controller.dispose);
+    var notifications = 0;
+    Future<void>? trailing;
+    controller.addListener(() {
+      notifications++;
+      if (notifications != 1) return;
+      db.library.works.upsert(
+        WorkRecord(
+          id: WorkId('late-work'),
+          title: 'Late work',
+          scrapeStatus: ScrapeStatus.matched,
+        ),
+      );
+      trailing = controller.reload();
+    });
+    final requests = [
+      controller.reload(),
+      controller.reload(),
+      controller.reload(),
+    ];
+    await Future.wait(requests);
+    await trailing;
+    expect(notifications, 2);
+    expect(controller.displayedItems.map((item) => item.work.id), [
+      'late-work',
+    ]);
+    await controller.reload();
+    expect(notifications, 3);
+  });
+
+  test('释放控制器后不执行已排队的刷新通知', () async {
+    final controller = LibraryController(
+      databases: db,
+      scopedPrefs: prefs,
+      eventBus: eventBus,
+      autoStart: false,
+    );
+    var notifications = 0;
+    controller.addListener(() => notifications++);
+    final pending = controller.reload();
+    controller.dispose();
+    await pending;
+    await controller.reload();
+    expect(notifications, 0);
+  });
   test('WorkManagementController 软删除仅清本地缓存与数据库墓碑，绝不触碰源文件', () async {
     final mediaDir = Directory('${tempRoot.path}/source_media/MyAnime');
     mediaDir.createSync(recursive: true);

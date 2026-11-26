@@ -16,3 +16,4 @@ Konata v3 媒体库海报墙、本地检索筛选、作品管理与待复核纠�
 - 零 Riverpod 数据与状态控制：`ChinesePinyinCollator`、`LibrarySearchMatcher`、`LibraryController`、`WorkManagementController`、`LibraryFilterPrefs`
 - 视图与毛玻璃弹窗使用 `LibraryPage`、`PosterCard`、`showReviewDialog`、`showDeleteWorkDialog`。艺术图经薄适配接入 `KonataManagedImage`，匹配、源文件复核与合并经 `WorkManageDialogPort` 复用详情模块。
 - 拼音排序表在已有媒体数据需要汉字排序时由宿主资产端口装载。
+- 媒体库全量刷新同轮请求合并，读取期间的新请求串行补跑，调用方等待本轮全部刷新完成。

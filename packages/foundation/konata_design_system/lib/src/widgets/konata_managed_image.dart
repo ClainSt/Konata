@@ -77,6 +77,11 @@ final class KonataThumbnailByteLru {
     }
   }
 
+  /// 仅驱逐当前仍为失败对象的条目，避免迟到的解码异常清除新图片。
+  void evictIfSame(Object key, Uint8List bytes) {
+    if (identical(_entries[key], bytes)) _entries.remove(key);
+  }
+
   /// 清空全部内存字节缓存（供后台收缩或测试复位调用）。
   void clear() => _entries.clear();
 }
@@ -195,8 +200,9 @@ class KonataManagedImageProvider extends ImageProvider<KonataManagedImageKey> {
     KonataManagedImageKey key,
     ImageDecoderCallback decode,
   ) async {
+    Uint8List? bytes;
     try {
-      Uint8List? bytes = byteLru?.get(key);
+      bytes = byteLru?.get(key);
       if (bytes == null || bytes.isEmpty) {
         bytes = await loader(
           key.url,
@@ -227,6 +233,8 @@ class KonataManagedImageProvider extends ImageProvider<KonataManagedImageKey> {
         },
       );
     } catch (_) {
+      // 解码失败时移除对应编码字节，避免重试反复命中损坏数据。
+      if (bytes != null) byteLru?.evictIfSame(key, bytes);
       PaintingBinding.instance.imageCache.evict(key);
       rethrow;
     }

@@ -235,7 +235,214 @@ class _FakeHttpClient implements KonataHttpClientPort {
   }) => get(primaryUri);
 }
 
+class _CountingArtworkCache implements ArtworkCacheStore {
+  _CountingArtworkCache(this.inner);
+  final ArtworkDiskCache inner;
+  int reads = 0;
+  int localReads = 0;
+  int writes = 0;
+
+  @override
+  Future<Uint8List?> read(
+    String key, {
+    int minimumQuality = 0,
+    String? owner,
+    PhotoSubfolder? subfolder,
+  }) {
+    reads++;
+    return inner.read(
+      key,
+      minimumQuality: minimumQuality,
+      owner: owner,
+      subfolder: subfolder,
+    );
+  }
+
+  @override
+  Future<void> write(
+    String key,
+    Uint8List bytes, {
+    String? owner,
+    int quality = 0,
+    PhotoSubfolder? subfolder,
+  }) {
+    writes++;
+    return inner.write(
+      key,
+      bytes,
+      owner: owner,
+      quality: quality,
+      subfolder: subfolder,
+    );
+  }
+
+  @override
+  Future<Uint8List?> readLocalWorkFile({
+    required String owner,
+    required PhotoSubfolder subfolder,
+    required String fileName,
+  }) {
+    localReads++;
+    return inner.readLocalWorkFile(
+      owner: owner,
+      subfolder: subfolder,
+      fileName: fileName,
+    );
+  }
+}
+
+class _ArtworkAuditHttp extends _FakeHttpClient {
+  final requests = <Uri>[];
+
+  @override
+  Future<KonataHttpResponse> get(
+    Uri uri, {
+    Map<String, String> headers = const <String, String>{},
+    RequestPriority priority = RequestPriority.background,
+    String? dedupeKey,
+    String? bucketKey,
+  }) async {
+    requests.add(uri);
+    return KonataHttpResponse(
+      statusCode: uri.path.endsWith('failure.png') ? 503 : 200,
+      headers: const {'content-type': 'image/png'},
+      bodyBytes: _samplePng,
+    );
+  }
+}
+
 void main() {
+  test('生产海报加载单次缓存探测并保留命中、回写和本地迁移语义', () async {
+    final temp = await Directory.systemTemp.createTemp('konata_artwork_probe_');
+    addTearDown(() => temp.delete(recursive: true));
+    final db = KonataDatabaseBundle.openInMemory();
+    addTearDown(db.close);
+    final bus = InMemoryDomainEventBus();
+    addTearDown(bus.dispose);
+    final root = _TestStorageRoot(temp.path);
+    final photos = PhotosStorage(storageRoot: root);
+    final disk = ArtworkDiskCache(photosStorage: photos);
+    final cache = _CountingArtworkCache(disk);
+    final http = _ArtworkAuditHttp();
+    final container = ProviderContainer(
+      overrides: [
+        featureLibraryDependenciesProvider.overrideWithValue(
+          FeatureLibraryDependencies(
+            databases: db,
+            storageRoot: root,
+            diagnosticLog: _FakeDiagnosticLog(),
+            scopedPrefs: ScopedPrefsStore(db.userState),
+            domainEventBus: bus,
+            navigator: _FakeNavigator(),
+            httpClient: http,
+            photosStorage: photos,
+            artworkCache: cache,
+            platform: KonataPlatform.windows,
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    final loader = container.read(libraryArtworkLoaderProvider);
+    const slot = PhotoSubfolder.posters;
+    const owner = 'audit-owner';
+    const remote = 'https://isolated.invalid/cover.png';
+    const tmdb = '/audit-poster.png';
+    final counts = <String, int>{};
+
+    Future<Uint8List?> load(String path) =>
+        loader(path, ownerWorkId: owner, subfolder: slot);
+
+    // 首次未命中后请求一次，并持久化；后续加载直接复用同一字节对象。
+    final first = await load(remote);
+    expect(first, _samplePng);
+    counts['remoteMiss'] = cache.reads;
+    expect(http.requests, hasLength(1));
+    expect(cache.writes, 1);
+    expect(await load(remote), same(first));
+    counts['remoteHit'] = cache.reads - counts['remoteMiss']!;
+    expect(http.requests, hasLength(1));
+
+    // 两层缓存保存的是同一个 Uint8List，而不是另外复制一份编码图。
+    final thumbnail = KonataThumbnailByteLru();
+    thumbnail.put(remote, first!);
+    expect(
+      thumbnail.get(remote),
+      same(await disk.read('url:$remote', owner: owner, subfolder: slot)),
+    );
+
+    disk.clearMemoryCache();
+    final cold = await load(remote);
+    expect(cold, _samplePng);
+    expect(identical(cold, first), isFalse);
+    expect(
+      await disk.read('url:$remote', owner: owner, subfolder: slot),
+      same(cold),
+    );
+    expect(http.requests, hasLength(1));
+
+    final tmdbStart = cache.reads;
+    final tmdbBytes = await load(tmdb);
+    expect(tmdbBytes, _samplePng);
+    counts['tmdbMiss'] = cache.reads - tmdbStart;
+    expect(http.requests, hasLength(2));
+    expect(http.requests.last.path, endsWith('/w500/audit-poster.png'));
+    final tmdbHitStart = cache.reads;
+    expect(await load(tmdb), same(tmdbBytes));
+    counts['tmdbHit'] = cache.reads - tmdbHitStart;
+    expect(http.requests, hasLength(2));
+
+    const corruptUrl = 'https://isolated.invalid/corrupt.png';
+    await disk.write(
+      'url:$corruptUrl',
+      Uint8List.fromList('<html>not an image</html>'.codeUnits),
+      owner: owner,
+      subfolder: slot,
+    );
+    final corruptStart = cache.reads;
+    expect(await load(corruptUrl), _samplePng);
+    counts['corruptMiss'] = cache.reads - corruptStart;
+    expect(http.requests, hasLength(3));
+
+    final failureStart = cache.reads;
+    expect(await load('https://isolated.invalid/failure.png'), isNull);
+    counts['failedRemote'] = cache.reads - failureStart;
+    expect(http.requests, hasLength(4));
+
+    final file = File('${temp.path}/local.png')..writeAsBytesSync(_samplePng);
+    final localStart = cache.localReads;
+    expect(await load(file.path), _samplePng);
+    expect(cache.localReads, localStart);
+    final moved = await photos.writeArtwork(
+      workId: owner,
+      subfolder: slot,
+      cacheKey: 'relocated',
+      bytes: _samplePng,
+      extension: '.png',
+    );
+    final name = moved.uri.pathSegments.last;
+    expect(await load('${temp.path}/old/posters/$name'), _samplePng);
+    counts['relocatedHit'] = cache.localReads - localStart;
+    final missingStart = cache.localReads;
+    expect(await load('${temp.path}/old/posters/missing.png'), isNull);
+    counts['relocatedMiss'] = cache.localReads - missingStart;
+    final emptyStart = cache.reads;
+    expect(await load('  '), isNull);
+    expect(cache.reads, emptyStart);
+    expect(http.requests, hasLength(4));
+    // 计数结果同时作为未命中冗余探测的可核查基线。
+    expect(counts, {
+      'remoteMiss': 1,
+      'remoteHit': 1,
+      'tmdbMiss': 1,
+      'tmdbHit': 1,
+      'corruptMiss': 1,
+      'failedRemote': 1,
+      'relocatedHit': 1,
+      'relocatedMiss': 1,
+    });
+  });
+
   testWidgets('媒体库海报墙在四视口矩阵下零溢出且点击海报卡准确触发 openWorkDetail', (tester) async {
     final tempRoot = Directory.systemTemp.createTempSync('konata_lib_ui_');
     addTearDown(() {

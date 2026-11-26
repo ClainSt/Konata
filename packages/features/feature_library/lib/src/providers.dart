@@ -66,12 +66,13 @@ final class FeatureLibraryDependencies {
 }
 
 /// 媒体库依赖注入根 `Provider`（必须由宿主 `ProviderScope` 覆盖提供）。
-final featureLibraryDependenciesProvider =
-    Provider<FeatureLibraryDependencies>((ref) {
-      throw UnimplementedError(
-        'featureLibraryDependenciesProvider 必须由宿主 ProviderScope 注入覆盖',
-      );
-    });
+final featureLibraryDependenciesProvider = Provider<FeatureLibraryDependencies>(
+  (ref) {
+    throw UnimplementedError(
+      'featureLibraryDependenciesProvider 必须由宿主 ProviderScope 注入覆盖',
+    );
+  },
+);
 
 /// 由宿主连接至详情模块的作品管理弹窗端口。
 final workManageDialogPortProvider = Provider<WorkManageDialogPort>((ref) {
@@ -126,17 +127,8 @@ final libraryArtworkLoaderProvider = Provider<LibraryArtworkLoader>((ref) {
     final trimmed = path.trim();
     if (trimmed.isEmpty) return null;
     try {
-      final cached = await TmdbService.readCachedImageBytes(
-        trimmed,
-        artworkCache: deps.artworkCache,
-        size: imageSize,
-        targetWidth: targetWidth,
-        ownerWorkId: ownerWorkId,
-        subfolder: subfolder,
-      );
-      if (cached != null && cached.isNotEmpty) {
-        return cached;
-      }
+      // fetchImageBytes 自带缓存命中与本地迁移定位，避免未命中时重复探测。
+
       final fetched = await tmdb.fetchImageBytes(
         trimmed,
         size: imageSize,

@@ -15,3 +15,5 @@
 - **配置、日志与路径服务**：`ScopedPrefsStore`、`TypedPrefsSlice`、`DiagnosticLogStore`、`PortableStorageRootService`、`InMemorySecureStorage`。
 
 - **作品可见性契约**：library.db v4 原位移除废弃隐藏字段；未删除作品按匹配状态进入媒体库或复核队列，保留原 ID、系列和媒体关联。作品软删除在同一事务内收敛仍归属该作品的有效剧集和文件索引墓碑；同步可在关系写入后复用收敛方法。
+
+- **受管图片精准清理**：PhotosStorage.deleteManagedArtworkFile 校验作品、槽位和真实路径；禁止以数据库任意路径直接删除外部文件。

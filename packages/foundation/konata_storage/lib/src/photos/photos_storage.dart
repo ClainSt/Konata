@@ -197,7 +197,10 @@ final class PhotosStorage {
     final root = await resolveRootDirectory();
     if (!root.existsSync()) return;
 
-    final desiredName = formatWorkFolderName(workId: cleanId, title: cleanTitle);
+    final desiredName = formatWorkFolderName(
+      workId: cleanId,
+      title: cleanTitle,
+    );
     final desiredDir = Directory(p.join(root.path, desiredName));
     final existingDirs = _findAllWorkDirsForId(root, cleanId);
     if (existingDirs.isEmpty) return;
@@ -262,10 +265,7 @@ final class PhotosStorage {
   }
 
   /// 定位作品目录（默认懒解析，不主动建空目录）。
-  Future<Directory> resolveWorkDirectory(
-    String workId, {
-    String? title,
-  }) async {
+  Future<Directory> resolveWorkDirectory(String workId, {String? title}) async {
     final cleanId = workId.trim();
     if (title != null && title.trim().isNotEmpty) {
       _knownTitleByWorkId[cleanId] = title.trim();
@@ -312,7 +312,45 @@ final class PhotosStorage {
     return Directory(p.join(workDir.path, subfolder.dirName));
   }
 
-  static String _scanFileName(String variantId, String relativePath, int size) =>
+  /// 仅删除当前作品指定子目录中的受管图片；拒绝外部路径、跨作品引用及链接重定向。
+  Future<bool> deleteManagedArtworkFile({
+    required String workId,
+    required PhotoSubfolder subfolder,
+    required String path,
+  }) async {
+    if (workId.trim().isEmpty || !p.isAbsolute(path)) return false;
+    final root = await resolveRootDirectory();
+    final normalized = p.normalize(path);
+    if (!p.isWithin(root.absolute.path, normalized)) return false;
+    final segments = p.split(p.relative(normalized, from: root.absolute.path));
+    if (segments.length != 3 || segments[1] != subfolder.dirName) return false;
+    if (!segments.first.endsWith(' [${encodeWorkIdTag(workId)}]') &&
+        !segments.first.endsWith(' [$workId]')) {
+      return false;
+    }
+    final file = File(normalized);
+    try {
+      if (await FileSystemEntity.type(file.path, followLinks: false) !=
+          FileSystemEntityType.file)
+        return false;
+      final realRoot = await root.resolveSymbolicLinks();
+      final realPath = await file.resolveSymbolicLinks();
+      final expected = p.joinAll([realRoot, ...segments]);
+      if (!p.equals(realPath, expected)) return false;
+      await file.delete();
+      await onEvictImageFile?.call(file);
+      return true;
+    } on FileSystemException catch (error) {
+      developer.log('受管图片清理未完成', name: 'konata.photos_storage', error: error);
+      return false;
+    }
+  }
+
+  static String _scanFileName(
+    String variantId,
+    String relativePath,
+    int size,
+  ) =>
       '${shortDigest('${relativePath.replaceAll('\\', '/')}#$size#$variantId')}.webp';
 
   /// 返回指定作品扫图微缩图的目标文件路径（写入前才建目录）。
@@ -413,7 +451,11 @@ final class PhotosStorage {
     required String cacheKey,
     String? title,
   }) async {
-    final dir = await resolveSubfolderDirectory(workId, subfolder, title: title);
+    final dir = await resolveSubfolderDirectory(
+      workId,
+      subfolder,
+      title: title,
+    );
     if (!dir.existsSync()) return null;
     final prefix = shortDigest(cacheKey);
     for (final entity in dir.listSync(followLinks: false)) {
@@ -440,7 +482,11 @@ final class PhotosStorage {
     String extension = '.bin',
     String? title,
   }) async {
-    final dir = await resolveSubfolderDirectory(workId, subfolder, title: title);
+    final dir = await resolveSubfolderDirectory(
+      workId,
+      subfolder,
+      title: title,
+    );
     final ext = extension.startsWith('.') ? extension : '.$extension';
     final file = File(p.join(dir.path, '${shortDigest(cacheKey)}$ext'));
     await _writeAtomic(file, bytes);
@@ -456,7 +502,11 @@ final class PhotosStorage {
     required String fileName,
     String? title,
   }) async {
-    final dir = await resolveSubfolderDirectory(workId, subfolder, title: title);
+    final dir = await resolveSubfolderDirectory(
+      workId,
+      subfolder,
+      title: title,
+    );
     final file = File(p.join(dir.path, p.basename(fileName)));
     if (!file.existsSync()) return null;
     try {
@@ -475,7 +525,11 @@ final class PhotosStorage {
     String extension = '.png',
     String? title,
   }) async {
-    final dir = await resolveSubfolderDirectory(workId, subfolder, title: title);
+    final dir = await resolveSubfolderDirectory(
+      workId,
+      subfolder,
+      title: title,
+    );
     final ext = extension.startsWith('.') ? extension : '.$extension';
     final ts = DateTime.now().millisecondsSinceEpoch;
     final file = File(p.join(dir.path, 'custom_$ts$ext'));
@@ -566,7 +620,11 @@ final class PhotosStorage {
       '${target.path}.part.${DateTime.now().microsecondsSinceEpoch}',
     );
     await part.writeAsBytes(bytes, flush: true);
-    await AtomicFileWriter.replaceFile(part, target, expectedLength: bytes.length);
+    await AtomicFileWriter.replaceFile(
+      part,
+      target,
+      expectedLength: bytes.length,
+    );
   }
 
   List<Directory> _findAllWorkDirsForId(Directory root, String workId) {

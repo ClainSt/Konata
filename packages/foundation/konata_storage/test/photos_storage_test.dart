@@ -64,13 +64,63 @@ void main() {
     expect(stats.workFolderCount, 1);
     expect(stats.regenerableFiles, 1);
 
-    final cleared = await storage.clearCategories(
-      const <PhotoStorageCategory>{PhotoStorageCategory.scans},
-    );
+    final cleared = await storage.clearCategories(const <PhotoStorageCategory>{
+      PhotoStorageCategory.scans,
+    });
     expect(cleared, 1);
     expect(evicted, hasLength(1));
   });
 
+  test('精准清理仅允许当前作品受管子目录内的图片，保护外部与其他作品', () async {
+    final temp = await Directory.systemTemp.createTemp('konata_photo_guard_');
+    addTearDown(() => temp.delete(recursive: true));
+    final root = Directory('${temp.path}/photos')..createSync();
+    final storage = PhotosStorage(overrideRoot: root);
+    final own = await storage.resolveSubfolderDirectory(
+      'w1',
+      PhotoSubfolder.thumbnails,
+      title: '作品甲',
+    );
+    final other = await storage.resolveSubfolderDirectory(
+      'w2',
+      PhotoSubfolder.thumbnails,
+      title: '作品乙',
+    );
+    final wrongSlot = await storage.resolveSubfolderDirectory(
+      'w1',
+      PhotoSubfolder.backdrops,
+    );
+    for (final dir in [own, other, wrongSlot]) {
+      dir.createSync(recursive: true);
+    }
+    final external = File('${temp.path}/video_still_legacy.png')
+      ..writeAsStringSync('原始图片');
+    final sibling = File('${other.path}/video_still_legacy.png')
+      ..writeAsStringSync('其他作品');
+    final backdrop = File('${wrongSlot.path}/video_still_legacy.png')
+      ..writeAsStringSync('其他槽位');
+    final owned = File('${own.path}/video_still_legacy.png')
+      ..writeAsStringSync('可清理缓存');
+    Future<bool> remove(String path) => storage.deleteManagedArtworkFile(
+      workId: 'w1',
+      subfolder: PhotoSubfolder.thumbnails,
+      path: path,
+    );
+    expect(await remove(external.path), isFalse);
+    expect(await remove(sibling.path), isFalse);
+    expect(await remove(backdrop.path), isFalse);
+    expect(await remove('video_still_legacy.png'), isFalse);
+    expect(
+      await remove('${own.path}/../../../video_still_legacy.png'),
+      isFalse,
+    );
+    expect(await remove(owned.path), isTrue);
+    expect(await remove(owned.path), isFalse);
+    expect(external.readAsStringSync(), '原始图片');
+    expect(sibling.readAsStringSync(), '其他作品');
+    expect(backdrop.readAsStringSync(), '其他槽位');
+    expect(owned.existsSync(), isFalse);
+  });
   test('ArtworkDiskCache 区分有归属持久化与无归属纯内存 LRU', () async {
     final tempDir = await Directory.systemTemp.createTemp('konata_artcache_');
     addTearDown(() async {
@@ -82,7 +132,16 @@ void main() {
     final storage = PhotosStorage(overrideRoot: tempDir);
     final cache = ArtworkDiskCache(photosStorage: storage);
     final pngHeader = Uint8List.fromList(<int>[
-      0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x01, 0x02,
+      0x89,
+      0x50,
+      0x4E,
+      0x47,
+      0x0D,
+      0x0A,
+      0x1A,
+      0x0A,
+      0x01,
+      0x02,
     ]);
 
     await cache.write('preview_1', pngHeader, quality: 1);

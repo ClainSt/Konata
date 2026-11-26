@@ -143,11 +143,18 @@ final class ScanGalleryController extends ChangeNotifier {
   final PhotosStorage? _photosStorage;
   final DiagnosticLogPort? _diagnosticLog;
 
-  /// 是否在加载作品后自动订阅 `media_variants` 表变更刷新。
+  /// 是否自动响应影响画廊数据及系列归属的数据库表变更。
   final bool autoWatchDatabase;
 
   late ScanGalleryState _state;
-  StreamSubscription<List<MediaVariantRecord>>? _variantWatchSub;
+  StreamSubscription<Set<String>>? _libraryWatchSub;
+  bool _prewarmAspectRatios = true;
+  static const _watchedTables = <String>{
+    'media_variants',
+    'works',
+    'series_groups',
+    'media_sources',
+  };
   StreamSubscription<ScanGalleryPrefs>? _prefsSub;
   bool _disposed = false;
 
@@ -163,11 +170,7 @@ final class ScanGalleryController extends ChangeNotifier {
     if (_disposed) return;
 
     final isWorkSwitch = _state.workId != workId;
-    if (isWorkSwitch) {
-      await _variantWatchSub?.cancel();
-      _variantWatchSub = null;
-    }
-    if (_disposed) return;
+    _prewarmAspectRatios = prewarmAspectRatios;
 
     _state = _state.copyWith(
       workId: workId,
@@ -177,32 +180,32 @@ final class ScanGalleryController extends ChangeNotifier {
     );
     notifyListeners();
 
+    // 直接监听表提交，不额外查询当前作品的变体列表；系列成员变化也会刷新。
+    if (autoWatchDatabase && _libraryWatchSub == null) {
+      _libraryWatchSub = _databases.library.engine.changeBus.stream.listen((
+        tables,
+      ) {
+        final current = _state.workId;
+        if (_disposed ||
+            current == null ||
+            !tables.any(_watchedTables.contains)) {
+          return;
+        }
+        unawaited(
+          _refreshFromDatabase(
+            current,
+            preferredVolumeKey: _state.selectedVolumeKey,
+            prewarmAspectRatios: _prewarmAspectRatios,
+          ),
+        );
+      });
+    }
+
     await _refreshFromDatabase(
       workId,
       preferredVolumeKey: initialVolumeKey ?? _state.selectedVolumeKey,
       prewarmAspectRatios: prewarmAspectRatios,
     );
-
-    if (_disposed || !autoWatchDatabase || _state.workId != workId) return;
-    if (_variantWatchSub == null) {
-      var skipInitial = true;
-      _variantWatchSub = _databases.library.mediaVariants
-          .watchByWork(workId)
-          .listen((_) {
-            if (skipInitial) {
-              skipInitial = false;
-              return;
-            }
-            if (_disposed || _state.workId != workId) return;
-            unawaited(
-              _refreshFromDatabase(
-                workId,
-                preferredVolumeKey: _state.selectedVolumeKey,
-                prewarmAspectRatios: prewarmAspectRatios,
-              ),
-            );
-          });
-    }
   }
 
   /// 强制从数据库刷新当前作品的扫图列表。
@@ -366,8 +369,8 @@ final class ScanGalleryController extends ChangeNotifier {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
-    unawaited(_variantWatchSub?.cancel());
-    _variantWatchSub = null;
+    unawaited(_libraryWatchSub?.cancel());
+    _libraryWatchSub = null;
     unawaited(_prefsSub?.cancel());
     _prefsSub = null;
     super.dispose();

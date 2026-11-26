@@ -29,3 +29,4 @@ Konata v3 独立扫图画廊、按源并发微缩图调度与有界 96 MiB 内�
 - 底座：`konata_contracts`、`konata_storage`、`konata_design_system`
 - 引擎：`engine_sources`、`engine_scraping`
 - 工具：`flutter`、`flutter_riverpod`、`path`
+- 扫图画廊直接监听媒体版本、作品、系列及媒体源表提交；系列成员变更后自动重算共享范围，失效分卷回退全部，切换作品复用订阅且保留手动刷新模式。

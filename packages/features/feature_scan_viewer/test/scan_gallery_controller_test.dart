@@ -172,6 +172,89 @@ void main() {
       expect(tab.order, 40);
       expect(await tab.isVisibleForWork!(workA.id), isTrue);
       expect(await tab.isVisibleForWork!(workOther.id), isFalse);
+
+      // 共享范围仅修改数据库索引，当前已打开的画廊必须即时刷新。
+      Future<void> settle() async {
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      await settle();
+      final sharedKey =
+          controller.state.scanSummary.byVariantId['v_b_shared']!.volumeKey;
+      controller.selectVolume(sharedKey);
+      void writeShared(SupplementaryAssetScope scope) {
+        databases.library.mediaVariants.upsert(
+          MediaVariantRecord(
+            id: VariantId('v_b_shared'),
+            workId: workB.id,
+            sourceId: srcLocal.id,
+            relativePath: 'Season2/Scans/Box/booklet.png',
+            fileName: 'booklet.png',
+            fileSize: 3072,
+            assetKind: AssetKind.scanGallery,
+            assetScope: scope,
+            scopeLocked: true,
+          ),
+        );
+      }
+
+      writeShared(SupplementaryAssetScope.workExclusive);
+      await settle();
+      expect(controller.state.allScans.map((v) => v.id), ['v_a1', 'v_a2']);
+      expect(controller.state.selectedVolumeKey, isNull);
+      expect(controller.state.visibleScans.length, 2);
+      expect(ScanViewerAvailability.countScansForWork(databases, workA.id), 2);
+      writeShared(SupplementaryAssetScope.seriesShared);
+      await settle();
+      expect(controller.state.allScans.length, 3);
+      expect(controller.state.selectedVolumeKey, isNull);
+
+      // 仅修改系列编组，不写 media_variants；旧画廊不能保留已脱离系列的资源。
+      databases.library.works.upsert(
+        WorkRecord(
+          id: workB.id,
+          title: workB.title,
+          tmdbId: workB.tmdbId,
+          tmdbMediaType: workB.tmdbMediaType,
+          matchedSeason: workB.matchedSeason,
+        ),
+      );
+      await settle();
+      expect(controller.state.allScans.map((v) => v.id), [
+        'v_a1',
+        'v_a2',
+      ], reason: '作品脱离系列后画廊应即时移除共享资源');
+      expect(controller.state.showSeriesSharedBadge, isFalse);
+      expect(ScanViewerAvailability.countScansForWork(databases, workA.id), 2);
+      databases.library.works.upsert(workB);
+      await settle();
+      expect(controller.state.allScans.length, 3);
+      expect(controller.state.showSeriesSharedBadge, isTrue);
+      await controller.loadWork(workB.id, prewarmAspectRatios: false);
+      expect(controller.state.allScans.map((v) => v.id), [
+        'v_b_shared',
+        'v_b_exclusive',
+      ]);
+      writeShared(SupplementaryAssetScope.workExclusive);
+      await settle();
+      expect(controller.state.allScans.length, 2);
+      expect(controller.state.workId, workB.id);
+
+      final manual = ScanGalleryController(
+        databases: databases,
+        scopedPrefs: prefsStore,
+        scheduler: scheduler,
+        autoWatchDatabase: false,
+      );
+      addTearDown(manual.dispose);
+      await manual.loadWork(workA.id, prewarmAspectRatios: false);
+      expect(manual.state.allScans.length, 2);
+      writeShared(SupplementaryAssetScope.seriesShared);
+      await settle();
+      expect(manual.state.allScans.length, 2);
+      await manual.reload(prewarmAspectRatios: false);
+      expect(manual.state.allScans.length, 3);
     });
 
     test('画廊双模式与密度偏好持久化至 ScopedPrefsStore 并在重建后恢复', () async {

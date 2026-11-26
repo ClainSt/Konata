@@ -243,6 +243,52 @@ void main() {
           AssetKind.scanGallery,
           SupplementaryAssetScope.seriesShared,
         );
+        Future<void> history(
+          String owner,
+          String episode,
+          String variant,
+          int position,
+          int day, {
+          String? recordId,
+        }) async {
+          await h.repository.recordPlayback(
+            PlaybackRecord(
+              id: recordId ?? '$owner::$episode',
+              workId: owner,
+              episodeId: episode,
+              variantId: variant,
+              seasonNumber: 1,
+              episodeNumber: 1,
+              episodeTitle: episode,
+              sourceType: MediaSourceKind.local,
+              playedAt: DateTime.utc(2025, 1, day),
+              positionSeconds: position,
+              durationSeconds: 120,
+            ),
+          );
+        }
+
+        await history('a', 'a-main', 'a-main-v1', 17, 1);
+        await history('b', 'b-main', 'b-main-v0', 30, 2);
+        await history(
+          'b',
+          'b-SP-shared',
+          'b-SP-shared-v0',
+          8,
+          2,
+          recordId: 'old-shared',
+        );
+        await history('b', 'b-SP-shared', 'b-SP-shared-v1', 21, 3);
+        await history('b', 'b-SP-private', 'b-SP-private-v0', 33, 4);
+        await history(
+          'duplicate',
+          'duplicate-SP-duplicate',
+          'duplicate-SP-duplicate-v0',
+          44,
+          5,
+        );
+        await history('b', 'cd::b-shared.flac', 'b-shared.flac', 5, 6);
+
         final ctrl = h.createController(
           const WorkId.trusted('a'),
           platform: platform,
@@ -263,6 +309,64 @@ void main() {
           'b-shared.flac',
         ]);
         expect(bundle.visibleScanCount, 2);
+        expect(
+          bundle.playbackByEpisodeId['b-SP-shared']?.positionSeconds,
+          21,
+          reason: '共享特典卡片应读取原始归属的最新播放记录',
+        );
+        expect(
+          bundle.playbackByEpisodeId['b-SP-shared']?.variantId,
+          'b-SP-shared-v1',
+        );
+        expect(bundle.playbackByEpisodeId['b-SP-shared']?.workId, 'b');
+        expect(bundle.playbackByEpisodeId.keys.toSet(), {
+          'a-main',
+          'b-SP-shared',
+        });
+        expect(bundle.latestPlayback?.episodeId, 'a-main');
+        expect(bundle.resumePlan?.targetEpisode.id.value, 'a-main');
+        expect(bundle.resumePlan?.startSeconds, 17);
+
+        Future<void> waitForBundle(
+          bool Function(WorkDetailBundle) predicate,
+        ) async {
+          final timer = Stopwatch()..start();
+          while (timer.elapsed < const Duration(seconds: 3)) {
+            final current = ctrl.bundle;
+            if (current != null && predicate(current)) return;
+            await Future<void>.delayed(const Duration(milliseconds: 20));
+          }
+          expect(
+            ctrl.bundle != null && predicate(ctrl.bundle!),
+            isTrue,
+            reason: '历史或共享范围变更应触发详情自动刷新',
+          );
+        }
+
+        await history('b', 'b-SP-shared', 'b-SP-shared-v1', 42, 7);
+        await waitForBundle(
+          (b) => b.playbackByEpisodeId['b-SP-shared']?.positionSeconds == 42,
+        );
+        expect(ctrl.bundle!.resumePlan?.startSeconds, 17);
+        final sharedVariants = bundle.variantsForEpisode('b-SP-shared');
+        for (final v in sharedVariants) {
+          await h.repository.upsertMediaVariant(
+            v.copyWith(assetScope: SupplementaryAssetScope.workExclusive),
+          );
+        }
+        await waitForBundle(
+          (b) =>
+              b.extraEpisodes.isEmpty &&
+              !b.playbackByEpisodeId.containsKey('b-SP-shared'),
+        );
+        for (final v in sharedVariants) {
+          await h.repository.upsertMediaVariant(v);
+        }
+        await waitForBundle(
+          (b) => b.playbackByEpisodeId['b-SP-shared']?.positionSeconds == 42,
+        );
+        expect(ctrl.bundle!.resumePlan?.targetEpisode.id.value, 'a-main');
+
         expect(
           bundle.editableSupplementaryItems.map((item) => item.variant.id),
           containsAll(['b-SP-private-v0', 'b-private.flac', 'b-private.png']),

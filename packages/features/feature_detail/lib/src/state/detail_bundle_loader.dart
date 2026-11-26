@@ -173,6 +173,33 @@ abstract final class DetailBundleLoader {
       }
     }
 
+    // 共享卡片按逻辑分集归属读取历史；其他季度的正片、独享资源与 CD 不参与当前续播。
+    final sharedEpisodeOwners = <String, String>{
+      for (final ep in mergedEpisodes)
+        if (ep.workId != work.id && ep.category == EpisodeCategory.extra)
+          ep.id: ep.workId,
+    };
+    if (sharedEpisodeOwners.isNotEmpty) {
+      final ownerIds = sharedEpisodeOwners.values.toSet().toList();
+      final histories = await Future.wait(
+        ownerIds.map(repository.getPlaybacksByWork),
+      );
+      if (isCancelled()) return null;
+      // 旧错误归属记录不能遮蔽资源所属作品的实际进度。
+      for (final id in sharedEpisodeOwners.keys) {
+        playbackByEpisodeId.remove(id);
+      }
+      for (var i = 0; i < ownerIds.length; i++) {
+        for (final record in histories[i]) {
+          if (!record.isAudioRecord &&
+              record.workId == ownerIds[i] &&
+              sharedEpisodeOwners[record.episodeId] == record.workId) {
+            playbackByEpisodeId.putIfAbsent(record.episodeId, () => record);
+          }
+        }
+      }
+    }
+
     cdList.sort((a, b) {
       final aOwn = a.workId == work.id;
       final bOwn = b.workId == work.id;

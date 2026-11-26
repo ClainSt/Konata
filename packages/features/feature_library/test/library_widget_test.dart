@@ -357,6 +357,9 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
+      final poster = tester.widget<ManagedImage>(find.byType(ManagedImage));
+      expect(poster.ownerWorkId, 'w_wall_1');
+      expect(poster.subfolder, PhotoSubfolder.posters);
       expect(find.text('吹响！上低音号 第三季'), findsOneWidget);
     }
 

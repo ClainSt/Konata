@@ -146,6 +146,7 @@ class _PosterCardState extends State<PosterCard> {
               ManagedImage(
                 path: posterPath,
                 ownerWorkId: work.id,
+                subfolder: PhotoSubfolder.posters,
                 targetWidth: 360,
                 fit: BoxFit.cover,
                 imageLoaderOverride: widget.imageLoaderOverride,

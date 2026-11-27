@@ -652,6 +652,16 @@ final class WorkDetailController extends ChangeNotifier {
     );
   }
 
+  /// 单集标记使用实际归属作品，兼容跨季共享特典。
+  Future<PlaybackRecord> markEpisodeWatched(Episode episode) async {
+    final record = await _actionsService.markEpisodeWatched(
+      episode.workId,
+      episode.id,
+    );
+    await load();
+    return record;
+  }
+
   /// 一键将全部正片标为已看完。
   Future<void> markAllMainEpisodesWatched() async {
     await _actionsService.markAllMainEpisodesWatched(workId.value);

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/physics.dart';
 import 'package:flutter/widgets.dart';
 import 'package:konata_contracts/konata_contracts.dart'
@@ -67,12 +68,15 @@ class _MiniAudioBarState extends State<MiniAudioBar>
   late final AnimationController _snapController;
   Offset _snapStart = Offset.zero;
   Offset _snapEnd = Offset.zero;
+  Offset? _panOrigin;
+  Offset? _panOffset;
 
   FloatingMiniVisualState _visualState = FloatingMiniVisualState.collapsed;
   FloatingMiniVisualState _desktopVisualState =
-      FloatingMiniVisualState.expanded;
+      FloatingMiniVisualState.collapsed;
   bool _desktopResizing = false;
   StreamSubscription<void>? _desktopMoveSubscription;
+  StreamSubscription<void>? _desktopBlurSubscription;
   bool _desktopDockPending = false;
   FloatingMiniEdgeSide _edgeSide = FloatingMiniEdgeSide.right;
   bool _positionedOnce = false;
@@ -96,6 +100,19 @@ class _MiniAudioBarState extends State<MiniAudioBar>
 
   void _bindDesktopMoveEvents() {
     if (!widget.visible || !widget.desktopMiniWindowSupported) return;
+    _desktopBlurSubscription = widget.controller.desktopAudioMiniBlur.listen((
+      _,
+    ) {
+      if (!mounted ||
+          !widget.visible ||
+          !widget.controller.snapshot.isDesktopMiniWindow ||
+          _desktopVisualState != FloatingMiniVisualState.expanded ||
+          _desktopDockPending ||
+          _desktopResizing) {
+        return;
+      }
+      unawaited(_setDesktopVisualState(FloatingMiniVisualState.collapsed));
+    });
     _desktopMoveSubscription = widget.controller.desktopMiniMoveEnded.listen((
       _,
     ) async {
@@ -140,6 +157,8 @@ class _MiniAudioBarState extends State<MiniAudioBar>
         oldWidget.controller != widget.controller) {
       unawaited(_desktopMoveSubscription?.cancel());
       _desktopMoveSubscription = null;
+      unawaited(_desktopBlurSubscription?.cancel());
+      _desktopBlurSubscription = null;
       _bindDesktopMoveEvents();
     }
     if (!widget.visible ||
@@ -215,8 +234,12 @@ class _MiniAudioBarState extends State<MiniAudioBar>
       );
       if (clamped != _dragOffset.value) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) {
-            _dragOffset.value = clamped;
+          if (mounted && _panOrigin == null && _lastViewportSize == viewport) {
+            final current = _dragOffset.value;
+            _dragOffset.value = Offset(
+              current.dx.clamp(bounds.left, bounds.right),
+              current.dy.clamp(bounds.top, bounds.bottom),
+            );
           }
         });
       }
@@ -253,9 +276,17 @@ class _MiniAudioBarState extends State<MiniAudioBar>
     _dragOffset.value = Offset(targetX, targetY);
   }
 
-  void _onPanUpdate(DragUpdateDetails details, Size viewport, EdgeInsets safe) {
+  void _onPanStart(DragStartDetails details) {
     _snapController.stop();
-    final current = _dragOffset.value;
+    _panOrigin = details.globalPosition;
+    _panOffset = _dragOffset.value;
+  }
+
+  void _onPanUpdate(DragUpdateDetails details, Size viewport, EdgeInsets safe) {
+    final origin = _panOrigin;
+    final start = _panOffset;
+    if (origin == null || start == null) return;
+    final candidate = start + details.globalPosition - origin;
     final boxSize = _currentBoxSize();
     const overshoot = KonataPlaybackTokens.floatingMiniEdgeTuckDragThreshold;
     final minX = safe.left - overshoot;
@@ -272,14 +303,16 @@ class _MiniAudioBarState extends State<MiniAudioBar>
           KonataPlaybackTokens.floatingMiniEdgeMargin,
     );
     _dragOffset.value = Offset(
-      (current.dx + details.delta.dx).clamp(minX, maxX),
-      (current.dy + details.delta.dy).clamp(minY, maxY),
+      candidate.dx.clamp(minX, maxX),
+      candidate.dy.clamp(minY, maxY),
     );
   }
 
   void _onPanEnd(DragEndDetails details, Size viewport, EdgeInsets safe) {
     final boxSize = _currentBoxSize();
     final bounds = _boundsForViewport(viewport, safe, boxSize);
+    _panOrigin = null;
+    _panOffset = null;
     final cur = _dragOffset.value;
     final vel = details.velocity.pixelsPerSecond;
     final projectedX =
@@ -287,14 +320,12 @@ class _MiniAudioBarState extends State<MiniAudioBar>
         vel.dx * KonataPlaybackTokens.floatingMiniFlickProjectionSeconds;
     const tuckThreshold = 10.0;
 
-    if (cur.dx <= bounds.left - tuckThreshold ||
-        projectedX <= bounds.left - tuckThreshold * 2) {
+    if (cur.dx <= bounds.left - tuckThreshold) {
       _edgeSide = FloatingMiniEdgeSide.left;
       _setVisualState(FloatingMiniVisualState.tucked, viewport, safe);
       return;
     }
-    if (cur.dx >= bounds.right + tuckThreshold ||
-        projectedX >= bounds.right + tuckThreshold * 2) {
+    if (cur.dx >= bounds.right + tuckThreshold) {
       _edgeSide = FloatingMiniEdgeSide.right;
       _setVisualState(FloatingMiniVisualState.tucked, viewport, safe);
       return;
@@ -306,11 +337,7 @@ class _MiniAudioBarState extends State<MiniAudioBar>
         ? FloatingMiniEdgeSide.left
         : FloatingMiniEdgeSide.right;
     final targetX = snapLeft ? bounds.left : bounds.right;
-    final targetY =
-        (cur.dy +
-                vel.dy *
-                    KonataPlaybackTokens.floatingMiniFlickProjectionSeconds)
-            .clamp(bounds.top, bounds.bottom);
+    final targetY = cur.dy.clamp(bounds.top, bounds.bottom);
 
     final startOffset = cur;
     final endOffset = Offset(targetX, targetY);
@@ -324,7 +351,7 @@ class _MiniAudioBarState extends State<MiniAudioBar>
       KonataPlaybackTokens.floatingMiniSnapSpring,
       0.0,
       1.0,
-      (vel.distance / math.max(1.0, distance)).clamp(0.0, 6.0),
+      (vel.dx.abs() / math.max(1.0, distance)).clamp(0.0, 6.0),
     );
     _snapStart = startOffset;
     _snapEnd = endOffset;
@@ -347,6 +374,7 @@ class _MiniAudioBarState extends State<MiniAudioBar>
   @override
   void dispose() {
     unawaited(_desktopMoveSubscription?.cancel());
+    unawaited(_desktopBlurSubscription?.cancel());
     _snapController.dispose();
     if (_ownsOffsetNotifier) {
       _dragOffset.dispose();
@@ -358,73 +386,86 @@ class _MiniAudioBarState extends State<MiniAudioBar>
   Widget build(BuildContext context) {
     if (!widget.visible) return const SizedBox.shrink();
 
-    return ValueListenableBuilder<bool>(
-      valueListenable: widget.controller.activeListenable,
-      builder: (context, isActive, _) {
-        if (!isActive) return const SizedBox.shrink();
-        return ValueListenableBuilder<AudioPlaybackSnapshot>(
-          valueListenable: widget.controller.snapshotListenable,
-          builder: (context, snap, _) => LayoutBuilder(
-            builder: (context, constraints) {
-              final viewport = constraints.biggest;
-              final safe = MediaQuery.paddingOf(context);
-              if (snap.isDesktopMiniWindow) {
-                return Center(
-                  key: const ValueKey('audio_desktop_mini_stage'),
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: KonataDesktopWindowChromeScope.wrapDragToMove(
-                      context,
+    return Theme(
+      data: KonataTheme.darkTheme(),
+      child: ValueListenableBuilder<bool>(
+        valueListenable: widget.controller.activeListenable,
+        builder: (context, isActive, _) {
+          if (!isActive) return const SizedBox.shrink();
+          return ValueListenableBuilder<AudioPlaybackSnapshot>(
+            valueListenable: widget.controller.snapshotListenable,
+            builder: (context, snap, _) => LayoutBuilder(
+              builder: (context, constraints) {
+                final viewport = constraints.biggest;
+                final safe = MediaQuery.paddingOf(context);
+                if (snap.isDesktopMiniWindow) {
+                  return Center(
+                    key: const ValueKey('audio_desktop_mini_stage'),
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: SizedBox.fromSize(
+                        size: _currentBoxSize(_desktopVisualState),
+                        child: KonataDesktopWindowChromeScope.wrapDragToMove(
+                          context,
+                          child: RepaintBoundary(
+                            child: switch (_desktopVisualState) {
+                              FloatingMiniVisualState.collapsed =>
+                                _buildCollapsedDisc(snap, viewport, safe),
+                              FloatingMiniVisualState.expanded =>
+                                _buildExpandedCapsule(snap, viewport, safe),
+                              FloatingMiniVisualState.tucked => _buildTuckedTab(
+                                viewport,
+                                safe,
+                              ),
+                            },
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                }
+                _ensureInitialPosition(viewport, safe);
+                return Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    ValueListenableBuilder<Offset>(
+                      valueListenable: _dragOffset,
+                      builder: (context, offset, child) => Positioned(
+                        left: offset.dx,
+                        top: offset.dy,
+                        child: child!,
+                      ),
                       child: RepaintBoundary(
-                        child: switch (_desktopVisualState) {
-                          FloatingMiniVisualState.collapsed =>
-                            _buildCollapsedDisc(snap, viewport, safe),
-                          FloatingMiniVisualState.expanded =>
-                            _buildExpandedCapsule(snap, viewport, safe),
-                          FloatingMiniVisualState.tucked => _buildTuckedTab(
-                            viewport,
-                            safe,
-                          ),
-                        },
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          dragStartBehavior: DragStartBehavior.down,
+                          onPanStart: _onPanStart,
+                          onPanUpdate: (d) => _onPanUpdate(d, viewport, safe),
+                          onPanEnd: (d) => _onPanEnd(d, viewport, safe),
+                          onPanCancel: () {
+                            _panOrigin = null;
+                            _panOffset = null;
+                          },
+                          child: switch (_visualState) {
+                            FloatingMiniVisualState.collapsed =>
+                              _buildCollapsedDisc(snap, viewport, safe),
+                            FloatingMiniVisualState.expanded =>
+                              _buildExpandedCapsule(snap, viewport, safe),
+                            FloatingMiniVisualState.tucked => _buildTuckedTab(
+                              viewport,
+                              safe,
+                            ),
+                          },
+                        ),
                       ),
                     ),
-                  ),
+                  ],
                 );
-              }
-              _ensureInitialPosition(viewport, safe);
-              return Stack(
-                fit: StackFit.expand,
-                children: [
-                  ValueListenableBuilder<Offset>(
-                    valueListenable: _dragOffset,
-                    builder: (context, offset, child) => Positioned(
-                      left: offset.dx,
-                      top: offset.dy,
-                      child: child!,
-                    ),
-                    child: RepaintBoundary(
-                      child: GestureDetector(
-                        onPanUpdate: (d) => _onPanUpdate(d, viewport, safe),
-                        onPanEnd: (d) => _onPanEnd(d, viewport, safe),
-                        child: switch (_visualState) {
-                          FloatingMiniVisualState.collapsed =>
-                            _buildCollapsedDisc(snap, viewport, safe),
-                          FloatingMiniVisualState.expanded =>
-                            _buildExpandedCapsule(snap, viewport, safe),
-                          FloatingMiniVisualState.tucked => _buildTuckedTab(
-                            viewport,
-                            safe,
-                          ),
-                        },
-                      ),
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-        );
-      },
+              },
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -453,7 +494,7 @@ class _MiniAudioBarState extends State<MiniAudioBar>
 
   Future<bool> _toggleDesktopMiniWindow(bool enabled) async {
     try {
-      if (enabled) _desktopVisualState = FloatingMiniVisualState.expanded;
+      if (enabled) _desktopVisualState = FloatingMiniVisualState.collapsed;
       await widget.controller.setDesktopMiniWindow(enabled);
       return widget.controller.snapshot.isDesktopMiniWindow == enabled;
     } catch (_) {
@@ -526,7 +567,7 @@ class _MiniAudioBarState extends State<MiniAudioBar>
                 positionListenable: widget.controller.positionListenable,
                 durationListenable: widget.controller.durationListenable,
               ),
-              Positioned(right: 2, bottom: 2, child: _playingBars()),
+              Positioned(right: 8, bottom: 8, child: _playingBars()),
             ],
           ),
         ),
@@ -540,138 +581,160 @@ class _MiniAudioBarState extends State<MiniAudioBar>
     EdgeInsets safe,
   ) {
     final current = snap.currentItem;
-    return SizedBox(
-      key: const ValueKey('mini_audio_expanded_capsule'),
-      width: KonataPlaybackTokens.floatingMiniAudioPillWidth,
-      height: KonataPlaybackTokens.floatingMiniAudioPillHeight,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          KonataGlassCapsule(
-            radius: KonataPlaybackTokens.floatingMiniAudioPillHeight / 2,
-            showShadow: true,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            child: Row(
-              children: [
-                GestureDetector(
-                  onTap: () => unawaited(_expandToStage()),
-                  child: SizedBox.square(
-                    dimension:
-                        KonataPlaybackTokens.floatingMiniAudioPillCoverSize,
-                    child: AudioCoverArtworkView(
-                      cover: snap.cover,
-                      coverKey: snap.coverVariantTag,
-                      borderRadius:
-                          KonataPlaybackTokens.floatingMiniAudioPillCoverSize /
-                          2,
+    return TapRegion(
+      onTapOutside: snap.isDesktopMiniWindow
+          ? null
+          : (_) {
+              if (_visualState == FloatingMiniVisualState.expanded &&
+                  _panOrigin == null) {
+                _setVisualState(
+                  FloatingMiniVisualState.collapsed,
+                  viewport,
+                  safe,
+                );
+              }
+            },
+      child: SizedBox(
+        key: const ValueKey('mini_audio_expanded_capsule'),
+        width: KonataPlaybackTokens.floatingMiniAudioPillWidth,
+        height: KonataPlaybackTokens.floatingMiniAudioPillHeight,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            KonataGlassCapsule(
+              radius: KonataPlaybackTokens.floatingMiniAudioPillHeight / 2,
+              showShadow: false,
+              showBorder: false,
+              enableBackdropBlur: false,
+              solidBackdropColor: const Color(0xFF22252B),
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: Row(
+                children: [
+                  GestureDetector(
+                    onTap: () => unawaited(_expandToStage()),
+                    child: SizedBox.square(
+                      dimension:
+                          KonataPlaybackTokens.floatingMiniAudioPillCoverSize,
+                      child: AudioCoverArtworkView(
+                        cover: snap.cover,
+                        coverKey: snap.coverVariantTag,
+                        borderRadius:
+                            KonataPlaybackTokens
+                                .floatingMiniAudioPillCoverSize /
+                            2,
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () => unawaited(_expandToStage()),
-                    child: Center(
-                      child: Text(
-                        current?.title ?? '未在播放',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: context.palette.textPrimary,
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w600,
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => unawaited(_expandToStage()),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          current?.title ?? '未在播放',
+                          key: const ValueKey('mini_audio_track_title'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.start,
+                          style: TextStyle(
+                            color: context.palette.textPrimary,
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-                KonataCapsuleIconButton(
-                  icon: Icons.skip_previous_rounded,
-                  tooltip: '上一曲',
-                  color: context.palette.textPrimary,
-                  size: 18,
-                  fixedSize: 28.0,
-                  onTap: () => unawaited(widget.controller.previous()),
-                ),
-                ValueListenableBuilder<bool>(
-                  valueListenable: widget.controller.playingListenable,
-                  builder: (_, isPlaying, _) {
-                    return KonataCapsuleIconButton(
-                      icon: isPlaying
-                          ? Icons.pause_rounded
-                          : Icons.play_arrow_rounded,
-                      tooltip: isPlaying ? '暂停' : '播放',
-                      color: context.palette.textPrimary,
-                      highlighted: true,
-                      size: 20,
-                      fixedSize: 32.0,
-                      onTap: () =>
-                          unawaited(widget.controller.togglePlayPause()),
-                    );
-                  },
-                ),
-                KonataCapsuleIconButton(
-                  icon: Icons.skip_next_rounded,
-                  tooltip: '下一曲',
-                  color: context.palette.textPrimary,
-                  size: 18,
-                  fixedSize: 28.0,
-                  onTap: () => unawaited(widget.controller.next(manual: true)),
-                ),
-                if (widget.desktopMiniWindowSupported)
+                  const SizedBox(width: 4),
                   KonataCapsuleIconButton(
-                    icon: Icons.picture_in_picture_alt_rounded,
-                    key: snap.isDesktopMiniWindow
-                        ? const ValueKey('audio_desktop_mini_internal')
-                        : null,
-                    tooltip: snap.isDesktopMiniWindow ? '应用内小窗' : '桌面小窗',
+                    icon: Icons.skip_previous_rounded,
+                    tooltip: '上一曲',
+                    color: context.palette.textPrimary,
+                    size: 17,
+                    fixedSize: 24.0,
+                    padding: EdgeInsets.zero,
+                    onTap: () => unawaited(widget.controller.previous()),
+                  ),
+                  ValueListenableBuilder<bool>(
+                    valueListenable: widget.controller.playingListenable,
+                    builder: (_, isPlaying, _) {
+                      return KonataCapsuleIconButton(
+                        icon: isPlaying
+                            ? Icons.pause_rounded
+                            : Icons.play_arrow_rounded,
+                        tooltip: isPlaying ? '暂停' : '播放',
+                        color: context.palette.textPrimary,
+                        size: 20,
+                        fixedSize: 28.0,
+                        padding: EdgeInsets.zero,
+                        onTap: () =>
+                            unawaited(widget.controller.togglePlayPause()),
+                      );
+                    },
+                  ),
+                  KonataCapsuleIconButton(
+                    icon: Icons.skip_next_rounded,
+                    tooltip: '下一曲',
+                    color: context.palette.textPrimary,
+                    size: 17,
+                    fixedSize: 24.0,
+                    padding: EdgeInsets.zero,
+                    onTap: () =>
+                        unawaited(widget.controller.next(manual: true)),
+                  ),
+                  if (widget.desktopMiniWindowSupported)
+                    KonataCapsuleIconButton(
+                      icon: Icons.picture_in_picture_alt_rounded,
+                      key: snap.isDesktopMiniWindow
+                          ? const ValueKey('audio_desktop_mini_internal')
+                          : null,
+                      tooltip: snap.isDesktopMiniWindow ? '应用内小窗' : '桌面小窗',
+                      color: context.palette.textSecondary,
+                      size: 15,
+                      fixedSize: 24.0,
+                      padding: EdgeInsets.zero,
+                      onTap: () => unawaited(
+                        snap.isDesktopMiniWindow
+                            ? _returnToInternal()
+                            : _toggleDesktopMiniWindow(true),
+                      ),
+                    ),
+                  KonataCapsuleIconButton(
+                    icon: Icons.remove_rounded,
+                    tooltip: '收起',
                     color: context.palette.textSecondary,
-                    highlighted: snap.isDesktopMiniWindow,
-                    size: 15,
-                    fixedSize: 26.0,
-                    onTap: () => unawaited(
-                      snap.isDesktopMiniWindow
-                          ? _returnToInternal()
-                          : _toggleDesktopMiniWindow(true),
+                    size: 16,
+                    fixedSize: 24.0,
+                    padding: EdgeInsets.zero,
+                    onTap: () => _setVisualState(
+                      FloatingMiniVisualState.collapsed,
+                      viewport,
+                      safe,
                     ),
                   ),
-                KonataCapsuleIconButton(
-                  icon: Icons.remove_rounded,
-                  tooltip: '收起',
-                  color: context.palette.textSecondary,
-                  size: 16,
-                  fixedSize: 26.0,
-                  onTap: () => _setVisualState(
-                    FloatingMiniVisualState.collapsed,
-                    viewport,
-                    safe,
+                  KonataCapsuleIconButton(
+                    icon: Icons.close_rounded,
+                    tooltip: '结束播放',
+                    color: context.palette.textSecondary,
+                    size: 15,
+                    fixedSize: 24,
+                    padding: EdgeInsets.zero,
+                    onTap: () => unawaited(_close()),
                   ),
-                ),
-                KonataCapsuleIconButton(
-                  icon: Icons.close_rounded,
-                  tooltip: '结束播放',
-                  color: context.palette.textSecondary,
-                  size: 15,
-                  fixedSize: 24.0,
-                  onTap: () => unawaited(_close()),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          Positioned(
-            right: 14,
-            bottom: 2,
-            child: IgnorePointer(child: _playingBars()),
-          ),
-          IgnorePointer(
-            child: _MiniCapsuleContourProgress(
-              positionListenable: widget.controller.positionListenable,
-              durationListenable: widget.controller.durationListenable,
+
+            IgnorePointer(
+              child: _MiniCapsuleContourProgress(
+                positionListenable: widget.controller.positionListenable,
+                durationListenable: widget.controller.durationListenable,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -715,17 +778,10 @@ class _MiniAudioBarState extends State<MiniAudioBar>
     );
   }
 
-  Widget _playingBars() => DecoratedBox(
-    decoration: const BoxDecoration(
-      color: KonataPlaybackTokens.floatingMiniDiscEqualizerLightHalo,
-      borderRadius: KonataTheme.borderRadiusPill,
-    ),
-    child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
-      child: AudioPlayingBars(
-        playing: widget.controller.playingListenable,
-        color: KonataPlaybackTokens.floatingMiniDiscEqualizerDarkBar,
-      ),
+  Widget _playingBars() => IgnorePointer(
+    child: AudioPlayingBars(
+      playing: widget.controller.playingListenable,
+      color: Colors.white,
     ),
   );
 }

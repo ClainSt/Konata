@@ -35,6 +35,7 @@ dependencies:
   sqlite3: ^3.9.1
   flutter_acrylic: ^1.1.4
   window_manager: ^0.7.0
+  nativeapi: 0.6.2
   file_picker: ^13.4.1
   url_launcher: ^6.3.3
   flutter_secure_storage: ^11.2.0

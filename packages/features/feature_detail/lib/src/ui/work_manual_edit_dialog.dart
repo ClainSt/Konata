@@ -35,6 +35,7 @@ class WorkManualEditDialog extends StatefulWidget {
     required this.bundle,
     required this.imageLoader,
     this.initialSection = WorkManualEditSection.metadata,
+    this.initialMappingEpisodeId,
   });
 
   /// 详情页状态控制器。
@@ -48,6 +49,9 @@ class WorkManualEditDialog extends StatefulWidget {
 
   /// 初始展示分区。
   final WorkManualEditSection initialSection;
+
+  /// 从分集菜单进入时优先勾选对应文件，便于直接调整编号。
+  final String? initialMappingEpisodeId;
 
   @override
   State<WorkManualEditDialog> createState() => _WorkManualEditDialogState();
@@ -115,6 +119,24 @@ class _WorkManualEditDialogState extends State<WorkManualEditDialog> {
             b.variant.relativePath.toLowerCase(),
           ),
         );
+
+    final initialEpisodeId = widget.initialMappingEpisodeId;
+    if (initialEpisodeId != null) {
+      _selectedVariantIds.addAll(
+        _mappingRows
+            .where((row) => row.variant.episodeId == initialEpisodeId)
+            .map((row) => row.variant.id),
+      );
+      // 选中的文件排在前面，打开时无需再次搜索长列表。
+      _mappingRows.sort((a, b) {
+        final aSelected = _selectedVariantIds.contains(a.variant.id);
+        final bSelected = _selectedVariantIds.contains(b.variant.id);
+        if (aSelected != bSelected) return aSelected ? -1 : 1;
+        return a.variant.relativePath.toLowerCase().compareTo(
+          b.variant.relativePath.toLowerCase(),
+        );
+      });
+    }
 
     _suppDrafts = [
       for (final item in widget.bundle.editableSupplementaryItems)

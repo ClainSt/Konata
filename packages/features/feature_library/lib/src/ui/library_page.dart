@@ -41,6 +41,8 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
   final ValueNotifier<bool> _isFastScrolling = ValueNotifier(false);
   bool _searchExpanded = false;
   bool _filtersExpanded = false;
+  List<WorkLibraryItem>? _indexedItems;
+  Map<String, int> _cardIndexes = const {};
 
   String? get _hostSearchQuery {
     final raw = widget.slotContext?.arguments['searchQuery'];
@@ -403,6 +405,14 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     required double gridBottomPad,
   }) {
     final p = context.palette;
+    // 仅在有序展示快照变化时重建映射，高频滚动和无关重建复用原索引。
+    if (!identical(_indexedItems, items)) {
+      _indexedItems = items;
+      _cardIndexes = {
+        for (final (index, item) in items.indexed) item.work.id: index,
+      };
+    }
+    final indexes = _cardIndexes;
 
     if (controller.isLoading && controller.allVisibleItems.isEmpty) {
       return Center(
@@ -527,6 +537,8 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
           crossAxisSpacing: compact ? 12.0 : 16.0,
           mainAxisSpacing: compact ? 16.0 : 20.0,
           itemCount: items.length,
+          findChildIndexCallback: (key) =>
+              key is ValueKey<String> ? indexes[key.value] : null,
           itemBuilder: (context, index, cardWidth) {
             final item = items[index];
             final isCompactCard = compact || cardWidth < 132.0;

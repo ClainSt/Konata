@@ -291,30 +291,42 @@ final class PlaybackHistorySyncSlice
     }
 
     final records = db.userState.playbackRecords.listAllWithTombstones();
-    final works = db.library.works.listAllWithTombstones();
-    final variants = db.library.mediaVariants.listAll(includeDeleted: true);
-
+    // 历史导出仅需要音频类别判定，不读取全库媒体路径、字幕及编码字段。
+    final works = records.isEmpty
+        ? const <WorkRecord>[]
+        : db.library.works.listAllWithTombstones();
+    final audioIds = records.isEmpty
+        ? const <VariantId>{}
+        : db.library.mediaVariants.listIdsByAssetKind(
+            AssetKind.cdAlbum,
+            includeDeleted: true,
+          );
     final workById = <String, WorkRecord>{for (final w in works) w.id.value: w};
-    final variantById = <String, MediaVariantRecord>{
-      for (final v in variants) v.id.value: v,
-    };
+    final identities = <String, ({String primary, List<String> secondary})>{};
 
     final items = <SyncPlaybackHistoryItem>[];
     for (final rec in records) {
       final work = workById[rec.workId.value];
-      final variant = variantById[rec.variantId.value];
       final isAudio =
-          variant?.assetKind == AssetKind.cdAlbum ||
+          audioIds.contains(rec.variantId) ||
           rec.id.startsWith('audio::') ||
           rec.episodeId.value.startsWith('audio::');
 
       final String primaryWorkKey;
       final List<String> secondaryKeys;
       if (work != null) {
-        primaryWorkKey = SyncSanitizer.primaryWorkKeyFor(work);
-        secondaryKeys = SyncSanitizer.allWorkKeysFor(
-          work,
-        ).where((k) => k != primaryWorkKey).toList(growable: false);
+        // 同一作品的多条历史共享本次快照的规范身份，不跨次缓存。
+        final identity = identities.putIfAbsent(work.id.value, () {
+          final primary = SyncSanitizer.primaryWorkKeyFor(work);
+          return (
+            primary: primary,
+            secondary: SyncSanitizer.allWorkKeysFor(
+              work,
+            ).where((key) => key != primary).toList(growable: false),
+          );
+        });
+        primaryWorkKey = identity.primary;
+        secondaryKeys = identity.secondary;
       } else {
         primaryWorkKey = _extractWorkKeyFromPlaybackCanonical(
           rec.canonicalKey,
@@ -863,6 +875,16 @@ WHERE ${PlaybackRecordsSchema.colDeletedAtMs} IS NULL;
         .where((v) => v.assetKind == AssetKind.cdAlbum)
         .toList(growable: false);
     if (cds.isEmpty) return null;
+    // 同一作品内已核验的 CUE 母轨主键优先于曲名猜测。
+    if (_cueTrackId.hasMatch(item.episodeId)) {
+      final exact = cds
+          .where(
+            (v) =>
+                v.id.value == item.variantId && v.workId.value == item.workId,
+          )
+          .toList();
+      if (exact.length == 1) return exact.single;
+    }
     final targetKey = SyncSanitizer.normalizeTitleKey(item.episodeTitle);
     if (targetKey.isNotEmpty) {
       for (final v in cds) {

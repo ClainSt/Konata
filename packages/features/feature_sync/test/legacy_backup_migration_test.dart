@@ -112,6 +112,396 @@ void _addLegacyAudio(Map<String, Object?> payload) {
 }
 
 void main() {
+  test('旧版部分外观和完整详情偏好迁移保留新版专有字段', () async {
+    final db = KonataDatabaseBundle.openInMemory();
+    addTearDown(db.close);
+    _seedV1(db);
+    const detail = TypedPrefsSlice<Map<String, Object?>>(
+      namespace: 'feature_detail.display',
+      schemaVersion: 1,
+      syncPolicy: SyncPolicy.portable,
+      defaultValue: {},
+      encode: _encode,
+      decode: _decode,
+    );
+    final prefs = ScopedPrefsStore(db.userState);
+    prefs.write(_appearance, {
+      'themeMode': 'dark',
+      'windowMaterial': 'mica',
+      'ambientBackdropEnabled': true,
+    }, updatedAtMs: 100);
+    prefs.write(detail, {
+      'showMainHeroBackdrop': false,
+      'showEpisodeStillThumbnails': false,
+      'autoSilentWarmup': false,
+      'futureSafeFlag': 7,
+    }, updatedAtMs: 100);
+    final bytes = await _mutate(1, (p) {
+      p['preferences'] = {
+        'updatedAtMs': 1700000000000,
+        'values': {
+          'konata_v2_theme_mode': 'light',
+          'konata.detail.show_title_text': true,
+          'konata.detail.show_title_logo': false,
+          'konata.detail.show_overview': false,
+          'konata.detail.show_raw_video_filename': false,
+          'konata.detail.show_cd_tab': false,
+          'konata.detail.show_scan_tab': true,
+        },
+      };
+    });
+    final service = _service(db);
+    final before = prefs.read(detail);
+    final preview = await service.previewRestore(bytes);
+    expect(preview.legacyFormatVersion, 1);
+    expect(prefs.read(detail), before);
+    await service.restoreFromArchiveBytes(bytes);
+    expect(prefs.read(_appearance), {
+      'themeMode': 'light',
+      'windowMaterial': 'mica',
+      'ambientBackdropEnabled': true,
+    });
+    final expected = {
+      'showTitleText': true,
+      'showTitleLogo': false,
+      'showOverview': false,
+      'showRawVideoFilename': false,
+      'showCdTab': false,
+      'showScanTab': true,
+      'showMainHeroBackdrop': false,
+      'showEpisodeStillThumbnails': false,
+      'autoSilentWarmup': false,
+      'futureSafeFlag': 7,
+    };
+    expect(prefs.read(detail), expected);
+    await service.restoreFromArchiveBytes(bytes);
+    expect(prefs.read(detail), expected);
+    expect(db.userState.playbackRecords.listAllWithTombstones(), hasLength(1));
+  });
+
+  test('旧版偏好尊重新版较新时间，非法值与不可移植字段整份拒绝', () async {
+    final db = KonataDatabaseBundle.openInMemory();
+    addTearDown(db.close);
+    _seedV1(db);
+    const detail = TypedPrefsSlice<Map<String, Object?>>(
+      namespace: 'feature_detail.display',
+      schemaVersion: 1,
+      syncPolicy: SyncPolicy.portable,
+      defaultValue: {},
+      encode: _encode,
+      decode: _decode,
+    );
+    final prefs = ScopedPrefsStore(db.userState);
+    final service = _service(db);
+    final bytes = await _mutate(1, (p) {
+      p['preferences'] = {
+        'updatedAtMs': 1700000000000,
+        'values': {'konata.detail.show_title_logo': false},
+      };
+    });
+    prefs.write(detail, {
+      'showTitleLogo': true,
+      'showTitleText': false,
+      'showOverview': false,
+    }, updatedAtMs: 1800000000000);
+    await service.restoreFromArchiveBytes(bytes);
+    expect(prefs.read(detail), {
+      'showTitleLogo': true,
+      'showTitleText': false,
+      'showOverview': false,
+    });
+    final invalid = await _mutate(1, (p) {
+      p['preferences'] = {
+        'updatedAtMs': 1800000000001,
+        'values': {'konata.detail.show_cd_tab': 'false'},
+      };
+    });
+    await expectLater(service.previewRestore(invalid), throwsFormatException);
+    prefs.write(detail, {
+      'showTitleLogo': true,
+      'localPath': 'D:/private',
+    }, updatedAtMs: 100);
+    final before = prefs.read(detail);
+    await expectLater(
+      service.restoreFromArchiveBytes(bytes),
+      throwsFormatException,
+    );
+    expect(prefs.read(detail), before);
+  });
+
+  test('八项旧网络设置迁移，迁址默认值更新且自定义地址保留', () async {
+    final db = KonataDatabaseBundle.openInMemory();
+    addTearDown(db.close);
+    _seedV1(db);
+    const network = TypedPrefsSlice<Map<String, Object?>>(
+      namespace: 'feature_settings.network',
+      schemaVersion: 1,
+      syncPolicy: SyncPolicy.portable,
+      defaultValue: {},
+      encode: _encode,
+      decode: _decode,
+    );
+    final prefs = ScopedPrefsStore(db.userState);
+    prefs.write(network, {'futureNetworkFlag': true}, updatedAtMs: 100);
+    final bytes = await _mutate(1, (p) {
+      p['preferences'] = {
+        'updatedAtMs': 1700000000000,
+        'values': {
+          'konata_v2_tmdb_backup_api': 'https://mirror.example/3',
+          'konata_v2_tmdb_backup_image': 'https://image.example/t/p/',
+          'konata_v2_bangumi_backup_api': 'https://api.bangumi.lat/v0/',
+          'konata_v2_bangumi_backup_image': 'https://lain.bangumi.lat',
+          'konata_v2_fanart_backup_api': 'https://fanart.example/v3',
+          'konata_v2_fanart_backup_image': '',
+          'konata_v2_proxy_mode': 'custom',
+          'konata_v2_proxy_url': '127.0.0.1:7890',
+        },
+      };
+    });
+    final service = _service(db);
+    final before = prefs.read(network);
+    await service.previewRestore(bytes);
+    expect(prefs.read(network), before);
+    await service.restoreFromArchiveBytes(bytes);
+    final expected = {
+      'tmdbBackupApiBase': 'https://mirror.example/3',
+      'tmdbBackupImageBase': 'https://image.example/t/p/',
+      'bangumiBackupApiBase': KonataNetworkConfig.defaultBangumiBackupApiBase,
+      'bangumiBackupImageBase':
+          KonataNetworkConfig.defaultBangumiBackupImageBase,
+      'fanartBackupApiBase': 'https://fanart.example/v3',
+      'fanartBackupImageBase': '',
+      'proxyMode': 'custom',
+      'proxyUrl': 'http://127.0.0.1:7890',
+      'futureNetworkFlag': true,
+    };
+    expect(prefs.read(network), expected);
+    await service.restoreFromArchiveBytes(bytes);
+    expect(prefs.read(network), expected);
+  });
+
+  test('旧网络部分恢复保留代理配置并拒绝含凭据或无效地址', () async {
+    final db = KonataDatabaseBundle.openInMemory();
+    addTearDown(db.close);
+    _seedV1(db);
+    const network = TypedPrefsSlice<Map<String, Object?>>(
+      namespace: 'feature_settings.network',
+      schemaVersion: 1,
+      syncPolicy: SyncPolicy.portable,
+      defaultValue: {},
+      encode: _encode,
+      decode: _decode,
+    );
+    final prefs = ScopedPrefsStore(db.userState);
+    prefs.write(network, {
+      'proxyMode': 'custom',
+      'proxyUrl': 'socks5://127.0.0.1:1080',
+      'tmdbBackupApiBase': 'https://keep.example/3',
+    }, updatedAtMs: 100);
+    final service = _service(db);
+    Future<Uint8List> archive(Map<String, Object?> values) => _mutate(1, (p) {
+      p['preferences'] = {'updatedAtMs': 1700000000000, 'values': values};
+    });
+    await service.restoreFromArchiveBytes(
+      await archive({'konata_v2_fanart_backup_image': 'https://art.example/'}),
+    );
+    final before = prefs.read(network);
+    expect(before['proxyMode'], 'custom');
+    expect(before['proxyUrl'], 'socks5://127.0.0.1:1080');
+    expect(before['tmdbBackupApiBase'], 'https://keep.example/3');
+    for (final bad in <Map<String, Object?>>[
+      {'konata_v2_tmdb_backup_api': 'https://user:password@example.invalid/3'},
+      {'konata_v2_tmdb_backup_api': 'https://user@example.invalid/3'},
+      {'konata_v2_tmdb_backup_api': 'https://example.invalid/3?api_key=secret'},
+      {'konata_v2_tmdb_backup_api': 'file:///D:/private'},
+      {'konata_v2_proxy_mode': 'unknown'},
+      {'konata_v2_proxy_url': 'socks5://127.0.0.1'},
+      {'konata_v2_proxy_url': 'http://user:password@127.0.0.1:7890'},
+      {'konata_v2_proxy_mode': 'custom', 'konata_v2_proxy_url': ''},
+    ]) {
+      final bytes = await archive(bad);
+      await expectLater(service.previewRestore(bytes), throwsFormatException);
+      await expectLater(
+        service.restoreFromArchiveBytes(bytes),
+        throwsFormatException,
+      );
+      expect(prefs.read(network), before);
+    }
+  });
+
+  test('旧播放 JSON 拆分三个自治偏好且不授予上传、外设或歌词权限', () async {
+    final db = KonataDatabaseBundle.openInMemory();
+    addTearDown(db.close);
+    _seedV1(db);
+    final prefs = ScopedPrefsStore(db.userState);
+    const video = TypedPrefsSlice<Map<String, Object?>>(
+      namespace: 'playback_video',
+      schemaVersion: 2,
+      syncPolicy: SyncPolicy.portable,
+      defaultValue: {},
+      encode: _encode,
+      decode: _decode,
+    );
+    const audio = TypedPrefsSlice<Map<String, Object?>>(
+      namespace: 'playback_audio',
+      schemaVersion: 1,
+      syncPolicy: SyncPolicy.portable,
+      defaultValue: {},
+      encode: _encode,
+      decode: _decode,
+    );
+    const lyrics = TypedPrefsSlice<Map<String, Object?>>(
+      namespace: 'lyrics',
+      schemaVersion: 1,
+      syncPolicy: SyncPolicy.portable,
+      defaultValue: {},
+      encode: _encode,
+      decode: _decode,
+    );
+    prefs.write(video, {
+      'qualityConfig': {'activeShaderPaths': <String>[], 'debandEnabled': true},
+      'preferredAudioLangs': ['jpn'],
+    }, updatedAtMs: 100);
+    prefs.write(audio, {
+      'loopMode': 'loopAll',
+      'audiophileSafetyLimiterEnabled': true,
+    }, updatedAtMs: 100);
+    prefs.write(lyrics, {'showTranslation': false}, updatedAtMs: 100);
+    final payload = {
+      'defaultVideoEngine': 'desktopRelay',
+      'defaultAudioEngine': 'builtinLibmpv',
+      'preferredRelayKindKey': 'mpv',
+      'autoNextEpisode': false,
+      'promptChapterSkip': true,
+      'autoSkipChapter': true,
+      'autoEnterPip': false,
+      'videoFloatingMiniEnabled': true,
+      'audioFloatingMiniEnabled': false,
+      'defaultVolume': 72.5,
+      'bitstreamPassthrough': true,
+      'androidBitPerfectUsb': true,
+      'cloudSubsetEnabled': true,
+      'cloudSubsetEndpoint': 'https://font.anibt.net/api/subset',
+      'foobarBeefwebPort': 9090,
+      'skipFoobarBeefwebPrompt': true,
+      'lyricSourceNeteaseEnabled': false,
+      'lyricSourceAmllEnabled': true,
+      'lyricSourceLrclibEnabled': true,
+      'lyricSourceQqEnabled': true,
+      'qqLyricDisclaimerAccepted': true,
+      'showLyricRomaji': true,
+      'lyricWiredOffsetMillis': -250,
+      'lyricBluetoothOffsetMillis': 650,
+      'preset': 'standard',
+      'outputPipelineMode': 'gpu_next',
+      'outputPipelineSchemaVersion': 2,
+      'hardwareDecode': false,
+      'debandEnabled': false,
+      'demuxerMaxBytesMiB': 128,
+      'demuxerMaxBackBytesMiB': 32,
+      'cacheSecs': 60,
+      'audioResamplerPrecision': 28,
+      'exclusiveAudioOutput': true,
+      'audioDevice': 'wasapi/test',
+      'activeShaderPaths': ['D:/private/old.glsl'],
+      'defaultSpeed': 1.25,
+      'keepPitch': false,
+      'subFontSize': 48,
+      'subFontName': 'Noto Sans',
+      'subBottomMargin': 24,
+      'subOverrideMode': 'preserveAss',
+      'subColorHex': '#FFFFFF',
+    };
+    Future<Uint8List> archive(Map<String, Object?> data) => _mutate(1, (p) {
+      p['preferences'] = {
+        'updatedAtMs': 1700000000000,
+        'values': {'konata.playback.preferences.v1': jsonEncode(data)},
+      };
+    });
+    final service = _service(db);
+    final bytes = await archive(payload);
+    final before = prefs.read(video);
+    await service.previewRestore(bytes);
+    expect(prefs.read(video), before);
+    await service.restoreFromArchiveBytes(bytes);
+    final v = prefs.read(video);
+    final a = prefs.read(audio);
+    final l = prefs.read(lyrics);
+    expect(v['preferredEngine'], 'desktopRelay');
+    expect(v['volume'], 0.725);
+    expect(v['autoPlayNextEpisode'], false);
+    expect(v['autoSkipChapters'], true);
+    expect(v['fontInAssEndpoint'], 'https://font.anibt.net/api/subset');
+    expect(v['enableCloudSubset'], false);
+    expect(v['authorizedCloudSubsetOrigins'], isNull);
+    expect(v['preferredAudioLangs'], ['jpn']);
+    expect(v['bitstreamPassthrough'], isNull);
+    final quality = v['qualityConfig'] as Map;
+    expect(quality['preset'], 'standard');
+    expect(quality['defaultSpeed'], 1.25);
+    expect(quality['subFontName'], 'Noto Sans');
+    expect(quality['hardwareDecode'], false);
+    expect(quality['exclusiveAudioOutput'], isNull);
+    expect(quality['audioDevice'], isNull);
+    expect(quality['outputPipelineMode'], isNull);
+    expect(quality['activeShaderPaths'], isNull);
+    expect(a['defaultVolume'], 72.5);
+    expect(a['preferredAudioEngine'], 'builtinLibmpv');
+    expect(a['audioResamplerPrecision'], 28);
+    expect(a['loopMode'], 'loopAll');
+    expect(a['audiophileSafetyLimiterEnabled'], true);
+    expect(a['foobarBeefwebPort'], isNull);
+    expect(a['skipFoobarBeefwebPrompt'], isNull);
+    expect(l['showRomaji'], true);
+    expect(l['showTranslation'], false);
+    expect(l['wiredOffsetMillis'], -250);
+    expect(l['bluetoothOffsetMillis'], 650);
+    expect(l['qqEnabled'], isNull);
+    expect(l['qqDisclaimerAccepted'], isNull);
+    await service.restoreFromArchiveBytes(bytes);
+    expect(prefs.read(video), v);
+    expect(prefs.read(audio), a);
+    expect(prefs.read(lyrics), l);
+    final bad = await archive({...payload, 'unknownFutureField': true});
+    await expectLater(
+      service.restoreFromArchiveBytes(bad),
+      throwsFormatException,
+    );
+    expect(prefs.read(video), v);
+    final badEndpoint = await archive({
+      ...payload,
+      'cloudSubsetEndpoint': 'https://user:secret@example.invalid/subset',
+    });
+    await expectLater(
+      service.previewRestore(badEndpoint),
+      throwsFormatException,
+    );
+    expect(prefs.read(video), v);
+    final malformed = await _mutate(1, (p) {
+      p['preferences'] = {
+        'updatedAtMs': 1700000000000,
+        'values': {'konata.playback.preferences.v1': '{"broken":'},
+      };
+    });
+    await expectLater(service.previewRestore(malformed), throwsFormatException);
+    expect(prefs.read(video), v);
+    prefs.write(video, {...v, 'volume': 0.25}, updatedAtMs: 1800000000000);
+    await service.restoreFromArchiveBytes(bytes);
+    expect(prefs.read(video)['volume'], 0.25);
+    final withLocalShader = <String, Object?>{
+      ...v,
+      'qualityConfig': {
+        'activeShaderPaths': ['D:/private/current.glsl'],
+      },
+    };
+    prefs.write(video, withLocalShader, updatedAtMs: 100);
+    await expectLater(
+      service.restoreFromArchiveBytes(bytes),
+      throwsFormatException,
+    );
+    expect(prefs.read(video), withLocalShader);
+  });
+
   test('真实黄金源 v2 压缩备份迁移空磁盘库，重开保留六类目录、锁及进度', () async {
     final root = await Directory.systemTemp.createTemp(
       'konata-legacy-complete-',
@@ -233,10 +623,7 @@ void main() {
         'ambientBackdropEnabled': true,
       });
       expect(prefs.read(_local)['baseUrl'], 'https://device-only.invalid');
-      await expectLater(
-        _service(reopened).restoreFromArchiveBytes(await _fixture(2)),
-        throwsFormatException,
-      );
+      await _service(reopened).restoreFromArchiveBytes(await _fixture(2));
       expect(reopened.library.works.listVisible(), hasLength(1));
       expect(
         reopened.userState.playbackRecords.listAllWithTombstones(),
@@ -244,6 +631,376 @@ void main() {
       );
     } finally {
       await reopened.close();
+    }
+  });
+
+  test('v2 完整目录智能合并至非空独立库且保留既有媒体、锁及历史', () async {
+    final db = KonataDatabaseBundle.openInMemory();
+    addTearDown(db.close);
+    const src = SourceId.trusted('existing-source');
+    const work = WorkId.trusted('existing-work');
+    const ep = EpisodeId.trusted('existing-ep');
+    const variant = VariantId.trusted('existing-video');
+    db.library.mediaSources.upsert(
+      const MediaSourceRecord(
+        id: src,
+        kind: MediaSourceKind.local,
+        label: '本机独立源',
+        location: 'D:/existing-fixture',
+      ),
+    );
+    db.library.works.upsert(
+      const WorkRecord(
+        id: work,
+        title: '独立已有作品',
+        tmdbId: 999999,
+        tmdbMediaType: TmdbMediaType.tv,
+        matchedSeason: 1,
+        metadataLocked: true,
+      ),
+    );
+    db.library.episodes.upsert(
+      const EpisodeRecord(
+        id: ep,
+        workId: work,
+        seasonNumber: 1,
+        episodeNumber: 1,
+      ),
+    );
+    db.library.mediaVariants.upsert(
+      const MediaVariantRecord(
+        id: variant,
+        workId: work,
+        episodeId: ep,
+        sourceId: src,
+        relativePath: 'existing.mkv',
+        fileName: 'existing.mkv',
+        fileSize: 100,
+        mappingLocked: true,
+      ),
+    );
+    db.userState.playbackRecords.upsert(
+      const PlaybackRecordEntity(
+        id: 'existing-record',
+        workId: work,
+        episodeId: ep,
+        variantId: variant,
+        playedAtMs: 1800000000000,
+        positionSeconds: 61,
+        durationSeconds: 120,
+      ),
+    );
+    final service = _service(db);
+    final bytes = await _fixture(2);
+    final preview = await service.previewRestore(bytes);
+    expect(preview.totalInserts, 12);
+    expect(db.library.works.listVisible(), hasLength(1));
+    expect(db.userState.playbackRecords.listAllWithTombstones(), hasLength(1));
+    await service.restoreFromArchiveBytes(bytes);
+    expect(db.library.works.listVisible(), hasLength(2));
+    expect(db.library.works.findById(work)?.metadataLocked, isTrue);
+    expect(db.library.mediaVariants.findById(variant)?.mappingLocked, isTrue);
+    expect(
+      db.library.mediaVariants.findById(variant)?.relativePath,
+      'existing.mkv',
+    );
+    final histories = db.userState.playbackRecords.listAllWithTombstones();
+    expect(histories, hasLength(2));
+    expect(
+      histories.singleWhere((r) => r.id == 'existing-record').positionSeconds,
+      61,
+    );
+    final restored = histories.singleWhere((r) => r.workId.value == 'old-work');
+    expect(restored.episodeId.value, 'old-ep');
+    expect(restored.variantId.value, 'old-video');
+    expect(restored.positionSeconds, 42);
+    await service.restoreFromArchiveBytes(bytes);
+    expect(db.library.works.listVisible(), hasLength(2));
+    expect(db.userState.playbackRecords.listAllWithTombstones(), hasLength(2));
+  });
+
+  test('v2 复用已有 WebDAV 源及本机标识，重复恢复不增加记录', () async {
+    final db = KonataDatabaseBundle.openInMemory();
+    addTearDown(db.close);
+    const source = SourceId.trusted('existing-webdav');
+    db.library.mediaSources.upsert(
+      const MediaSourceRecord(
+        id: source,
+        kind: MediaSourceKind.webdav,
+        label: '本机连接名称',
+        location: 'https://fixture.example.invalid/dav',
+        updatedAtMs: 1800000000000,
+      ),
+    );
+    final service = _service(db);
+    final bytes = await _fixture(2);
+    expect((await service.previewRestore(bytes)).totalInserts, 11);
+    await service.restoreFromArchiveBytes(bytes);
+    expect(db.library.mediaSources.findById(source)?.label, '本机连接名称');
+    expect(
+      db.library.mediaSources.findById(const SourceId.trusted('old-src')),
+      isNull,
+    );
+    final work = db.library.works.listVisible().single;
+    expect(
+      db.library.mediaVariants
+          .listByWork(work.id)
+          .every((v) => v.sourceId == source),
+      isTrue,
+    );
+    expect(
+      db.library.ignoredFolders.listBySource(source).single.relativePath,
+      'Ignore',
+    );
+    expect(
+      db.userState.playbackRecords
+          .listAllWithTombstones()
+          .single
+          .positionSeconds,
+      42,
+    );
+    final preview = await service.previewRestore(bytes);
+    expect(preview.totalInserts, 0);
+    await service.restoreFromArchiveBytes(bytes);
+    expect(db.library.works.listVisible(), hasLength(1));
+    expect(db.library.mediaVariants.listByWork(work.id), hasLength(4));
+    expect(db.userState.playbackRecords.listAllWithTombstones(), hasLength(1));
+  });
+
+  test('v2 同作品、系列、分集与物理文件不同主键安全对齐，保留新历史', () async {
+    final db = KonataDatabaseBundle.openInMemory();
+    addTearDown(db.close);
+    final service = _service(db);
+    final original = await _fixture(2);
+    final rekeyed = await _mutate(2, (p) {
+      final catalog = p['libraryCatalog']! as Map<String, Object?>;
+      for (final key in [
+        'mediaSources',
+        'seriesGroups',
+        'works',
+        'episodes',
+        'variants',
+        'ignoredFolders',
+      ]) {
+        for (final value in catalog[key]! as List) {
+          final row = value as Map<String, Object?>;
+          for (final field in [
+            'id',
+            'sourceId',
+            'seriesId',
+            'workId',
+            'episodeId',
+          ]) {
+            if (row[field] != null) row[field] = 'new-${row[field]}';
+          }
+        }
+      }
+    });
+    await service.restoreFromArchiveBytes(rekeyed);
+    const work = WorkId.trusted('new-old-work');
+    const episode = EpisodeId.trusted('new-old-ep');
+    const variant = VariantId.trusted('new-old-video');
+    db.userState.playbackRecords.upsert(
+      const PlaybackRecordEntity(
+        id: 'new-old-work::new-old-ep',
+        workId: work,
+        episodeId: episode,
+        variantId: variant,
+        seasonNumber: 1,
+        episodeNumber: 1,
+        episodeTitle: '第一集',
+        sourceKind: MediaSourceKind.webdav,
+        playedAtMs: 1800000000000,
+        updatedAtMs: 1800000000000,
+        positionSeconds: 77,
+        durationSeconds: 120,
+      ),
+    );
+    final preview = await service.previewRestore(original);
+    expect(preview.totalInserts, 0);
+    expect(db.library.works.listVisible().single.id, work);
+    await service.restoreFromArchiveBytes(original);
+    final restored = db.library.works.listVisible().single;
+    expect(restored.id, work);
+    expect(restored.metadataLocked, isTrue);
+    expect(restored.seriesId?.value, 'new-old-series');
+    expect(db.library.episodes.listByWork(work), hasLength(2));
+    final variants = db.library.mediaVariants.listByWork(work);
+    expect(variants, hasLength(4));
+    expect(variants.singleWhere((v) => v.id == variant).mappingLocked, isTrue);
+    expect(variants.singleWhere((v) => v.id == variant).episodeId, episode);
+    final record = db.userState.playbackRecords.listAllWithTombstones().single;
+    expect(record.workId, work);
+    expect(record.episodeId, episode);
+    expect(record.variantId, variant);
+    expect(record.positionSeconds, 77);
+    await service.restoreFromArchiveBytes(original);
+    expect(db.userState.playbackRecords.listAllWithTombstones(), hasLength(1));
+    db.library.mediaVariants.upsert(
+      const MediaVariantRecord(
+        id: VariantId.trusted('extra-local-version'),
+        workId: work,
+        episodeId: episode,
+        sourceId: SourceId.trusted('new-old-src'),
+        relativePath: 'Series/other.mkv',
+        fileName: 'other.mkv',
+        fileSize: 999,
+      ),
+    );
+    await expectLater(
+      service.restoreFromArchiveBytes(original),
+      throwsFormatException,
+    );
+    expect(db.library.mediaVariants.listByWork(work), hasLength(5));
+    expect(
+      db.userState.playbackRecords
+          .listAllWithTombstones()
+          .single
+          .positionSeconds,
+      77,
+    );
+  });
+
+  test('v2 强身份分散至多个本机作品时拒绝，不按标题或任意候选合并', () async {
+    final db = KonataDatabaseBundle.openInMemory();
+    addTearDown(db.close);
+    db.library.works.upsert(
+      const WorkRecord(
+        id: WorkId.trusted('tmdb-local'),
+        title: 'TMDB 作品',
+        tmdbId: 100565,
+        tmdbMediaType: TmdbMediaType.tv,
+        matchedSeason: 1,
+        metadataLocked: true,
+      ),
+    );
+    db.library.works.upsert(
+      const WorkRecord(
+        id: WorkId.trusted('bgm-local'),
+        title: 'Bangumi 作品',
+        bangumiId: 293049,
+        metadataLocked: true,
+      ),
+    );
+    final service = _service(db);
+    final bytes = await _fixture(2);
+    await expectLater(
+      service.previewRestore(bytes),
+      throwsA(
+        isA<FormatException>().having(
+          (e) => e.message,
+          'message',
+          contains('多个候选身份'),
+        ),
+      ),
+    );
+    await expectLater(
+      service.restoreFromArchiveBytes(bytes),
+      throwsFormatException,
+    );
+    expect(db.library.works.listVisible(), hasLength(2));
+    expect(db.userState.playbackRecords.listAllWithTombstones(), isEmpty);
+  });
+
+  test('v2 同源文件路径碰撞或已编辑目录实体不会被重复恢复覆盖', () async {
+    final bytes = await _fixture(2);
+    final db = KonataDatabaseBundle.openInMemory();
+    addTearDown(db.close);
+    final service = _service(db);
+    await service.restoreFromArchiveBytes(bytes);
+    final work = db.library.works.listVisible().single;
+    db.library.works.upsert(
+      WorkRecord(
+        id: work.id,
+        title: '人工重新整理',
+        tmdbId: work.tmdbId,
+        tmdbMediaType: work.tmdbMediaType,
+        matchedSeason: work.matchedSeason,
+        bangumiId: work.bangumiId,
+        metadataLocked: true,
+      ),
+    );
+    await expectLater(
+      service.restoreFromArchiveBytes(bytes),
+      throwsFormatException,
+    );
+    expect(db.library.works.findById(work.id)?.title, '人工重新整理');
+    expect(db.userState.playbackRecords.listAllWithTombstones(), hasLength(1));
+
+    final other = KonataDatabaseBundle.openInMemory();
+    addTearDown(other.close);
+    const source = SourceId.trusted('local-dav');
+    const otherWork = WorkId.trusted('different-work');
+    other.library.mediaSources.upsert(
+      const MediaSourceRecord(
+        id: source,
+        kind: MediaSourceKind.webdav,
+        label: '本机源',
+        location: 'https://fixture.example.invalid/dav',
+      ),
+    );
+    other.library.works.upsert(
+      const WorkRecord(
+        id: otherWork,
+        title: '其他归属',
+        tmdbId: 999999,
+        tmdbMediaType: TmdbMediaType.tv,
+      ),
+    );
+    other.library.mediaVariants.upsert(
+      const MediaVariantRecord(
+        id: VariantId.trusted('different-file'),
+        workId: otherWork,
+        sourceId: source,
+        relativePath: 'Series/01.mkv',
+        fileName: '01.mkv',
+        fileSize: 1024,
+        mappingLocked: true,
+      ),
+    );
+    await expectLater(
+      _service(other).restoreFromArchiveBytes(bytes),
+      throwsFormatException,
+    );
+    expect(other.library.works.listVisible(), hasLength(1));
+    expect(
+      other.library.mediaVariants.listByWork(otherWork).single.mappingLocked,
+      isTrue,
+    );
+    expect(other.userState.playbackRecords.listAllWithTombstones(), isEmpty);
+  });
+
+  test('v2 非空目标存在作品身份或媒体源地址冲突时整份拒绝', () async {
+    final bytes = await _fixture(2);
+    for (final kind in ['work', 'source', 'id']) {
+      final db = KonataDatabaseBundle.openInMemory();
+      addTearDown(db.close);
+      if (kind == 'work') {
+        _seedV1(db);
+      } else {
+        db.library.mediaSources.upsert(
+          MediaSourceRecord(
+            id: SourceId.trusted(kind == 'id' ? 'old-src' : 'different-id'),
+            kind: MediaSourceKind.webdav,
+            label: '已有源',
+            username: kind == 'source' ? 'different-account' : null,
+            location: kind == 'source'
+                ? 'https://fixture.example.invalid/dav'
+                : 'https://other.example.invalid/dav',
+          ),
+        );
+      }
+      final prefs = ScopedPrefsStore(db.userState);
+      prefs.write(_appearance, {'themeMode': 'dark'}, updatedAtMs: 100);
+      final service = _service(db);
+      await expectLater(service.previewRestore(bytes), throwsFormatException);
+      await expectLater(
+        service.restoreFromArchiveBytes(bytes),
+        throwsFormatException,
+      );
+      expect(db.library.works.listVisible(), hasLength(kind == 'work' ? 1 : 0));
+      expect(db.userState.playbackRecords.listAllWithTombstones(), isEmpty);
+      expect(prefs.read(_appearance), {'themeMode': 'dark'});
     }
   });
 
@@ -320,6 +1077,95 @@ void main() {
       );
     });
   }
+
+  test('旧 CUE 曲名与轨号唯一核验后恢复母轨断点，拒绝未索引和歧义清单', () async {
+    final db = KonataDatabaseBundle.openInMemory();
+    addTearDown(db.close);
+    _seedV1(db);
+    const work = WorkId.trusted('local-work');
+    const source = SourceId.trusted('local-source');
+    db.library.mediaVariants.upsert(
+      const MediaVariantRecord(
+        id: VariantId.trusted('local-album'),
+        workId: work,
+        sourceId: source,
+        relativePath: 'CD/album.flac',
+        fileName: 'album.flac',
+        fileSize: 100,
+        assetKind: AssetKind.cdAlbum,
+      ),
+    );
+    db.library.mediaVariants.upsert(
+      const MediaVariantRecord(
+        id: VariantId.trusted('local-cue'),
+        workId: work,
+        sourceId: source,
+        relativePath: 'CD/album.cue',
+        fileName: 'album.cue',
+        fileSize: 100,
+        assetKind: AssetKind.cdAlbum,
+      ),
+    );
+    final bytes = await _mutate(1, (payload) {
+      _addLegacyAudio(payload);
+      final audio =
+          (payload['playbackEntries'] as List).last as Map<String, Object?>;
+      audio['episodeTitle'] = 'Second';
+      audio['playbackKey'] = 'playback::tmdb:tv:100565:s1::audio::second';
+      audio['episodeNumber'] = 2;
+    });
+    final noReader = _service(db);
+    await expectLater(noReader.previewRestore(bytes), throwsFormatException);
+    var reads = 0;
+    var tracks = <LegacyCueTrack>[
+      (number: 1, title: 'First', fileName: 'album.flac'),
+      (number: 2, title: 'Second', fileName: 'album.flac'),
+    ];
+    final service = KonataBackupService(
+      databases: db,
+      scopedPrefs: ScopedPrefsStore(db.userState),
+      deviceStore: SyncDeviceStore(db.userState.syncMeta),
+      readLegacyCue: (id) async {
+        expect(id, 'local-cue');
+        reads++;
+        return tracks;
+      },
+    );
+    await service.previewRestore(bytes);
+    expect(reads, 1);
+    expect(db.userState.playbackRecords.listAllWithTombstones(), isEmpty);
+    await service.restoreFromArchiveBytes(bytes);
+    expect(reads, 2);
+    final audio = db.userState.playbackRecords
+        .listAllWithTombstones()
+        .singleWhere((r) => r.episodeId.value.startsWith('cd::'));
+    expect(audio.id, 'cd::local-work::local-album#cue:2');
+    expect(audio.episodeId.value, 'cd::local-album#cue:2');
+    expect(audio.variantId.value, 'local-album');
+    expect(audio.positionSeconds, 12);
+    expect(audio.episodeNumber, 2);
+    await service.restoreFromArchiveBytes(bytes);
+    expect(db.userState.playbackRecords.listAllWithTombstones(), hasLength(2));
+    tracks = [(number: 2, title: 'Second', fileName: '../album.flac')];
+    await expectLater(
+      service.restoreFromArchiveBytes(bytes),
+      throwsFormatException,
+    );
+    tracks = [(number: 2, title: 'Second', fileName: 'missing.flac')];
+    await expectLater(
+      service.restoreFromArchiveBytes(bytes),
+      throwsFormatException,
+    );
+    tracks = [
+      (number: 2, title: 'Second', fileName: 'album.flac'),
+      (number: 2, title: 'Second', fileName: 'album.flac'),
+    ];
+    await expectLater(
+      service.restoreFromArchiveBytes(bytes),
+      throwsFormatException,
+    );
+    expect(db.userState.playbackRecords.listAllWithTombstones(), hasLength(2));
+  });
 
   test('旧音频遇到同名文件或 CUE 清单时拒绝整份归档', () async {
     for (final (fileName, errorText) in [

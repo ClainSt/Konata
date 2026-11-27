@@ -132,6 +132,9 @@ class AudioPlaybackController extends ChangeNotifier {
 
   bool _disposed = false;
   bool _desktopWindowTransition = false;
+  bool _desktopRelayInProgress = false;
+  bool _externalRelayActive = false;
+  int _desktopRelayEpoch = 0;
   bool _timePosObserved = false;
   bool _progressObservationHidden = false;
   int? _timePosObserveId;
@@ -195,97 +198,29 @@ class AudioPlaybackController extends ChangeNotifier {
     double? startPositionSeconds,
   }) async {
     if (_disposed) return;
+    if (_desktopRelayInProgress) return;
+    _desktopRelayEpoch++;
+    if (_externalRelayActive) {
+      await _desktopRelayGateway?.stopActiveExternalAudioSession(
+        beefwebPort: _preferences.read().foobarBeefwebPort,
+      );
+      _externalRelayActive = false;
+    }
+    if (_disposed) return;
     _activeWork = work;
     final collectionSeq = ++_mediaOpenSeq;
     _clearPrefetchTracking(releaseBridge: true);
 
-    final sourceById = <String, MediaSourceView>{
-      for (final s in sources) s.id.value: s,
-    };
-
-    CueSheet? initialCueSheet;
-    if (initialVariant != null &&
-        p.extension(initialVariant.fileName).toLowerCase() == '.cue') {
-      final source = sourceById[initialVariant.sourceId.value];
-      if (source != null) {
-        try {
-          initialCueSheet = await _assets.loadCueSheet(
-            source: source,
-            cueRelativePath: initialVariant.relativePath,
-            gatewayFactory: _gatewayFactory,
-            knownFileSize: initialVariant.fileSize,
-          );
-        } catch (error, stackTrace) {
-          _recordError(
-            code: 'AUDIO_CUE_INITIAL_LOAD_FAIL',
-            message: '初始 .cue 分轨清单解析失败',
-            error: error,
-            stackTrace: stackTrace,
-          );
-        }
-      }
-    }
-
-    if (_disposed || collectionSeq != _mediaOpenSeq) return;
-    var builtQueue = AudioPlaybackQueueBuilder.buildInitialQueue(
+    final builtQueue = await _prepareCdQueue(
       work: work,
       variants: variants,
-      sourceById: sourceById,
+      sources: sources,
       initialVariant: initialVariant,
-      initialCueSheet: initialCueSheet,
       initialCueTrackIndex: initialCueTrackIndex,
       activeAlbumKey: activeAlbumKey,
+      isCurrent: () => !_disposed && collectionSeq == _mediaOpenSeq,
     );
-
-    // 历史保存的是物理版本；恢复伴随 CUE 分轨时先展开清单再定位轨号。
-    if (initialCueTrackIndex != null &&
-        initialVariant != null &&
-        initialCueSheet == null) {
-      final target = builtQueue
-          .where((item) => item.variantId == initialVariant.id)
-          .firstOrNull;
-      if (target != null && target.cueSheetPath != null) {
-        try {
-          initialCueSheet = await _assets.loadCueSheet(
-            source: target.source,
-            cueRelativePath: target.cueSheetPath!,
-            gatewayFactory: _gatewayFactory,
-            knownFileSize: variants
-                .where(
-                  (v) =>
-                      v.sourceId == target.sourceId &&
-                      AudioPlaybackQueueBuilder.normalizeQueuePath(
-                            v.relativePath,
-                          ).toLowerCase() ==
-                          AudioPlaybackQueueBuilder.normalizeQueuePath(
-                            target.cueSheetPath!,
-                          ).toLowerCase(),
-                )
-                .firstOrNull
-                ?.fileSize,
-          );
-        } catch (error, stackTrace) {
-          _recordError(
-            code: 'AUDIO_CUE_RESUME_LOAD_FAIL',
-            message: '历史 CUE 分轨加载失败',
-            error: error,
-            stackTrace: stackTrace,
-          );
-        }
-        if (_disposed || collectionSeq != _mediaOpenSeq) return;
-        if (initialCueSheet != null) {
-          builtQueue = AudioPlaybackQueueBuilder.buildInitialQueue(
-            work: work,
-            variants: variants,
-            sourceById: sourceById,
-            initialVariant: initialVariant,
-            initialCueSheet: initialCueSheet,
-            initialCueTrackIndex: initialCueTrackIndex,
-            activeAlbumKey: activeAlbumKey,
-          );
-        }
-      }
-    }
+    if (_disposed || collectionSeq != _mediaOpenSeq) return;
 
     if (builtQueue.isEmpty) {
       _updateSnapshot(
@@ -368,12 +303,192 @@ class AudioPlaybackController extends ChangeNotifier {
     );
   }
 
+  /// 内置与直接外部播放共用队列构建，准备期间不启动解码器。
+  Future<List<AudioQueueItem>> _prepareCdQueue({
+    required WorkRecord work,
+    required List<MediaVariantRecord> variants,
+    required List<MediaSourceView> sources,
+    required bool Function() isCurrent,
+    MediaVariantRecord? initialVariant,
+    int? initialCueTrackIndex,
+    String? activeAlbumKey,
+    bool expandSelectedCue = false,
+  }) async {
+    final sourceById = <String, MediaSourceView>{
+      for (final s in sources) s.id.value: s,
+    };
+
+    CueSheet? initialCueSheet;
+    if (initialVariant != null &&
+        p.extension(initialVariant.fileName).toLowerCase() == '.cue') {
+      final source = sourceById[initialVariant.sourceId.value];
+      if (source != null) {
+        try {
+          initialCueSheet = await _assets.loadCueSheet(
+            source: source,
+            cueRelativePath: initialVariant.relativePath,
+            gatewayFactory: _gatewayFactory,
+            knownFileSize: initialVariant.fileSize,
+          );
+        } catch (error, stackTrace) {
+          _recordError(
+            code: 'AUDIO_CUE_INITIAL_LOAD_FAIL',
+            message: '初始 .cue 分轨清单解析失败',
+            error: error,
+            stackTrace: stackTrace,
+          );
+        }
+      }
+    }
+
+    if (!isCurrent()) return const [];
+    var builtQueue = AudioPlaybackQueueBuilder.buildInitialQueue(
+      work: work,
+      variants: variants,
+      sourceById: sourceById,
+      initialVariant: initialVariant,
+      initialCueSheet: initialCueSheet,
+      initialCueTrackIndex: initialCueTrackIndex,
+      activeAlbumKey: activeAlbumKey,
+    );
+
+    // 历史保存的是物理版本；恢复伴随 CUE 分轨时先展开清单再定位轨号。
+    if ((initialCueTrackIndex != null || expandSelectedCue) &&
+        initialVariant != null &&
+        initialCueSheet == null) {
+      final target = builtQueue
+          .where(
+            (item) =>
+                item.variantId == initialVariant.id ||
+                (item.sourceId == initialVariant.sourceId &&
+                    item.cueSheetPath == initialVariant.relativePath),
+          )
+          .firstOrNull;
+      if (target != null && target.cueSheetPath != null) {
+        try {
+          initialCueSheet = await _assets.loadCueSheet(
+            source: target.source,
+            cueRelativePath: target.cueSheetPath!,
+            gatewayFactory: _gatewayFactory,
+            knownFileSize: variants
+                .where(
+                  (v) =>
+                      v.sourceId == target.sourceId &&
+                      AudioPlaybackQueueBuilder.normalizeQueuePath(
+                            v.relativePath,
+                          ).toLowerCase() ==
+                          AudioPlaybackQueueBuilder.normalizeQueuePath(
+                            target.cueSheetPath!,
+                          ).toLowerCase(),
+                )
+                .firstOrNull
+                ?.fileSize,
+          );
+        } catch (error, stackTrace) {
+          _recordError(
+            code: 'AUDIO_CUE_RESUME_LOAD_FAIL',
+            message: '历史 CUE 分轨加载失败',
+            error: error,
+            stackTrace: stackTrace,
+          );
+        }
+        if (!isCurrent()) return const [];
+        if (initialCueSheet != null) {
+          builtQueue = AudioPlaybackQueueBuilder.buildInitialQueue(
+            work: work,
+            variants: variants,
+            sourceById: sourceById,
+            initialVariant: initialVariant,
+            initialCueSheet: initialCueSheet,
+            initialCueTrackIndex: initialCueTrackIndex,
+            activeAlbumKey: activeAlbumKey,
+          );
+        }
+      }
+    }
+
+    return builtQueue;
+  }
+
+  /// 直接按指定曲目建立外部接力请求，不创建临时内置音频会话。
+  Future<LaunchPlaybackResult?> relayCdCollectionToDesktop({
+    required WorkRecord work,
+    required List<MediaVariantRecord> variants,
+    required List<MediaSourceView> sources,
+    MediaVariantRecord? initialVariant,
+    int? initialCueTrackIndex,
+    double? startPositionSeconds,
+    bool allowWithoutBeefweb = false,
+  }) async {
+    if (_disposed || _desktopRelayInProgress || _desktopRelayGateway == null) {
+      return const LaunchPlaybackResult(
+        launched: false,
+        message: '外部播放器不可用或正在移交',
+      );
+    }
+    final seq = _mediaOpenSeq;
+    final effectiveVariant =
+        initialVariant ??
+        variants
+            .where((v) => v.assetKind == AssetKind.cdAlbum && !v.isDeleted)
+            .firstOrNull;
+    final queue = await _prepareCdQueue(
+      work: work,
+      variants: variants.where((v) => !v.isDeleted).toList(),
+      sources: sources,
+      initialVariant: effectiveVariant,
+      initialCueTrackIndex: initialCueTrackIndex,
+      expandSelectedCue: true,
+      isCurrent: () => !_disposed && seq == _mediaOpenSeq,
+    );
+    if (_disposed ||
+        seq != _mediaOpenSeq ||
+        queue.isEmpty ||
+        effectiveVariant == null) {
+      return const LaunchPlaybackResult(launched: false, message: '没有可用的目标音轨');
+    }
+    final index = AudioPlaybackQueueBuilder.resolveTargetQueueIndex(
+      queue: queue,
+      initialVariant: effectiveVariant,
+      initialCueTrackIndex: initialCueTrackIndex,
+    );
+    final item = queue[index];
+    final matchesVariant =
+        item.variantId == effectiveVariant.id ||
+        (item.sourceId == effectiveVariant.sourceId &&
+            item.cueSheetPath != null &&
+            AudioPlaybackQueueBuilder.normalizeQueuePath(
+                  item.cueSheetPath!,
+                ).toLowerCase() ==
+                AudioPlaybackQueueBuilder.normalizeQueuePath(
+                  effectiveVariant.relativePath,
+                ).toLowerCase());
+    if (!matchesVariant ||
+        (initialCueTrackIndex != null &&
+            item.cueTrackIndex != initialCueTrackIndex) ||
+        item.isUnexpandedCueManifest) {
+      return const LaunchPlaybackResult(
+        launched: false,
+        message: '指定音轨或 CUE 分轨未完整关联，请重新选择',
+      );
+    }
+    final start = startPositionSeconds ?? 0;
+    return _relayActiveToDesktopImpl(
+      allowWithoutBeefweb: allowWithoutBeefweb,
+      launchWork: work,
+      launchQueue: queue,
+      launchIndex: index,
+      launchStartSeconds: start.isFinite && start >= 0 ? start : 0,
+    );
+  }
+
   /// 切换到指定队列下标播放，按需自动展开 `.cue` 清单或同流分轨无感快进。
   Future<void> playQueueIndex(
     int index, {
     double? initialTrackSeconds,
     bool manualSelection = true,
   }) async {
+    if (_desktopRelayInProgress) return;
     await _playQueueIndexInternal(
       index,
       initialTrackSeconds: initialTrackSeconds,
@@ -654,7 +769,7 @@ class AudioPlaybackController extends ChangeNotifier {
         _updateSnapshot(
           _snapshotNotifier.value.copyWith(isDesktopMiniWindow: true),
         );
-        await _windowPort.enterDesktopMiniWindow(width: 336, height: 76);
+        await _enterDesktopAudioMiniWindow(width: 72, height: 72);
       } else {
         await _windowPort.exitDesktopMiniWindow();
         if (!_disposed) {
@@ -680,6 +795,14 @@ class AudioPlaybackController extends ChangeNotifier {
     final port = _windowPort;
     return port is DesktopMiniDockPort
         ? (port as DesktopMiniDockPort).desktopMiniMoveEnded
+        : const Stream.empty();
+  }
+
+  /// 桌面音频小窗失焦事件，其他平台不订阅。
+  Stream<void> get desktopAudioMiniBlur {
+    final port = _windowPort;
+    return port is DesktopAudioMiniWindowPort
+        ? (port as DesktopAudioMiniWindowPort).desktopAudioMiniBlur
         : const Stream.empty();
   }
 
@@ -712,26 +835,39 @@ class AudioPlaybackController extends ChangeNotifier {
     }
     _desktopWindowTransition = true;
     try {
-      await _windowPort.enterDesktopMiniWindow(width: width, height: height);
+      await _enterDesktopAudioMiniWindow(width: width, height: height);
     } finally {
       _desktopWindowTransition = false;
     }
   }
 
-  /// 将当前正在播放的专辑队列或单曲移交给桌面端已配置的外部发烧播放器接力。
-  Future<LaunchPlaybackResult?> relayActiveToDesktop({String? targetId}) =>
-      _relayActiveToDesktopImpl(targetId: targetId);
+  Future<void> _enterDesktopAudioMiniWindow({
+    required double width,
+    required double height,
+  }) {
+    final port = _windowPort;
+    if (port is DesktopAudioMiniWindowPort) {
+      return (port as DesktopAudioMiniWindowPort).enterDesktopAudioMiniWindow(
+        width: width,
+        height: height,
+      );
+    }
+    return port.enterDesktopMiniWindow(width: width, height: height);
+  }
 
-  /// 当用户打开独立视频播放会话时自动退避挂起音频输出并释放独占原生实例。
+  /// 将当前正在播放的专辑队列或单曲移交给桌面端已配置的外部发烧播放器接力。
+  Future<LaunchPlaybackResult?> relayActiveToDesktop({
+    String? targetId,
+    bool allowWithoutBeefweb = false,
+  }) => _relayActiveToDesktopImpl(
+    targetId: targetId,
+    allowWithoutBeefweb: allowWithoutBeefweb,
+  );
+
+  /// 切换到独立视频前保存音频断点并有序结束旧会话，避免失效小窗残留。
   Future<void> pauseForVideoSession() async {
-    await setPlaying(false);
-    await _releaseCurrentClient();
-    _updateSnapshot(
-      _snapshotNotifier.value.copyWith(
-        status: AudioPlaybackStatus.paused,
-        isBuffering: false,
-      ),
-    );
+    if (_disposed || !_activeNotifier.value) return;
+    await stopAndClose();
   }
 
   /// 彻底结束音频播放会话，重置叶子通知器并通知歌词端口清空当前活动曲目。
@@ -781,6 +917,7 @@ class AudioPlaybackController extends ChangeNotifier {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    _desktopRelayEpoch++;
     _cueBoundaryTimer?.cancel();
     _cueBoundaryTimer = null;
     _microFadeDriver.cancel();

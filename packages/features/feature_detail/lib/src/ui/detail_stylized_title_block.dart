@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -77,25 +76,28 @@ class _DetailStylizedTitleBlockState extends State<DetailStylizedTitleBlock> {
     }
   }
 
-  void _handleLogoResolved(ui.Image image, String url) {
+  Future<void> _handleLogoResolved(ui.Image image, String url) async {
     if (_analyzedUrl == url) return;
     _analyzedUrl = url;
     final surfaceBg = widget.onDarkBackdrop || context.palette.isDark
         ? KonataTheme.cinemaObsidian
         : KonataTheme.themePreviewLightCanvas;
-    unawaited(
-      ClearLogoLegibility.analyzeImage(image).then((stats) {
-        if (!mounted || widget.work.logoPath?.trim() != url) return;
-        final next = ClearLogoLegibility.evaluateForSurface(
-          stats: stats,
-          estimatedBackground: surfaceBg,
-        );
-        setState(() {
-          _legibility = next;
-          _logoLoadFailed = false;
-        });
-      }),
+    final workId = widget.work.id;
+    final stats = await ClearLogoLegibility.analyzeImage(image);
+    if (!mounted ||
+        widget.work.id != workId ||
+        !widget.showTitleLogo ||
+        widget.work.logoPath?.trim() != url) {
+      return;
+    }
+    final next = ClearLogoLegibility.evaluateForSurface(
+      stats: stats,
+      estimatedBackground: surfaceBg,
     );
+    setState(() {
+      _legibility = next;
+      _logoLoadFailed = false;
+    });
   }
 
   @override

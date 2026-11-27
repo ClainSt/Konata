@@ -509,52 +509,63 @@ class ImmersiveCoverWithReflection extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         coverArt,
-        const SizedBox(height: 4),
-        SizedBox(
-          width: size,
-          height: reflectionHeight,
-          child: ClipRRect(
-            borderRadius: BorderRadius.vertical(
-              top: Radius.circular(borderRadius * 0.5),
-            ),
-            child: Opacity(
-              opacity: 0.62,
-              child: ImageFiltered(
-                imageFilter: KonataTheme.blurFilterDecalOf(
-                  KonataPlaybackTokens.albumReflectionBlurSigma,
-                ),
-                child: ShaderMask(
-                  shaderCallback: (bounds) => const LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Color(0x78FFFFFF),
-                      Color(0x28FFFFFF),
-                      Colors.transparent,
-                    ],
-                    stops: [0.0, 0.45, 0.90],
-                  ).createShader(bounds),
-                  blendMode: BlendMode.dstIn,
-                  child: Transform(
-                    alignment: Alignment.center,
-                    transform: Matrix4.diagonal3Values(1.0, -1.0, 1.0),
-                    child: OverflowBox(
-                      alignment: Alignment.topCenter,
-                      minHeight: size,
-                      maxHeight: size,
-                      child: SizedBox.square(
-                        dimension: size,
-                        child: AudioCoverArtworkView(
-                          cover: cover,
-                          coverKey: coverKey,
-                          borderRadius: borderRadius,
-                          showBorder: false,
+        RepaintBoundary(
+          child: SizedBox(
+            key: const ValueKey('immersive_cover_reflection'),
+            width: size,
+            height: reflectionHeight,
+            child: Stack(
+              clipBehavior: Clip.hardEdge,
+              children: [
+                // 完整方形翻转后截取顶部倒影，外扩遮罩防止高分屏漏出亮边。
+                Positioned(
+                  left: -KonataPlaybackTokens.albumReflectionMaskBleed,
+                  top: -KonataPlaybackTokens.albumReflectionMaskBleed,
+                  width:
+                      size + KonataPlaybackTokens.albumReflectionMaskBleed * 2,
+                  height:
+                      size + KonataPlaybackTokens.albumReflectionMaskBleed * 2,
+                  child: ShaderMask(
+                    shaderCallback: (bounds) =>
+                        const LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors:
+                              KonataPlaybackTokens.albumReflectionMaskColors,
+                          stops: [0.0, 0.34, 0.92],
+                        ).createShader(
+                          Rect.fromLTWH(
+                            0,
+                            KonataPlaybackTokens.albumReflectionMaskBleed,
+                            bounds.width,
+                            reflectionHeight,
+                          ),
+                        ),
+                    blendMode: BlendMode.dstIn,
+                    child: Padding(
+                      padding: const EdgeInsets.all(
+                        KonataPlaybackTokens.albumReflectionMaskBleed,
+                      ),
+                      child: ImageFiltered(
+                        imageFilter: KonataTheme.blurFilterDecalOf(
+                          KonataPlaybackTokens.albumReflectionBlurSigma,
+                        ),
+                        child: Transform(
+                          alignment: Alignment.center,
+                          transform: Matrix4.diagonal3Values(1.0, -1.0, 1.0),
+                          child: AudioCoverArtworkView(
+                            cover: cover,
+                            coverKey: coverKey,
+                            alignmentCache: alignmentCache,
+                            borderRadius: borderRadius,
+                            showBorder: false,
+                          ),
                         ),
                       ),
                     ),
                   ),
                 ),
-              ),
+              ],
             ),
           ),
         ),

@@ -36,6 +36,9 @@ class EpisodeDrawerCard extends StatefulWidget {
     this.cardWidth = standardWidth,
     this.compactMeta = false,
     this.onShowMediaInfo,
+    this.onMarkWatched,
+    this.onAdjustEpisodeMapping,
+    this.onPlayExternal,
   });
 
   /// 目标逻辑剧集或特典条目。
@@ -89,8 +92,17 @@ class EpisodeDrawerCard extends StatefulWidget {
   /// 紧凑视口沿用两行文件名及更紧凑的文字间距。
   final bool compactMeta;
 
-  /// 右键或长按弹出媒体参数详情弹窗回调。
+  /// 菜单内查看媒体信息的回调。
   final VoidCallback? onShowMediaInfo;
+
+  /// 单集已看操作，仅在存在真实视频版本时由宿主提供。
+  final Future<void> Function()? onMarkWatched;
+
+  /// 打开当前分集的文件映射编辑。
+  final VoidCallback? onAdjustEpisodeMapping;
+
+  /// 直接调用桌面外部视频播放器。
+  final VoidCallback? onPlayExternal;
 
   @override
   State<EpisodeDrawerCard> createState() => _EpisodeDrawerCardState();
@@ -98,6 +110,70 @@ class EpisodeDrawerCard extends StatefulWidget {
 
 class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
   bool _hovered = false;
+  bool _menuOpen = false;
+
+  Future<void> _showEpisodeMenu(BuildContext anchorContext) async {
+    if (_menuOpen) return;
+    _menuOpen = true;
+    final String? action;
+    try {
+      action = await showKonataGlassMenu<String>(
+        anchorContext: anchorContext,
+        items: [
+          const KonataGlassMenuItem(
+            key: ValueKey('episode_menu_play'),
+            value: 'play',
+            label: '播放',
+            icon: Icons.play_arrow_rounded,
+          ),
+          if (widget.onPlayExternal != null)
+            const KonataGlassMenuItem(
+              key: ValueKey('episode_menu_external_play'),
+              value: 'external',
+              label: '使用外部播放器',
+              icon: Icons.open_in_new_rounded,
+            ),
+          if (widget.onMarkWatched != null &&
+              widget.playback?.isCompleted != true)
+            const KonataGlassMenuItem(
+              key: ValueKey('episode_menu_mark_watched'),
+              value: 'watched',
+              label: '标为已看',
+              icon: Icons.check_rounded,
+            ),
+          if (widget.onAdjustEpisodeMapping != null)
+            const KonataGlassMenuItem(
+              key: ValueKey('episode_menu_adjust_mapping'),
+              value: 'mapping',
+              label: '调整季集号',
+              icon: Icons.edit_rounded,
+            ),
+          if (widget.onShowMediaInfo != null)
+            const KonataGlassMenuItem(
+              key: ValueKey('episode_menu_media_info'),
+              value: 'info',
+              label: '查看媒体信息',
+              icon: Icons.info_outline_rounded,
+            ),
+        ],
+      );
+    } finally {
+      _menuOpen = false;
+    }
+    if (!mounted) return;
+    switch (action) {
+      case 'play':
+        widget.onTap();
+      case 'info':
+        widget.onShowMediaInfo?.call();
+      case 'watched':
+        await widget.onMarkWatched?.call();
+      case 'external':
+        widget.onPlayExternal?.call();
+      case 'mapping':
+        widget.onAdjustEpisodeMapping?.call();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -129,9 +205,14 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
         onEnter: (_) => setState(() => _hovered = true),
         onExit: (_) => setState(() => _hovered = false),
         child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
           onTap: widget.onTap,
-          onSecondaryTap: widget.onShowMediaInfo,
-          onLongPress: widget.onShowMediaInfo,
+          onSecondaryTapUp: KonataAdaptiveTokens.isWindows
+              ? (_) => _showEpisodeMenu(context)
+              : null,
+          onLongPress: KonataAdaptiveTokens.isAndroid
+              ? () => _showEpisodeMenu(context)
+              : null,
           child: SizedBox(
             width: widget.cardWidth,
             child: Column(
@@ -290,41 +371,21 @@ class _EpisodeDrawerCardState extends State<EpisodeDrawerCard> {
                   ),
                 ),
                 SizedBox(height: widget.compactMeta ? 6 : 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: EllipsisTextWithTooltip(
-                        text: title,
-                        maxLines: 1,
-                        style: KonataTheme.detailTextStyle(
-                          palette: p,
-                          color: (widget.onDarkBackdrop || p.isDark)
-                              ? (_hovered
-                                    ? KonataTheme.pureWhite
-                                    : KonataTheme.overlayWhiteTextStrong)
-                              : p.textPrimary,
-                          fontSize: widget.compactMeta
-                              ? KonataTheme.fontSizeBodySm
-                              : KonataTheme.fontSizeBodyMd,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    if (widget.onShowMediaInfo != null)
-                      GestureDetector(
-                        onTap: widget.onShowMediaInfo,
-                        child: Padding(
-                          padding: const EdgeInsets.only(left: 4),
-                          child: Icon(
-                            Icons.info_outline_rounded,
-                            size: 14,
-                            color: (widget.onDarkBackdrop || p.isDark)
-                                ? KonataTheme.overlayWhiteTextSub
-                                : p.textMuted,
-                          ),
-                        ),
-                      ),
-                  ],
+                EllipsisTextWithTooltip(
+                  text: title,
+                  maxLines: 1,
+                  style: KonataTheme.detailTextStyle(
+                    palette: p,
+                    color: (widget.onDarkBackdrop || p.isDark)
+                        ? (_hovered
+                              ? KonataTheme.pureWhite
+                              : KonataTheme.overlayWhiteTextStrong)
+                        : p.textPrimary,
+                    fontSize: widget.compactMeta
+                        ? KonataTheme.fontSizeBodySm
+                        : KonataTheme.fontSizeBodyMd,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 if (widget.showOriginalFileName && primaryVariant != null) ...[
                   SizedBox(height: widget.compactMeta ? 2 : 3),

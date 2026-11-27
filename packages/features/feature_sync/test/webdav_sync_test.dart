@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:engine_sources/engine_sources.dart';
 import 'package:feature_sync/feature_sync.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -995,6 +996,252 @@ void main() {
         isEmpty,
       );
       expect(server.countRequests('PUT'), 0);
+    });
+
+    test('真实回环 HTTP 双向同步及发布前后断线恢复', () async {
+      final backend = _InMemoryWebDavServer(requireDigestAuth: true);
+      final listener = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => listener.close(force: true));
+      var before = true;
+      var after = false;
+      var truncate = false;
+      var failures = 0;
+      final errors = <Object>[];
+      final subscription = listener.listen((incoming) async {
+        try {
+          final request = http.Request(incoming.method, incoming.requestedUri);
+          incoming.headers.forEach((name, values) {
+            request.headers[name] = values.join(', ');
+          });
+          request.bodyBytes = await incoming.fold<List<int>>(
+            <int>[],
+            (bytes, chunk) => bytes..addAll(chunk),
+          );
+          final path = incoming.uri.path;
+          final manifestPut =
+              incoming.method == 'PUT' && path.endsWith('/manifest.json');
+          if (manifestPut &&
+              before &&
+              (request.headers['authorization'] ?? '').startsWith('Digest ')) {
+            before = false;
+            failures++;
+            final socket = await incoming.response.detachSocket(
+              writeHeaders: false,
+            );
+            socket.destroy();
+            return;
+          }
+          final result = await backend.handle(request);
+          final bytes = await result.stream.toBytes();
+          if (manifestPut && after && result.statusCode == 201) {
+            after = false;
+            failures++;
+            final socket = await incoming.response.detachSocket(
+              writeHeaders: false,
+            );
+            socket.destroy();
+            return;
+          }
+          if (incoming.method == 'GET' &&
+              path.contains('/slices/') &&
+              result.statusCode == 200 &&
+              truncate) {
+            truncate = false;
+            failures++;
+            final socket = await incoming.response.detachSocket(
+              writeHeaders: false,
+            );
+            socket.add(
+              ascii.encode(
+                'HTTP/1.1 200 OK\r\nContent-Length: ${bytes.length}\r\nConnection: close\r\n\r\n',
+              ),
+            );
+            socket.add(bytes.sublist(0, bytes.length ~/ 2));
+            await socket.flush();
+            await socket.close();
+            return;
+          }
+          incoming.response.statusCode = result.statusCode;
+          result.headers.forEach(incoming.response.headers.set);
+          incoming.response.contentLength = bytes.length;
+          incoming.response.add(bytes);
+          await incoming.response.close();
+        } catch (error) {
+          errors.add(error);
+          try {
+            await incoming.response.close();
+          } catch (_) {}
+        }
+      });
+      addTearDown(subscription.cancel);
+      final poolA = WebDavConnectionPool();
+      final poolB = WebDavConnectionPool();
+      addTearDown(poolA.dispose);
+      addTearDown(poolB.dispose);
+      final config = WebDavSyncConfig(
+        enabled: true,
+        baseUrl: 'http://127.0.0.1:${listener.port}/dav',
+        remoteDir: 'konata-sync',
+        username: 'konata',
+        password: 'loopback-fixture',
+      );
+      final a = WebDavSyncCoordinator(
+        databases: dbA,
+        scopedPrefs: prefsA,
+        deviceStore: storeA,
+        transport: WebDavSyncTransport(
+          connectionPool: poolA,
+          requestTimeout: const Duration(seconds: 5),
+        ),
+        nowMs: () => 5000,
+      );
+      final b = WebDavSyncCoordinator(
+        databases: dbB,
+        scopedPrefs: prefsB,
+        deviceStore: storeB,
+        transport: WebDavSyncTransport(
+          connectionPool: poolB,
+          requestTimeout: const Duration(seconds: 5),
+        ),
+        nowMs: () => 6000,
+      );
+      prefsA.write(
+        appearanceSlice,
+        {'themeMode': 'dark'},
+        updatedAtMs: 4000,
+        sourceDeviceId: 'device_a',
+      );
+      const work = WorkId.trusted('loop-work');
+      const ep = EpisodeId.trusted('loop-ep');
+      const variant = VariantId.trusted('loop-video');
+      const source = SourceId.trusted('loop-source');
+      dbA.library.mediaSources.upsert(
+        const MediaSourceRecord(
+          id: source,
+          kind: MediaSourceKind.webdav,
+          label: '隔离媒体源',
+          location: 'https://fixture.example.invalid/dav',
+        ),
+      );
+      dbA.library.works.upsert(
+        const WorkRecord(
+          id: work,
+          title: '回环测试作品',
+          tmdbId: 31910,
+          tmdbMediaType: TmdbMediaType.tv,
+          matchedSeason: 1,
+          updatedAtMs: 4000,
+        ),
+      );
+      dbA.library.episodes.upsert(
+        const EpisodeRecord(
+          id: ep,
+          workId: work,
+          seasonNumber: 1,
+          episodeNumber: 1,
+        ),
+      );
+      dbA.library.mediaVariants.upsert(
+        const MediaVariantRecord(
+          id: variant,
+          workId: work,
+          episodeId: ep,
+          sourceId: source,
+          relativePath: '01.mkv',
+          fileName: '01.mkv',
+          fileSize: 1024,
+          mappingLocked: true,
+        ),
+      );
+      PlaybackRecordEntity record(int position, int time, String device) =>
+          PlaybackRecordEntity(
+            id: 'loop-work::loop-ep',
+            workId: work,
+            episodeId: ep,
+            variantId: variant,
+            seasonNumber: 1,
+            episodeNumber: 1,
+            sourceKind: MediaSourceKind.webdav,
+            positionSeconds: position,
+            durationSeconds: 1440,
+            playedAtMs: time,
+            updatedAtMs: time,
+            sourceDeviceId: device,
+          );
+      dbA.userState.playbackRecords.upsert(record(820, 4500, 'device_a'));
+      const manifestPath = '/dav/konata-sync/manifest.json';
+      await expectLater(a.syncNow(config), throwsA(isA<WebDavSyncException>()));
+      expect(failures, 1);
+      expect(backend.files.containsKey(manifestPath), isFalse);
+      expect(storeA.readMeta(SyncDeviceStore.metaKeyWebDavLastSyncMs), isNull);
+      expect(storeA.readLocalSliceSha256('prefs_slice'), isNull);
+      final orphaned = Map<String, Uint8List>.of(backend.files);
+      expect(orphaned, hasLength(3));
+      await a.syncNow(config);
+      for (final entry in orphaned.entries) {
+        expect(backend.files[entry.key], orderedEquals(entry.value));
+      }
+      expect(backend.files, hasLength(4));
+      truncate = true;
+      await expectLater(b.syncNow(config), throwsA(isA<WebDavSyncException>()));
+      expect(failures, 2);
+      expect(dbB.library.works.listVisible(), isEmpty);
+      expect(dbB.userState.playbackRecords.listAllWithTombstones(), isEmpty);
+      expect(storeB.readRemoteSliceSha256('prefs_slice', 'device_a'), isNull);
+      expect(storeB.readMeta(SyncDeviceStore.metaKeyWebDavLastSyncMs), isNull);
+      after = true;
+      await expectLater(b.syncNow(config), throwsA(isA<WebDavSyncException>()));
+      expect(failures, 3);
+      expect(storeB.readMeta(SyncDeviceStore.metaKeyWebDavLastSyncMs), isNull);
+      expect(dbB.library.works.listVisible().single.id, work);
+      expect(
+        dbB.library.mediaVariants.findById(variant)?.mappingLocked,
+        isTrue,
+      );
+      expect(
+        dbB.userState.playbackRecords
+            .listAllWithTombstones()
+            .single
+            .positionSeconds,
+        820,
+      );
+      expect(prefsB.read(appearanceSlice)['themeMode'], 'dark');
+      final committed = Uint8List.fromList(backend.files[manifestPath]!);
+      backend.requestLog.clear();
+      final retry = await b.syncNow(config);
+      expect(retry.uploadedShards, 0);
+      expect(retry.downloadedShards, 0);
+      expect(backend.countRequests('PUT'), 0);
+      expect(backend.files[manifestPath], orderedEquals(committed));
+      expect(
+        storeB.readMeta(SyncDeviceStore.metaKeyWebDavLastSyncMs),
+        isNotNull,
+      );
+      prefsB.write(
+        appearanceSlice,
+        {'themeMode': 'light'},
+        updatedAtMs: 5500,
+        sourceDeviceId: 'device_b',
+      );
+      dbB.userState.playbackRecords.upsert(record(900, 5500, 'device_b'));
+      await b.syncNow(config);
+      await a.syncNow(config);
+      expect(prefsA.read(appearanceSlice)['themeMode'], 'light');
+      expect(
+        dbA.userState.playbackRecords
+            .listAllWithTombstones()
+            .single
+            .positionSeconds,
+        900,
+      );
+      await b.syncNow(config);
+      backend.requestLog.clear();
+      final steady = await b.syncNow(config);
+      expect(steady.downloadedShards, 0);
+      expect(steady.uploadedShards, 0);
+      expect(backend.countRequests('GET', pathContains: '/slices/'), 0);
+      expect(backend.countRequests('PUT'), 0);
+      expect(errors, isEmpty);
     });
 
     test('SHA-256 校验跳过未变分片，完全未改动时实现零切片下载、零切片上传与零清单覆写', () async {

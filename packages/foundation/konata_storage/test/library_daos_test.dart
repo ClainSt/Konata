@@ -210,11 +210,42 @@ void main() {
       final variant = db.mediaVariants.listByWork(workId).single;
       expect(variant.externalSubtitles, equals(<String>['Hyouka/01.sc.ass']));
       expect(variant.mappingLocked, isTrue);
+      final cd = VariantId('cd-fixture');
+      db.mediaVariants.upsert(
+        MediaVariantRecord(
+          id: cd,
+          workId: workId,
+          sourceId: srcId,
+          relativePath: 'Hyouka/CD/01.flac',
+          fileName: '01.flac',
+          fileSize: 1024,
+          assetKind: AssetKind.cdAlbum,
+          deletedAtMs: 600,
+        ),
+      );
+      expect(db.mediaVariants.listIdsByAssetKind(AssetKind.video), {varId});
+      expect(db.mediaVariants.listIdsByAssetKind(AssetKind.cdAlbum), isEmpty);
+      expect(
+        db.mediaVariants.listIdsByAssetKind(
+          AssetKind.cdAlbum,
+          includeDeleted: true,
+        ),
+        {cd},
+      );
 
       // 校验忽略目录软删除。
       expect(db.ignoredFolders.listBySource(srcId), hasLength(1));
       db.ignoredFolders.softDelete('src-1::TempFolder', deletedAtMs: 600);
       expect(db.ignoredFolders.listBySource(srcId), isEmpty);
+      expect(db.ignoredFolders.listAll(), isEmpty);
+      expect(
+        db.ignoredFolders.listAll(includeDeleted: true).single.deletedAtMs,
+        600,
+      );
+      expect(db.episodes.listAll().single.id, epId);
+      db.episodes.softDelete(epId, deletedAtMs: 700);
+      expect(db.episodes.listAll(), isEmpty);
+      expect(db.episodes.listAll(includeDeleted: true).single.deletedAtMs, 700);
 
       // 物理删除作品后，episodes 与 media_variants 应通过外键自动级联清理。
       db.works.hardDelete(workId);

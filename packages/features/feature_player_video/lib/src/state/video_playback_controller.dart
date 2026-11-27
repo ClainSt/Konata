@@ -241,7 +241,7 @@ class VideoPlaybackController extends ChangeNotifier {
       return;
     }
 
-    final resolved = _resolveInitialEpisodeAndVariant(bundle, request);
+    final resolved = VideoSeriesHelper.resolveInitialTarget(bundle, request);
     final episode = resolved.episode;
     final variant = resolved.variant;
     final source = bundle.sourcesById[variant.sourceId];

@@ -35,7 +35,10 @@ void main() {
     final parent = File(Platform.resolvedExecutable).parent;
     final root = await parent.createTemp('konata-playback-audit-');
     final bridge = WindowsD3d11VideoBridge();
-    final host = WindowsPlaybackWindowAdapter();
+    final materialController = WindowMaterialController();
+    final host = WindowsPlaybackWindowAdapter(
+      materialController: materialController,
+    );
     await acrylic.Window.initialize();
     final win =
         wm.WindowManager.instance.getCurrent() ??
@@ -204,7 +207,7 @@ void main() {
         KonataBootstrapApp(
           bootstrap: bootstrap,
           platformLabel: 'Windows',
-          windowHost: WindowsWindowHost(),
+          windowHost: WindowsWindowHost(materialController: materialController),
         ),
       );
       await until(
@@ -691,6 +694,24 @@ void main() {
         video.positionNotifier.value.inMilliseconds,
         closeTo(paused.inMilliseconds, 1000),
       );
+      // 左边缘横向拖动不能触发 Cupertino 返回手势。
+      final miniRect = tester.getRect(
+        find.byKey(const ValueKey('video_desktop_mini_stage')),
+      );
+      await tester.dragFrom(
+        Offset(miniRect.left + 3, miniRect.center.dy),
+        Offset(miniRect.width * 0.8, 0),
+        pointer: pointer++,
+      );
+      await tester.pump(const Duration(milliseconds: 450));
+      expect(
+        find.byKey(const ValueKey('video_desktop_mini_stage')),
+        findsOneWidget,
+      );
+      expect(manager.controller, same(video));
+      expect(video.state.miniMode, VideoMiniMode.desktop);
+      expect(tester.takeException(), isNull);
+      evidence['video_desktop_edge_swipe_blocked'] = true;
       await capture('video-desktop-mini');
       await video.exitMiniPlayerToStage();
       await until(
@@ -724,6 +745,29 @@ void main() {
                 .isNotEmpty,
         '应用内视频小窗未挂载',
       );
+      final floatingVideo = find.byKey(
+        const ValueKey('video_floating_mini_player'),
+      );
+      final videoDragStart = tester.getCenter(floatingVideo);
+      final videoGesture = await tester.startGesture(
+        videoDragStart,
+        pointer: pointer++,
+      );
+      await videoGesture.moveBy(const Offset(-45, -30));
+      await tester.pump();
+      await videoGesture.moveBy(const Offset(-55, -40));
+      await tester.pump();
+      await videoGesture.up();
+      await tester.pump();
+      expect(
+        tester.getCenter(floatingVideo).dx,
+        closeTo(videoDragStart.dx - 100, 2),
+      );
+      expect(
+        tester.getCenter(floatingVideo).dy,
+        closeTo(videoDragStart.dy - 70, 2),
+      );
+      evidence['video_floating_drag_global'] = true;
       await capture('video-floating-mini');
       expect(manager.controller, same(video));
       await until(
@@ -900,14 +944,66 @@ void main() {
         '桌面音频小窗未渲染',
       );
       expect(win.isAlwaysOnTop, isTrue);
-      expect(win.bounds.toRect().height, closeTo(76, 10));
+      expect(win.isResizable, isFalse);
+      expect(win.isMaximizable, isFalse);
+      expect(win.bounds.toRect().height, closeTo(72, 10));
+      expect(win.bounds.toRect().width, closeTo(72, 10));
+      expect(
+        find.byKey(const ValueKey('mini_audio_disc_surface')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('audio_playing_bars')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('mini_audio_expanded_capsule')),
+        findsNothing,
+      );
+      expect(tester.takeException(), isNull);
+      Future<void> assertNativeRegion(String shape) async {
+        if (captureScript.isEmpty) return;
+        final script = File(
+          captureScript,
+        ).parent.uri.resolve('verify-audio-region.ps1').toFilePath();
+        if (!File(script).existsSync()) return;
+        final result = await Process.run('powershell.exe', [
+          '-NoProfile',
+          '-File',
+          script,
+          '-AppPid',
+          '$pid',
+          '-Shape',
+          shape,
+        ]);
+        expect(
+          result.exitCode,
+          0,
+          reason: '${result.stdout}\n${result.stderr}',
+        );
+        evidence['audio_region_$shape'] = result.stdout.toString().trim();
+      }
+
+      await assertNativeRegion('disc');
+      await capture('audio-desktop-initial-disc');
+      await tapControl(find.byKey(const ValueKey('mini_audio_disc_surface')));
+      await until(
+        () => find
+            .byKey(const ValueKey('mini_audio_expanded_capsule'))
+            .evaluate()
+            .isNotEmpty,
+        '桌面圆盘未展开',
+      );
+      expect(find.byKey(const ValueKey('audio_playing_bars')), findsNothing);
+      expect(tester.takeException(), isNull);
       expect(audio.snapshot.currentItem!.itemId, item);
       expect(audio.currentTrackPositionSeconds, closeTo(position, 1));
       expect(
         find.byKey(const ValueKey('mini_audio_expanded_capsule')),
         findsOneWidget,
       );
-      await tapControl(find.byTooltip('收起'));
+      await tapControl(
+        find.byWidgetPredicate(
+          (w) => w is KonataCapsuleIconButton && w.tooltip == '收起',
+        ),
+      );
       final desktopDisc = find.byKey(const ValueKey('mini_audio_disc_surface'));
       await until(
         () =>
@@ -930,6 +1026,7 @@ void main() {
             (win.bounds.toRect().width - 40).abs() < 12,
         '桌面收起耳片未缩窗',
       );
+      await assertNativeRegion('tucked');
       await capture('audio-desktop-tucked');
       await tapControl(desktopTucked);
       await until(
@@ -950,7 +1047,18 @@ void main() {
         '桌面胶囊未展开',
       );
       evidence['audio_desktop_shared_capsule_disc'] = true;
-      const dockScript = String.fromEnvironment('KONATA_PLAYBACK_DOCK_SCRIPT');
+      const configuredDockScript = String.fromEnvironment(
+        'KONATA_PLAYBACK_DOCK_SCRIPT',
+      );
+      final siblingDockScript = captureScript.isEmpty
+          ? null
+          : File(
+              captureScript,
+            ).parent.uri.resolve('desktop-mini-dock-audit.ps1').toFilePath();
+      final dockScript =
+          siblingDockScript != null && File(siblingDockScript).existsSync()
+          ? siblingDockScript
+          : configuredDockScript;
       if (dockScript.isNotEmpty) {
         Future<void> dockCommand(String stage) async {
           final result = await Process.run('powershell.exe', [
@@ -970,6 +1078,27 @@ void main() {
           evidence['desktop_dock_$stage'] = result.stdout.toString().trim();
         }
 
+        await dockCommand('maximize-check');
+        expect(win.isMaximized, isFalse);
+        expect(win.bounds.toRect().width, closeTo(336, 10));
+        await dockCommand('blur');
+        await until(
+          () =>
+              desktopDisc.evaluate().isNotEmpty &&
+              (win.bounds.toRect().width - 72).abs() < 12,
+          '桌面胶囊失焦未收起',
+        );
+        await tapControl(desktopDisc);
+        await until(
+          () =>
+              find
+                  .byKey(const ValueKey('mini_audio_expanded_capsule'))
+                  .evaluate()
+                  .isNotEmpty &&
+              (win.bounds.toRect().width - 336).abs() < 12,
+          '失焦收起后无法展开',
+        );
+        evidence['audio_desktop_blur_collapse'] = true;
         for (final side in ['left', 'right']) {
           await dockCommand(side);
           await until(
@@ -1010,6 +1139,7 @@ void main() {
         evidence['audio_desktop_native_dock_messages'] = true;
       }
       await assertPosterCover();
+      await assertNativeRegion('expanded');
       await capture('audio-desktop-mini');
       final audioClient = bootstrap.playbackEngine.activeNativeClient;
       await tapControl(
@@ -1029,6 +1159,7 @@ void main() {
       expect(audio.currentTrackPositionSeconds, closeTo(position, 1));
       evidence['audio_desktop_to_internal'] = true;
       await assertPosterCover();
+      await assertNativeRegion('normal');
       await capture('audio-floating-disc');
       await tapControl(disc);
       final capsule = find.byKey(const ValueKey('mini_audio_expanded_capsule'));
@@ -1045,10 +1176,59 @@ void main() {
           of: capsule,
           matching: find.byKey(const ValueKey('audio_playing_bars')),
         ),
-        findsOneWidget,
+        findsNothing,
       );
       await assertPosterCover();
       await capture('audio-floating-pill');
+      await tester.tapAt(const Offset(100, 100), pointer: pointer++);
+      await until(
+        () => disc.evaluate().isNotEmpty && capsule.evaluate().isEmpty,
+        '应用内点击胶囊外未收起',
+      );
+      await tapControl(disc);
+      await until(() => capsule.evaluate().isNotEmpty, '应用内失焦收起后无法展开');
+      evidence['audio_internal_outside_collapse'] = true;
+      await tapControl(
+        find.byWidgetPredicate(
+          (w) => w is KonataCapsuleIconButton && w.tooltip == '桌面小窗',
+        ),
+      );
+      await until(
+        () =>
+            audio.snapshot.isDesktopMiniWindow &&
+            disc.evaluate().isNotEmpty &&
+            (win.bounds.toRect().width - 72).abs() < 12,
+        '应用内胶囊直接转桌面时必须进入圆盘',
+      );
+      expect(capsule, findsNothing);
+      await assertNativeRegion('disc');
+      await capture('audio-direct-desktop-disc');
+      await tapControl(disc);
+      await until(
+        () =>
+            capsule.evaluate().isNotEmpty &&
+            (win.bounds.toRect().width - 336).abs() < 12,
+        '直接进入桌面后未展开',
+      );
+      expect(find.byKey(const ValueKey('audio_playing_bars')), findsNothing);
+      await assertNativeRegion('expanded');
+      await capture('audio-direct-desktop-pill');
+      expect(tester.takeException(), isNull);
+      await tapControl(
+        find.byKey(const ValueKey('audio_desktop_mini_internal')),
+      );
+      await until(
+        () =>
+            !audio.snapshot.isDesktopMiniWindow &&
+            disc.evaluate().isNotEmpty &&
+            (win.bounds.toRect().width > 600),
+        '直接进入桌面后未恢复内部圆盘',
+      );
+      await assertNativeRegion('normal');
+      expect(bootstrap.playbackEngine.activeNativeClient, same(audioClient));
+      await tapControl(disc);
+      await until(() => capsule.evaluate().isNotEmpty, '内部圆盘未重新展开');
+      evidence['audio_direct_desktop_initial_disc'] = true;
       await tester.drag(capsule, const Offset(-1500, 0), pointer: pointer++);
       final tucked = find.byKey(const ValueKey('mini_audio_tucked_tab'));
       await until(() => tucked.evaluate().isNotEmpty, '音频贴边态未挂载');
@@ -1179,8 +1359,50 @@ void main() {
       evidence['audio_shuffle_order'] = order;
       evidence['audio_shuffle_eof'] = true;
       debugPrint('四种真实曲终模式：$evidence');
-      await audio.stopAndClose();
+      await tapControl(find.byKey(const ValueKey('audio_minimize_button')));
+      await until(
+        () =>
+            disc.evaluate().isNotEmpty &&
+            find.byType(ImmersiveAudioPage).evaluate().isEmpty,
+        '切换视频前音频圆盘未挂载',
+      );
+      final previousAudioClient = bootstrap.playbackEngine.activeNativeClient;
+      unawaited(
+        navigator.openVideoPlayer(
+          workId: workId,
+          episodeId: epId,
+          variantId: vidId,
+        ),
+      );
+      await until(
+        () => manager.controller?.state.hasFirstFrame == true,
+        '音频切换视频未加载',
+      );
       expect(audio.activeListenable.value, isFalse);
+      expect(audio.snapshot.isActive, isFalse);
+      expect(previousAudioClient?.isDisposed, isTrue);
+      final newVideoClient = bootstrap.playbackEngine.activeNativeClient;
+      expect(newVideoClient, isNot(same(previousAudioClient)));
+      await tapControl(find.byKey(const ValueKey('video_collapse_button')));
+      await until(
+        () =>
+            manager.shouldShowFloatingMiniPlayer &&
+            find
+                .byKey(const ValueKey('video_floating_mini_player'))
+                .evaluate()
+                .isNotEmpty,
+        '切换后视频小窗未挂载',
+      );
+      expect(disc, findsNothing);
+      expect(capsule, findsNothing);
+      expect(tucked, findsNothing);
+      expect(bootstrap.playbackEngine.activeNativeClient, same(newVideoClient));
+      expect(newVideoClient?.isDisposed, isFalse);
+      evidence['audio_to_video_exclusive_mini'] = true;
+      await capture('video-after-audio-mini');
+      await tapControl(find.byKey(const ValueKey('mini_player_close_button')));
+      await until(() => !manager.hasActiveSession, '切换后视频关闭失败');
+      expect(disc, findsNothing);
       if (webdav != null) {
         await until(
           () => bootstrap.streamBridge.activeSessionCount == 0,

@@ -1141,17 +1141,15 @@ final class LibraryCatalogSyncSlice
     final works = db.works.listAllWithTombstones();
     final variants = db.mediaVariants.listAll(includeDeleted: true);
 
-    final episodes = <EpisodeRecord>[];
-    for (final work in works) {
-      episodes.addAll(db.episodes.listByWork(work.id, includeDeleted: true));
-    }
-
-    final ignored = <IgnoredFolderRecord>[];
-    for (final src in sources) {
-      ignored.addAll(
-        db.ignoredFolders.listBySource(src.id, includeDeleted: true),
-      );
-    }
+    // 批量读取子表，保留旧实现的父级过滤及墓碑语义，避免逐作品查询。
+    final workIds = works.map((work) => work.id).toSet();
+    final sourceIds = sources.map((source) => source.id).toSet();
+    final episodes = db.episodes
+        .listAll(includeDeleted: true)
+        .where((episode) => workIds.contains(episode.workId));
+    final ignored = db.ignoredFolders
+        .listAll(includeDeleted: true)
+        .where((folder) => sourceIds.contains(folder.sourceId));
 
     final syncSources = <SyncLibrarySourceItem>[
       for (final s in sources)

@@ -128,7 +128,6 @@ class DesktopAudioDualStage extends StatelessWidget {
     required this.onRightTabChanged,
     this.lyricsViewportBuilder,
     this.stageHeight,
-    this.onOpenSafetyDialog,
   });
 
   /// 核心音频播放控制器。
@@ -151,9 +150,6 @@ class DesktopAudioDualStage extends StatelessWidget {
 
   /// 舞台总高度参考（用于将封面尺寸稳定在舞台高度的 `46%~50%` 黄金比例）。
   final double? stageHeight;
-
-  /// 可选音质与安全护耳弹窗入口。
-  final VoidCallback? onOpenSafetyDialog;
 
   @override
   Widget build(BuildContext context) {

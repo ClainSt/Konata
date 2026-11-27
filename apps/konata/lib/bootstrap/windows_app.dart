@@ -24,13 +24,16 @@ Future<void> runWindowsKonataApp() async {
 
   final storageRoot = createWindowsStorageRoot();
   const filePicker = HostFilePickerAdapter();
+  final materialController = WindowMaterialController();
   final bootstrap = await KonataBootstrapContext.initialize(
     platform: KonataPlatform.windows,
     storageRoot: storageRoot,
     secureStorage: const FlutterSecureStorageAdapter(),
     filePicker: filePicker,
     backupFilePort: filePicker,
-    hostWindow: WindowsPlaybackWindowAdapter(),
+    hostWindow: WindowsPlaybackWindowAdapter(
+      materialController: materialController,
+    ),
     desktopSurfaceBridge: WindowsD3d11VideoBridge(),
     externalPlayerStoreBuilder: createWindowsExternalPlayerStore,
     desktopRelayGatewayBuilder: createWindowsDesktopRelayGateway,
@@ -40,7 +43,7 @@ Future<void> runWindowsKonataApp() async {
     pickShaderFiles: filePicker.pickShaderFiles,
   );
 
-  final windowHost = WindowsWindowHost();
+  final windowHost = WindowsWindowHost(materialController: materialController);
   final initialAppearance = readInitialAppearancePrefs(bootstrap.scopedPrefs);
 
   if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
@@ -59,7 +62,8 @@ Future<void> runWindowsKonataApp() async {
           error: error,
           stackTrace: stackTrace,
           severity: DiagnosticSeverity.warn,
-          source: 'apps/konata/lib/bootstrap/windows_app.dart:runWindowsKonataApp',
+          source:
+              'apps/konata/lib/bootstrap/windows_app.dart:runWindowsKonataApp',
         );
       }
 
@@ -110,7 +114,8 @@ Future<void> runWindowsKonataApp() async {
         error: error,
         stackTrace: stackTrace,
         severity: DiagnosticSeverity.warn,
-        source: 'apps/konata/lib/bootstrap/windows_app.dart:runWindowsKonataApp',
+        source:
+            'apps/konata/lib/bootstrap/windows_app.dart:runWindowsKonataApp',
       );
     }
   }

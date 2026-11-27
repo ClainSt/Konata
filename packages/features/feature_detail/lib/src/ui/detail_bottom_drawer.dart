@@ -25,6 +25,9 @@ class DetailBottomDrawer extends StatefulWidget {
     required this.onTapEpisode,
     required this.onTapCdVariant,
     required this.onInspectEpisodeInfo,
+    this.onMarkEpisodeWatched,
+    this.onAdjustEpisodeMapping,
+    this.onPlayExternalEpisode,
     required this.onOpenFullList,
     this.initialTabId,
     this.expanded,
@@ -63,6 +66,15 @@ class DetailBottomDrawer extends StatefulWidget {
 
   /// 右键/更多查看单集物理变体技术信息回调。
   final ValueChanged<Episode> onInspectEpisodeInfo;
+
+  /// 标记单集观看状态的实际业务回调。
+  final Future<PlaybackRecord?> Function(Episode)? onMarkEpisodeWatched;
+
+  /// 编辑当前作品的单集文件映射。
+  final ValueChanged<Episode>? onAdjustEpisodeMapping;
+
+  /// 桌面外部视频播放入口。
+  final ValueChanged<Episode>? onPlayExternalEpisode;
 
   /// 点击胶囊右端弹性 `⊞` 打开完整列表回调（传入当前内置标签页标识）。
   final ValueChanged<String> onOpenFullList;
@@ -514,6 +526,30 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
               compactMeta: widget.compact,
               onTap: () => widget.onTapEpisode(ep),
               onShowMediaInfo: () => widget.onInspectEpisodeInfo(ep),
+              onPlayExternal:
+                  widget.onPlayExternalEpisode != null &&
+                      b
+                          .variantsForEpisode(ep.id)
+                          .any((v) => v.assetKind == AssetKind.video)
+                  ? () => widget.onPlayExternalEpisode!(ep)
+                  : null,
+              onAdjustEpisodeMapping:
+                  widget.onAdjustEpisodeMapping != null &&
+                      ep.workId == b.work.id &&
+                      b
+                          .variantsForEpisode(ep.id)
+                          .any((v) => v.assetKind == AssetKind.video)
+                  ? () => widget.onAdjustEpisodeMapping!(ep)
+                  : null,
+              onMarkWatched:
+                  widget.onMarkEpisodeWatched != null &&
+                      b
+                          .variantsForEpisode(ep.id)
+                          .any((v) => v.assetKind == AssetKind.video)
+                  ? () async {
+                      await widget.onMarkEpisodeWatched!(ep);
+                    }
+                  : null,
             );
           },
         ),

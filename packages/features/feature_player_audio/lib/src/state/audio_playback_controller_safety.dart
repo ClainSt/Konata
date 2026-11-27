@@ -4,64 +4,70 @@ extension _AudioPlaybackControllerSafety on AudioPlaybackController {
   Future<HardwareRouteVerificationResult>
   _verifyAudiophileHardwareRouteImpl() async {
     final prefs = _effectiveAudiophilePrefs(_preferences.read());
+    final client = _client;
+    if (!_activeNotifier.value ||
+        client == null ||
+        client.isDisposed ||
+        !client.isInitialized) {
+      return HardwareRouteVerificationResult(
+        verified: false,
+        deviceFingerprint:
+            _safetyCoordinator.deviceSafetyState.deviceFingerprint,
+        detail: '未检测到正在运行的音频会话，请先播放音频后重新检测。',
+      );
+    }
     final result = await _safetyCoordinator.verifyActiveHardwareRoute(prefs);
-    final plan = _safetyCoordinator.compilePlan(
-      prefs,
-      upstreamDspFilters: _buildUpstreamDspFilters(_preferences.read()),
-    );
-    _updateSnapshot(
-      _snapshotNotifier.value.copyWith(
-        audiophileSafetyState: _safetyCoordinator.deviceSafetyState,
-        audiophilePlan: plan,
-      ),
-    );
+    // 重新检测可能撤销原有解锁，须同步实际滤镜而非仅更新徽标。
+    if (!identical(_client, client) || client.isDisposed) {
+      return HardwareRouteVerificationResult(
+        verified: false,
+        deviceFingerprint:
+            _safetyCoordinator.deviceSafetyState.deviceFingerprint,
+        detail: '播放会话已变更，请重新检测。',
+      );
+    }
+    await syncPreferencesFromStore();
     return result;
   }
 
   Future<AudioSafetyChainPlan> _confirmFullScaleUnlockImpl() async {
     final currentPrefs = _preferences.read();
-    final updated = _preferences.update(
-      (p) => p.copyWith(audiophileSafetyLimiterEnabled: false),
-    );
-    final effectivePrefs = _effectiveAudiophilePrefs(updated);
-    final verifiedBefore =
-        _safetyCoordinator.deviceSafetyState.isBackendMeterVerified;
-    if (!verifiedBefore &&
-        currentPrefs.audiophileSafetyLimiterEnabled &&
-        (updated.exclusiveAudioOutput || updated.androidBitPerfectUsb)) {
-      await _safetyCoordinator.verifyActiveHardwareRoute(effectivePrefs);
+    final effectivePrefs = _effectiveAudiophilePrefs(currentPrefs);
+    final mode = _safetyCoordinator.resolveRouteMode(effectivePrefs);
+    final client = _client;
+    final direct =
+        mode == AudioOutputRouteMode.exclusiveAudioOutput ||
+        mode == AudioOutputRouteMode.androidBitPerfectUsb;
+    // 解锁不能隐式执行检测，也不能接管其他舞台的活跃句柄。
+    if (!_activeNotifier.value ||
+        client == null ||
+        client.isDisposed ||
+        !client.isInitialized ||
+        !direct ||
+        !_safetyCoordinator.deviceSafetyState.isBackendMeterVerified) {
+      return _snapshotNotifier.value.audiophilePlan;
     }
-    final unlocked = await _safetyCoordinator.confirmSessionFullScaleUnlock(
-      effectivePrefs,
-    );
-    final plan = _safetyCoordinator.compilePlan(
-      effectivePrefs,
-      upstreamDspFilters: _buildUpstreamDspFilters(updated),
-    );
-    if (!unlocked) {
-      _preferences.update(
-        (p) => p.copyWith(audiophileSafetyLimiterEnabled: true),
-      );
+    await _safetyCoordinator.confirmSessionFullScaleUnlock(effectivePrefs);
+    if (!identical(_client, client) || client.isDisposed) {
+      return _snapshotNotifier.value.audiophilePlan;
     }
-    _updateSnapshot(
-      _snapshotNotifier.value.copyWith(
-        audiophileSafetyState: _safetyCoordinator.deviceSafetyState,
-        audiophilePlan: plan,
-      ),
-    );
-    return plan;
+    // 会话门锁由协调器维护，不把临时解锁持久化成下次播放的默认值。
+    await syncPreferencesFromStore();
+    return _snapshotNotifier.value.audiophilePlan;
   }
 
   Future<void> _setAudiophileSafetyLimiterEnabledImpl(bool enabled) async {
-    final nextPrefs = _preferences.update(
-      (p) => p.copyWith(audiophileSafetyLimiterEnabled: enabled),
-    );
-    if (enabled) {
-      _safetyCoordinator.handleExternalDeviceChanged(
-        _snapshotNotifier.value.audiophileSafetyState.deviceFingerprint,
-        isBackendMeterVerified: false,
-      );
+    if (!enabled) {
+      await _confirmFullScaleUnlockImpl();
+      return;
     }
+    final nextPrefs = _preferences.update(
+      (p) => p.copyWith(audiophileSafetyLimiterEnabled: true),
+    );
+    _safetyCoordinator.handleExternalDeviceChanged(
+      _snapshotNotifier.value.audiophileSafetyState.deviceFingerprint,
+      isBackendMeterVerified: false,
+    );
     await syncPreferencesFromStore(overridePrefs: nextPrefs);
   }
 
@@ -84,7 +90,10 @@ extension _AudioPlaybackControllerSafety on AudioPlaybackController {
     final nextPrefs = _preferences.update(
       (p) => p.copyWith(audioDevice: clean),
     );
-    _safetyCoordinator.handleExternalDeviceChanged(clean);
+    _safetyCoordinator.handleExternalDeviceChanged(
+      clean,
+      isBackendMeterVerified: false,
+    );
     final client = _client;
     if (client != null && !client.isDisposed && client.isInitialized) {
       client.setPropertyString('audio-device', clean);
@@ -137,34 +146,212 @@ extension _AudioPlaybackControllerSafety on AudioPlaybackController {
 
   Future<LaunchPlaybackResult?> _relayActiveToDesktopImpl({
     String? targetId,
+    required bool allowWithoutBeefweb,
+    WorkRecord? launchWork,
+    List<AudioQueueItem>? launchQueue,
+    int? launchIndex,
+    double? launchStartSeconds,
   }) async {
     final gateway = _desktopRelayGateway;
     final snap = _snapshotNotifier.value;
-    final work = _activeWork;
-    final item = snap.currentItem;
-    if (gateway == null || work == null || item == null) return null;
-
-    await setPlaying(false);
+    final fresh = launchWork != null;
+    final queue = launchQueue ?? snap.queue;
+    final work = launchWork ?? _activeWork;
+    final item = fresh ? queue[launchIndex!] : snap.currentItem;
+    final previousItemId = snap.currentItem?.itemId;
+    if (gateway == null || work == null || item == null) {
+      return const LaunchPlaybackResult(launched: false, message: '没有可接力的活动曲目');
+    }
+    if (_desktopRelayInProgress) {
+      return const LaunchPlaybackResult(launched: false, message: '正在移交播放器');
+    }
+    _desktopRelayInProgress = true;
+    final epoch = ++_desktopRelayEpoch;
+    final wasPlaying = _playingNotifier.value;
     final prefs = _preferences.read();
-    final effectiveTargetId = targetId ?? prefs.preferredRelayTargetId;
-    return gateway.launchAudio(
-      work: work,
-      episode: EpisodeSummaryView(
-        id: EpisodeId(
-          '${PlaybackRecordHelper.audioEpisodePrefix}${item.itemId}',
+    var paused = false;
+    var handedOff = false;
+    var ready = false;
+    final pending = <void Function()>[];
+    try {
+      CueSheet? sheet;
+      var items = queue
+          .where(
+            (entry) =>
+                entry.workId == item.workId &&
+                entry.sourceId == item.sourceId &&
+                entry.albumKey == item.albumKey &&
+                (item.isCueTrack
+                    ? entry.isCueTrack &&
+                          entry.cueSheetPath == item.cueSheetPath
+                    : !entry.isCueTrack && entry.cueSheetPath == null),
+          )
+          .toList(growable: false);
+      if (item.isCueTrack) {
+        final path = item.cueSheetPath;
+        if (path == null) {
+          return const LaunchPlaybackResult(
+            launched: false,
+            message: 'CUE 清单不存在',
+          );
+        }
+        sheet = await _assets.loadCueSheet(
+          source: item.source,
+          cueRelativePath: path,
+          gatewayFactory: _gatewayFactory,
+        );
+        final numbers = items.map((entry) => entry.cueTrackIndex).toSet();
+        if (sheet == null ||
+            sheet.rejectedUnsafeFileCount > 0 ||
+            items.length != sheet.tracks.length ||
+            !sheet.tracks.every((track) {
+              if (!numbers.contains(track.trackNumber)) return false;
+              final mapped = items.firstWhere(
+                (entry) => entry.cueTrackIndex == track.trackNumber,
+              );
+              // 当前队列仅能可靠表达已解析的物理映射；多 FILE 清单不能错指同一母轨。
+              final cueDir = p.posix.dirname(
+                AudioPlaybackQueueBuilder.normalizeQueuePath(path),
+              );
+              final expectedPath = p.posix.normalize(
+                p.posix.join(cueDir, track.fileName.replaceAll('\\', '/')),
+              );
+              final actualPath = p.posix.normalize(
+                AudioPlaybackQueueBuilder.normalizeQueuePath(
+                  mapped.relativePath,
+                ),
+              );
+              return expectedPath.toLowerCase() == actualPath.toLowerCase();
+            })) {
+          return const LaunchPlaybackResult(
+            launched: false,
+            message: 'CUE 分轨未完整关联，不能安全移交专辑',
+          );
+        }
+        items = [...items]
+          ..sort((a, b) => a.cueTrackIndex!.compareTo(b.cueTrackIndex!));
+      }
+      final initialIndex = items.indexWhere(
+        (entry) => entry.itemId == item.itemId,
+      );
+      if (initialIndex < 0 ||
+          _disposed ||
+          (!fresh &&
+              _snapshotNotifier.value.currentItem?.itemId != item.itemId)) {
+        return const LaunchPlaybackResult(
+          launched: false,
+          message: '曲目已变更或尚未完整加载，请重试',
+        );
+      }
+      final tracks = [
+        for (final entry in items)
+          ExternalAudioTrackDescriptor(
+            recordId:
+                '${PlaybackRecordHelper.audioEpisodePrefix}${entry.workId.value}::${entry.itemId}',
+            episodeId: EpisodeId(
+              '${PlaybackRecordHelper.audioEpisodePrefix}${entry.itemId}',
+            ),
+            variant: entry.variant,
+            title: entry.title,
+            performer: entry.artist,
+            albumTitle: entry.album,
+            trackNumber: entry.cueTrackIndex ?? (queue.indexOf(entry) + 1),
+            isCueSubtrack: entry.isCueTrack,
+            cueStartSeconds: entry.isCueTrack ? entry.startSeconds : null,
+            cueEndSeconds: entry.endSeconds,
+            knownDurationSeconds: entry.durationSeconds > 0
+                ? entry.durationSeconds.round()
+                : null,
+          ),
+      ];
+      final start = launchStartSeconds ?? currentTrackPositionSeconds;
+      await setPlaying(false);
+      paused = true;
+      final result = await gateway.launchAudioAlbum(
+        ExternalAudioAlbumRelayRequest(
+          work: work,
+          tracks: tracks,
+          source: item.source,
+          initialTrackIndex: initialIndex,
+          parsedCueSheet: sheet,
+          startSeconds: start.round(),
+          exactStartSeconds: start,
+          targetId: targetId ?? prefs.preferredRelayTargetId,
+          beefwebPort: prefs.foobarBeefwebPort,
+          allowWithoutBeefweb:
+              allowWithoutBeefweb || prefs.skipFoobarBeefwebPrompt,
         ),
-        workId: work.id,
-        seasonNumber: 1,
-        category: EpisodeCategory.extra,
-        episodeNumber: item.cueTrackIndex ?? (snap.currentIndex + 1),
-        title: item.title,
-      ),
-      variant: item.variant,
-      source: item.source,
-      targetId: effectiveTargetId,
-      startSeconds: currentTrackPositionSeconds.round(),
-      exactStartSeconds: item.startSeconds + currentTrackPositionSeconds,
-    );
+        onTrackProgress:
+            (
+              track,
+              position,
+              duration, {
+              required isCompleted,
+              required isFinal,
+            }) async {
+              if (_disposed ||
+                  epoch != _desktopRelayEpoch ||
+                  duration <= 0 ||
+                  position < 0) {
+                return;
+              }
+              void persist() {
+                if (_disposed || epoch != _desktopRelayEpoch) return;
+                final now = DateTime.now().millisecondsSinceEpoch;
+                _playbackRecordDao?.upsert(
+                  PlaybackRecordEntity(
+                    id: track.recordId,
+                    workId: work.id,
+                    episodeId: track.episodeId,
+                    variantId: track.variant.id,
+                    seasonNumber: 1,
+                    episodeNumber: track.trackNumber,
+                    episodeTitle: track.title,
+                    sourceKind: item.source.kind,
+                    playedAtMs: now,
+                    positionSeconds: position.clamp(0, duration),
+                    durationSeconds: duration,
+                    isCompleted: isCompleted,
+                    updatedAtMs: now,
+                  ),
+                );
+              }
+
+              // 先让旧内置会话完成最后一次历史写入，再应用外部进度。
+              if (ready) {
+                persist();
+              } else {
+                pending.add(persist);
+              }
+            },
+      );
+      if (!result.launched) return result;
+      handedOff = true;
+      _externalRelayActive = true;
+      if (!_disposed &&
+          _activeNotifier.value &&
+          _snapshotNotifier.value.currentItem?.itemId == previousItemId) {
+        await stopAndClose();
+      }
+      ready = true;
+      for (final persist in pending) {
+        persist();
+      }
+      pending.clear();
+      return result;
+    } finally {
+      if (!handedOff) {
+        pending.clear();
+        _desktopRelayEpoch++;
+        if (paused &&
+            wasPlaying &&
+            !_disposed &&
+            _snapshotNotifier.value.currentItem?.itemId == previousItemId) {
+          await setPlaying(true);
+        }
+      }
+      _desktopRelayInProgress = false;
+    }
   }
 
   List<String> _buildUpstreamDspFilters(AudioPlaybackPrefsData prefs) {

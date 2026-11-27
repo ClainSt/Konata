@@ -10,6 +10,7 @@ import 'package:konata_storage/konata_storage.dart';
 
 import 'data/detail_cd_artwork.dart';
 import 'data/detail_display_preferences.dart';
+import 'data/detail_external_video.dart';
 import 'data/detail_work_actions.dart';
 import 'data/main_episode_frame_backfill_service.dart';
 import 'data/main_episode_frame_extractor.dart';
@@ -35,6 +36,8 @@ final class FeatureDetailDependencies {
     required this.photosStorage,
     required this.artworkCache,
     required this.platform,
+    this.desktopRelayGateway,
+    this.prepareExternalVideo,
     this.detailTabs = const <DetailTabContribution>[],
     this.detailActions = const <DetailActionContribution>[],
     this.libMpvClientFactory,
@@ -88,6 +91,10 @@ final class FeatureDetailDependencies {
   /// 当前运行宿主平台类型。
   final KonataPlatform platform;
 
+  /// 桌面外部播放网关及宿主会话交接回调，移动端不注入。
+  final DesktopRelayGateway? desktopRelayGateway;
+  final Future<void> Function()? prepareExternalVideo;
+
   /// 动态注入的详情页扩展标签页贡献清单（如扫图画廊）。
   final List<DetailTabContribution> detailTabs;
 
@@ -112,6 +119,22 @@ final featureDetailDependenciesProvider = Provider<FeatureDetailDependencies>((
   ref,
 ) {
   throw UnimplementedError('featureDetailDependenciesProvider 必须由应用组装根覆写注入');
+});
+
+/// 详情页外部视频接力服务，非桌面平台不提供。
+final detailExternalVideoProvider = Provider<DetailExternalVideoService?>((
+  ref,
+) {
+  final deps = ref.watch(featureDetailDependenciesProvider);
+  final gateway = deps.desktopRelayGateway;
+  if (gateway == null || deps.platform != KonataPlatform.windows) return null;
+  return DetailExternalVideoService(
+    databases: deps.databases,
+    gateway: gateway,
+    events: deps.domainEventBus,
+    prepare: deps.prepareExternalVideo,
+    sourceDeviceId: deps.sourceDeviceId,
+  );
 });
 
 /// 详情页内聚领域仓储实例 Provider。

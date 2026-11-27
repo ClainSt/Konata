@@ -34,6 +34,7 @@ class ImmersiveAudioPage extends StatefulWidget {
     this.platform = KonataPlatform.windows,
     this.desktopRelayAvailable = false,
     this.desktopMiniWindowSupported = false,
+    this.desktopMiniHostedExternally = false,
     this.onMinimizeToMiniBar,
     this.onClosePage,
   });
@@ -62,6 +63,9 @@ class ImmersiveAudioPage extends StatefulWidget {
   /// 当前宿主是否支持桌面端置顶迷你小窗切换。
   final bool desktopMiniWindowSupported;
 
+  /// 桌面异形小窗由应用根层独占挂载时隐藏路由内副本。
+  final bool desktopMiniHostedExternally;
+
   /// 点击最小化收拢为悬浮小窗时的回调。
   final VoidCallback? onMinimizeToMiniBar;
 
@@ -80,6 +84,7 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
   bool _portraitQueueOpen = false;
   bool _menuOpen = false;
   bool _topChromeHovered = false;
+  bool _relayBusy = false;
   bool _didLockPortraitOrientation = false;
   PlayerSidePanelContribution? _activeSidePanel;
 
@@ -253,6 +258,38 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
     }
   }
 
+  Future<void> _relayToDesktop() async {
+    if (_relayBusy) return;
+    setState(() => _relayBusy = true);
+    try {
+      var result = await widget.controller.relayActiveToDesktop();
+      if (!mounted) return;
+      if (result?.requiresBeefwebPrompt == true) {
+        final proceed = await confirmFoobarWithoutBeefweb(context);
+        if (!mounted || proceed != true) return;
+        result = await widget.controller.relayActiveToDesktop(
+          allowWithoutBeefweb: true,
+        );
+      }
+      if (!mounted) return;
+      showKonataToast(
+        context,
+        result?.message ?? '外部播放器不可用',
+        isError: result?.launched != true,
+      );
+      if (result?.launched == true &&
+          !widget.controller.activeListenable.value) {
+        widget.onClosePage?.call();
+      }
+    } catch (_) {
+      if (mounted) {
+        showKonataToast(context, '外部播放移交失败，请检查播放器配置', isError: true);
+      }
+    } finally {
+      if (mounted) setState(() => _relayBusy = false);
+    }
+  }
+
   Future<void> _toggleDesktopMiniWindow(bool enabled) async {
     try {
       await widget.controller.setDesktopMiniWindow(enabled);
@@ -275,6 +312,9 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
           valueListenable: widget.controller.snapshotListenable,
           builder: (context, snap, _) {
             if (snap.isDesktopMiniWindow) {
+              if (widget.desktopMiniHostedExternally) {
+                return const SizedBox.shrink();
+              }
               return MiniAudioBar(
                 controller: widget.controller,
                 desktopMiniWindowSupported: true,
@@ -366,13 +406,7 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
                                       stageHeight: height,
                                       onRightTabChanged: (t) =>
                                           setState(() => _rightTab = t),
-                                      onOpenSafetyDialog: () => unawaited(
-                                        showAudiophileSafetyDialog(
-                                          context,
-                                          widget.controller,
-                                          forceDarkTheme: true,
-                                        ),
-                                      ),
+
                                       lyricsViewportBuilder:
                                           widget.lyricsViewportBuilder,
                                     ),
@@ -408,13 +442,7 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
                                               _activeSidePanel?.id,
                                           onToggleQueue: () =>
                                               _handleToggleQueue(false),
-                                          onOpenSafetyDialog: () => unawaited(
-                                            showAudiophileSafetyDialog(
-                                              context,
-                                              widget.controller,
-                                              forceDarkTheme: true,
-                                            ),
-                                          ),
+
                                           onOpenSidePanel: _handleSidePanelTap,
                                         ),
                                       ),
@@ -597,13 +625,13 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
               ),
               if (widget.desktopRelayAvailable)
                 KonataCapsuleIconButton(
+                  key: const ValueKey('audio_top_external_relay'),
                   icon: Icons.open_in_new_rounded,
                   tooltip: '外部播放器',
                   color: Colors.white,
                   fixedSize: 36,
                   size: 19,
-                  onTap: () =>
-                      unawaited(widget.controller.relayActiveToDesktop()),
+                  onTap: () => unawaited(_relayToDesktop()),
                 ),
               if (windowControls != null) ...[
                 const SizedBox(width: 8),
@@ -937,8 +965,9 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
                         label: '桌面外发接力',
                         icon: Icons.open_in_new_rounded,
                         compact: true,
-                        onPressed: () =>
-                            unawaited(widget.controller.relayActiveToDesktop()),
+                        onPressed: _relayBusy
+                            ? null
+                            : () => unawaited(_relayToDesktop()),
                       ),
                   ],
                 ),

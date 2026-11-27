@@ -97,6 +97,17 @@ ON CONFLICT(${IgnoredFoldersSchema.colId}) DO UPDATE SET
     );
   }
 
+  /// 批量读取全部忽略目录规则，供完整目录快照使用。
+  List<IgnoredFolderRecord> listAll({bool includeDeleted = false}) {
+    final where = includeDeleted
+        ? ''
+        : ' WHERE ${IgnoredFoldersSchema.colDeletedAtMs} IS NULL';
+    final rows = _engine.select(
+      'SELECT * FROM ${IgnoredFoldersSchema.table}$where;',
+    );
+    return [for (final row in rows) _mapRow(row)];
+  }
+
   /// 查询指定媒体源下全部有效忽略目录。
   List<IgnoredFolderRecord> listBySource(
     SourceId sourceId, {

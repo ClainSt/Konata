@@ -385,8 +385,8 @@ List<Override> buildFeatureProviderOverrides(FeatureRuntimeWiring wiring) {
   }
 
   return <Override>[
-    featureDetailDependenciesProvider.overrideWithValue(
-      FeatureDetailDependencies(
+    featureDetailDependenciesProvider.overrideWith(
+      (ref) => FeatureDetailDependencies(
         databases: wiring.databases,
         storageRoot: wiring.storageRoot,
         diagnosticLog: wiring.diagnosticLog,
@@ -404,6 +404,21 @@ List<Override> buildFeatureProviderOverrides(FeatureRuntimeWiring wiring) {
         platform: platform,
         detailTabs: detailTabs,
         detailActions: detailActions,
+        desktopRelayGateway: wiring.desktopRelayGateway,
+        prepareExternalVideo: wiring.desktopRelayGateway == null
+            ? null
+            : () async {
+                if (registry.containsFeature('feature_player_video')) {
+                  final video = ref.read(activeVideoSessionManagerProvider);
+                  if (!await video.closeActiveSession()) {
+                    throw StateError('无法关闭原视频会话');
+                  }
+                }
+                if (hasAudio) {
+                  final audio = ref.read(audioPlaybackControllerProvider);
+                  if (audio.activeListenable.value) await audio.stopAndClose();
+                }
+              },
         autoStartWarmupAndBackfill: wiring.autoStartDetailWarmupAndBackfill,
       ),
     ),
@@ -667,6 +682,8 @@ List<Override> buildFeatureProviderOverrides(FeatureRuntimeWiring wiring) {
         diagnosticLog: wiring.diagnosticLog,
         extraSlices: externalSyncSlices,
         connectionPool: wiring.webDavPool,
+        readLegacyCue: (id) =>
+            readIndexedLegacyCue(wiring.databases, wiring.gatewayFactory, id),
       ),
     ),
     featureTrackerSyncDependenciesProvider.overrideWithValue(
@@ -682,6 +699,74 @@ List<Override> buildFeatureProviderOverrides(FeatureRuntimeWiring wiring) {
       ),
     ),
   ];
+}
+
+/// 仅从本机数据库中已登记的 CUE 读取小文件，不访问归档提供的新地址。
+Future<List<LegacyCueTrack>?> readIndexedLegacyCue(
+  KonataDatabaseBundle databases,
+  MediaSourceGatewayFactoryPort gatewayFactory,
+  String id,
+) async {
+  final db = databases.library;
+  final variant = db.mediaVariants.findById(VariantId.trusted(id));
+  if (variant == null ||
+      variant.isDeleted ||
+      variant.assetKind != AssetKind.cdAlbum ||
+      !KonataMediaExtensions.isCueSheetFile(variant.fileName) ||
+      variant.fileSize <= 0 ||
+      variant.fileSize >= 1024 * 1024) {
+    return null;
+  }
+  final source = db.mediaSources.findById(variant.sourceId);
+  if (source == null ||
+      source.isDeleted ||
+      source.kind != MediaSourceKind.local) {
+    return null;
+  }
+  try {
+    final gateway = await gatewayFactory.create(
+      MediaSourceView(
+        id: source.id,
+        kind: source.kind,
+        label: source.label,
+        location: source.location,
+      ),
+    );
+    try {
+      if (gateway is! ByteRangeReadableGateway) return null;
+      final bytes = await AudioAssetExtractor.readBoundedBytes(
+        gateway as ByteRangeReadableGateway,
+        variant.relativePath,
+        maxBytes: variant.fileSize + 1,
+      );
+      if (bytes == null || bytes.length != variant.fileSize) return null;
+      final decoded = await MultibyteTextDecoder.decodeWithInfoAsync(bytes);
+      final sheet = CueParser.parseText(decoded.text);
+      final declarations = RegExp(
+        r'^\s*TRACK\s+\d+\s+AUDIO\b',
+        multiLine: true,
+        caseSensitive: false,
+      ).allMatches(decoded.text).length;
+      if (decoded.text.contains('\uFFFD') ||
+          sheet.rejectedUnsafeFileCount != 0 ||
+          sheet.tracks.length != declarations ||
+          declarations == 0) {
+        return null;
+      }
+      return [
+        for (final track in sheet.tracks)
+          (
+            number: track.trackNumber,
+            title: track.title,
+            fileName: track.fileName,
+          ),
+      ];
+    } finally {
+      await gateway.close();
+    }
+  } catch (_) {
+    return null;
+  }
 }
 
 /// 激活需要随应用生命周期常驻事件订阅与启动自动同步的已注册后台业务协调器。
@@ -833,6 +918,122 @@ takeAndroidVideoRecovery(
   );
 }
 
+/// 桌面音频小窗独占客户区，保留原导航树与正常布局尺寸。
+Widget buildHostDesktopAudioSurface({
+  required FeatureRegistry registry,
+  required KonataPlatform platform,
+  required Widget child,
+  required ValueNotifier<bool> audioStageOpen,
+  required VoidCallback onExpandAudioStage,
+  required VoidCallback onCloseAudioStage,
+}) {
+  if (platform != KonataPlatform.windows ||
+      !registry.containsFeature('feature_player_audio')) {
+    return child;
+  }
+  return Consumer(
+    builder: (context, ref, _) => _HostDesktopAudioSurface(
+      controller: ref.watch(audioPlaybackControllerProvider),
+      audioStageOpen: audioStageOpen,
+      onExpandAudioStage: onExpandAudioStage,
+      onCloseAudioStage: onCloseAudioStage,
+      child: child,
+    ),
+  );
+}
+
+class _HostDesktopAudioSurface extends StatefulWidget {
+  const _HostDesktopAudioSurface({
+    required this.controller,
+    required this.audioStageOpen,
+    required this.onExpandAudioStage,
+    required this.onCloseAudioStage,
+    required this.child,
+  });
+
+  final AudioPlaybackController controller;
+  final ValueNotifier<bool> audioStageOpen;
+  final VoidCallback onExpandAudioStage;
+  final VoidCallback onCloseAudioStage;
+  final Widget child;
+
+  @override
+  State<_HostDesktopAudioSurface> createState() =>
+      _HostDesktopAudioSurfaceState();
+}
+
+class _HostDesktopAudioSurfaceState extends State<_HostDesktopAudioSurface> {
+  Size _normalSize = const Size(1360, 820);
+  bool _wasAudioMini = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<AudioPlaybackSnapshot>(
+      valueListenable: widget.controller.snapshotListenable,
+      builder: (context, snap, _) => LayoutBuilder(
+        builder: (context, constraints) {
+          final viewport = constraints.biggest;
+          final mini = snap.isDesktopMiniWindow;
+          // 恢复时原生尺寸事件可能晚于会话状态，继续保留正常布局直至尺寸到位。
+          final compactWindow = viewport.width < 600 || viewport.height < 400;
+          if (!mini && !compactWindow) _normalSize = viewport;
+          final hideNormal = mini || (_wasAudioMini && compactWindow);
+          if (!mini && !compactWindow) _wasAudioMini = false;
+          if (mini) _wasAudioMini = true;
+          final layoutSize = hideNormal ? _normalSize : viewport;
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              Offstage(
+                offstage: hideNormal,
+                child: OverflowBox(
+                  minWidth: layoutSize.width,
+                  maxWidth: layoutSize.width,
+                  minHeight: layoutSize.height,
+                  maxHeight: layoutSize.height,
+                  child: MediaQuery(
+                    data: MediaQuery.of(context).copyWith(size: layoutSize),
+                    child: TickerMode(
+                      enabled: !hideNormal,
+                      child: ExcludeFocus(
+                        excluding: hideNormal,
+                        child: widget.child,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              if (mini)
+                Material(
+                  type: MaterialType.transparency,
+                  child: MiniAudioBar(
+                    controller: widget.controller,
+                    desktopMiniWindowSupported: true,
+                    onExpandFullStage: () {
+                      if (!widget.audioStageOpen.value) {
+                        widget.onExpandAudioStage();
+                      }
+                    },
+                    onReturnToInternal: () {
+                      if (widget.audioStageOpen.value) {
+                        widget.onCloseAudioStage();
+                      }
+                    },
+                    onClose: () {
+                      if (widget.audioStageOpen.value) {
+                        widget.onCloseAudioStage();
+                      }
+                    },
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
 /// 构建常驻应用根层的音视频悬浮小窗与系统桥接层（含 16:9 跨页悬浮视频小窗、迷你音频条与 Android 音频焦点/PiP 联动）。
 Widget buildHostFloatingPlaybackOverlay({
   required FeatureRegistry registry,
@@ -899,6 +1100,64 @@ final class _HostVideoStageRouteState
 
   Future<void> _openSession() async {
     try {
+      final request = widget.request;
+      final deps = ref.read(featurePlayerVideoDependenciesProvider);
+      final active = _sessionManager.controller;
+      final current = _sessionManager.activeRequest;
+      final reusing =
+          active != null &&
+          current != null &&
+          current.workId == request.workId &&
+          (request.episodeId == null ||
+              active.state.currentEpisode.id == request.episodeId ||
+              current.episodeId == request.episodeId) &&
+          (request.variantId == null ||
+              active.state.currentVariant.id == request.variantId ||
+              current.variantId == request.variantId);
+      // 暂停态冷恢复、小窗回弹及移动端始终保持内置会话语义。
+      if (!reusing &&
+          request.initialPlaying &&
+          deps.platform == KonataPlatform.windows &&
+          ref
+                  .read(videoPlaybackPreferencesStoreProvider)
+                  .read()
+                  .preferredEngine ==
+              PreferredPlaybackEngine.desktopRelay) {
+        final service = ref.read(detailExternalVideoProvider);
+        final bundle =
+            request.initialBundle ??
+            await VideoBundleLoader.load(
+              databases: deps.databases,
+              workId: request.workId,
+            );
+        if (!mounted) return;
+        if (service == null || bundle == null || bundle.variants.isEmpty) {
+          showKonataToast(context, '外部播放器不可用或没有可播放的视频，请检查设置', isError: true);
+          widget.onClosePage();
+          return;
+        }
+        final target = VideoSeriesHelper.resolveInitialTarget(bundle, request);
+        // 明确指定的历史目标失效时不得回退到另一文件。
+        if ((request.episodeId != null &&
+                target.episode.id != request.episodeId) ||
+            (request.variantId != null &&
+                target.variant.id != request.variantId)) {
+          showKonataToast(context, '指定视频文件已不存在，请重新选择', isError: true);
+          widget.onClosePage();
+          return;
+        }
+        final result = await service.launch(
+          workId: target.episode.workId,
+          episodeId: target.episode.id,
+          variantId: target.variant.id,
+          initialPositionSeconds: request.initialPositionSeconds,
+        );
+        if (mounted) {
+          showKonataToast(context, result.message, isError: !result.launched);
+          widget.onClosePage();
+        }
+        return;
+      }
       if (widget.hasAudioFeature) {
         await ref.read(audioPlaybackControllerProvider).pauseForVideoSession();
       }
@@ -950,13 +1209,20 @@ final class _HostVideoStageRouteState
     if (controller == null) {
       return const ColoredBox(color: KonataPlaybackTokens.cinemaPureBlack);
     }
-    return EmbeddedVideoPage(
-      request: widget.request,
-      controller: controller,
-      playerSidePanels: deps.playerSidePanels,
-      videoSurfaceBuilder: _buildSharedVideoTextureSurface,
-      onClose: () => unawaited(_closeAndPop()),
-      onEnterMiniPlayer: () => unawaited(_collapseToMini()),
+    return ListenableBuilder(
+      listenable: controller,
+      builder: (context, child) => PopScope(
+        canPop: controller.state.miniMode != VideoMiniMode.desktop,
+        child: child!,
+      ),
+      child: EmbeddedVideoPage(
+        request: widget.request,
+        controller: controller,
+        playerSidePanels: deps.playerSidePanels,
+        videoSurfaceBuilder: _buildSharedVideoTextureSurface,
+        onClose: () => unawaited(_closeAndPop()),
+        onEnterMiniPlayer: () => unawaited(_collapseToMini()),
+      ),
     );
   }
 }
@@ -1020,8 +1286,11 @@ final class _HostAudioStageRouteState
     }
     if (!mounted) return;
     // 历史续播不应在目标文件失效时把旧断点应用到其它曲目。
-    if (widget.initialPositionSeconds != null &&
+    if ((widget.variantId != null ||
+            widget.initialPositionSeconds != null ||
+            widget.initialCueTrackIndex != null) &&
         (initialVariant == null ||
+            initialVariant.isDeleted ||
             initialVariant.assetKind != AssetKind.cdAlbum)) {
       showKonataToast(context, '未找到对应 CD 音频文件', isError: true);
       widget.onClosePage();
@@ -1036,6 +1305,48 @@ final class _HostAudioStageRouteState
     }
     if (!mounted) return;
     final controller = ref.read(audioPlaybackControllerProvider);
+    if (deps.platform == KonataPlatform.windows &&
+        ref.read(audioPlaybackPrefsRepoProvider).read().preferredAudioEngine ==
+            PreferredPlaybackEngine.desktopRelay) {
+      try {
+        Future<LaunchPlaybackResult?> launch({
+          bool allowWithoutBeefweb = false,
+        }) => controller.relayCdCollectionToDesktop(
+          work: work,
+          variants: variants,
+          sources: sources,
+          initialVariant: initialVariant,
+          initialCueTrackIndex: widget.initialCueTrackIndex,
+          startPositionSeconds: widget.initialPositionSeconds?.toDouble(),
+          allowWithoutBeefweb: allowWithoutBeefweb,
+        );
+        var result = await launch();
+        if (!mounted) return;
+        if (result?.requiresBeefwebPrompt == true) {
+          final proceed = await confirmFoobarWithoutBeefweb(context);
+          if (!mounted) return;
+          if (proceed != true) {
+            widget.onClosePage();
+            return;
+          }
+          result = await launch(allowWithoutBeefweb: true);
+        }
+        if (mounted) {
+          showKonataToast(
+            context,
+            result?.message ?? '外部播放器不可用',
+            isError: result?.launched != true,
+          );
+          widget.onClosePage();
+        }
+      } catch (_) {
+        if (mounted) {
+          showKonataToast(context, '外部音频启动失败，请检查播放器配置', isError: true);
+          widget.onClosePage();
+        }
+      }
+      return;
+    }
     await controller.playCdCollection(
       work: work,
       variants: variants,
@@ -1061,6 +1372,7 @@ final class _HostAudioStageRouteState
       platform: deps.platform,
       desktopRelayAvailable: deps.desktopRelayGateway != null,
       desktopMiniWindowSupported: deps.platform == KonataPlatform.windows,
+      desktopMiniHostedExternally: deps.platform == KonataPlatform.windows,
       onMinimizeToMiniBar: widget.onClosePage,
       onClosePage: widget.onClosePage,
     );
@@ -1240,7 +1552,8 @@ final class _HostFloatingPlaybackOverlayState
         audioCtrl != null &&
         audioCtrl.activeListenable.value &&
         !widget.audioStageOpen &&
-        !widget.videoStageOpen;
+        !widget.videoStageOpen &&
+        videoMgr?.hasActiveSession != true;
 
     final nextMiniKind = showVideoMini
         ? FloatingMiniPlayerKind.video
@@ -1368,18 +1681,36 @@ final class _HostFloatingPlaybackOverlayState
             },
           ),
         if (audioController != null)
-          ValueListenableBuilder<bool>(
-            valueListenable: audioController.activeListenable,
-            builder: (context, isActive, _) {
-              if (!isActive || widget.audioStageOpen || widget.videoStageOpen) {
+          ListenableBuilder(
+            listenable: videoManager ?? const AlwaysStoppedAnimation(0.0),
+            builder: (context, _) {
+              if (videoManager?.hasActiveSession == true) {
                 return const SizedBox.shrink();
               }
-              return MiniAudioBar(
-                controller: audioController,
-                visible: true,
-                desktopMiniWindowSupported:
-                    widget.platform == KonataPlatform.windows,
-                onExpandFullStage: widget.onExpandAudioStage,
+              return ValueListenableBuilder<bool>(
+                valueListenable: audioController.activeListenable,
+                builder: (context, isActive, _) {
+                  if (!isActive ||
+                      widget.audioStageOpen ||
+                      widget.videoStageOpen) {
+                    return const SizedBox.shrink();
+                  }
+                  return ValueListenableBuilder<AudioPlaybackSnapshot>(
+                    valueListenable: audioController.snapshotListenable,
+                    builder: (context, snap, _) {
+                      if (snap.isDesktopMiniWindow) {
+                        return const SizedBox.shrink();
+                      }
+                      return MiniAudioBar(
+                        controller: audioController,
+                        visible: true,
+                        desktopMiniWindowSupported:
+                            widget.platform == KonataPlatform.windows,
+                        onExpandFullStage: widget.onExpandAudioStage,
+                      );
+                    },
+                  );
+                },
               );
             },
           ),

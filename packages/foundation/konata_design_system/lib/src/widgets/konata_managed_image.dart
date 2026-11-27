@@ -48,7 +48,10 @@ final class KonataThumbnailByteLru {
   KonataThumbnailByteLru({
     this.maxEntries = 180,
     this.maxBytesPerEntry = 2 * 1024 * 1024,
-  });
+    this.maxTotalBytes = 32 * 1024 * 1024,
+  }) : assert(maxEntries >= 0),
+       assert(maxBytesPerEntry >= 0),
+       assert(maxTotalBytes >= 0);
 
   /// 最大缓存条目数。
   final int maxEntries;
@@ -56,8 +59,21 @@ final class KonataThumbnailByteLru {
   /// 单张缓存字节大小上限（避免原画大背景挤占热点缩略图配额）。
   final int maxBytesPerEntry;
 
+  /// 编码图片缓存总字节预算，独立于 Flutter 解码位图缓存。
+  final int maxTotalBytes;
+
   final LinkedHashMap<Object, Uint8List> _entries =
       LinkedHashMap<Object, Uint8List>();
+  int _totalBytes = 0;
+  int _generation = 0;
+
+  /// 当前保留的条目数。
+  int get entryCount => _entries.length;
+
+  /// 当前保守计费的字节数；视图按底层缓冲区大小计费。
+  int get totalBytes => _totalBytes;
+
+  int _weight(Uint8List bytes) => bytes.buffer.lengthInBytes;
 
   /// 命中时刷新 LRU 顺序并返回只读字节。
   Uint8List? get(Object key) {
@@ -67,23 +83,39 @@ final class KonataThumbnailByteLru {
     return hit;
   }
 
-  /// 写入受控大小的图片字节并在超限时淘汰最旧条目。
+  void _remove(Object key) {
+    final previous = _entries.remove(key);
+    if (previous != null) _totalBytes -= _weight(previous);
+  }
+
+  /// 同时按条目数与总字节预算淘汰最旧条目，替换时先扣除旧字节。
   void put(Object key, Uint8List bytes) {
-    if (bytes.isEmpty || bytes.lengthInBytes > maxBytesPerEntry) return;
-    _entries.remove(key);
+    final weight = _weight(bytes);
+    if (maxEntries <= 0 ||
+        bytes.isEmpty ||
+        weight > maxBytesPerEntry ||
+        weight > maxTotalBytes) {
+      return;
+    }
+    _remove(key);
     _entries[key] = bytes;
-    while (_entries.length > maxEntries) {
-      _entries.remove(_entries.keys.first);
+    _totalBytes += weight;
+    while (_entries.length > maxEntries || _totalBytes > maxTotalBytes) {
+      _remove(_entries.keys.first);
     }
   }
 
   /// 仅驱逐当前仍为失败对象的条目，避免迟到的解码异常清除新图片。
   void evictIfSame(Object key, Uint8List bytes) {
-    if (identical(_entries[key], bytes)) _entries.remove(key);
+    if (identical(_entries[key], bytes)) _remove(key);
   }
 
   /// 清空全部内存字节缓存（供后台收缩或测试复位调用）。
-  void clear() => _entries.clear();
+  void clear() {
+    _generation++;
+    _entries.clear();
+    _totalBytes = 0;
+  }
 }
 
 /// 供海报墙等高速列表共享的默认热点缩略图字节缓存。
@@ -201,16 +233,21 @@ class KonataManagedImageProvider extends ImageProvider<KonataManagedImageKey> {
     ImageDecoderCallback decode,
   ) async {
     Uint8List? bytes;
+    final lru = byteLru;
+    final generation = lru?._generation;
     try {
-      bytes = byteLru?.get(key);
+      bytes = lru?.get(key);
       if (bytes == null || bytes.isEmpty) {
         bytes = await loader(
           key.url,
           targetWidth: key.targetWidth,
           variantKey: key.variantKey,
         );
-        if (bytes != null && bytes.isNotEmpty) {
-          byteLru?.put(key, bytes);
+        // 清理前启动的异步加载仍可解码展示，但不回填已清理的缓存。
+        if (bytes != null &&
+            bytes.isNotEmpty &&
+            lru?._generation == generation) {
+          lru?.put(key, bytes);
         }
       }
       if (bytes == null || bytes.isEmpty) {
@@ -342,8 +379,10 @@ class KonataManagedImage extends StatefulWidget {
   /// 空地址或加载失败兜底构建器。
   final ImageErrorWidgetBuilder? errorBuilder;
 
-  /// 首帧位图解码就绪通知回调。
-  final void Function(ui.Image image, ImageProvider provider)? onImageResolved;
+  /// 首帧位图解码通知；图像由观察器持有，回调若需异步读取须返回对应 Future。
+  /// 回调结束后观察器释放图像；若需继续持有，应自行克隆并负责释放。
+  final FutureOr<void> Function(ui.Image image, ImageProvider provider)?
+  onImageResolved;
 
   /// 是否启用默认热点缩略图内存字节 LRU。
   final bool useThumbnailByteLru;
@@ -489,7 +528,8 @@ class _KonataImageDecodeObserver extends StatefulWidget {
   });
 
   final ImageProvider provider;
-  final void Function(ui.Image image, ImageProvider provider) onImageResolved;
+  final FutureOr<void> Function(ui.Image image, ImageProvider provider)
+  onImageResolved;
   final Widget child;
 
   @override
@@ -518,7 +558,7 @@ class _KonataImageDecodeObserverState
   }
 
   void _syncStream() {
-    if (_listeningProvider == widget.provider && _stream != null) return;
+    if (_listeningProvider == widget.provider) return;
     _detachStream();
     _listeningProvider = widget.provider;
     final stream = widget.provider.resolve(
@@ -534,17 +574,45 @@ class _KonataImageDecodeObserverState
   }
 
   void _handleFrame(ImageInfo info, bool synchronousCall) {
-    if (!mounted) return;
-    widget.onImageResolved(info.image, widget.provider);
+    if (!mounted || _listeningProvider != widget.provider) {
+      info.dispose();
+      return;
+    }
+    // 只观察首帧，展示图片拥有独立的解码引用，不需要常驻额外监听。
+    final callback = widget.onImageResolved;
+    final provider = widget.provider;
+    _detachStream(resetProvider: false);
+    unawaited(_notifyFrame(info, callback, provider));
   }
 
-  void _detachStream() {
+  Future<void> _notifyFrame(
+    ImageInfo info,
+    FutureOr<void> Function(ui.Image image, ImageProvider provider) callback,
+    ImageProvider provider,
+  ) async {
+    try {
+      await callback(info.image, provider);
+    } catch (error, stack) {
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: error,
+          stack: stack,
+          library: '受管图片首帧观察器',
+        ),
+      );
+    } finally {
+      // ImageStream 为每个监听器克隆 ImageInfo，必须独立释放。
+      info.dispose();
+    }
+  }
+
+  void _detachStream({bool resetProvider = true}) {
     if (_stream != null && _listener != null) {
       _stream!.removeListener(_listener!);
     }
     _stream = null;
     _listener = null;
-    _listeningProvider = null;
+    if (resetProvider) _listeningProvider = null;
   }
 
   @override

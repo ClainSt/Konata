@@ -138,18 +138,26 @@ extension _AudioPlaybackControllerEvents on AudioPlaybackController {
     final client = _client;
     _client = null;
     _clientNativeInstanceId = 0;
-    if (client != null && !fromEviction) {
-      await _engine.releaseNativeClient(client);
+    if (client != null) {
+      // 原生会话结束时撤销临时满幅授权，不传给后续会话。
+      if (fromEviction || identical(_engine.activeNativeClient, client)) {
+        _safetyCoordinator.setBackendMeterVerified(false);
+      }
+      if (!fromEviction) await _engine.releaseNativeClient(client);
     }
     _replaceMainStreamToken(null);
     if (fromEviction && !_disposed) {
+      // 独占句柄被其他舞台接管时只清理本地状态，不重置新舞台的共享引擎。
       _playingNotifier.value = false;
+      _activeNotifier.value = false;
       _updateSnapshot(
         _snapshotNotifier.value.copyWith(
           status: AudioPlaybackStatus.paused,
+          isActive: false,
           isBuffering: false,
         ),
       );
+      _clearLyrics();
     }
   }
 

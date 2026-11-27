@@ -263,10 +263,62 @@ void main() {
       );
       konataSharedThumbnailByteLru.put(imageKey, Uint8List.fromList([42]));
       expect(imageCache.containsKey(imageKey), isTrue);
+      final artworkBytes = Uint8List.fromList([0x89, 0x50, 0x4e, 0x47, 42]);
+      final artwork = bootstrap.artworkCache;
+      const artworkKey = 'memory-pressure-fixture';
+      const artworkOwner = 'memory-pressure-work';
+      await tester.runAsync(() async {
+        await artwork.write('preview-pressure', artworkBytes);
+        await artwork.write(
+          artworkKey,
+          artworkBytes,
+          owner: artworkOwner,
+          subfolder: PhotoSubfolder.posters,
+        );
+      });
+      expect(artwork.memoryEntryCount, greaterThanOrEqualTo(2));
+      expect(artwork.currentMemoryBytes, greaterThanOrEqualTo(10));
+
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
       expect(imageCache.containsKey(imageKey), isFalse);
       expect(konataSharedThumbnailByteLru.get(imageKey), isNull);
+      expect(artwork.memoryEntryCount, 0);
+      expect(artwork.currentMemoryBytes, 0);
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+
+      await tester.runAsync(() async {
+        expect(await artwork.read('preview-pressure'), isNull);
+        // 清理仅作用于内存，作品海报仍能从磁盘恢复。
+        expect(
+          await artwork.read(
+            artworkKey,
+            owner: artworkOwner,
+            subfolder: PhotoSubfolder.posters,
+          ),
+          artworkBytes,
+        );
+      });
+      expect(artwork.memoryEntryCount, 1);
+      konataSharedThumbnailByteLru.put(imageKey, artworkBytes);
+      imageCache.putIfAbsent(
+        imageKey,
+        () => OneFrameImageStreamCompleter(Completer<ImageInfo>().future),
+      );
+      tester.binding.handleMemoryPressure();
+      expect(artwork.currentMemoryBytes, 0);
+      expect(artwork.memoryEntryCount, 0);
+      expect(konataSharedThumbnailByteLru.get(imageKey), isNull);
+      expect(imageCache.containsKey(imageKey), isFalse);
+      await tester.runAsync(() async {
+        expect(
+          await artwork.read(
+            artworkKey,
+            owner: artworkOwner,
+            subfolder: PhotoSubfolder.posters,
+          ),
+          artworkBytes,
+        );
+      });
 
       // 1. 海报墙默认挂载真实 LibraryPage。
       expect(find.byType(KonataAdaptiveShell), findsOneWidget);

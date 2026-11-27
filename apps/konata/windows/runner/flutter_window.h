@@ -46,6 +46,12 @@ class FlutterWindow : public Win32Window {
   // 当前是否处于系统窗口拖拽缩放模态循环中。
   bool is_live_resizing_ = false;
   bool moved_in_drag_ = false;
+  bool audio_surface_ = false;
+  bool audio_dragging_ = false;
+  POINT audio_drag_cursor_{};
+  RECT audio_drag_bounds_{};
+  bool audio_drag_moved_ = false;
+
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> mini_dock_channel_;
 };
 

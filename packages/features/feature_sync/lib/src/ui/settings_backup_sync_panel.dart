@@ -790,6 +790,8 @@ class _RestorePreviewDialogState extends State<_RestorePreviewDialog> {
       );
       if (!mounted) return;
       setState(() => _data = updated);
+    } catch (_) {
+      if (mounted) showKonataToast(context, '备份预览计算失败，请重试', isError: true);
     } finally {
       if (mounted) {
         setState(() => _recalculating = false);
@@ -871,27 +873,33 @@ class _RestorePreviewDialogState extends State<_RestorePreviewDialog> {
             if (report.legacyFormatVersion != null)
               Text(
                 report.legacyFormatVersion == 2
-                    ? '旧版 v2 备份已通过迁移预检，须一次性智能合并全部项目。原备份文件不变。'
-                    : '旧版 v1 备份已通过迁移预检，仅支持智能合并。原备份文件不变。',
+                    ? '旧版 v2 备份已通过迁移预检，须一次性智能合并全部项目。原备份文件不变。旧播放偏好仅恢复可对应的设置；本机设备、外部接力端口、着色器路径、授权和已无对应项的设置不导入。'
+                    : '旧版 v1 备份已通过迁移预检，仅支持智能合并。原备份文件不变。旧播放偏好仅恢复可对应的设置；本机设备、外部接力端口、着色器路径、授权和已无对应项的设置不导入。',
                 style: TextStyle(fontSize: 12.5, color: palette.textSecondary),
               )
             else
-              KonataSegmentedCapsule<KonataRestoreMode>(
-                key: const Key('restore_mode_segmented'),
-                expand: true,
-                compact: true,
-                selected: _data.mode,
-                options: const <KonataSegmentOption<KonataRestoreMode>>[
-                  KonataSegmentOption<KonataRestoreMode>(
-                    value: KonataRestoreMode.smartMerge,
-                    label: '智能合并',
+              IgnorePointer(
+                ignoring: _applying || _recalculating,
+                child: Opacity(
+                  opacity: _applying || _recalculating ? 0.5 : 1,
+                  child: KonataSegmentedCapsule<KonataRestoreMode>(
+                    key: const Key('restore_mode_segmented'),
+                    expand: true,
+                    compact: true,
+                    selected: _data.mode,
+                    options: const <KonataSegmentOption<KonataRestoreMode>>[
+                      KonataSegmentOption<KonataRestoreMode>(
+                        value: KonataRestoreMode.smartMerge,
+                        label: '智能合并',
+                      ),
+                      KonataSegmentOption<KonataRestoreMode>(
+                        value: KonataRestoreMode.overwrite,
+                        label: '覆盖还原',
+                      ),
+                    ],
+                    onChanged: _switchMode,
                   ),
-                  KonataSegmentOption<KonataRestoreMode>(
-                    value: KonataRestoreMode.overwrite,
-                    label: '覆盖还原',
-                  ),
-                ],
-                onChanged: _applying ? (_) {} : _switchMode,
+                ),
               ),
             const SizedBox(height: 12),
             Text(

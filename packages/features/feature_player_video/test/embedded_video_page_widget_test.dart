@@ -406,6 +406,23 @@ void main() {
     await tester.pumpAndSettle();
     expect(auth.isAuthorized(endpoint), isFalse);
     expect(h.preferencesStore.read().authorizedCloudSubsetOrigins, isEmpty);
+    final reset = find.byKey(
+      const ValueKey('settings_cloud_subset_reset_default_button'),
+    );
+    await tester.ensureVisible(reset);
+    await tester.tap(reset);
+    await tester.pumpAndSettle();
+    const defaultEndpoint = FontInAssCloudClient.defaultEndpointUrl;
+    expect(h.preferencesStore.read().fontInAssEndpoint, defaultEndpoint);
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is EditableText && widget.controller.text == defaultEndpoint,
+      ),
+      findsOneWidget,
+    );
+    expect(h.preferencesStore.read().authorizedCloudSubsetOrigins, isEmpty);
+    expect(auth.isAuthorized(Uri.parse(defaultEndpoint)), isFalse);
     expect(tester.takeException(), isNull);
   });
   group('设置面板组件渲染与交互验证', () {

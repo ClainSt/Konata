@@ -8,6 +8,7 @@ import 'package:konata_contracts/konata_contracts.dart';
 import 'package:konata_storage/konata_storage.dart';
 
 import 'data/konata_backup_service.dart';
+import 'data/legacy_backup_migration.dart';
 import 'data/sync_device_store.dart';
 import 'data/sync_models.dart';
 import 'data/webdav_sync_config_repository.dart';
@@ -30,6 +31,7 @@ final class FeatureSyncDependencies {
     this.connectionPool,
     this.httpClientFactory,
     this.readFileBytes,
+    this.readLegacyCue,
     this.nowMs,
   });
 
@@ -66,6 +68,9 @@ final class FeatureSyncDependencies {
   /// 可选文件字节流读取函数（测试注入内存文件读取使用）。
   final Future<Uint8List> Function(String path)? readFileBytes;
 
+  /// 本机已索引 CUE 的只读核验端口。
+  final LegacyCueReader? readLegacyCue;
+
   /// 可选统一时钟函数（返回 UTC 毫秒）。
   final int Function()? nowMs;
 }
@@ -73,16 +78,17 @@ final class FeatureSyncDependencies {
 /// 宿主注入点：未在根容器中覆盖时抛出明确配置异常。
 final Provider<FeatureSyncDependencies> featureSyncDependenciesProvider =
     Provider<FeatureSyncDependencies>((ref) {
-      throw UnimplementedError(
-        '必须在宿主应用根容器中覆盖 featureSyncDependenciesProvider',
-      );
+      throw UnimplementedError('必须在宿主应用根容器中覆盖 featureSyncDependenciesProvider');
     });
 
 /// 同步设备元信息与增量水位仓储提供者。
 final Provider<SyncDeviceStore> syncDeviceStoreProvider =
     Provider<SyncDeviceStore>((ref) {
       final deps = ref.watch(featureSyncDependenciesProvider);
-      return SyncDeviceStore(deps.databases.userState.syncMeta, nowMs: deps.nowMs);
+      return SyncDeviceStore(
+        deps.databases.userState.syncMeta,
+        nowMs: deps.nowMs,
+      );
     });
 
 /// WebDAV 非敏感配置与安全存储密码联合仓储提供者。
@@ -119,6 +125,7 @@ final Provider<KonataBackupService> konataBackupServiceProvider =
         nowMs: deps.nowMs,
         eventBus: deps.eventBus,
         diagnosticLog: deps.diagnosticLog,
+        readLegacyCue: deps.readLegacyCue,
       );
     });
 

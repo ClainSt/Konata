@@ -702,7 +702,9 @@ class _WorkPhotoCleanupRowState extends State<_WorkPhotoCleanupRow> {
               IgnorePointer(
                 child: Checkbox(
                   value: checked,
-                  onChanged: (_) {},
+                  onChanged: widget.onToggle == null
+                      ? null
+                      : (_) => widget.onToggle!(),
                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   visualDensity: VisualDensity.compact,
                 ),

@@ -9,7 +9,7 @@ import 'photos_storage.dart';
 ///
 /// - 拥有明确归属作品（`owner`）且指定子目录的图片按作品目录落盘持久化；
 /// - 无归属的候选预览图仅保留在有界内存中，绝不在磁盘建空文件夹。
-final class ArtworkDiskCache implements ArtworkCacheStore {
+final class ArtworkDiskCache implements RequestScopedArtworkCacheStore {
   /// 创建基于统一图片存储管理器的缓存实例。
   ArtworkDiskCache({
     required this.photosStorage,
@@ -32,6 +32,7 @@ final class ArtworkDiskCache implements ArtworkCacheStore {
   final LinkedHashMap<String, ({int quality, Uint8List bytes})> _memory =
       LinkedHashMap<String, ({int quality, Uint8List bytes})>();
   int _memoryBytes = 0;
+  int _memoryGeneration = 0;
 
   /// 当前内存缓存占用字节数。
   int get currentMemoryBytes => _memoryBytes;
@@ -41,9 +42,14 @@ final class ArtworkDiskCache implements ArtworkCacheStore {
 
   /// 清空内存字节缓存（磁盘图片文件保持完好）。
   void clearMemoryCache() {
+    _memoryGeneration++;
     _memory.clear();
     _memoryBytes = 0;
   }
+
+  @override
+  ArtworkCacheStore captureRequestScope() =>
+      _ArtworkRequestScope(this, _memoryGeneration);
 
   @override
   Future<Uint8List?> read(
@@ -51,6 +57,20 @@ final class ArtworkDiskCache implements ArtworkCacheStore {
     int minimumQuality = 0,
     String? owner,
     PhotoSubfolder? subfolder,
+  }) => _read(
+    key,
+    generation: _memoryGeneration,
+    minimumQuality: minimumQuality,
+    owner: owner,
+    subfolder: subfolder,
+  );
+
+  Future<Uint8List?> _read(
+    String key, {
+    int minimumQuality = 0,
+    String? owner,
+    PhotoSubfolder? subfolder,
+    required int generation,
   }) async {
     final memKey = _memoryKey(key, owner: owner, subfolder: subfolder);
     final hit = _memory.remove(memKey);
@@ -67,7 +87,9 @@ final class ArtworkDiskCache implements ArtworkCacheStore {
         cacheKey: key,
       );
       if (diskBytes != null && diskBytes.isNotEmpty) {
-        if (diskBytes.length <= _maxDiskBackedMemoryEntryBytes) {
+        // 清理前开始的读取可以返回结果，但不能重新占用内存预算。
+        if (generation == _memoryGeneration &&
+            diskBytes.length <= _maxDiskBackedMemoryEntryBytes) {
           _putMemory(memKey, diskBytes, quality: minimumQuality);
         }
         return diskBytes;
@@ -83,6 +105,22 @@ final class ArtworkDiskCache implements ArtworkCacheStore {
     String? owner,
     int quality = 0,
     PhotoSubfolder? subfolder,
+  }) => _write(
+    key,
+    bytes,
+    generation: _memoryGeneration,
+    owner: owner,
+    quality: quality,
+    subfolder: subfolder,
+  );
+
+  Future<void> _write(
+    String key,
+    Uint8List bytes, {
+    String? owner,
+    int quality = 0,
+    PhotoSubfolder? subfolder,
+    required int generation,
   }) async {
     if (bytes.isEmpty) return;
     final memKey = _memoryKey(key, owner: owner, subfolder: subfolder);
@@ -94,12 +132,14 @@ final class ArtworkDiskCache implements ArtworkCacheStore {
         bytes: bytes,
         extension: _detectImageExtension(bytes),
       );
-      if (bytes.length <= _maxDiskBackedMemoryEntryBytes) {
+      if (generation == _memoryGeneration &&
+          bytes.length <= _maxDiskBackedMemoryEntryBytes) {
         _putMemory(memKey, bytes, quality: quality);
       }
       return;
     }
-    if (bytes.length <= _maxSingleMemoryEntryBytes) {
+    if (generation == _memoryGeneration &&
+        bytes.length <= _maxSingleMemoryEntryBytes) {
       _putMemory(memKey, bytes, quality: quality);
     }
   }
@@ -117,11 +157,8 @@ final class ArtworkDiskCache implements ArtworkCacheStore {
     );
   }
 
-  String _memoryKey(
-    String key, {
-    String? owner,
-    PhotoSubfolder? subfolder,
-  }) => '${owner ?? ''}|${subfolder?.dirName ?? ''}|$key';
+  String _memoryKey(String key, {String? owner, PhotoSubfolder? subfolder}) =>
+      '${owner ?? ''}|${subfolder?.dirName ?? ''}|$key';
 
   void _putMemory(String key, Uint8List bytes, {required int quality}) {
     if (maxMemoryEntries <= 0 || maxMemoryBytes <= 0) return;
@@ -171,4 +208,53 @@ final class ArtworkDiskCache implements ArtworkCacheStore {
     }
     return '.bin';
   }
+}
+
+/// 绑定单次请求启动时的内存代次；磁盘写入仍然由底层统一完成。
+final class _ArtworkRequestScope implements ArtworkCacheStore {
+  _ArtworkRequestScope(this.cache, this.generation);
+
+  final ArtworkDiskCache cache;
+  final int generation;
+
+  @override
+  Future<Uint8List?> read(
+    String key, {
+    int minimumQuality = 0,
+    String? owner,
+    PhotoSubfolder? subfolder,
+  }) => cache._read(
+    key,
+    generation: generation,
+    minimumQuality: minimumQuality,
+    owner: owner,
+    subfolder: subfolder,
+  );
+
+  @override
+  Future<void> write(
+    String key,
+    Uint8List bytes, {
+    String? owner,
+    int quality = 0,
+    PhotoSubfolder? subfolder,
+  }) => cache._write(
+    key,
+    bytes,
+    generation: generation,
+    owner: owner,
+    quality: quality,
+    subfolder: subfolder,
+  );
+
+  @override
+  Future<Uint8List?> readLocalWorkFile({
+    required String owner,
+    required PhotoSubfolder subfolder,
+    required String fileName,
+  }) => cache.readLocalWorkFile(
+    owner: owner,
+    subfolder: subfolder,
+    fileName: fileName,
+  );
 }

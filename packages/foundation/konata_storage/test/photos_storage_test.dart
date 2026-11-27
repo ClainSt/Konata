@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -6,6 +7,49 @@ import 'package:konata_storage/konata_storage.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('内存清理阻止旧磁盘读写任务回填且保留持久化图片', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'konata_cache_generation_',
+    );
+    addTearDown(() => root.delete(recursive: true));
+    final entered = Completer<void>();
+    final resume = Completer<void>();
+    final storage = PhotosStorage(
+      overrideRoot: root,
+      onEvictImageFile: (_) async {
+        if (!entered.isCompleted) entered.complete();
+        await resume.future;
+      },
+    );
+    final cache = ArtworkDiskCache(photosStorage: storage);
+    final bytes = Uint8List.fromList([0x89, 0x50, 0x4e, 0x47, 42]);
+    const owner = 'generation-owner';
+    const folder = PhotoSubfolder.posters;
+    final pending = cache.write(
+      'poster',
+      bytes,
+      owner: owner,
+      subfolder: folder,
+    );
+    try {
+      await entered.future.timeout(const Duration(seconds: 5));
+      cache.clearMemoryCache();
+    } finally {
+      resume.complete();
+      await pending;
+    }
+    expect(cache.currentMemoryBytes, 0);
+    expect(cache.memoryEntryCount, 0);
+    final reading = cache.read('poster', owner: owner, subfolder: folder);
+    cache.clearMemoryCache();
+    expect(await reading, bytes);
+    expect(cache.currentMemoryBytes, 0);
+    expect(cache.memoryEntryCount, 0);
+    expect(await cache.read('poster', owner: owner, subfolder: folder), bytes);
+    expect(cache.currentMemoryBytes, bytes.length);
+    expect(cache.memoryEntryCount, 1);
+  });
+
   test('PhotosStorage 懒创建作品目录、读写扫图与统计清理', () async {
     final tempDir = await Directory.systemTemp.createTemp('konata_photos_');
     addTearDown(() async {

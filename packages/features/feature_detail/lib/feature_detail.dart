@@ -48,6 +48,7 @@ export 'src/providers.dart'
         detailClearLogoResolverProvider,
         detailDisplayPreferencesProvider,
         detailDisplayPreferencesStoreProvider,
+        detailExternalVideoProvider,
         detailFanartCacheProvider,
         detailFanartCircuitBreakerProvider,
         detailFanartServiceProvider,

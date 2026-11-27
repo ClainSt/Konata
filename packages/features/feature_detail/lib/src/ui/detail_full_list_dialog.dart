@@ -25,6 +25,9 @@ class DetailFullListDialog extends StatefulWidget {
     required this.onTapEpisode,
     required this.onTapCdVariant,
     required this.onInspectEpisodeInfo,
+    this.onMarkEpisodeWatched,
+    this.onAdjustEpisodeMapping,
+    this.onPlayExternalEpisode,
   });
 
   /// 当前作品详情数据包。
@@ -49,12 +52,22 @@ class DetailFullListDialog extends StatefulWidget {
   /// 查看单集技术参数回调。
   final ValueChanged<Episode> onInspectEpisodeInfo;
 
+  /// 保存单集观看状态并返回新记录。
+  final Future<PlaybackRecord?> Function(Episode)? onMarkEpisodeWatched;
+
+  /// 编辑当前作品的单集文件映射。
+  final ValueChanged<Episode>? onAdjustEpisodeMapping;
+
+  /// 桌面外部视频播放入口。
+  final ValueChanged<Episode>? onPlayExternalEpisode;
+
   @override
   State<DetailFullListDialog> createState() => _DetailFullListDialogState();
 }
 
 class _DetailFullListDialogState extends State<DetailFullListDialog> {
   final ScrollController _scrollCtrl = ScrollController();
+  final _updatedPlayback = <String, PlaybackRecord>{};
   late String _activeTab = widget.initialTabId;
   String _filter = 'all';
   String _query = '';
@@ -299,7 +312,7 @@ class _DetailFullListDialogState extends State<DetailFullListDialog> {
         key: ValueKey('full_list_episode_${ep.id}'),
         episode: ep,
         variants: b.variantsForEpisode(ep.id),
-        playback: b.playbackByEpisodeId[ep.id],
+        playback: _updatedPlayback[ep.id] ?? b.playbackByEpisodeId[ep.id],
         imageLoader: widget.imageLoader,
         workTitle: b.work.title,
         workMediaType: b.work.tmdbMediaType,
@@ -315,6 +328,33 @@ class _DetailFullListDialogState extends State<DetailFullListDialog> {
         cardWidth: double.infinity,
         onTap: () => widget.onTapEpisode(ep),
         onShowMediaInfo: () => widget.onInspectEpisodeInfo(ep),
+        onPlayExternal:
+            widget.onPlayExternalEpisode != null &&
+                b
+                    .variantsForEpisode(ep.id)
+                    .any((v) => v.assetKind == AssetKind.video)
+            ? () => widget.onPlayExternalEpisode!(ep)
+            : null,
+        onAdjustEpisodeMapping:
+            widget.onAdjustEpisodeMapping != null &&
+                ep.workId == b.work.id &&
+                b
+                    .variantsForEpisode(ep.id)
+                    .any((v) => v.assetKind == AssetKind.video)
+            ? () => widget.onAdjustEpisodeMapping!(ep)
+            : null,
+        onMarkWatched:
+            widget.onMarkEpisodeWatched != null &&
+                b
+                    .variantsForEpisode(ep.id)
+                    .any((v) => v.assetKind == AssetKind.video)
+            ? () async {
+                final record = await widget.onMarkEpisodeWatched!(ep);
+                if (mounted && record != null) {
+                  setState(() => _updatedPlayback[ep.id] = record);
+                }
+              }
+            : null,
       ),
     );
   }

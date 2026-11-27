@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/widgets.dart';
 import 'package:konata_design_system/konata_design_system.dart';
 
@@ -62,6 +63,8 @@ class VideoFloatingMiniPlayer extends StatefulWidget {
 
 class _VideoFloatingMiniPlayerState extends State<VideoFloatingMiniPlayer> {
   bool _hovered = false;
+  Offset? _panOrigin;
+  Offset? _panOffset;
 
   ValueNotifier<Offset> get _offsetNotifier =>
       widget.offsetNotifier ?? widget.controller.miniPlayerOffsetNotifier;
@@ -133,11 +136,27 @@ class _VideoFloatingMiniPlayerState extends State<VideoFloatingMiniPlayer> {
           child: GestureDetector(
             key: const ValueKey('video_floating_mini_player'),
             behavior: HitTestBehavior.opaque,
+            dragStartBehavior: DragStartBehavior.down,
+            onPanStart: (details) {
+              _panOrigin = details.globalPosition;
+              _panOffset = _clampOffset(_offsetNotifier.value, bounds);
+            },
             onPanUpdate: (details) {
+              final origin = _panOrigin;
+              final start = _panOffset;
+              if (origin == null || start == null) return;
               _offsetNotifier.value = _clampOffset(
-                effectiveOffset + details.delta,
+                start + details.globalPosition - origin,
                 bounds,
               );
+            },
+            onPanEnd: (_) {
+              _panOrigin = null;
+              _panOffset = null;
+            },
+            onPanCancel: () {
+              _panOrigin = null;
+              _panOffset = null;
             },
             child: child,
           ),

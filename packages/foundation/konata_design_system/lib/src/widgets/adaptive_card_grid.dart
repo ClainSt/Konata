@@ -64,6 +64,7 @@ class AdaptiveCardGrid extends StatelessWidget {
     this.shrinkWrap = false,
     this.physics,
     this.addAutomaticKeepAlives = false,
+    this.findChildIndexCallback,
   });
 
   /// 卡片总数。
@@ -109,6 +110,9 @@ class AdaptiveCardGrid extends StatelessWidget {
   /// 是否为子项启用 `AutomaticKeepAlive` 保活槽位（默认关闭，仅受控中小规模桌面媒体库按需开启）。
   final bool addAutomaticKeepAlives;
 
+  /// 根据子项稳定键定位重排后的位置，保留仍在视口内的组件状态。
+  final int? Function(Key key)? findChildIndexCallback;
+
   /// 计算指定视口宽度与文本缩放因子下的精确弹性网格参数。
   static AdaptiveGridMetrics computeMetrics({
     required double usableWidth,
@@ -129,8 +133,7 @@ class AdaptiveCardGrid extends StatelessWidget {
       2,
       ((safeWidth + crossAxisSpacing) / (minWidth + crossAxisSpacing)).floor(),
     );
-    final cardWidth =
-        (safeWidth - crossAxisSpacing * (columns - 1)) / columns;
+    final cardWidth = (safeWidth - crossAxisSpacing * (columns - 1)) / columns;
     final coverHeight = cardWidth / coverAspectRatio;
     final clampedScale = math.max(1.0, textScaleFactor).clamp(1.0, 2.0);
     final narrowExtra = cardWidth < 132.0 ? 6.0 : 0.0;
@@ -181,6 +184,7 @@ class AdaptiveCardGrid extends StatelessWidget {
           addAutomaticKeepAlives: addAutomaticKeepAlives,
           gridDelegate: metrics.toGridDelegate(),
           itemCount: itemCount,
+          findChildIndexCallback: findChildIndexCallback,
           itemBuilder: (ctx, index) =>
               itemBuilder(ctx, index, metrics.cardWidth),
         );

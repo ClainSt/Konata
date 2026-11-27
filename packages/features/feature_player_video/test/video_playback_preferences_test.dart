@@ -11,6 +11,42 @@ import 'support/video_test_harness.dart';
 
 void main() {
   group('VideoPlaybackPreferencesStore 自治偏好切片', () {
+    test('黄金源默认子集化地址兼容空旧配置且不产生授权', () async {
+      const endpoint = 'https://font.anibt.net/api/subset';
+      expect(FontInAssCloudClient.defaultEndpointUrl, endpoint);
+      expect(const VideoPlaybackPreferences().fontInAssEndpoint, endpoint);
+      for (final value in [null, '', '   ']) {
+        final prefs = VideoPlaybackPreferences.fromJson({
+          'fontInAssEndpoint': value,
+          'enableCloudSubset': true,
+          'volume': 0.4,
+        }, 2);
+        expect(prefs.fontInAssEndpoint, endpoint);
+        expect(prefs.enableCloudSubset, isFalse);
+        expect(prefs.authorizedCloudSubsetOrigins, isEmpty);
+        expect(prefs.volume, 0.4);
+      }
+      final custom = VideoPlaybackPreferences.fromJson({
+        'fontInAssEndpoint': 'https://custom.example/api/subset',
+        'enableCloudSubset': true,
+        'authorizedCloudSubsetOrigins': ['https://custom.example'],
+      }, 2);
+      expect(custom.fontInAssEndpoint, 'https://custom.example/api/subset');
+      expect(custom.enableCloudSubset, isTrue);
+      expect(custom.authorizedCloudSubsetOrigins, ['https://custom.example']);
+      final h = await VideoTestHarness.create();
+      addTearDown(h.dispose);
+      expect(h.preferencesStore.read().fontInAssEndpoint, endpoint);
+      expect(h.preferencesStore.read().enableCloudSubset, isFalse);
+      h.preferencesStore.updateCloudSubsetSettings(
+        endpointUrl: custom.fontInAssEndpoint,
+      );
+      expect(
+        h.preferencesStore.read().fontInAssEndpoint,
+        custom.fontInAssEndpoint,
+      );
+      expect(h.preferencesStore.read().authorizedCloudSubsetOrigins, isEmpty);
+    });
     test('自动画中画默认开启且可持久关闭，旧载荷安全兼容', () async {
       final harness = await VideoTestHarness.create();
       addTearDown(harness.dispose);

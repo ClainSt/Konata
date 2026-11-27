@@ -54,145 +54,198 @@ class SettingsAudioPanel extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // 一、发烧音频安全链路与直通策略。
-            KonataSurfaceCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+            ListenableBuilder(
+              listenable:
+                  controller?.snapshotListenable ??
+                  const AlwaysStoppedAnimation(0),
+              builder: (context, _) {
+                final active = controller?.snapshot;
+                final unlocked =
+                    active?.isActive == true &&
+                    active!.audiophileSafetyState.allowFullScaleBypass;
+                return KonataSurfaceCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        child: Text(
-                          '发烧输出与 -12 dBFS 防爆耳安全链',
-                          style: TextStyle(
-                            color: palette.textPrimary,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              '发烧输出与 -12 dBFS 防爆耳安全链',
+                              style: TextStyle(
+                                color: palette.textPrimary,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          KonataSpecBadge(
+                            label: unlocked ? '本次会话已解锁满幅' : '-12 dBFS 安全门锁开启',
+                            highlighted: !unlocked,
+                            icon: Icons.verified_user_outlined,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      AdaptiveSettingTile(
+                        title: '启用发烧输出 -12 dBFS 安全天花板',
+                        subtitle: '未经物理电平实证或新接入 DAC 时在末端强制串联限幅与 150ms 淡入斜坡',
+                        trailing: KonataSwitch(
+                          value: !unlocked,
+                          semanticLabel: '安全限幅',
+                          onChanged: (val) {
+                            final ctrl = controller;
+                            if (!val) {
+                              if (ctrl != null) {
+                                unawaited(
+                                  showAudiophileSafetyDialog(context, ctrl),
+                                );
+                              } else {
+                                showKonataToast(
+                                  context,
+                                  '请先启动音频播放并核验直通链路。',
+                                  isError: true,
+                                );
+                              }
+                              return;
+                            }
+                            if (ctrl != null) {
+                              unawaited(
+                                ctrl
+                                    .setAudiophileSafetyLimiterEnabled(true)
+                                    .then((_) {
+                                      if (context.mounted) {
+                                        showKonataToast(context, '安全门锁已恢复');
+                                      }
+                                    })
+                                    .catchError((Object error) {
+                                      if (context.mounted) {
+                                        showKonataToast(
+                                          context,
+                                          '恢复安全门锁失败',
+                                          isError: true,
+                                        );
+                                      }
+                                    }),
+                              );
+                            } else {
+                              preferences.update(
+                                (p) => p.copyWith(
+                                  audiophileSafetyLimiterEnabled: true,
+                                ),
+                              );
+                            }
+                          },
+                        ),
+                      ),
+                      if (controller != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6, bottom: 4),
+                          child: KonataPillButton.secondary(
+                            label: '检查硬件实证并管理当次会话满幅解锁',
+                            compact: true,
+                            icon: Icons.shield_outlined,
+                            onPressed: () => unawaited(
+                              showAudiophileSafetyDialog(context, controller!),
+                            ),
+                          ),
+                        ),
+                      if (isDesktopPlatform)
+                        AdaptiveSettingTile(
+                          title: '默认 CD 音频引擎',
+                          subtitle: '内置音频支持沉浸式舞台、迷你播放器与分轨歌词',
+                          estimatedTrailingWidth: 300,
+                          trailing:
+                              KonataSegmentedCapsule<PreferredPlaybackEngine>(
+                                key: const ValueKey('audio_engine_selector'),
+                                compact: true,
+                                selected: prefs.preferredAudioEngine,
+                                options: const [
+                                  KonataSegmentOption(
+                                    value:
+                                        PreferredPlaybackEngine.builtinLibmpv,
+                                    label: '内置流光音频',
+                                  ),
+                                  KonataSegmentOption(
+                                    value: PreferredPlaybackEngine.desktopRelay,
+                                    label: '外部播放器',
+                                  ),
+                                ],
+                                onChanged: (e) => _updateAndSync(
+                                  (p) => p.copyWith(preferredAudioEngine: e),
+                                ),
+                              ),
+                        ),
+                      AdaptiveSettingTile(
+                        title: 'libsoxr 线性相位重采样精度',
+                        subtitle: '在需要采样率变换时使用的精度档位（28-bit 为推荐高保真均衡值）',
+                        estimatedTrailingWidth: 160,
+                        trailing: SizedBox(
+                          width: 165,
+                          child: KonataDropdown<int>(
+                            value: prefs.audioResamplerPrecision,
+                            dense: true,
+                            options: const [
+                              KonataDropdownOption(
+                                value: 20,
+                                label: '20-bit (轻量)',
+                              ),
+                              KonataDropdownOption(
+                                value: 24,
+                                label: '24-bit (高精)',
+                              ),
+                              KonataDropdownOption(
+                                value: 28,
+                                label: '28-bit (推荐)',
+                              ),
+                              KonataDropdownOption(
+                                value: 32,
+                                label: '32-bit (极致)',
+                              ),
+                            ],
+                            onChanged: (v) => _updateAndSync(
+                              (p) => p.copyWith(audioResamplerPrecision: v),
+                            ),
                           ),
                         ),
                       ),
-                      KonataSpecBadge(
-                        label: prefs.audiophileSafetyLimiterEnabled
-                            ? '-12 dBFS 安全门锁开启'
-                            : '用户已解锁满幅上限',
-                        highlighted: prefs.audiophileSafetyLimiterEnabled,
-                        icon: Icons.verified_user_outlined,
-                      ),
+                      if (isDesktopPlatform) ...[
+                        AdaptiveSettingTile(
+                          title: '桌面独占输出模式 (WASAPI Exclusive)',
+                          subtitle: '绕过系统混音器以低抖动独占声卡（配合安全门锁防首次切设备爆音）',
+                          trailing: KonataSwitch(
+                            value: prefs.exclusiveAudioOutput,
+                            onChanged: (val) => _updateAndSync(
+                              (p) => p.copyWith(exclusiveAudioOutput: val),
+                            ),
+                          ),
+                        ),
+                        AdaptiveSettingTile(
+                          title: 'HDMI / S/PDIF 压缩源码透传',
+                          subtitle: '透传 AC3 / DTS 等原始压缩流至功放；与软件 DSP 严格互斥',
+                          trailing: KonataSwitch(
+                            value: prefs.bitstreamPassthrough,
+                            onChanged: (val) => _updateAndSync(
+                              (p) => p.copyWith(bitstreamPassthrough: val),
+                            ),
+                          ),
+                        ),
+                      ],
+                      if (isAndroidPlatform)
+                        AdaptiveSettingTile(
+                          title: 'Android USB DAC 逐位直通协商',
+                          subtitle: 'Android 14+ 外接解码器时优先协商 BIT_PERFECT 物理直出',
+                          trailing: KonataSwitch(
+                            value: prefs.androidBitPerfectUsb,
+                            onChanged: (val) => _updateAndSync(
+                              (p) => p.copyWith(androidBitPerfectUsb: val),
+                            ),
+                          ),
+                        ),
                     ],
                   ),
-                  const SizedBox(height: 8),
-                  AdaptiveSettingTile(
-                    title: '启用发烧输出 -12 dBFS 安全天花板',
-                    subtitle: '未经物理电平实证或新接入 DAC 时在末端强制串联限幅与 150ms 淡入斜坡',
-                    trailing: KonataSwitch(
-                      value: prefs.audiophileSafetyLimiterEnabled,
-                      semanticLabel: '安全限幅',
-                      onChanged: (val) {
-                        final ctrl = controller;
-                        if (ctrl != null) {
-                          unawaited(
-                            ctrl.setAudiophileSafetyLimiterEnabled(val),
-                          );
-                        } else {
-                          preferences.update(
-                            (p) =>
-                                p.copyWith(audiophileSafetyLimiterEnabled: val),
-                          );
-                        }
-                      },
-                    ),
-                  ),
-                  if (controller != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6, bottom: 4),
-                      child: KonataPillButton.secondary(
-                        label: '检查硬件实证并管理当次会话满幅解锁',
-                        compact: true,
-                        icon: Icons.shield_outlined,
-                        onPressed: () => unawaited(
-                          showAudiophileSafetyDialog(context, controller!),
-                        ),
-                      ),
-                    ),
-                  if (isDesktopPlatform)
-                    AdaptiveSettingTile(
-                      title: '默认 CD 音频引擎',
-                      subtitle: '内置音频支持沉浸式舞台、迷你播放器与分轨歌词',
-                      estimatedTrailingWidth: 300,
-                      trailing: KonataSegmentedCapsule<PreferredPlaybackEngine>(
-                        key: const ValueKey('audio_engine_selector'),
-                        compact: true,
-                        selected: prefs.preferredAudioEngine,
-                        options: const [
-                          KonataSegmentOption(
-                            value: PreferredPlaybackEngine.builtinLibmpv,
-                            label: '内置流光音频',
-                          ),
-                          KonataSegmentOption(
-                            value: PreferredPlaybackEngine.desktopRelay,
-                            label: '外部播放器',
-                          ),
-                        ],
-                        onChanged: (e) => _updateAndSync(
-                          (p) => p.copyWith(preferredAudioEngine: e),
-                        ),
-                      ),
-                    ),
-                  AdaptiveSettingTile(
-                    title: 'libsoxr 线性相位重采样精度',
-                    subtitle: '在需要采样率变换时使用的精度档位（28-bit 为推荐高保真均衡值）',
-                    estimatedTrailingWidth: 160,
-                    trailing: SizedBox(
-                      width: 165,
-                      child: KonataDropdown<int>(
-                        value: prefs.audioResamplerPrecision,
-                        dense: true,
-                        options: const [
-                          KonataDropdownOption(value: 20, label: '20-bit (轻量)'),
-                          KonataDropdownOption(value: 24, label: '24-bit (高精)'),
-                          KonataDropdownOption(value: 28, label: '28-bit (推荐)'),
-                          KonataDropdownOption(value: 32, label: '32-bit (极致)'),
-                        ],
-                        onChanged: (v) => _updateAndSync(
-                          (p) => p.copyWith(audioResamplerPrecision: v),
-                        ),
-                      ),
-                    ),
-                  ),
-                  if (isDesktopPlatform) ...[
-                    AdaptiveSettingTile(
-                      title: '桌面独占输出模式 (WASAPI Exclusive)',
-                      subtitle: '绕过系统混音器以低抖动独占声卡（配合安全门锁防首次切设备爆音）',
-                      trailing: KonataSwitch(
-                        value: prefs.exclusiveAudioOutput,
-                        onChanged: (val) => _updateAndSync(
-                          (p) => p.copyWith(exclusiveAudioOutput: val),
-                        ),
-                      ),
-                    ),
-                    AdaptiveSettingTile(
-                      title: 'HDMI / S/PDIF 压缩源码透传',
-                      subtitle: '透传 AC3 / DTS 等原始压缩流至功放；与软件 DSP 严格互斥',
-                      trailing: KonataSwitch(
-                        value: prefs.bitstreamPassthrough,
-                        onChanged: (val) => _updateAndSync(
-                          (p) => p.copyWith(bitstreamPassthrough: val),
-                        ),
-                      ),
-                    ),
-                  ],
-                  if (isAndroidPlatform)
-                    AdaptiveSettingTile(
-                      title: 'Android USB DAC 逐位直通协商',
-                      subtitle: 'Android 14+ 外接解码器时优先协商 BIT_PERFECT 物理直出',
-                      trailing: KonataSwitch(
-                        value: prefs.androidBitPerfectUsb,
-                        onChanged: (val) => _updateAndSync(
-                          (p) => p.copyWith(androidBitPerfectUsb: val),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
+                );
+              },
             ),
             const SizedBox(height: 14),
             // 二、回放增益、音高保持与常规音控偏好。

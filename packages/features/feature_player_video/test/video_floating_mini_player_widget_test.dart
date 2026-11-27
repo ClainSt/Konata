@@ -6,9 +6,7 @@ import 'support/video_test_harness.dart';
 
 void main() {
   group('VideoFloatingMiniPlayer 16:9 可拖拽悬浮小窗组件测试', () {
-    testWidgets('保持 16:9 比例并直连叶子坐标监听完成拖拽、展开与关闭操作', (
-      tester,
-    ) async {
+    testWidgets('保持 16:9 比例并直连叶子坐标监听完成拖拽、展开与关闭操作', (tester) async {
       tester.view.physicalSize = const Size(1280, 720);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -71,6 +69,18 @@ void main() {
 
       expect(offsetNotifier.value.dx, greaterThan(100));
       expect(offsetNotifier.value.dy, greaterThan(100));
+      expect(controllerRebuilds, 0);
+
+      // 同一帧内连续移动也必须累计全局位移，而不是反复使用旧布局坐标。
+      final before = offsetNotifier.value;
+      final gesture = await tester.startGesture(tester.getCenter(miniFinder));
+      await gesture.moveBy(const Offset(30, 20));
+      await gesture.moveBy(const Offset(40, 10));
+      await gesture.moveBy(const Offset(50, 30));
+      await gesture.up();
+      await tester.pump();
+      expect(offsetNotifier.value.dx - before.dx, closeTo(120, 1));
+      expect(offsetNotifier.value.dy - before.dy, closeTo(60, 1));
       expect(controllerRebuilds, 0);
 
       // 拖出边界时自动钳制于容器安全边距内。

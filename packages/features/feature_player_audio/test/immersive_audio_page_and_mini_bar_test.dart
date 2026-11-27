@@ -19,6 +19,51 @@ Widget _wrapWithApp(Widget child, {ThemeData? theme}) {
   );
 }
 
+final class _RelaySpy implements DesktopRelayGateway {
+  final requests = <ExternalAudioAlbumRelayRequest>[];
+  ExternalAudioProgressCallback? progress;
+  bool missing = true;
+  bool failLaunch = false;
+  int stops = 0;
+
+  @override
+  Future<LaunchPlaybackResult> launchAudioAlbum(
+    ExternalAudioAlbumRelayRequest request, {
+    ExternalAudioProgressCallback? onTrackProgress,
+  }) async {
+    requests.add(request);
+    progress = onTrackProgress;
+    if (missing && !request.allowWithoutBeefweb) {
+      return const LaunchPlaybackResult(
+        launched: false,
+        requiresBeefwebPrompt: true,
+        message: '需要 Beefweb',
+      );
+    }
+    if (failLaunch) {
+      return const LaunchPlaybackResult(launched: false, message: '启动失败');
+    }
+    if (!missing) {
+      await onTrackProgress?.call(
+        request.initialTrack,
+        17,
+        60,
+        isCompleted: false,
+        isFinal: false,
+      );
+    }
+    return const LaunchPlaybackResult(launched: true, message: '已移交外部播放器');
+  }
+
+  @override
+  Future<void> stopActiveExternalAudioSession({int beefwebPort = 8880}) async {
+    stops++;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 void main() {
   ({
     KonataDatabaseBundle db,
@@ -32,6 +77,8 @@ void main() {
   createHarness({
     PlaybackHostWindowPort windowPort = const NoopPlaybackHostWindowPort(),
     LyricDisplayPort? lyricPort,
+    DesktopRelayGateway? relay,
+    Map<String, Uint8List> extraFiles = const {},
   }) {
     final db = KonataDatabaseBundle.openInMemory();
     final store = ScopedPrefsStore(db.userState);
@@ -45,6 +92,7 @@ void main() {
     final files = <String, Uint8List>{
       'CD/01. First Song.flac': Uint8List.fromList([1, 2, 3]),
       'CD/02. Second Song.flac': Uint8List.fromList([4, 5, 6]),
+      ...extraFiles,
     };
     final controller = AudioPlaybackController(
       preferences: prefsRepo,
@@ -55,6 +103,7 @@ void main() {
       streamBridge: FakeStreamBridge(),
       windowPort: windowPort,
       lyricPort: lyricPort,
+      desktopRelayGateway: relay,
       database: db,
       isWindowsOverride: true,
       mpvClientFactoryOverride: () {
@@ -73,6 +122,391 @@ void main() {
       controller: controller,
     );
   }
+
+  test('默认外部音频直接接力，无内置客户端且保留选中轨及断点', () async {
+    final relay = _RelaySpy()..missing = false;
+    final h = createHarness(relay: relay);
+    addTearDown(() async {
+      h.controller.dispose();
+      await h.db.close();
+    });
+    final variants = [
+      makeTestCdVariant(id: 'v1', relativePath: 'CD/01. First Song.flac'),
+      makeTestCdVariant(id: 'v2', relativePath: 'CD/02. Second Song.flac'),
+    ];
+    final result = await h.controller.relayCdCollectionToDesktop(
+      work: makeTestWork(),
+      variants: variants,
+      sources: [makeTestSource()],
+      initialVariant: variants.last,
+      startPositionSeconds: 8,
+    );
+    expect(result?.launched, isTrue);
+    expect(h.clients, isEmpty);
+    expect(h.controller.activeListenable.value, isFalse);
+    final request = relay.requests.single;
+    expect(request.tracks.length, 2);
+    expect(request.initialTrack.variant.id.value, 'v2');
+    expect(request.exactStartSeconds, 8);
+    expect(
+      h.db.userState.playbackRecords
+          .listAllWithTombstones()
+          .single
+          .positionSeconds,
+      17,
+    );
+  });
+
+  test('默认外部音频缺组件及启动失败不创建新解码会话', () async {
+    final relay = _RelaySpy();
+    final h = createHarness(relay: relay);
+    addTearDown(() async {
+      h.controller.dispose();
+      await h.db.close();
+    });
+    final variants = [
+      makeTestCdVariant(id: 'v1', relativePath: 'CD/01. First Song.flac'),
+      makeTestCdVariant(id: 'v2', relativePath: 'CD/02. Second Song.flac'),
+    ];
+    await h.controller.playCdCollection(
+      work: makeTestWork(),
+      variants: variants,
+      sources: [makeTestSource()],
+    );
+    await h.controller.setPlaying(true);
+    final result = await h.controller.relayCdCollectionToDesktop(
+      work: makeTestWork(),
+      variants: variants,
+      sources: [makeTestSource()],
+      initialVariant: variants.last,
+    );
+    expect(result?.requiresBeefwebPrompt, isTrue);
+    expect(h.clients.length, 1);
+    expect(h.controller.playingListenable.value, isTrue);
+    expect(
+      h.controller.snapshotListenable.value.currentItem?.variant.id.value,
+      'v1',
+    );
+    relay.missing = false;
+    relay.failLaunch = true;
+    final failed = await h.controller.relayCdCollectionToDesktop(
+      work: makeTestWork(),
+      variants: variants,
+      sources: [makeTestSource()],
+      initialVariant: variants.last,
+    );
+    expect(failed?.launched, isFalse);
+    expect(h.clients.length, 1);
+    expect(h.controller.playingListenable.value, isTrue);
+    final invalid = await h.controller.relayCdCollectionToDesktop(
+      work: makeTestWork(),
+      variants: variants,
+      sources: [makeTestSource()],
+      initialVariant: variants.last,
+      initialCueTrackIndex: 9,
+    );
+    expect(invalid?.launched, isFalse);
+    expect(relay.requests.length, 2);
+    expect(h.controller.playingListenable.value, isTrue);
+  });
+
+  test('专辑接力保留真实曲目身份及独立进度，失败恢复内置会话', () async {
+    final relay = _RelaySpy()
+      ..missing = false
+      ..failLaunch = true;
+    final h = createHarness(relay: relay);
+    addTearDown(() async {
+      h.controller.dispose();
+      await h.db.close();
+    });
+    final variants = [
+      makeTestCdVariant(id: 'v1', relativePath: 'CD/01. First Song.flac'),
+      makeTestCdVariant(id: 'v2', relativePath: 'CD/02. Second Song.flac'),
+    ];
+    await h.controller.playCdCollection(
+      work: makeTestWork(),
+      variants: variants,
+      sources: [makeTestSource()],
+      initialVariant: variants[1],
+      startPositionSeconds: 8,
+    );
+    await h.controller.setPlaying(true);
+    final failed = await h.controller.relayActiveToDesktop();
+    expect(failed?.launched, isFalse);
+    expect(h.controller.playingListenable.value, isTrue);
+    expect(h.controller.activeListenable.value, isTrue);
+    relay.failLaunch = false;
+    final success = await h.controller.relayActiveToDesktop();
+    expect(success?.launched, isTrue);
+    expect(h.controller.activeListenable.value, isFalse);
+    final request = relay.requests.last;
+    expect(request.tracks.length, 2);
+    expect(request.initialTrack.variant.id.value, 'v2');
+    expect(request.initialTrackIndex, 1);
+    final records = h.db.userState.playbackRecords.listAllWithTombstones();
+    expect(
+      records.singleWhere((r) => r.variantId.value == 'v2').positionSeconds,
+      17,
+    );
+    await relay.progress!(
+      request.tracks.first,
+      23,
+      60,
+      isCompleted: false,
+      isFinal: false,
+    );
+    expect(
+      h.db.userState.playbackRecords
+          .listAllWithTombstones()
+          .singleWhere((r) => r.variantId.value == 'v1')
+          .positionSeconds,
+      23,
+    );
+    final oldProgress = relay.progress!;
+    await h.controller.playCdCollection(
+      work: makeTestWork(),
+      variants: variants,
+      sources: [makeTestSource()],
+    );
+    expect(relay.stops, 1);
+    await oldProgress(
+      request.tracks[1],
+      44,
+      60,
+      isCompleted: false,
+      isFinal: true,
+    );
+    expect(
+      h.db.userState.playbackRecords
+          .listAllWithTombstones()
+          .singleWhere((r) => r.variantId.value == 'v2')
+          .positionSeconds,
+      17,
+    );
+  });
+
+  for (final mismatched in [false, true]) {
+    test('CUE 接力 ${mismatched ? "拒绝错误物理文件关联" : "保留分轨身份与相对时间"}', () async {
+      final relay = _RelaySpy()..missing = false;
+      final cue =
+          '''
+TITLE "Audit Album"
+FILE "album.flac" WAVE
+  TRACK 01 AUDIO
+    TITLE "First"
+    INDEX 01 00:00:00
+${mismatched ? 'FILE "other.flac" WAVE' : ''}
+  TRACK 02 AUDIO
+    TITLE "Second"
+    INDEX 01 00:30:00
+''';
+      final h = createHarness(
+        relay: relay,
+        extraFiles: {
+          'CD/album.cue': Uint8List.fromList(cue.codeUnits),
+          'CD/album.flac': Uint8List.fromList([1, 2, 3]),
+        },
+      );
+      addTearDown(() async {
+        h.controller.dispose();
+        await h.db.close();
+      });
+      final audio = makeTestCdVariant(
+        id: 'album',
+        relativePath: 'CD/album.flac',
+      );
+      final manifest = makeTestCdVariant(
+        id: 'cue',
+        relativePath: 'CD/album.cue',
+      );
+      await h.controller.playCdCollection(
+        work: makeTestWork(),
+        variants: [audio, manifest],
+        sources: [makeTestSource()],
+        initialVariant: manifest,
+        initialCueTrackIndex: 2,
+        startPositionSeconds: 8,
+      );
+      final before = h.controller.snapshotListenable.value;
+      expect(before.currentItem?.cueTrackIndex, 2);
+      expect(before.currentItem?.startSeconds, 30);
+      final result = await h.controller.relayActiveToDesktop();
+      if (mismatched) {
+        expect(result?.launched, isFalse);
+        expect(relay.requests, isEmpty);
+        expect(h.controller.activeListenable.value, isTrue);
+      } else {
+        expect(result?.launched, isTrue);
+        final request = relay.requests.single;
+        expect(request.initialTrackIndex, 1);
+        expect(request.tracks.length, 2);
+        expect(request.parsedCueSheet?.tracks.length, 2);
+        expect(request.initialTrack.cueStartSeconds, 30);
+        expect(request.initialTrack.recordId, endsWith('album#cue:2'));
+        expect(request.initialTrack.variant.id.value, 'album');
+        expect(request.exactStartSeconds, closeTo(8, 0.1));
+        expect(
+          h.db.userState.playbackRecords
+              .listAllWithTombstones()
+              .singleWhere((r) => r.id == request.initialTrack.recordId)
+              .positionSeconds,
+          17,
+        );
+        expect(h.controller.activeListenable.value, isFalse);
+      }
+    });
+  }
+
+  testWidgets('外部接力缺组件提示取消及显式降级', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final relay = _RelaySpy();
+    final h = createHarness(relay: relay);
+    addTearDown(() async {
+      h.controller.dispose();
+      await h.db.close();
+    });
+    await h.controller.playCdCollection(
+      work: makeTestWork(),
+      variants: [
+        makeTestCdVariant(id: 'v1', relativePath: 'CD/01. First Song.flac'),
+        makeTestCdVariant(id: 'v2', relativePath: 'CD/02. Second Song.flac'),
+      ],
+      sources: [makeTestSource()],
+    );
+    await h.controller.setPlaying(true);
+    await tester.pumpWidget(
+      _wrapWithApp(
+        ImmersiveAudioPage(
+          controller: h.controller,
+          paletteCache: ArtworkPaletteCache(),
+          alignmentCache: SmartCoverAlignmentCache(),
+          desktopRelayAvailable: true,
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 200));
+    final button = find.byKey(const ValueKey('audio_top_external_relay'));
+    expect(button, findsOneWidget);
+    await tester.tap(button);
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('Foobar2000 未安装 Beefweb'), findsOneWidget);
+    expect(relay.requests.single.tracks.length, 2);
+    expect(relay.requests.single.allowWithoutBeefweb, isFalse);
+    expect(h.controller.playingListenable.value, isTrue);
+    await tester.tap(find.text('取消'));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(h.controller.activeListenable.value, isTrue);
+    await tester.tap(button);
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.tap(find.text('仅启动播放器'));
+    for (var i = 0; i < 30 && h.controller.activeListenable.value; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+      // 原生句柄释放涉及真实异步队列，推进真实事件循环后再刷新测试帧。
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+    }
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(relay.requests.length, 3);
+    expect(relay.requests.last.allowWithoutBeefweb, isTrue);
+    expect(h.controller.activeListenable.value, isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('空闲音频安全弹窗显示检测拒绝和重新锁定结果', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final h = createHarness();
+    addTearDown(() async {
+      h.controller.dispose();
+      await h.db.close();
+    });
+    await tester.pumpWidget(
+      _wrapWithApp(
+        SingleChildScrollView(
+          child: SettingsAudioPanel(
+            preferences: h.prefsRepo,
+            controller: h.controller,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.text('检查硬件实证并管理当次会话满幅解锁'));
+    await tester.pumpAndSettle();
+    final unlock = find.widgetWithText(KonataPillButton, '解锁当次会话满幅输出');
+    expect(tester.widget<KonataPillButton>(unlock).onPressed, isNull);
+    final feedback = find.byKey(const ValueKey('audio_safety_action_feedback'));
+    await tester.tap(find.text('检测当前硬件直通链路'));
+    await tester.pumpAndSettle();
+    expect(tester.widget<Text>(feedback).data, contains('未检测到正在运行的音频会话'));
+    await tester.tap(find.text('恢复并重新锁定 -12 dBFS 安全天花板'));
+    await tester.pumpAndSettle();
+    expect(tester.widget<Text>(feedback).data, contains('安全门锁已恢复'));
+    expect(h.prefsRepo.read().audiophileSafetyLimiterEnabled, isTrue);
+    expect(tester.widget<KonataPillButton>(unlock).onPressed, isNull);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('模拟独占输出的安全弹窗检测、解锁与重锁均反馈实际滤镜状态', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final h = createHarness();
+    addTearDown(() async {
+      h.controller.dispose();
+      await h.db.close();
+    });
+    h.prefsRepo.update((p) => p.copyWith(exclusiveAudioOutput: true));
+    await h.controller.playCdCollection(
+      work: makeTestWork(),
+      variants: [
+        makeTestCdVariant(id: 'v1', relativePath: 'CD/01. First Song.flac'),
+      ],
+      sources: [makeTestSource()],
+    );
+    await tester.pumpWidget(
+      _wrapWithApp(
+        SingleChildScrollView(
+          child: SettingsAudioPanel(
+            preferences: h.prefsRepo,
+            controller: h.controller,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.text('检查硬件实证并管理当次会话满幅解锁'));
+    await tester.pumpAndSettle();
+    final unlock = find.widgetWithText(KonataPillButton, '解锁当次会话满幅输出');
+    final feedback = find.byKey(const ValueKey('audio_safety_action_feedback'));
+    final mpv = h.clients.single;
+    expect(tester.widget<KonataPillButton>(unlock).onPressed, isNull);
+    expect(
+      mpv.currentAf,
+      contains(AudiophileSafetyPolicy.postDspSafetyLimiterFilter),
+    );
+    await tester.tap(find.text('检测当前硬件直通链路'));
+    await tester.pumpAndSettle();
+    expect(tester.widget<Text>(feedback).data, contains('已核验 Windows WASAPI'));
+    expect(tester.widget<KonataPillButton>(unlock).onPressed, isNotNull);
+    await tester.tap(unlock);
+    await tester.pumpAndSettle();
+    expect(tester.widget<Text>(feedback).data, contains('本次会话已解锁'));
+    expect(mpv.currentAf, isEmpty);
+    expect(h.prefsRepo.read().audiophileSafetyLimiterEnabled, isTrue);
+    await tester.tap(find.text('恢复并重新锁定 -12 dBFS 安全天花板'));
+    await tester.pumpAndSettle();
+    expect(tester.widget<Text>(feedback).data, contains('安全门锁已恢复'));
+    expect(
+      mpv.currentAf,
+      contains(AudiophileSafetyPolicy.postDspSafetyLimiterFilter),
+    );
+    expect(tester.widget<KonataPillButton>(unlock).onPressed, isNull);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
 
   testWidgets('ImmersiveAudioPage 桌面双栏无歌词视口时优雅降级，并隔离叶子进度时钟更新', (tester) async {
     await tester.binding.setSurfaceSize(const Size(1280, 800));
@@ -134,11 +568,23 @@ void main() {
     final trackId = h.controller.snapshot.currentItem!.itemId;
     await tester.tap(find.byIcon(Icons.picture_in_picture_alt_rounded));
     await tester.pump();
-    await tester.binding.setSurfaceSize(const Size(336, 76));
+    await tester.binding.setSurfaceSize(const Size(72, 72));
     await tester.pump();
     expect(spyWindow.enterMiniCount, 1);
-    expect(spyWindow.lastMiniWidth, 336);
-    expect(spyWindow.lastMiniHeight, 76);
+    expect(spyWindow.enterAudioMiniCount, 1);
+    expect(spyWindow.lastMiniWidth, 72);
+    expect(spyWindow.lastMiniHeight, 72);
+    final initialDisc = find.byKey(const ValueKey('mini_audio_disc_surface'));
+    expect(initialDisc, findsOneWidget);
+    expect(find.byKey(const ValueKey('audio_playing_bars')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('mini_audio_expanded_capsule')),
+      findsNothing,
+    );
+    await tester.tap(initialDisc);
+    await tester.pump();
+    await tester.binding.setSurfaceSize(const Size(336, 76));
+    await tester.pump();
     expect(
       find.byKey(const ValueKey('audio_desktop_mini_stage')),
       findsOneWidget,
@@ -152,9 +598,33 @@ void main() {
       findsNothing,
     );
     expect(find.text('First Song'), findsOneWidget);
+    final title = find.byKey(const ValueKey('mini_audio_track_title'));
+
+    expect(tester.widget<Text>(title).textAlign, TextAlign.start);
+    final titleArea = find
+        .ancestor(of: title, matching: find.byType(Align))
+        .first;
+    expect(tester.getSize(titleArea).width, greaterThanOrEqualTo(90));
+    expect(find.byKey(const ValueKey('audio_playing_bars')), findsNothing);
+    // 模拟窗口尺寸事件与胶囊形态暂时不同步，不能出现溢出。
+    await tester.binding.setSurfaceSize(const Size(72, 88));
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    await tester.binding.setSurfaceSize(const Size(336, 76));
+    await tester.pump();
     expect(tester.takeException(), isNull);
     expect(h.clients.single, same(mpv));
     expect(h.controller.currentTrackPositionSeconds, closeTo(65, 0.1));
+    spyWindow.blurEvents.add(null);
+    await tester.pump();
+    await tester.binding.setSurfaceSize(const Size(72, 72));
+    await tester.pump();
+    expect(initialDisc, findsOneWidget);
+    expect(spyWindow.lastMiniWidth, 72);
+    await tester.tap(initialDisc);
+    await tester.pump();
+    await tester.binding.setSurfaceSize(const Size(336, 76));
+    await tester.pump();
     spyWindow.moveEvents.add(null);
     await tester.pump();
     expect(spyWindow.snapCount, 1);
@@ -491,6 +961,28 @@ void main() {
     expect(dragOffset.value.dx, greaterThan(180));
     expect(outerBuilds, 1);
 
+    // 多次指针移动后吸右边，纵向位置不随速度或吸附动画跳至顶端。
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump(const Duration(seconds: 1));
+    dragOffset.value = const Offset(700, 280);
+    await tester.pump();
+    final gesture = await tester.startGesture(tester.getCenter(discFinder));
+    await gesture.moveBy(const Offset(50, 10));
+    await tester.pump();
+    await gesture.moveBy(const Offset(30, -10));
+    await tester.pump();
+    await gesture.moveBy(const Offset(120, 0));
+    await gesture.up();
+    await tester.pump();
+    final rightEar = find.byKey(const ValueKey('mini_audio_tucked_tab'));
+    expect(rightEar, findsOneWidget);
+    expect(dragOffset.value.dy, closeTo(280, 1));
+    expect(tester.getRect(rightEar).right, closeTo(900, 1));
+    await tester.tap(rightEar);
+    await tester.pump();
+    expect(discFinder, findsOneWidget);
+    expect(dragOffset.value.dy, closeTo(280, 1));
+
     // 点击圆盘展开胶囊播控条并验证切歌与进入全屏舞台。
     await tester.tap(discFinder);
     await tester.pump();
@@ -499,9 +991,18 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('First Song'), findsOneWidget);
-    expect(find.byKey(const ValueKey('audio_playing_bars')), findsOneWidget);
+    expect(find.byKey(const ValueKey('audio_playing_bars')), findsNothing);
     expect(find.text('CD'), findsNothing);
 
+    await tester.tapAt(const Offset(80, 80));
+    await tester.pump();
+    expect(discFinder, findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('mini_audio_expanded_capsule')),
+      findsNothing,
+    );
+    await tester.tap(discFinder);
+    await tester.pump();
     await tester.tap(find.text('First Song'));
     await tester.pump();
     expect(expandCalled, 1);
@@ -524,6 +1025,35 @@ void main() {
       findsOneWidget,
     );
     expect(tester.takeException(), isNull);
+  });
+
+  test('独立视频接管前结束音频浮窗且随后视频句柄不受影响', () async {
+    final h = createHarness();
+    addTearDown(() async {
+      h.controller.dispose();
+      await h.db.close();
+    });
+    await h.controller.playCdCollection(
+      work: makeTestWork(),
+      variants: [
+        makeTestCdVariant(id: 'v1', relativePath: 'CD/01. First Song.flac'),
+      ],
+      sources: [makeTestSource()],
+    );
+    final old = h.clients.single;
+    await h.controller.pauseForVideoSession();
+    expect(h.controller.activeListenable.value, isFalse);
+    expect(h.controller.snapshot.isActive, isFalse);
+    expect(old.isDisposed, isTrue);
+
+    final lease = await h.engine.acquireExclusiveNativeClient(
+      stage: PlaybackStageKind.video,
+      factoryOverride: FakeLibMpvClient.new,
+    );
+    await h.controller.pauseForVideoSession();
+    expect(h.engine.activeNativeClient, same(lease.client));
+    expect(lease.client.isDisposed, isFalse);
+    await h.engine.releaseNativeClient(lease.client);
   });
 
   testWidgets('SettingsAudioPanel 与 featurePlayerAudioManifest 正确协同持久化和装配', (
@@ -686,8 +1216,26 @@ void main() {
       findsOneWidget,
     );
     expect(find.byKey(const ValueKey('desktop_tab_queue_chip')), findsNothing);
+    final format = find.byKey(const ValueKey('audio_format_badge'));
+    expect(format, findsOneWidget);
+    await tester.tap(format);
+    await tester.pump();
+    expect(find.text('音频安全设置'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('salt_smoke_playback_capsule')),
+      findsOneWidget,
+    );
     final queue = find.byKey(const ValueKey('audio_desktop_queue_button'));
     expect(queue, findsOneWidget);
+    expect(tester.widget<KonataCapsuleIconButton>(queue).highlighted, isFalse);
+    expect(
+      tester.widget<KonataCapsuleIconButton>(queue).icon,
+      Icons.queue_music_rounded,
+    );
+    expect(
+      find.byKey(const ValueKey('immersive_cover_reflection')),
+      findsOneWidget,
+    );
     await tester.tap(queue);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
@@ -700,6 +1248,11 @@ void main() {
       findsNothing,
     );
     expect(find.byType(KonataGlassSideSheet), findsNothing);
+    expect(tester.widget<KonataCapsuleIconButton>(queue).highlighted, isFalse);
+    expect(
+      tester.widget<KonataCapsuleIconButton>(queue).icon,
+      Icons.lyrics_outlined,
+    );
     expect(find.byKey(const ValueKey('audio_playing_bars')), findsOneWidget);
     expect(find.text('Second Song'), findsOneWidget);
     await tester.tap(queue);

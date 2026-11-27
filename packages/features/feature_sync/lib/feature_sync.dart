@@ -2,6 +2,8 @@
 library;
 
 export 'src/data/konata_backup_service.dart';
+export 'src/data/legacy_backup_migration.dart'
+    show LegacyCueTrack, LegacyCueReader;
 export 'src/data/library_catalog_sync_slice.dart';
 export 'src/data/playback_history_sync_slice.dart';
 export 'src/data/prefs_sync_slice.dart';

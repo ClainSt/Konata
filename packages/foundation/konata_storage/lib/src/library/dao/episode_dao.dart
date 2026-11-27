@@ -166,11 +166,17 @@ ON CONFLICT(${EpisodesSchema.colId}) DO UPDATE SET
     return _mapRow(rs.first);
   }
 
+  /// 批量读取全部剧集，供完整目录快照使用；可包含软删除墓碑。
+  List<EpisodeRecord> listAll({bool includeDeleted = false}) {
+    final where = includeDeleted
+        ? ''
+        : ' WHERE ${EpisodesSchema.colDeletedAtMs} IS NULL';
+    final rows = _engine.select('SELECT * FROM ${EpisodesSchema.table}$where;');
+    return [for (final row in rows) _mapRow(row)];
+  }
+
   /// 查询指定作品下的有效剧集列表。
-  List<EpisodeRecord> listByWork(
-    WorkId workId, {
-    bool includeDeleted = false,
-  }) {
+  List<EpisodeRecord> listByWork(WorkId workId, {bool includeDeleted = false}) {
     return _queryByWork(_engine.select, workId, includeDeleted: includeDeleted);
   }
 

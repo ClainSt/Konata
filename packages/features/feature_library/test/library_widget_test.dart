@@ -530,6 +530,85 @@ void main() {
       'relocatedHit': 1,
       'relocatedMiss': 1,
     });
+    // 同一张尚未缓存的预览图并发进入加载器，记录未合并前的实际请求数。
+    const concurrentUrl = 'https://isolated.invalid/concurrent.png';
+    final concurrentReadStart = cache.reads;
+    final concurrentWriteStart = cache.writes;
+    final concurrentHttpStart = http.requests.length;
+    final concurrent = await Future.wait([
+      for (var i = 0; i < 12; i++) loader(concurrentUrl),
+    ]);
+    expect(concurrent, everyElement(equals(_samplePng)));
+    stdout.writeln(
+      'ARTWORK_CONCURRENT reads=${cache.reads - concurrentReadStart} '
+      'requests=${http.requests.length - concurrentHttpStart} '
+      'writes=${cache.writes - concurrentWriteStart}',
+    );
+    expect(cache.reads - concurrentReadStart, 1);
+    expect(http.requests.length - concurrentHttpStart, 1);
+    expect(cache.writes - concurrentWriteStart, 1);
+    expect(concurrent, everyElement(same(concurrent.first)));
+
+    // 同一作品磁盘缓存的并发加载只进行一次持久化，解码宽度不同仍共享编码图。
+    const ownedUrl = 'https://isolated.invalid/owned-concurrent.png';
+    var start = http.requests.length;
+    var writes = cache.writes;
+    final owned = await Future.wait([
+      loader(ownedUrl, ownerWorkId: owner, subfolder: slot, targetWidth: 256),
+      loader(ownedUrl, ownerWorkId: owner, subfolder: slot, targetWidth: 512),
+    ]);
+    expect(owned.first, _samplePng);
+    expect(owned.last, same(owned.first));
+    expect(http.requests.length - start, 1);
+    expect(cache.writes - writes, 1);
+    disk.clearMemoryCache();
+    expect(await load(ownedUrl), _samplePng);
+    expect(http.requests.length - start, 1);
+
+    // 作品、图片子目录及编码图档位均为隔离条件。
+    const isolated = '/concurrent-isolated.png';
+    start = http.requests.length;
+    writes = cache.writes;
+    final separated = await Future.wait([
+      loader(
+        isolated,
+        ownerWorkId: owner,
+        subfolder: slot,
+        imageSize: TmdbImageSize.w342,
+      ),
+      loader(
+        isolated,
+        ownerWorkId: 'other-owner',
+        subfolder: slot,
+        imageSize: TmdbImageSize.w342,
+      ),
+      loader(
+        isolated,
+        ownerWorkId: owner,
+        subfolder: PhotoSubfolder.backdrops,
+        imageSize: TmdbImageSize.w342,
+      ),
+      loader(
+        isolated,
+        ownerWorkId: owner,
+        subfolder: slot,
+        imageSize: TmdbImageSize.w500,
+      ),
+    ]);
+    expect(separated, everyElement(equals(_samplePng)));
+    expect(http.requests.length - start, 4);
+    expect(cache.writes - writes, 4);
+
+    // 失败只合并当前进行中的请求，下一次调用仍然允许重试。
+    start = http.requests.length;
+    final failures = await Future.wait([
+      for (var i = 0; i < 4; i++)
+        loader('https://isolated.invalid/failure.png'),
+    ]);
+    expect(failures, everyElement(isNull));
+    expect(http.requests.length - start, 1);
+    expect(await loader('https://isolated.invalid/failure.png'), isNull);
+    expect(http.requests.length - start, 2);
   });
 
   testWidgets('媒体库海报墙在四视口矩阵下零溢出且点击海报卡准确触发 openWorkDetail', (tester) async {
@@ -659,6 +738,14 @@ void main() {
 
       expect(tester.takeException(), isNull);
       final grid = tester.widget<GridView>(find.byType(GridView));
+      final adaptive = tester.widget<AdaptiveCardGrid>(
+        find.byType(AdaptiveCardGrid),
+      );
+      expect(adaptive.findChildIndexCallback!(const ValueKey('w_wall_1')), 0);
+      expect(
+        adaptive.findChildIndexCallback!(const ValueKey('missing')),
+        isNull,
+      );
       expect(
         grid.padding!.resolve(TextDirection.ltr).bottom,
         28 + clearance,
@@ -690,6 +777,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('少女乐队的呐喊'), findsOneWidget);
+    final adaptive = tester.widget<AdaptiveCardGrid>(
+      find.byType(AdaptiveCardGrid),
+    );
+    final a = adaptive.findChildIndexCallback!(const ValueKey('w_wall_1'));
+    final b = adaptive.findChildIndexCallback!(const ValueKey('w_wall_2'));
+    expect({a, b}, {0, 1});
 
     await tester.tap(find.text('少女乐队的呐喊'));
     await tester.pumpAndSettle();

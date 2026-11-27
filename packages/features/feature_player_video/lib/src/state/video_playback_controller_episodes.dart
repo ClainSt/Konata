@@ -353,66 +353,6 @@ extension VideoPlaybackControllerEpisodes on VideoPlaybackController {
     env.preferencesStore.setVolumeAndMute(isMuted: nextMuted);
   }
 
-  ({EpisodeRecord episode, MediaVariantRecord variant})
-  _resolveInitialEpisodeAndVariant(
-    VideoWorkBundle bundle,
-    VideoLaunchRequest request,
-  ) {
-    final targetVariantId = request.variantId;
-    if (targetVariantId != null) {
-      for (final v in bundle.variants) {
-        if (v.id == targetVariantId) {
-          final matchedEp = bundle.episodes.cast<EpisodeRecord?>().firstWhere(
-            (e) => e?.id == v.episodeId,
-            orElse: () => null,
-          );
-          if (matchedEp != null) {
-            return (episode: matchedEp, variant: v);
-          }
-        }
-      }
-    }
-
-    final targetEpisodeId =
-        request.episodeId ?? bundle.latestPlayback?.episodeId;
-    if (targetEpisodeId != null) {
-      final matchedEp = bundle.episodes.cast<EpisodeRecord?>().firstWhere(
-        (e) => e?.id == targetEpisodeId,
-        orElse: () => null,
-      );
-      if (matchedEp != null) {
-        final vars = bundle.variantsForEpisode(matchedEp.id);
-        if (vars.isNotEmpty) {
-          final latestVarId = bundle.latestPlayback?.variantId;
-          final preferredVar = vars.cast<MediaVariantRecord?>().firstWhere(
-            (v) => v?.id == latestVarId,
-            orElse: () => vars.first,
-          );
-          return (episode: matchedEp, variant: preferredVar!);
-        }
-      }
-    }
-
-    for (final ep in bundle.episodes) {
-      final vars = bundle.variantsForEpisode(ep.id);
-      if (vars.isNotEmpty) {
-        return (episode: ep, variant: vars.first);
-      }
-    }
-
-    final fallbackVar = bundle.variants.first;
-    final fallbackEp =
-        bundle.episodes.firstOrNull ??
-        EpisodeRecord(
-          id:
-              fallbackVar.episodeId ??
-              EpisodeId.trusted('ep:${fallbackVar.id.value}'),
-          workId: bundle.work.id,
-          seasonNumber: 1,
-        );
-    return (episode: fallbackEp, variant: fallbackVar);
-  }
-
   HwdecSafetyDecision _evaluateVariantHwdecSafety(MediaVariantRecord variant) {
     return HwdecSafetyPolicy.evaluateVariantMetadata(
       platform: _toHwdecPlatform(),

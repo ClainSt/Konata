@@ -110,6 +110,18 @@ abstract interface class PlaybackHostWindowPort {
   Future<void> setPreferredLandscape(bool landscape);
 }
 
+/// 可选音频异形窗口能力，仅用于音频小窗，不改变视频窗口契约。
+abstract interface class DesktopAudioMiniWindowPort {
+  /// 桌面音频小窗失去焦点时通知展开胶囊收起。
+  Stream<void> get desktopAudioMiniBlur;
+
+  /// 按音频小窗视觉形态和外层预留边距调整真实窗口裁剪。
+  Future<void> enterDesktopAudioMiniWindow({
+    required double width,
+    required double height,
+  });
+}
+
 /// 桌面小窗所吸附的屏幕工作区水平边缘。
 enum DesktopMiniDockSide { left, right }
 

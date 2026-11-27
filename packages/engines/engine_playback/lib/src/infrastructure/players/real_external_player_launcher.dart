@@ -226,7 +226,7 @@ class RealExternalPlayerLauncher implements ExternalPlayerLauncher {
         return const LaunchPlaybackResult(
           launched: false,
           requiresBeefwebPrompt: true,
-          message: '',
+          message: 'Foobar2000 未安装 Beefweb，不能同步播放进度',
         );
       }
     }
@@ -286,9 +286,13 @@ class RealExternalPlayerLauncher implements ExternalPlayerLauncher {
               source.location,
               t.variant.relativePath,
             );
-            if (File(abs).existsSync()) {
-              absTrackPaths.add(abs);
+            if (!File(abs).existsSync()) {
+              return LaunchPlaybackResult(
+                launched: false,
+                message: '专辑中有音频文件不存在或已移动：$abs',
+              );
             }
+            absTrackPaths.add(abs);
           }
           if (absTrackPaths.isEmpty) {
             final expected = PlaybackSidecarHelpers.resolveLocalSafePath(
@@ -489,7 +493,7 @@ class RealExternalPlayerLauncher implements ExternalPlayerLauncher {
       return LaunchPlaybackResult(
         launched: true,
         message:
-            '已移交 ${_displayName(effectivePlayer)}$trackCountHint$resumeHint',
+            '已移交 ${_displayName(effectivePlayer)}${attachRes.attachedToBeefweb ? "$trackCountHint$resumeHint" : " · Beefweb 未连通，仅单向启动"}',
       );
     }
 
@@ -543,7 +547,8 @@ class RealExternalPlayerLauncher implements ExternalPlayerLauncher {
         : '';
     return LaunchPlaybackResult(
       launched: true,
-      message: '已启动 ${_displayName(effectivePlayer)}$manualSeekHint',
+      message:
+          '已启动 ${_displayName(effectivePlayer)}$manualSeekHint · 未连接进度同步组件',
     );
   }
 

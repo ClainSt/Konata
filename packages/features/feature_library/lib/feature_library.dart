@@ -17,7 +17,8 @@ export 'src/data/library_models.dart'
         WorkLibraryItem,
         WorkMergeOutcome,
         annotateCrossSourceBadges;
-export 'src/data/library_search_matcher.dart' show LibrarySearchMatcher;
+export 'src/data/library_search_matcher.dart'
+    show LibrarySearchMatcher, LibrarySearchIndex;
 export 'src/manifest.dart' show featureLibraryManifest;
 export 'src/providers.dart'
     show

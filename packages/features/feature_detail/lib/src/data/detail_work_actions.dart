@@ -577,43 +577,140 @@ final class DetailWorkActionsService {
     _publishWorkChanged(workId, 'deleted');
   }
 
-  /// 将全部正片剧集一键标记为已看完。
-  Future<void> markAllMainEpisodesWatched(String workId) async {
-    final eps = await _repository.getEpisodesByWork(workId);
-    final variants = await _repository.getVariantsByWork(workId);
-    final mainEps = eps
-        .where((e) => e.category == EpisodeCategory.main)
+  /// 标记单个真实视频分集，保留已有版本与播放时长，不创建虚构媒体记录。
+  Future<PlaybackRecord> markEpisodeWatched(
+    String workId,
+    String episodeId,
+  ) async {
+    final episodes = await _repository.getEpisodesByWork(workId);
+    final episode = episodes.where((ep) => ep.id == episodeId).firstOrNull;
+    if (episode == null) throw StateError('分集已不存在');
+    final variants = (await _repository.getVariantsByWork(workId))
+        .where(
+          (v) => v.assetKind == AssetKind.video && v.episodeId == episodeId,
+        )
         .toList(growable: false);
-    if (mainEps.isEmpty) return;
-
-    final now = DateTime.now();
-    for (final ep in mainEps) {
-      final epVariants = variants
-          .where((v) => v.assetKind == AssetKind.video && v.episodeId == ep.id)
-          .toList(growable: false);
-      final variantId = epVariants.isNotEmpty ? epVariants.first.id : ep.id;
-      final sourceId = epVariants.isNotEmpty ? epVariants.first.sourceId : null;
-      final source = sourceId != null
-          ? await _repository.findSourceById(sourceId)
-          : null;
-      await _repository.recordPlayback(
-        PlaybackRecord(
-          id: ScrapeWorkPersister.deterministicId('$workId::${ep.id}'),
-          workId: workId,
-          episodeId: ep.id,
-          variantId: variantId,
-          seasonNumber: ep.seasonNumber,
-          episodeNumber: ep.episodeNumber,
-          episodeTitle: ep.title ?? '第 ${ep.episodeNumber ?? 1} 话',
-          sourceType: source?.kind ?? MediaSourceKind.local,
-          playedAt: now,
-          positionSeconds: 1,
-          durationSeconds: 1,
-          isCompleted: true,
-        ),
-      );
-    }
+    if (variants.isEmpty) throw StateError('分集没有关联视频文件');
+    final records = await _repository.getPlaybacksByWork(workId);
+    final previous = records
+        .where((r) => r.episodeId == episodeId && !r.isAudioRecord)
+        .firstOrNull;
+    if (previous?.isCompleted == true) return previous!;
+    final variant =
+        variants.where((v) => v.id == previous?.variantId).firstOrNull ??
+        variants.first;
+    final source = await _repository.findSourceById(variant.sourceId);
+    if (source == null) throw StateError('媒体源已不存在');
+    final matching = records
+        .where(
+          (r) =>
+              r.episodeId == episodeId &&
+              r.variantId == variant.id &&
+              !r.isAudioRecord,
+        )
+        .firstOrNull;
+    final record = await _saveWatchedEpisode(
+      episode,
+      variant,
+      source,
+      matching,
+    );
     _publishWorkChanged(workId, 'edited');
+    return record;
+  }
+
+  Future<PlaybackRecord> _saveWatchedEpisode(
+    Episode episode,
+    MediaVariant variant,
+    MediaSource source,
+    PlaybackRecord? matching,
+  ) async {
+    final workId = episode.workId;
+    final episodeId = episode.id;
+    final record = PlaybackRecord(
+      id: matching?.id ?? '$workId::$episodeId',
+      workId: workId,
+      episodeId: episodeId,
+      variantId: variant.id,
+      seasonNumber: episode.seasonNumber,
+      episodeNumber: episode.episodeNumber,
+      episodeTitle: episode.title ?? '第 ${episode.episodeNumber ?? 1} 话',
+      sourceType: source.kind,
+      playedAt: DateTime.fromMillisecondsSinceEpoch(
+        DateTime.now().millisecondsSinceEpoch,
+      ),
+      positionSeconds: matching?.positionSeconds ?? 0,
+      durationSeconds: matching?.durationSeconds ?? 0,
+      isCompleted: true,
+    );
+    await _repository.recordPlayback(record);
+    _domainEventBus.publish(
+      EpisodeCompletionChangedEvent(
+        workId: WorkId.trusted(workId),
+        episodeId: EpisodeId.trusted(episodeId),
+        completed: true,
+        occurredAtMs: record.playedAt.millisecondsSinceEpoch,
+      ),
+    );
+    return record;
+  }
+
+  /// 将有可用视频版本的正片标为已看，保留真实播放进度。
+  Future<void> markAllMainEpisodesWatched(String workId) async {
+    final episodes = {
+      for (final episode in await _repository.getEpisodesByWork(workId))
+        if (episode.category == EpisodeCategory.main) episode.id: episode,
+    };
+    if (episodes.isEmpty) return;
+
+    final sources = <String, MediaSource?>{};
+    final variantsByEpisode = <String, Map<String, MediaVariant>>{};
+    for (final variant in await _repository.getVariantsByWork(workId)) {
+      final episodeId = variant.episodeId;
+      if (episodeId == null ||
+          !episodes.containsKey(episodeId) ||
+          variant.assetKind != AssetKind.video) {
+        continue;
+      }
+      if (!sources.containsKey(variant.sourceId)) {
+        sources[variant.sourceId] = await _repository.findSourceById(
+          variant.sourceId,
+        );
+      }
+      if (sources[variant.sourceId] != null) {
+        (variantsByEpisode[episodeId] ??= {})[variant.id] = variant;
+      }
+    }
+    if (variantsByEpisode.isEmpty) return;
+
+    final previousByEpisode = <String, PlaybackRecord>{};
+    for (final record in await _repository.getPlaybacksByWork(workId)) {
+      if (!record.isAudioRecord &&
+          variantsByEpisode[record.episodeId]?.containsKey(record.variantId) ==
+              true) {
+        previousByEpisode.putIfAbsent(record.episodeId, () => record);
+      }
+    }
+
+    var changed = false;
+    try {
+      for (final entry in variantsByEpisode.entries) {
+        final previous = previousByEpisode[entry.key];
+        if (previous?.isCompleted == true) continue;
+        final variants = entry.value;
+        final variant = variants[previous?.variantId] ?? variants.values.first;
+        final source = sources[variant.sourceId]!;
+        await _saveWatchedEpisode(
+          episodes[entry.key]!,
+          variant,
+          source,
+          previous,
+        );
+        changed = true;
+      }
+    } finally {
+      if (changed) _publishWorkChanged(workId, 'edited');
+    }
   }
 
   /// 清空作品下所有观看历史记录，恢复为未观看状态。

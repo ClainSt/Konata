@@ -81,6 +81,61 @@ abstract final class LibrarySearchMatcher {
   }
 }
 
+/// 当前有序海报墙快照的检索索引；只在该快照内复用归一化字段。
+/// 查询结果仍按原有四级相关性和输入顺序排列。
+final class LibrarySearchIndex<T> {
+  LibrarySearchIndex({
+    required List<T> items,
+    required Work Function(T item) workOf,
+    required List<String> Function(T item) releaseGroupsOf,
+  }) : _items = List<T>.unmodifiable(items),
+       _entries = [
+         for (final item in items)
+           (
+             item: item,
+             fields: _SearchFields(workOf(item), releaseGroupsOf(item)),
+           ),
+       ];
+
+  final List<T> _items;
+  final List<({T item, _SearchFields fields})> _entries;
+
+  /// 对同一快照重复搜索，不重新处理已归一化的作品字段。
+  List<T> search(String rawQuery) {
+    if (rawQuery.trim().isEmpty) return _items;
+    final query = LibrarySearchMatcher._compile(rawQuery);
+    final buckets = List.generate(4, (_) => <T>[]);
+    for (final entry in _entries) {
+      final fields = entry.fields;
+      final rank = query.rank(
+        fields.work,
+        fields.releaseGroups,
+        prepared: fields,
+      );
+      if (rank != null) buckets[rank].add(entry.item);
+    }
+    return List<T>.unmodifiable(buckets.expand((bucket) => bucket));
+  }
+}
+
+/// 懒加载检索字段，精准 ID 查询不触发标题与压制组字符串分配。
+final class _SearchFields {
+  _SearchFields(this.work, List<String> releaseGroups)
+    : releaseGroups = List<String>.unmodifiable(releaseGroups);
+
+  final Work work;
+  final List<String> releaseGroups;
+  late final String title = LibrarySearchMatcher.normalizeForSearch(work.title);
+  late final String originalTitle = LibrarySearchMatcher.normalizeForSearch(
+    work.originalTitle ?? '',
+  );
+  late final String yearText = work.year?.toString() ?? '';
+  late final List<String> groups = [
+    for (final group in releaseGroups)
+      LibrarySearchMatcher.normalizeForSearch(group),
+  ];
+}
+
 enum _QueryKind { empty, tmdb, bgm, group, general }
 
 /// 单次查询的临时解析结果，不缓存作品元数据或跨查询状态。
@@ -91,7 +146,7 @@ final class _CompiledQuery {
   final int? id;
   final List<String> terms;
 
-  int? rank(Work work, List<String> releaseGroups) {
+  int? rank(Work work, List<String> releaseGroups, {_SearchFields? prepared}) {
     switch (kind) {
       case _QueryKind.empty:
         return 0;
@@ -101,17 +156,21 @@ final class _CompiledQuery {
         return id != null && work.bangumiId == id ? 0 : null;
       case _QueryKind.group:
         if (terms.isEmpty) return 0;
-        final normalizedGroups = [
-          for (final group in releaseGroups)
-            LibrarySearchMatcher.normalizeForSearch(group),
-        ];
+        final normalizedGroups =
+            prepared?.groups ??
+            [
+              for (final group in releaseGroups)
+                LibrarySearchMatcher.normalizeForSearch(group),
+            ];
         return terms.every(
               (term) => normalizedGroups.any((group) => group.contains(term)),
             )
             ? 0
             : null;
       case _QueryKind.general:
-        final title = LibrarySearchMatcher.normalizeForSearch(work.title);
+        final title =
+            prepared?.title ??
+            LibrarySearchMatcher.normalizeForSearch(work.title);
         // 只有标题未命中时才归一化原名、压制组与年份。
         String? originalTitle;
         String? yearText;
@@ -123,18 +182,20 @@ final class _CompiledQuery {
             if (worstRank < 1) worstRank = 1;
             continue;
           }
-          originalTitle ??= LibrarySearchMatcher.normalizeForSearch(
-            work.originalTitle ?? '',
-          );
+          originalTitle ??=
+              prepared?.originalTitle ??
+              LibrarySearchMatcher.normalizeForSearch(work.originalTitle ?? '');
           if (originalTitle.contains(term)) {
             if (worstRank < 2) worstRank = 2;
             continue;
           }
-          groups ??= [
-            for (final group in releaseGroups)
-              LibrarySearchMatcher.normalizeForSearch(group),
-          ];
-          yearText ??= work.year?.toString() ?? '';
+          groups ??=
+              prepared?.groups ??
+              [
+                for (final group in releaseGroups)
+                  LibrarySearchMatcher.normalizeForSearch(group),
+              ];
+          yearText ??= prepared?.yearText ?? work.year?.toString() ?? '';
           if (groups.any((group) => group.contains(term)) ||
               (yearText.isNotEmpty && yearText.contains(term))) {
             if (worstRank < 3) worstRank = 3;

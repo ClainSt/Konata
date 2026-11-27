@@ -69,6 +69,7 @@ class LibraryController extends ChangeNotifier {
   List<WorkLibraryItem> _allVisibleItems = const <WorkLibraryItem>[];
   List<WorkLibraryItem> _displayedItems = const <WorkLibraryItem>[];
   List<WorkLibraryItem> _filteredSortedItems = const <WorkLibraryItem>[];
+  LibrarySearchIndex<WorkLibraryItem>? _searchIndex;
   List<Work> _reviewWorks = const <Work>[];
   List<MediaSource> _sources = const <MediaSource>[];
   Map<String, int> _insertionOrder = const <String, int>{};
@@ -386,18 +387,18 @@ class LibraryController extends ChangeNotifier {
     filtered.sort(_compareItems);
     // 数据或筛选偏好变化时重建有序快照，输入搜索词仅复用该快照。
     _filteredSortedItems = List<WorkLibraryItem>.unmodifiable(filtered);
+    _searchIndex = null;
     _applySearch();
   }
 
   void _applySearch() {
     _displayedItems = _searchQuery.trim().isEmpty
         ? _filteredSortedItems
-        : LibrarySearchMatcher.filterAndRank<WorkLibraryItem>(
+        : (_searchIndex ??= LibrarySearchIndex<WorkLibraryItem>(
             items: _filteredSortedItems,
             workOf: (item) => item.work,
             releaseGroupsOf: (item) => item.releaseGroups,
-            rawQuery: _searchQuery,
-          );
+          )).search(_searchQuery);
   }
 
   bool _matchesPrefsFilters(WorkLibraryItem item) {

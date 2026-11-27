@@ -147,14 +147,20 @@ Future<void> showVideoAudioUnlockDialog(
                             Navigator.of(dialogCtx).pop(false);
                             return;
                           }
-                          final res = await coordinator
-                              .verifyActiveHardwareRoute(
-                                prefs.audiophilePreferences,
-                              );
+                          String detail;
+                          try {
+                            final res = await coordinator
+                                .verifyActiveHardwareRoute(
+                                  prefs.audiophilePreferences,
+                                );
+                            detail = res.detail;
+                          } catch (error) {
+                            detail = '直通链路检测失败（${error.runtimeType}），请重试。';
+                          }
                           if (dialogCtx.mounted) {
                             setDialogState(() {
                               probing = false;
-                              probeNotice = res.detail;
+                              probeNotice = detail;
                             });
                           }
                         },
@@ -196,9 +202,17 @@ Future<void> showVideoAudioUnlockDialog(
       showKonataToast(context, '输出路由已变更，请重新核验', isError: true);
       return;
     }
-    final unlocked = await coordinator.confirmSessionFullScaleUnlock(
-      prefs.audiophilePreferences,
-    );
+    bool unlocked;
+    try {
+      unlocked = await coordinator.confirmSessionFullScaleUnlock(
+        prefs.audiophilePreferences,
+      );
+    } catch (_) {
+      if (context.mounted) {
+        showKonataToast(context, '解锁失败，请重新核验', isError: true);
+      }
+      return;
+    }
     if (!context.mounted) return;
     showKonataToast(
       context,

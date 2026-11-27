@@ -84,12 +84,25 @@ void main() {
       contains(AudiophileSafetyPolicy.postDspSafetyLimiterFilter),
     );
 
+    // 未检测前不可借解锁操作隐式通过核验或修改持久化门锁。
+    final denied = await controller.confirmFullScaleUnlock();
+    expect(denied.safetyLimiterEngaged, isTrue);
+    expect(
+      controller.snapshot.audiophileSafetyState.allowFullScaleBypass,
+      isFalse,
+    );
+    expect(prefsRepo.read().audiophileSafetyLimiterEnabled, isTrue);
     // 执行硬件实证并用户显式确认解锁当次会话满幅直通。
     final verifyResult = await controller.verifyAudiophileHardwareRoute();
     expect(verifyResult.verified, isTrue);
     final unlockedPlan = await controller.confirmFullScaleUnlock();
     expect(unlockedPlan.safetyLimiterEngaged, isFalse);
     expect(mpv.currentAf, isEmpty);
+    expect(
+      controller.snapshot.audiophileSafetyState.allowFullScaleBypass,
+      isTrue,
+    );
+    expect(prefsRepo.read().audiophileSafetyLimiterEnabled, isTrue);
 
     // 重新开启安全限幅或发生外设拔出热插拔时，应立即恢复 -12 dBFS 上限。
     await controller.setAudiophileSafetyLimiterEnabled(true);

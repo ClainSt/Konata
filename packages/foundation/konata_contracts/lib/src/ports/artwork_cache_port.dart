@@ -49,3 +49,10 @@ abstract interface class ArtworkCacheStore {
     required String fileName,
   });
 }
+
+/// 可选的单次请求缓存作用域；不支持的缓存实现保持原有读写语义。
+abstract interface class RequestScopedArtworkCacheStore
+    implements ArtworkCacheStore {
+  /// 在首次异步操作前捕获内存清理代次。
+  ArtworkCacheStore captureRequestScope();
+}

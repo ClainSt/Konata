@@ -35,6 +35,35 @@ final class WindowMaterialController {
 
   bool? _lastIsDark;
   KonataWindowMaterial? _lastMaterial;
+  final audioMiniActive = ValueNotifier<bool>(false);
+
+  /// 音频异形窗口期间暂停矩形系统材质，恢复后按最新偏好重新应用。
+  Future<void> setAudioMini(bool enabled) async {
+    if (audioMiniActive.value == enabled) return;
+    audioMiniActive.value = enabled;
+    if (enabled) {
+      try {
+        await Window.setEffect(
+          effect: WindowEffect.transparent,
+          color: Colors.transparent,
+        );
+      } catch (_) {
+        audioMiniActive.value = false;
+        rethrow;
+      }
+      return;
+    }
+    final material = _lastMaterial;
+    final dark = _lastIsDark;
+    if (material != null && dark != null) {
+      await apply(
+        themeMode: dark ? ThemeMode.dark : ThemeMode.light,
+        platformBrightness: dark ? Brightness.dark : Brightness.light,
+        material: material,
+        force: true,
+      );
+    }
+  }
 
   /// 应用 Windows DWM 窗口材质与明暗效果。
   Future<void> apply({
@@ -52,6 +81,7 @@ final class WindowMaterialController {
     }
     _lastIsDark = isDark;
     _lastMaterial = material;
+    if (audioMiniActive.value) return;
     try {
       switch (material) {
         case KonataWindowMaterial.acrylic:
@@ -169,7 +199,27 @@ final class WindowsWindowHost implements KonataDesktopWindowHostPort {
 
   @override
   Widget buildDragToMoveArea({required Widget child}) {
-    return wm.DragToMoveArea(child: child);
+    return ValueListenableBuilder<bool>(
+      valueListenable: _materialController.audioMiniActive,
+      child: child,
+      builder: (context, audioMini, child) {
+        if (!audioMini) return wm.DragToMoveArea(child: child!);
+        // 音频小窗不进入系统窗口移动循环，避免触发分屏贴靠。
+        const channel = MethodChannel('konata/desktop_mini');
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onPanStart: (_) =>
+              unawaited(channel.invokeMethod<void>('beginAudioDrag')),
+          onPanUpdate: (_) =>
+              unawaited(channel.invokeMethod<void>('updateAudioDrag')),
+          onPanEnd: (_) =>
+              unawaited(channel.invokeMethod<void>('endAudioDrag')),
+          onPanCancel: () =>
+              unawaited(channel.invokeMethod<void>('endAudioDrag')),
+          child: child,
+        );
+      },
+    );
   }
 }
 

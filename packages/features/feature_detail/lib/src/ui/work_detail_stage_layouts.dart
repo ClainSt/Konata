@@ -41,6 +41,9 @@ class DetailWideOverlayStageLayout extends StatelessWidget {
     required this.onTapEpisode,
     required this.onTapCdVariant,
     required this.onInspectEpisodeInfo,
+    this.onMarkEpisodeWatched,
+    this.onAdjustEpisodeMapping,
+    this.onPlayExternalEpisode,
     required this.onOpenFullList,
     required this.reviewBanner,
     this.initialTabId,
@@ -112,6 +115,15 @@ class DetailWideOverlayStageLayout extends StatelessWidget {
 
   /// 查看单集媒体详情回调。
   final ValueChanged<Episode> onInspectEpisodeInfo;
+
+  /// 单集观看状态写入回调。
+  final Future<PlaybackRecord?> Function(Episode)? onMarkEpisodeWatched;
+
+  /// 编辑当前分集的文件映射。
+  final ValueChanged<Episode>? onAdjustEpisodeMapping;
+
+  /// 桌面外部视频播放入口。
+  final ValueChanged<Episode>? onPlayExternalEpisode;
 
   /// 打开完整列表弹窗回调。
   final ValueChanged<String> onOpenFullList;
@@ -217,6 +229,9 @@ class DetailWideOverlayStageLayout extends StatelessWidget {
                     onTapEpisode: onTapEpisode,
                     onTapCdVariant: onTapCdVariant,
                     onInspectEpisodeInfo: onInspectEpisodeInfo,
+                    onMarkEpisodeWatched: onMarkEpisodeWatched,
+                    onAdjustEpisodeMapping: onAdjustEpisodeMapping,
+                    onPlayExternalEpisode: onPlayExternalEpisode,
                     onOpenFullList: onOpenFullList,
                   ),
                 ),
@@ -264,6 +279,9 @@ class DetailPortraitStageLayout extends StatelessWidget {
     required this.onTapEpisode,
     required this.onTapCdVariant,
     required this.onInspectEpisodeInfo,
+    this.onMarkEpisodeWatched,
+    this.onAdjustEpisodeMapping,
+    this.onPlayExternalEpisode,
     required this.onOpenFullList,
     required this.reviewBanner,
     this.initialTabId,
@@ -344,6 +362,15 @@ class DetailPortraitStageLayout extends StatelessWidget {
 
   /// 查看单集媒体详情回调。
   final ValueChanged<Episode> onInspectEpisodeInfo;
+
+  /// 单集观看状态写入回调。
+  final Future<PlaybackRecord?> Function(Episode)? onMarkEpisodeWatched;
+
+  /// 编辑当前分集的文件映射。
+  final ValueChanged<Episode>? onAdjustEpisodeMapping;
+
+  /// 桌面外部视频播放入口。
+  final ValueChanged<Episode>? onPlayExternalEpisode;
 
   /// 打开完整列表弹窗回调。
   final ValueChanged<String> onOpenFullList;
@@ -440,6 +467,9 @@ class DetailPortraitStageLayout extends StatelessWidget {
                   onTapEpisode: onTapEpisode,
                   onTapCdVariant: onTapCdVariant,
                   onInspectEpisodeInfo: onInspectEpisodeInfo,
+                  onMarkEpisodeWatched: onMarkEpisodeWatched,
+                  onAdjustEpisodeMapping: onAdjustEpisodeMapping,
+                  onPlayExternalEpisode: onPlayExternalEpisode,
                   onOpenFullList: onOpenFullList,
                 ),
               ),

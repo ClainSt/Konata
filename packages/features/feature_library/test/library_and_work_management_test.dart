@@ -364,6 +364,13 @@ void main() {
     expect(() => controller.displayedItems.clear(), throwsUnsupportedError);
     controller.setYearFilter(null);
     expect(ids(), ['other', 'ten', 'three', 'two']);
+    controller.setSearchQuery('Anime');
+    expect(ids(), ['ten', 'three', 'two']);
+    put('three', 'Renamed 3', 2021);
+    await controller.reload();
+    expect(ids(), ['ten', 'two']);
+    controller.setSearchQuery('Renamed');
+    expect(ids(), ['three']);
   });
 
   test('WorkManagementController 软删除仅清本地缓存与数据库墓碑，绝不触碰源文件', () async {

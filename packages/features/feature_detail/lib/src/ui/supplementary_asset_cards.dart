@@ -21,8 +21,8 @@ String _stripAssetExtension(String fileName) {
 
 /// 详情页底部抽屉与完整列表共用的音乐 CD 专辑卡片（`1:1` 方正封面 + 光学唱片缺省态）。
 ///
-/// 严格防风控策略：仅对本地磁盘媒体源按需读取同目录/内嵌封面字节，绝不向远程 `WebDAV`/`SMB` 发起额外探测风暴；
-/// 无独立封面时采用柔焦压暗作品海报与极简几何唱片缺省态保持货架韵律。
+/// 共享封面加载器按专辑目录串行读取，本地直读仅作为未注入加载器时的回退；
+/// 无独立封面时优先使用防切头作品海报，缺少可用图片才显示唱片占位。
 class CdDrawerCard extends StatefulWidget {
   /// 创建 `1:1` 音乐 CD 卡片。
   const CdDrawerCard({
@@ -240,10 +240,10 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
                               fit: BoxFit.cover,
                               gaplessPlayback: true,
                               errorBuilder: (_, _, _) =>
-                                  _buildOpticalDiscFallback(palette),
+                                  _buildOpticalDiscFallback(),
                             )
                           else
-                            _buildOpticalDiscFallback(palette),
+                            _buildOpticalDiscFallback(),
                           if (!KonataAdaptiveTokens.isAndroid && _hovered)
                             const IgnorePointer(
                               child: ColoredBox(
@@ -328,34 +328,29 @@ class _CdDrawerCardState extends State<CdDrawerCard> {
     );
   }
 
-  Widget _buildOpticalDiscFallback(KonataPalette palette) {
+  Widget _buildOpticalDiscFallback() {
     final poster = widget.workPosterPath?.trim() ?? '';
     final loader = widget.imageLoader;
     if (poster.isEmpty || loader == null) {
       return KonataCdDiscPlaceholder(hovered: _hovered);
     }
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        ImageFiltered(
-          imageFilter: KonataTheme.blurFilterSubtle,
-          child: DetailManagedImage(
-            poster,
-            loader: loader,
-            owner: widget.workId ?? widget.variant.workId,
-            artwork: ManagedArtwork.poster,
-            fit: BoxFit.cover,
-          ),
-        ),
-        ColoredBox(
-          color:
-              (palette.isDark
-                      ? KonataTheme.cinemaObsidian
-                      : KonataTheme.pureWhite)
-                  .withValues(alpha: palette.isDark ? 0.56 : 0.42),
-        ),
-        KonataCdDiscPlaceholder(hovered: _hovered, transparentBackdrop: true),
-      ],
+    final owner = widget.workId ?? widget.variant.workId;
+    return KonataCoverAlignmentBuilder(
+      url: poster,
+      owner: owner,
+      loader: detailArtworkLoader(loader, owner: owner),
+      isPosterFallback: true,
+      targetAspectRatio: 1.0,
+      builder: (context, alignment) => DetailManagedImage(
+        poster,
+        loader: loader,
+        owner: owner,
+        artwork: ManagedArtwork.poster,
+        fit: BoxFit.cover,
+        alignment: alignment,
+        decodeWidth: 512,
+        errorBuilder: (_, _, _) => KonataCdDiscPlaceholder(hovered: _hovered),
+      ),
     );
   }
 }

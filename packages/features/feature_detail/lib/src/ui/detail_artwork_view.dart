@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:engine_scraping/engine_scraping.dart';
@@ -89,8 +90,9 @@ class DetailManagedImage extends StatelessWidget {
   /// 加载失败兜底构建器。
   final ImageErrorWidgetBuilder? errorBuilder;
 
-  /// 首帧解码就绪通知回调。
-  final void Function(ui.Image image, ImageProvider provider)? onImageResolved;
+  /// 首帧解码通知，异步读取须返回 Future，观察器在回调完成后释放图像。
+  final FutureOr<void> Function(ui.Image image, ImageProvider provider)?
+  onImageResolved;
 
   @override
   Widget build(BuildContext context) {

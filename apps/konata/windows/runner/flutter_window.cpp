@@ -2,6 +2,7 @@
 
 #include <optional>
 #include <algorithm>
+#include <dwmapi.h>
 
 #include "flutter/generated_plugin_registrant.h"
 
@@ -97,6 +98,62 @@ bool FlutterWindow::OnCreate() {
           &flutter::StandardMethodCodec::GetInstance());
   mini_dock_channel_->SetMethodCallHandler(
       [this](const auto& call, auto result) {
+        if (call.method_name() == "beginAudioDrag") {
+          audio_drag_moved_ = false;
+          audio_dragging_ = audio_surface_ &&
+              GetCursorPos(&audio_drag_cursor_) &&
+              GetWindowRect(GetHandle(), &audio_drag_bounds_);
+          result->Success();
+          return;
+        }
+        if (call.method_name() == "updateAudioDrag" ||
+            call.method_name() == "endAudioDrag") {
+          if (audio_dragging_) {
+            POINT cursor{};
+            if (GetCursorPos(&cursor)) {
+              const LONG dx = cursor.x - audio_drag_cursor_.x;
+              const LONG dy = cursor.y - audio_drag_cursor_.y;
+              audio_drag_moved_ = audio_drag_moved_ || dx != 0 || dy != 0;
+              SetWindowPos(GetHandle(), nullptr,
+                           audio_drag_bounds_.left + dx,
+                           audio_drag_bounds_.top + dy, 0, 0,
+                           SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+            }
+            if (call.method_name() == "endAudioDrag") {
+              audio_dragging_ = false;
+              if (audio_drag_moved_ && mini_dock_channel_) {
+                mini_dock_channel_->InvokeMethod(
+                    "moveEnded", std::make_unique<flutter::EncodableValue>());
+              }
+            }
+          }
+          result->Success();
+          return;
+        }
+        if (call.method_name() == "setAudioSurface") {
+          audio_surface_ = true;
+          // 异形区域由窗口管理库登记；这里仅负责关闭系统材质与边框。
+          const int no_backdrop = 1;
+          const int no_rounding = 1;
+          const COLORREF no_border = 0xFFFFFFFE;
+          DwmSetWindowAttribute(GetHandle(), 38, &no_backdrop, sizeof(no_backdrop));
+          DwmSetWindowAttribute(GetHandle(), 33, &no_rounding, sizeof(no_rounding));
+          DwmSetWindowAttribute(GetHandle(), 34, &no_border, sizeof(no_border));
+          const MARGINS margins{0, 0, 0, 0};
+          DwmExtendFrameIntoClientArea(GetHandle(), &margins);
+          result->Success();
+          return;
+        }
+        if (call.method_name() == "clearAudioSurface") {
+          audio_surface_ = false;
+          audio_dragging_ = false;
+          const int default_rounding = 0;
+          const COLORREF default_border = 0xFFFFFFFF;
+          DwmSetWindowAttribute(GetHandle(), 33, &default_rounding, sizeof(default_rounding));
+          DwmSetWindowAttribute(GetHandle(), 34, &default_border, sizeof(default_border));
+          result->Success();
+          return;
+        }
         if (call.method_name() != "fit") {
           result->NotImplemented();
           return;
@@ -150,6 +207,20 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
+
+  // 音频异形窗口禁止系统最大化；外部点击失焦只通知胶囊收起。
+  if (audio_surface_) {
+    if (message == WM_SYSCOMMAND &&
+        ((wparam & 0xFFF0) == SC_MAXIMIZE ||
+         (wparam & 0xFFF0) == SC_SIZE)) {
+      return 0;
+    }
+    if (message == WM_ACTIVATE && LOWORD(wparam) == WA_INACTIVE &&
+        !audio_dragging_ && mini_dock_channel_) {
+      mini_dock_channel_->InvokeMethod(
+          "audioBlur", std::make_unique<flutter::EncodableValue>());
+    }
+  }
   // 窗口最小化时在无活跃视频会话的前提下即时回收闲置 D3D11 设备与系统工作集。
   if (message == WM_SIZE && wparam == SIZE_MINIMIZED) {
     if (d3d11_bridge_) {

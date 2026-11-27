@@ -386,7 +386,7 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
                       Expanded(
                         child: KonataSoftTextField(
                           controller: _endpointController,
-                          hintText: '输入服务端接口地址',
+                          hintText: FontInAssCloudClient.defaultEndpointUrl,
                           dense: true,
                           height: 40,
                           onSubmitted: (val) {
@@ -431,6 +431,25 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
                         },
                       ),
                     ],
+                  ),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: KonataPillButton.ghost(
+                      key: const ValueKey(
+                        'settings_cloud_subset_reset_default_button',
+                      ),
+                      compact: true,
+                      label: '恢复默认地址',
+                      onPressed: () {
+                        const endpoint =
+                            FontInAssCloudClient.defaultEndpointUrl;
+                        if (store.read().fontInAssEndpoint != endpoint) {
+                          cloud?.cancelAllCloudSubsetTasks();
+                        }
+                        _endpointController.text = endpoint;
+                        store.updateCloudSubsetSettings(endpointUrl: endpoint);
+                      },
+                    ),
                   ),
                   if (prefs.authorizedCloudSubsetOrigins.isNotEmpty) ...[
                     const SizedBox(height: 10),

@@ -200,6 +200,49 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
     );
   }
 
+  Future<void> _handlePlayExternalEpisode(
+    WorkDetailBundle bundle,
+    Episode ep,
+  ) async {
+    final service = ref.read(detailExternalVideoProvider);
+    if (service == null) return;
+    final variants = bundle
+        .variantsForEpisode(ep.id)
+        .where((v) => v.assetKind == AssetKind.video)
+        .toList();
+    if (variants.isEmpty) return;
+    Future<void> launch(MediaVariant variant) async {
+      try {
+        final result = await service.launch(
+          workId: WorkId.trusted(ep.workId),
+          episodeId: EpisodeId.trusted(ep.id),
+          variantId: VariantId.trusted(variant.id),
+        );
+        if (mounted) {
+          showKonataToast(context, result.message, isError: !result.launched);
+        }
+      } catch (_) {
+        if (mounted) {
+          showKonataToast(context, '外部播放启动失败，请检查播放器配置', isError: true);
+        }
+      }
+    }
+
+    if (variants.length == 1) {
+      await launch(variants.single);
+      return;
+    }
+    await showKonataGlassDialog<void>(
+      context: context,
+      builder: (_) => VariantPickerDialog(
+        episodeTitle: ep.title ?? '选择分集',
+        variants: variants,
+        sourcesById: bundle.sourcesById,
+        onSelectVariant: (variant) => unawaited(launch(variant)),
+      ),
+    );
+  }
+
   Future<void> _handleTapCdVariant(
     WorkDetailController controller,
     MediaVariant variant,
@@ -223,6 +266,39 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
         episodeTitle: heading,
         variants: bundle.variantsForEpisode(ep.id),
         sourcesById: bundle.sourcesById,
+      ),
+    );
+  }
+
+  Future<PlaybackRecord?> _handleMarkEpisodeWatched(
+    WorkDetailController controller,
+    Episode episode,
+  ) async {
+    try {
+      final record = await controller.markEpisodeWatched(episode);
+      if (mounted) showKonataToast(context, '已标为已看');
+      return record;
+    } catch (error) {
+      if (mounted) showKonataToast(context, '标记失败：$error', isError: true);
+      return null;
+    }
+  }
+
+  Future<void> _handleAdjustEpisodeMapping(
+    WorkDetailController controller,
+    WorkDetailBundle bundle,
+    ManagedImageLoader imageLoader,
+    Episode episode,
+  ) async {
+    await showKonataGlassDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => WorkManualEditDialog(
+        controller: controller,
+        bundle: bundle,
+        imageLoader: imageLoader,
+        initialSection: WorkManualEditSection.mappings,
+        initialMappingEpisodeId: episode.id,
       ),
     );
   }
@@ -253,6 +329,19 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
           unawaited(_handleTapCdVariant(controller, variant));
         },
         onInspectEpisodeInfo: (ep) => _handleInspectEpisodeInfo(bundle, ep),
+        onPlayExternalEpisode: ref.read(detailExternalVideoProvider) == null
+            ? null
+            : (ep) {
+                Navigator.of(dialogCtx).pop();
+                unawaited(_handlePlayExternalEpisode(bundle, ep));
+              },
+        onAdjustEpisodeMapping: (ep) {
+          Navigator.of(dialogCtx).pop();
+          unawaited(
+            _handleAdjustEpisodeMapping(controller, bundle, imageLoader, ep),
+          );
+        },
+        onMarkEpisodeWatched: (ep) => _handleMarkEpisodeWatched(controller, ep),
       ),
     );
   }
@@ -525,6 +614,8 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
     final bottomClearance = KonataBottomClearanceScope.of(context);
     final safePad = MediaQuery.paddingOf(context);
     final platform = controller.platform;
+    final externalVideoAvailable =
+        ref.watch(detailExternalVideoProvider) != null;
 
     return Listener(
       onPointerDown: (event) {
@@ -679,6 +770,21 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                             unawaited(_handleTapCdVariant(controller, variant)),
                         onInspectEpisodeInfo: (ep) =>
                             unawaited(_handleInspectEpisodeInfo(bundle, ep)),
+                        onPlayExternalEpisode: !externalVideoAvailable
+                            ? null
+                            : (ep) => unawaited(
+                                _handlePlayExternalEpisode(bundle, ep),
+                              ),
+                        onAdjustEpisodeMapping: (ep) => unawaited(
+                          _handleAdjustEpisodeMapping(
+                            controller,
+                            bundle,
+                            imageLoader,
+                            ep,
+                          ),
+                        ),
+                        onMarkEpisodeWatched: (ep) =>
+                            _handleMarkEpisodeWatched(controller, ep),
                         onOpenFullList: (tabId) => unawaited(
                           _handleOpenFullList(
                             controller,
@@ -737,6 +843,21 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                           unawaited(_handleTapCdVariant(controller, variant)),
                       onInspectEpisodeInfo: (ep) =>
                           unawaited(_handleInspectEpisodeInfo(bundle, ep)),
+                      onPlayExternalEpisode: !externalVideoAvailable
+                          ? null
+                          : (ep) => unawaited(
+                              _handlePlayExternalEpisode(bundle, ep),
+                            ),
+                      onAdjustEpisodeMapping: (ep) => unawaited(
+                        _handleAdjustEpisodeMapping(
+                          controller,
+                          bundle,
+                          imageLoader,
+                          ep,
+                        ),
+                      ),
+                      onMarkEpisodeWatched: (ep) =>
+                          _handleMarkEpisodeWatched(controller, ep),
                       onOpenFullList: (tabId) => unawaited(
                         _handleOpenFullList(
                           controller,

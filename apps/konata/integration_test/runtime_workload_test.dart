@@ -16,6 +16,7 @@ import 'package:konata_design_system/konata_design_system.dart';
 import 'package:konata_storage/konata_storage.dart';
 
 void main() {
+  const extended = bool.fromEnvironment('KONATA_EXTENDED_ARTWORK_WORKLOAD');
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   binding.framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.fullyLive;
 
@@ -45,7 +46,10 @@ void main() {
     );
     try {
       expect(bootstrap.databases.isCacheOpen, isFalse);
-      const count = 240;
+      const count = extended ? 720 : 240;
+      const coverCount = extended ? 240 : 24;
+      const coverWidth = extended ? 384 : 160;
+      const coverHeight = extended ? 576 : 240;
       final db = bootstrap.databases.library;
       final sourceId = SourceId('benchmark-source');
       db.mediaSources.upsert(
@@ -59,17 +63,21 @@ void main() {
         ),
       );
       final covers = <String>[];
-      for (var i = 0; i < 24; i++) {
-        final rgba = Uint8List(160 * 240 * 4);
+      for (var i = 0; i < coverCount; i++) {
+        final rgba = Uint8List(coverWidth * coverHeight * 4);
         for (var j = 0; j < rgba.length; j += 4) {
-          rgba[j] = (i * 17 + (j ~/ 4) % 160) % 256;
-          rgba[j + 1] = (i * 29 + j ~/ 640) % 256;
+          rgba[j] = (i * 17 + (j ~/ 4) % coverWidth) % 256;
+          rgba[j + 1] = (i * 29 + j ~/ (coverWidth * 4)) % 256;
           rgba[j + 2] = (i * 11) % 256;
           rgba[j + 3] = 255;
         }
         final file = File('${root.path}/cover-$i.webp');
         await file.writeAsBytes(
-          CompactWebpEncoder.encodeRgba(rgba: rgba, width: 160, height: 240),
+          CompactWebpEncoder.encodeRgba(
+            rgba: rgba,
+            width: coverWidth,
+            height: coverHeight,
+          ),
         );
         covers.add(file.path);
       }
@@ -136,7 +144,7 @@ void main() {
           final target = position.maxScrollExtent * fraction;
           await position.animateTo(
             target,
-            duration: const Duration(milliseconds: 750),
+            duration: const Duration(milliseconds: extended ? 1500 : 750),
             curve: Curves.linear,
           );
           expect(position.pixels, closeTo(target, 2));
@@ -147,6 +155,19 @@ void main() {
       await scrollCycle();
       await Future<void>.delayed(const Duration(milliseconds: 1200));
       final samples = <Map<String, Object>>[];
+      final imageCache = PaintingBinding.instance.imageCache;
+      final thumbnailCache = konataSharedThumbnailByteLru;
+      final artworkCache = bootstrap.artworkCache;
+      Map<String, int> cacheSnapshot() => {
+        'rss_bytes': ProcessInfo.currentRss,
+        'artwork_entries': artworkCache.memoryEntryCount,
+        'artwork_bytes': artworkCache.currentMemoryBytes,
+        'thumbnail_entries': thumbnailCache.entryCount,
+        'thumbnail_bytes': thumbnailCache.totalBytes,
+        'decoded_entries': imageCache.currentSize,
+        'decoded_bytes': imageCache.currentSizeBytes,
+        'live_images': imageCache.liveImageCount,
+      };
       for (var i = 0; i < 5; i++) {
         final frames = <FrameTiming>[];
         void record(List<FrameTiming> timings) => frames.addAll(timings);
@@ -176,7 +197,7 @@ void main() {
         expect(frames, isNotEmpty);
         expect(cpuUs, greaterThan(0));
         expect(peakRss, greaterThan(0));
-        samples.add({
+        final sample = <String, Object>{
           'elapsed_us': elapsedUs,
           'cpu_us': cpuUs,
           'observed_peak_rss_bytes': peakRss,
@@ -185,11 +206,41 @@ void main() {
           'raster_us': [
             for (final f in frames) f.rasterDuration.inMicroseconds,
           ],
-        });
+        };
+        if (extended) {
+          expect(thumbnailCache.entryCount, greaterThan(0));
+          expect(
+            thumbnailCache.entryCount,
+            lessThanOrEqualTo(thumbnailCache.maxEntries),
+          );
+          expect(
+            thumbnailCache.totalBytes,
+            lessThanOrEqualTo(thumbnailCache.maxTotalBytes),
+          );
+          sample['before_trim'] = cacheSnapshot();
+          if (i.isEven) {
+            sample['trim_signal'] = 'hidden';
+            binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+          } else {
+            sample['trim_signal'] = 'memory_pressure';
+            binding.handleMemoryPressure();
+          }
+          sample['after_trim'] = cacheSnapshot();
+          expect(thumbnailCache.totalBytes, 0);
+          expect(artworkCache.currentMemoryBytes, 0);
+          expect(imageCache.currentSizeBytes, 0);
+          if (i.isEven) {
+            binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+          }
+          await tester.pumpAndSettle();
+        }
+        samples.add(sample);
       }
       binding.reportData = {
         'work_count': count,
         'cover_count': covers.length,
+        if (extended) 'cover_width': coverWidth,
+        if (extended) 'cover_height': coverHeight,
         'platform': platform.name,
         'samples': samples,
       };

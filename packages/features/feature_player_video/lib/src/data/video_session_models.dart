@@ -154,6 +154,64 @@ abstract final class VideoSeriesHelper {
     return List<EpisodeRecord>.unmodifiable(sorted);
   }
 
+  /// 内置与外部播放共用起播目标解析，避免不同入口选择不同剧集。
+  static ({EpisodeRecord episode, MediaVariantRecord variant})
+  resolveInitialTarget(VideoWorkBundle bundle, VideoLaunchRequest request) {
+    final targetVariantId = request.variantId;
+    if (targetVariantId != null) {
+      for (final v in bundle.variants) {
+        if (v.id == targetVariantId) {
+          final matchedEp = bundle.episodes.cast<EpisodeRecord?>().firstWhere(
+            (e) => e?.id == v.episodeId,
+            orElse: () => null,
+          );
+          if (matchedEp != null) {
+            return (episode: matchedEp, variant: v);
+          }
+        }
+      }
+    }
+
+    final targetEpisodeId =
+        request.episodeId ?? bundle.latestPlayback?.episodeId;
+    if (targetEpisodeId != null) {
+      final matchedEp = bundle.episodes.cast<EpisodeRecord?>().firstWhere(
+        (e) => e?.id == targetEpisodeId,
+        orElse: () => null,
+      );
+      if (matchedEp != null) {
+        final vars = bundle.variantsForEpisode(matchedEp.id);
+        if (vars.isNotEmpty) {
+          final latestVarId = bundle.latestPlayback?.variantId;
+          final preferredVar = vars.cast<MediaVariantRecord?>().firstWhere(
+            (v) => v?.id == latestVarId,
+            orElse: () => vars.first,
+          );
+          return (episode: matchedEp, variant: preferredVar!);
+        }
+      }
+    }
+
+    for (final ep in bundle.episodes) {
+      final vars = bundle.variantsForEpisode(ep.id);
+      if (vars.isNotEmpty) {
+        return (episode: ep, variant: vars.first);
+      }
+    }
+
+    final fallbackVar = bundle.variants.first;
+    final fallbackEp =
+        bundle.episodes.firstOrNull ??
+        EpisodeRecord(
+          id:
+              fallbackVar.episodeId ??
+              EpisodeId.trusted('ep:${fallbackVar.id.value}'),
+          workId: bundle.work.id,
+          seasonNumber: 1,
+        );
+    return (episode: fallbackEp, variant: fallbackVar);
+  }
+
   static int _categoryRank(EpisodeCategory category) => switch (category) {
     EpisodeCategory.main => 0,
     EpisodeCategory.extra => 1,

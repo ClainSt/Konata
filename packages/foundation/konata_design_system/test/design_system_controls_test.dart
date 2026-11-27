@@ -14,6 +14,51 @@ Widget _wrapApp(Widget child, {bool dark = true}) {
 }
 
 void main() {
+  testWidgets('网格重排复用仍可见的卡片元素，筛选仅销毁移除项', (tester) async {
+    tester.view.physicalSize = const Size(1000, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    const initial = ['a', 'b', 'c', 'd', 'e', 'f'];
+    const reversed = ['f', 'e', 'd', 'c', 'b', 'a'];
+    const filtered = ['g', 'e', 'd', 'c', 'b', 'h'];
+    Widget grid(List<String> ids, {required bool reuse}) {
+      final positions = {for (final (index, id) in ids.indexed) id: index};
+      return _wrapApp(
+        AdaptiveCardGrid(
+          itemCount: ids.length,
+          findChildIndexCallback: reuse
+              ? (key) => key is ValueKey<String> ? positions[key.value] : null
+              : null,
+          itemBuilder: (_, index, _) =>
+              SizedBox(key: ValueKey(ids[index]), child: Text(ids[index])),
+        ),
+      );
+    }
+
+    Element element(String id) => tester.element(find.byKey(ValueKey(id)));
+    await tester.pumpWidget(grid(initial, reuse: false));
+    final old = {for (final id in initial) id: element(id)};
+    await tester.pumpWidget(grid(reversed, reuse: false));
+    final baseline = initial
+        .where((id) => identical(old[id], element(id)))
+        .length;
+    expect(baseline, 0);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpWidget(grid(initial, reuse: true));
+    final before = {for (final id in initial) id: element(id)};
+    await tester.pumpWidget(grid(reversed, reuse: true));
+    expect(initial.where((id) => identical(before[id], element(id))).length, 6);
+    await tester.pumpWidget(grid(filtered, reuse: true));
+    for (final id in ['e', 'd', 'c', 'b']) {
+      expect(element(id), same(before[id]));
+    }
+    expect(find.byKey(const ValueKey('a')), findsNothing);
+    expect(find.byKey(const ValueKey('f')), findsNothing);
+    expect(find.text('g'), findsOneWidget);
+    expect(find.text('h'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('互斥胶囊在各种宽度和主题下保持完整滑块轮廓与上下等距', (tester) async {
     for (final dark in [true, false]) {
       for (final expand in [false, true]) {

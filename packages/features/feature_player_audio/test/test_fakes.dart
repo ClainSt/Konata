@@ -451,9 +451,17 @@ class SpyLyricDisplayPort implements LyricDisplayPort {
 }
 
 /// 记录窗口迷你置顶调用的模拟宿主窗口端口。
-class SpyHostWindowPort implements PlaybackHostWindowPort, DesktopMiniDockPort {
+class SpyHostWindowPort
+    implements
+        PlaybackHostWindowPort,
+        DesktopMiniDockPort,
+        DesktopAudioMiniWindowPort {
   final moveEvents = StreamController<void>.broadcast(sync: true);
-  Future<void> dispose() => moveEvents.close();
+  Future<void> dispose() async {
+    await moveEvents.close();
+    await blurEvents.close();
+  }
+
   DesktopMiniDockSide? nextDockSide;
   int snapCount = 0;
 
@@ -464,6 +472,20 @@ class SpyHostWindowPort implements PlaybackHostWindowPort, DesktopMiniDockPort {
   Future<DesktopMiniDockSide?> snapDesktopMiniWindow() async {
     snapCount++;
     return nextDockSide;
+  }
+
+  final blurEvents = StreamController<void>.broadcast();
+  @override
+  Stream<void> get desktopAudioMiniBlur => blurEvents.stream;
+
+  int enterAudioMiniCount = 0;
+  @override
+  Future<void> enterDesktopAudioMiniWindow({
+    required double width,
+    required double height,
+  }) async {
+    await enterDesktopMiniWindow(width: width, height: height);
+    enterAudioMiniCount++;
   }
 
   int enterMiniCount = 0;

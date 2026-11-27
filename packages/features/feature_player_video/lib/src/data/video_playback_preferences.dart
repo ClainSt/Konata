@@ -36,7 +36,7 @@ class VideoPlaybackPreferences {
     this.backgroundAudioOnMinimize = true,
     this.autoEnterPip = true,
     this.enableCloudSubset = false,
-    this.fontInAssEndpoint = '',
+    this.fontInAssEndpoint = FontInAssCloudClient.defaultEndpointUrl,
     this.authorizedCloudSubsetOrigins = const <String>[],
     this.bitstreamPassthrough = false,
     this.androidBitPerfectUsb = false,
@@ -272,6 +272,7 @@ class VideoPlaybackPreferences {
 
     final subLangs = _readStringList(json['preferredSubtitleLangs']);
     final audioLangs = _readStringList(json['preferredAudioLangs']);
+    final endpoint = _readString(json['fontInAssEndpoint'], '').trim();
 
     return VideoPlaybackPreferences(
       preferredEngine: engine,
@@ -291,8 +292,12 @@ class VideoPlaybackPreferences {
         json['backgroundAudioOnMinimize'],
         true,
       ),
-      enableCloudSubset: _readBool(json['enableCloudSubset'], false),
-      fontInAssEndpoint: _readString(json['fontInAssEndpoint'], ''),
+      // 空地址的旧配置此前不会上传字幕；补全默认值时不改变这一安全边界。
+      enableCloudSubset:
+          endpoint.isNotEmpty && _readBool(json['enableCloudSubset'], false),
+      fontInAssEndpoint: endpoint.isEmpty
+          ? FontInAssCloudClient.defaultEndpointUrl
+          : endpoint,
       authorizedCloudSubsetOrigins: _readStringList(
         json['authorizedCloudSubsetOrigins'],
       ),

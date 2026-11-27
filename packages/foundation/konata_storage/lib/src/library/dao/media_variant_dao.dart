@@ -256,6 +256,25 @@ ON CONFLICT(${MediaVariantsSchema.colId}) DO UPDATE SET
     return <MediaVariantRecord>[for (final row in rs) _mapRow(row)];
   }
 
+  /// 仅查询指定资产类别的主键，供播放历史等无需完整媒体元数据的场景使用。
+  Set<VariantId> listIdsByAssetKind(
+    AssetKind kind, {
+    bool includeDeleted = false,
+  }) {
+    final deletedClause = includeDeleted
+        ? ''
+        : ' AND ${MediaVariantsSchema.colDeletedAtMs} IS NULL';
+    final rows = _engine.select(
+      'SELECT ${MediaVariantsSchema.colId} FROM ${MediaVariantsSchema.table} '
+      'WHERE ${MediaVariantsSchema.colAssetKind} = ?$deletedClause;',
+      [kind.name],
+    );
+    return {
+      for (final row in rows)
+        VariantId.trusted(row[MediaVariantsSchema.colId] as String),
+    };
+  }
+
   /// 查询指定作品的全部物理版本记录。
   List<MediaVariantRecord> listByWork(
     WorkId workId, {

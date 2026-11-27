@@ -147,7 +147,11 @@ class TmdbService {
                 ? 'zh,ja,en,null'
                 : 'zh,ja,null',
         };
-        final json = await _getJson('/$segment/$tmdbId', query, priority: priority);
+        final json = await _getJson(
+          '/$segment/$tmdbId',
+          query,
+          priority: priority,
+        );
         if (json == null || json['id'] == null) return null;
 
         final title = _pickString(json, ['name', 'title']) ?? '';
@@ -374,7 +378,10 @@ class TmdbService {
       return localResult.bytes;
     }
 
-    final effectiveSize = resolveImageSize(size: size, targetWidth: targetWidth);
+    final effectiveSize = resolveImageSize(
+      size: size,
+      targetWidth: targetWidth,
+    );
     final normalizedPath = _normalizeTmdbRasterPath(trimmed);
     final cacheKey = buildSizedArtworkCacheKey(effectiveSize, normalizedPath);
     final cached = await artworkCache?.read(
@@ -479,11 +486,16 @@ class TmdbService {
   }) async {
     final trimmed = imagePath.trim();
     if (trimmed.isEmpty) return Uint8List(0);
+    // 请求入口捕获代次，跨网络等待、镜像和降档回退统一使用同一缓存作用域。
+    final store = _artworkCache;
+    final requestCache = store is RequestScopedArtworkCacheStore
+        ? store.captureRequestScope()
+        : store;
 
     // 1. 支持自定义 HTTP/HTTPS 图片链接（含官方域名 -> 备用图片镜像自动回退与非位图脏数据校验）
     if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
       final cacheKey = 'url:$trimmed';
-      final cached = await _artworkCache?.read(
+      final cached = await requestCache?.read(
         cacheKey,
         owner: ownerWorkId,
         subfolder: subfolder,
@@ -499,7 +511,7 @@ class TmdbService {
         backupUri: backupUri,
         priority: priority,
       );
-      await _artworkCache?.write(
+      await requestCache?.write(
         cacheKey,
         bytes,
         owner: ownerWorkId,
@@ -511,7 +523,7 @@ class TmdbService {
     // 2. 支持本地磁盘图片（如 `C:\...`、`file:///...` 或多段 POSIX 路径；跳过 TMDB 单段 `/xxx.jpg` 误探测）
     final localResult = await _tryReadExplicitLocalImage(
       trimmed,
-      artworkCache: _artworkCache,
+      artworkCache: requestCache,
       ownerWorkId: ownerWorkId,
       subfolder: subfolder,
     );
@@ -522,13 +534,16 @@ class TmdbService {
     }
 
     // 3. 标准 TMDB 相对路径：自动将 `.svg` 矢量徽标改写为 CDN 栅格化 `.png`，并校验位图载荷再缓存
-    final effectiveSize = resolveImageSize(size: size, targetWidth: targetWidth);
+    final effectiveSize = resolveImageSize(
+      size: size,
+      targetWidth: targetWidth,
+    );
     final rawNormalized = trimmed.startsWith('/') ? trimmed : '/$trimmed';
     final isSvgLogo = rawNormalized.toLowerCase().endsWith('.svg');
     final normalizedPath = _normalizeTmdbRasterPath(rawNormalized);
     final cacheKey = buildSizedArtworkCacheKey(effectiveSize, normalizedPath);
 
-    final cached = await _artworkCache?.read(
+    final cached = await requestCache?.read(
       cacheKey,
       minimumQuality: effectiveSize.qualityRank,
       owner: ownerWorkId,
@@ -567,7 +582,7 @@ class TmdbService {
         final writeQuality = writeAsRequestedTier
             ? effectiveSize.qualityRank
             : tier.qualityRank;
-        await _artworkCache?.write(
+        await requestCache?.write(
           writeCacheKey,
           bytes,
           owner: ownerWorkId,
@@ -581,7 +596,7 @@ class TmdbService {
     }
     // 全部网络清晰度档位失败（如大图超时或临时离线）时，按清晰度从高到低回退读取已落盘的同源本地缓存图。
     for (final tier in tiersToTry) {
-      final staleCached = await _artworkCache?.read(
+      final staleCached = await requestCache?.read(
         buildSizedArtworkCacheKey(tier, normalizedPath),
         minimumQuality: 0,
         owner: ownerWorkId,
@@ -744,7 +759,10 @@ class TmdbService {
     required RequestPriority priority,
   }) async {
     final primaryBase = Uri.parse('${TmdbNetworkConfig.defaultApiBase}$path');
-    final finalQuery = <String, String>{...primaryBase.queryParameters, ...query};
+    final finalQuery = <String, String>{
+      ...primaryBase.queryParameters,
+      ...query,
+    };
     final headers = <String, String>{};
 
     switch (_http.config.credentialKind) {
@@ -777,7 +795,9 @@ class TmdbService {
 
     Object? decoded;
     try {
-      decoded = jsonDecode(utf8.decode(response.bodyBytes, allowMalformed: true));
+      decoded = jsonDecode(
+        utf8.decode(response.bodyBytes, allowMalformed: true),
+      );
     } on FormatException {
       return null;
     }

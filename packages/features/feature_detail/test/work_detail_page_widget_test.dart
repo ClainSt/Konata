@@ -1,5 +1,7 @@
+import 'package:engine_playback/engine_playback.dart';
 import 'package:engine_scraping/engine_scraping.dart';
 import 'package:feature_detail/feature_detail.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,6 +10,86 @@ import 'package:konata_design_system/konata_design_system.dart';
 import 'package:konata_storage/konata_storage.dart';
 
 import 'support/detail_test_fixtures.dart';
+
+final class _FakeVideoRelay implements DesktopRelayGateway {
+  bool configured = false;
+  bool succeeds = true;
+  int calls = 0;
+  int? start;
+  String? target;
+  VariantId? variant;
+  PlaybackProgressCallback? progress;
+
+  @override
+  Future<List<RelayTargetDescriptor>> listVideoTargets() async => configured
+      ? [
+          const RelayTargetDescriptor(
+            id: 'other',
+            name: '其他',
+            kindKey: 'mpv',
+            isDefault: false,
+            configured: true,
+          ),
+          const RelayTargetDescriptor(
+            id: 'default',
+            name: '默认',
+            kindKey: 'mpv',
+            isDefault: true,
+            configured: true,
+          ),
+        ]
+      : [];
+
+  @override
+  Future<LaunchPlaybackResult> launchVideo({
+    required WorkRecord work,
+    required EpisodeSummaryView episode,
+    required MediaVariantRecord variant,
+    MediaSourceView? source,
+    String? targetId,
+    String? preferredKindKey,
+    int startSeconds = 0,
+    int? mainEpisodeCount,
+    PlaybackProgressCallback? onProgressUpdate,
+  }) async {
+    calls++;
+    start = startSeconds;
+    target = targetId;
+    this.variant = variant.id;
+    progress = onProgressUpdate;
+    return LaunchPlaybackResult(
+      launched: succeeds,
+      message: succeeds ? '已启动外部播放器' : '播放器启动失败',
+    );
+  }
+
+  @override
+  Future<LaunchPlaybackResult> launchAudio({
+    required WorkRecord work,
+    required EpisodeSummaryView episode,
+    required MediaVariantRecord variant,
+    MediaSourceView? source,
+    String? targetId,
+    int startSeconds = 0,
+    double? exactStartSeconds,
+    PlaybackProgressCallback? onProgressUpdate,
+  }) async => throw StateError('不应调用外部音频');
+
+  @override
+  Future<LaunchPlaybackResult> launchAudioAlbum(
+    ExternalAudioAlbumRelayRequest request, {
+    ExternalAudioProgressCallback? onTrackProgress,
+  }) async => throw StateError('不应调用外部音频专辑');
+
+  @override
+  Future<FoobarComponentStatusSnapshot> probeAudioPlayerStatus({
+    int beefwebPort = 8880,
+  }) async => throw StateError('不应探测音频组件');
+
+  @override
+  Future<void> stopActiveExternalAudioSession({int beefwebPort = 8880}) async =>
+      throw StateError('不应直接停止外部音频');
+}
 
 Future<void> _seedRichWork(DetailTestHarness harness) async {
   await harness.repository.upsertSeriesGroup(
@@ -176,6 +258,280 @@ void main() {
         detailActions: <DetailActionContribution>[primaryAction],
       );
       await ctrl.load();
+    });
+
+    testWidgets('选集右键接力默认外部播放器并持久化真实进度', (tester) async {
+      tester.view.physicalSize = const Size(1440, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final relay = _FakeVideoRelay();
+      var prepares = 0;
+      await harness.repository.recordPlayback(
+        PlaybackRecord(
+          id: 'w_ui_1::ep_ui_1',
+          workId: 'w_ui_1',
+          episodeId: 'ep_ui_1',
+          variantId: 'var_ui_1',
+          playedAt: DateTime.utc(2025),
+          positionSeconds: 320,
+          durationSeconds: 1450,
+          sourceType: MediaSourceKind.local,
+          seasonNumber: 1,
+          episodeNumber: 1,
+          episodeTitle: '第一集',
+        ),
+      );
+      await tester.pumpWidget(
+        wrapDetailTestApp(
+          dependencies: harness.buildDependencies(
+            desktopRelayGateway: relay,
+            prepareExternalVideo: () async {
+              prepares++;
+            },
+          ),
+          child: WorkDetailPage(
+            workId: const WorkId.trusted('w_ui_1'),
+            controllerOverride: ctrl,
+            imageLoaderOverride: createStubImageLoader(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('detail_tab_episodes')));
+      await tester.pumpAndSettle();
+      final card = find.byKey(const ValueKey('episode_card_ep_ui_1'));
+      Future<void> clickExternal() async {
+        await tester.tapAt(
+          tester.getCenter(card),
+          buttons: kSecondaryMouseButton,
+          kind: PointerDeviceKind.mouse,
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey('episode_menu_external_play')),
+        );
+        await tester.pumpAndSettle();
+      }
+
+      await clickExternal();
+      expect(relay.calls, 0);
+      expect(prepares, 0);
+      relay.configured = true;
+      await clickExternal();
+      expect(relay.calls, 1);
+      expect(prepares, 1);
+      expect(relay.target, 'default');
+      expect(relay.start, 320);
+      expect(relay.variant?.value, 'var_ui_1');
+      expect(harness.navigator.videoPlayerCalls, isEmpty);
+      await relay.progress!(500, 1450, isFinal: false);
+      await tester.pumpAndSettle();
+      final saved = await harness.repository.getPlaybacksByWork('w_ui_1');
+      expect(saved.single.positionSeconds, 500);
+      expect(saved.single.isCompleted, isFalse);
+      await relay.progress!(1400, 1450, isFinal: true);
+      await tester.pumpAndSettle();
+      expect(
+        (await harness.repository.getPlaybacksByWork(
+          'w_ui_1',
+        )).single.isCompleted,
+        isTrue,
+      );
+      expect(tester.takeException(), isNull);
+    });
+
+    test('标记单集保留既有播放记录与实际版本且不修改其他集', () async {
+      final ep = (await harness.repository.getEpisodesByWork(
+        'w_ui_1',
+      )).firstWhere((e) => e.id == 'ep_ui_2');
+      await harness.repository.recordPlayback(
+        PlaybackRecord(
+          id: 'existing-record',
+          workId: 'w_ui_1',
+          episodeId: ep.id,
+          variantId: 'var_ui_2',
+          seasonNumber: 1,
+          episodeNumber: 2,
+          episodeTitle: '第二集',
+          sourceType: MediaSourceKind.local,
+          playedAt: DateTime.utc(2025),
+          positionSeconds: 320,
+          durationSeconds: 1450,
+        ),
+      );
+      final completion = harness.domainEventBus
+          .on<EpisodeCompletionChangedEvent>()
+          .first;
+      final marked = await ctrl.markEpisodeWatched(ep);
+      final event = await completion;
+      expect(event.workId.value, 'w_ui_1');
+      expect(event.episodeId.value, ep.id);
+      expect(event.completed, isTrue);
+      expect(marked.id, 'existing-record');
+      expect(marked.positionSeconds, 320);
+      expect(marked.durationSeconds, 1450);
+      expect(marked.isCompleted, isTrue);
+      final again = await ctrl.markEpisodeWatched(ep);
+      expect(again.id, marked.id);
+      expect(again.playedAt, marked.playedAt);
+      final saved = await harness.repository.getPlaybacksByWork('w_ui_1');
+      expect(saved.length, 1);
+      expect(saved.single.episodeId, ep.id);
+      expect(saved.single.isCompleted, isTrue);
+      expect(saved.single.durationSeconds, 1450);
+    });
+
+    test('批量已看保留实际版本与断点，跳过未映射分集和特典', () async {
+      await harness.repository.upsertEpisode(
+        const Episode(
+          id: 'ep_unmapped',
+          workId: 'w_ui_1',
+          seasonNumber: 1,
+          episodeNumber: 4,
+          category: EpisodeCategory.main,
+        ),
+      );
+      await harness.repository.upsertMediaVariant(
+        const MediaVariant(
+          id: 'var_ui_2_alt',
+          workId: 'w_ui_1',
+          episodeId: 'ep_ui_2',
+          sourceId: 'src_ui',
+          relativePath: 'Main/Alt/02.mkv',
+          fileName: '02.mkv',
+          fileSize: 1024,
+        ),
+      );
+      final previouslyCompleted = await ctrl.markEpisodeWatched(
+        (await harness.repository.getEpisodesByWork(
+          'w_ui_1',
+        )).firstWhere((episode) => episode.id == 'ep_ui_3'),
+      );
+      await harness.repository.recordPlayback(
+        PlaybackRecord(
+          id: 'real-alt-history',
+          workId: 'w_ui_1',
+          episodeId: 'ep_ui_2',
+          variantId: 'var_ui_2_alt',
+          seasonNumber: 1,
+          episodeNumber: 2,
+          episodeTitle: '第二集',
+          sourceType: MediaSourceKind.local,
+          playedAt: DateTime.utc(2025),
+          positionSeconds: 320,
+          durationSeconds: 1450,
+        ),
+      );
+      final completions = <EpisodeCompletionChangedEvent>[];
+      final subscription = harness.domainEventBus
+          .on<EpisodeCompletionChangedEvent>()
+          .listen(completions.add);
+      addTearDown(subscription.cancel);
+
+      await ctrl.markAllMainEpisodesWatched();
+      await Future<void>.delayed(Duration.zero);
+      final records = {
+        for (final record in await harness.repository.getPlaybacksByWork(
+          'w_ui_1',
+        ))
+          record.episodeId: record,
+      };
+      expect(records.keys, unorderedEquals(['ep_ui_1', 'ep_ui_2', 'ep_ui_3']));
+      expect(records.values.every((record) => record.isCompleted), isTrue);
+      final first = records['ep_ui_1']!;
+      expect(first.id, 'w_ui_1::ep_ui_1');
+      expect(first.variantId, 'var_ui_1');
+      expect((first.positionSeconds, first.durationSeconds), (0, 0));
+      final second = records['ep_ui_2']!;
+      expect(second.id, 'real-alt-history');
+      expect(second.variantId, 'var_ui_2_alt');
+      expect((second.positionSeconds, second.durationSeconds), (320, 1450));
+      expect(records['ep_ui_3']!.playedAt, previouslyCompleted.playedAt);
+      expect(
+        completions.map(
+          (event) =>
+              (event.workId.value, event.episodeId.value, event.completed),
+        ),
+        unorderedEquals([
+          ('w_ui_1', 'ep_ui_1', true),
+          ('w_ui_1', 'ep_ui_2', true),
+        ]),
+      );
+
+      await ctrl.markAllMainEpisodesWatched();
+      await Future<void>.delayed(Duration.zero);
+      expect(completions, hasLength(2));
+      final afterRetry = await harness.repository.getPlaybacksByWork('w_ui_1');
+      expect(afterRetry, hasLength(3));
+      for (final record in afterRetry) {
+        expect(record.playedAt, records[record.episodeId]!.playedAt);
+      }
+    });
+
+    testWidgets('分集菜单调整季集号后保存真实映射且仅修改目标文件', (tester) async {
+      tester.view.physicalSize = const Size(1440, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        wrapDetailTestApp(
+          dependencies: harness.buildDependencies(),
+          child: WorkDetailPage(
+            workId: const WorkId.trusted('w_ui_1'),
+            controllerOverride: ctrl,
+            imageLoaderOverride: createStubImageLoader(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('detail_tab_episodes')));
+      await tester.pumpAndSettle();
+      final card = find.byKey(const ValueKey('episode_card_ep_ui_1'));
+      await tester.tapAt(
+        tester.getCenter(card),
+        buttons: kSecondaryMouseButton,
+        kind: PointerDeviceKind.mouse,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('episode_menu_adjust_mapping')),
+      );
+      await tester.pumpAndSettle();
+      final panel = tester.widget<FileMappingPanel>(
+        find.byType(FileMappingPanel),
+      );
+      expect(panel.selectedVariantIds, {'var_ui_1'});
+      Finder field(String hint) => find.descendant(
+        of: find.byWidgetPredicate(
+          (w) => w is KonataSoftTextField && w.hintText == hint,
+        ),
+        matching: find.byType(EditableText),
+      );
+      await tester.enterText(field('季'), '2');
+      await tester.enterText(field('起始集'), '8');
+      await tester.tap(find.text('顺延编号'));
+      await tester.pumpAndSettle();
+      final row = panel.rows.firstWhere((r) => r.variant.id == 'var_ui_1');
+      expect(row.seasonNumber, 2);
+      expect(row.episodeNumber, 8);
+      expect(row.isModified, isTrue);
+      await tester.tap(find.text('保存并锁定变更'));
+      await tester.pumpAndSettle();
+      expect(find.byType(FileMappingPanel), findsNothing);
+      final variants = await harness.repository.getVariantsByWork('w_ui_1');
+      final changed = variants.firstWhere((v) => v.id == 'var_ui_1');
+      expect(changed.mappingLocked, isTrue);
+      final episodes = await harness.repository.getEpisodesByWork('w_ui_1');
+      final target = episodes.firstWhere((e) => e.id == changed.episodeId);
+      expect(target.seasonNumber, 2);
+      expect(target.episodeNumber, 8);
+      expect(
+        variants.firstWhere((v) => v.id == 'var_ui_2').episodeId,
+        'ep_ui_2',
+      );
+      expect(harness.navigator.videoPlayerCalls, isEmpty);
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets(
@@ -534,6 +890,54 @@ void main() {
       );
 
       expect(find.byType(Scrollbar), findsNothing);
+      final infoItem = find.byKey(const ValueKey('episode_menu_media_info'));
+      Future<void> checkMediaInfo(Finder card) async {
+        await tester.tapAt(
+          tester.getCenter(card),
+          buttons: kSecondaryMouseButton,
+          kind: PointerDeviceKind.mouse,
+        );
+        await tester.pumpAndSettle();
+        expect(infoItem, findsOneWidget);
+        expect(harness.navigator.videoPlayerCalls, isEmpty);
+        await tester.tap(infoItem);
+        await tester.pumpAndSettle();
+        final mediaInfo = find.byType(EpisodeMediaInfoDialog);
+        expect(mediaInfo, findsOneWidget);
+        expect(
+          find.descendant(of: mediaInfo, matching: find.text('[Subs] 01.mkv')),
+          findsOneWidget,
+        );
+        await tester.tap(
+          find.descendant(of: mediaInfo, matching: find.text('关闭')),
+        );
+        await tester.pumpAndSettle();
+        expect(mediaInfo, findsNothing);
+        expect(card, findsOneWidget);
+        expect(tester.takeException(), isNull);
+      }
+
+      final drawerCard = find.byKey(const ValueKey('episode_card_ep_ui_1'));
+      await checkMediaInfo(drawerCard);
+      await tester.tapAt(
+        tester.getCenter(drawerCard),
+        buttons: kSecondaryMouseButton,
+        kind: PointerDeviceKind.mouse,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('episode_menu_adjust_mapping')),
+      );
+      await tester.pumpAndSettle();
+      final mapping = find.byType(FileMappingPanel);
+      expect(mapping, findsOneWidget);
+      final panel = tester.widget<FileMappingPanel>(mapping);
+      expect(panel.selectedVariantIds, {'var_ui_1'});
+      expect(panel.rows.first.variant.id, 'var_ui_1');
+      await tester.tap(find.text('取消'));
+      await tester.pumpAndSettle();
+      expect(mapping, findsNothing);
+      expect(harness.navigator.videoPlayerCalls, isEmpty);
       await tester.tap(find.byKey(const Key('detail_drawer_view_all_button')));
       await tester.pumpAndSettle();
       expect(find.text('少女终末旅行 · 完整列表'), findsOneWidget);
@@ -541,6 +945,41 @@ void main() {
         find.byKey(const ValueKey('full_list_episode_ep_ui_1')),
         findsOneWidget,
       );
+      await checkMediaInfo(
+        find.byKey(const ValueKey('full_list_episode_ep_ui_1')),
+      );
+      final card = find.byKey(const ValueKey('full_list_episode_ep_ui_1'));
+      final mark = find.byKey(const ValueKey('episode_menu_mark_watched'));
+      await tester.tapAt(
+        tester.getCenter(card),
+        buttons: kSecondaryMouseButton,
+        kind: PointerDeviceKind.mouse,
+      );
+      await tester.pumpAndSettle();
+      expect(mark, findsOneWidget);
+      await tester.tap(mark);
+      await tester.pumpAndSettle();
+      final records = await harness.repository.getPlaybacksByWork('w_ui_1');
+      expect(records.length, 1);
+      expect(records.single.episodeId, 'ep_ui_1');
+      expect(records.single.id, 'w_ui_1::ep_ui_1');
+      expect(records.single.variantId, 'var_ui_1');
+      expect(records.single.isCompleted, isTrue);
+      expect(records.single.durationSeconds, 0);
+      expect(
+        tester.widget<EpisodeDrawerCard>(card).playback?.isCompleted,
+        isTrue,
+      );
+      expect(harness.navigator.videoPlayerCalls, isEmpty);
+      await tester.tapAt(
+        tester.getCenter(card),
+        buttons: kSecondaryMouseButton,
+        kind: PointerDeviceKind.mouse,
+      );
+      await tester.pumpAndSettle();
+      expect(mark, findsNothing);
+      await tester.tapAt(const Offset(5, 5));
+      await tester.pumpAndSettle();
       final dialog = find.byType(KonataGlassDialog);
 
       final list = find.byKey(const ValueKey('detail_full_list_episodes'));

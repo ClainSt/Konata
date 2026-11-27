@@ -453,7 +453,7 @@ class AudioPlaybackCapsule extends StatelessWidget {
     required this.snapshot,
     required this.sidePanels,
     required this.onToggleQueue,
-    required this.onOpenSafetyDialog,
+
     required this.onOpenSidePanel,
     this.onRelayToDesktop,
     this.onToggleDesktopMini,
@@ -473,9 +473,6 @@ class AudioPlaybackCapsule extends StatelessWidget {
 
   /// 开关队列侧栏或底部队列弹窗回调。
   final VoidCallback onToggleQueue;
-
-  /// 打开 `-12 dBFS` 发烧安全与输出设备管理弹窗回调。
-  final VoidCallback onOpenSafetyDialog;
 
   /// 点击打开外部扩展侧栏回调。
   final ValueChanged<PlayerSidePanelContribution> onOpenSidePanel;
@@ -578,7 +575,6 @@ class AudioPlaybackCapsule extends StatelessWidget {
                             : Icons.queue_music_rounded,
                         tooltip: isQueueOpen ? '歌词' : '播放队列',
                         color: Colors.white.withValues(alpha: 0.84),
-                        highlighted: isQueueOpen,
                         onTap: onToggleQueue,
                         size: 18,
                         fixedSize: 34.0,
@@ -726,7 +722,6 @@ class AudioPlaybackCapsule extends StatelessWidget {
                                       : Icons.queue_music_rounded,
                                   tooltip: isQueueOpen ? '歌词' : '播放队列',
                                   color: Colors.white,
-                                  highlighted: isQueueOpen,
                                   fixedSize: 34,
                                   size: 19,
                                   onTap: onToggleQueue,
@@ -734,7 +729,7 @@ class AudioPlaybackCapsule extends StatelessWidget {
                               ],
                             ),
                             const SizedBox(width: 12),
-                            // 右侧：音频规格直通入口、扩展侧栏按钮与音量滑块。
+                            // 右侧：音频规格、扩展侧栏按钮与音量滑块。
                             Expanded(
                               flex: 3,
                               child: Align(
@@ -762,15 +757,15 @@ class AudioPlaybackCapsule extends StatelessWidget {
                                         const SizedBox(width: 4),
                                       ],
                                       if (showSpecPill) ...[
-                                        GestureDetector(
-                                          onTap: onOpenSafetyDialog,
-                                          child: KonataSpecBadge(
-                                            label: snapshot.formattedAudioSpec,
-                                            highlighted: snapshot
-                                                .audiophilePlan
-                                                .safetyLimiterEngaged,
-                                            darkOverlay: true,
+                                        KonataSpecBadge(
+                                          key: const ValueKey(
+                                            'audio_format_badge',
                                           ),
+                                          label: snapshot.formattedAudioSpec,
+                                          highlighted: snapshot
+                                              .audiophilePlan
+                                              .safetyLimiterEngaged,
+                                          darkOverlay: true,
                                         ),
                                         const SizedBox(width: 8),
                                       ],

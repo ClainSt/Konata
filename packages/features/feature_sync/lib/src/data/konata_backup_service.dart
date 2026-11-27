@@ -48,6 +48,7 @@ final class KonataBackupService {
     int Function()? nowMs,
     this._eventBus,
     this._diagnosticLog,
+    this.readLegacyCue,
   }) : _databases = databases,
        _nowMs = nowMs ?? (() => DateTime.now().millisecondsSinceEpoch),
        _slices = _buildOrderedSlices(
@@ -63,6 +64,7 @@ final class KonataBackupService {
   final int Function() _nowMs;
   final DomainEventBus? _eventBus;
   final DiagnosticLogPort? _diagnosticLog;
+  final LegacyCueReader? readLegacyCue;
   final List<SyncSliceContributor<Object?>> _slices;
 
   /// 已注册的全部同步切片列表（内置切片在前，外部热插拔切片按注入顺序紧随其后）。
@@ -188,9 +190,13 @@ final class KonataBackupService {
       LibraryCatalogSyncSlice.id,
     )!.exportSlice(localDeviceId: '');
     try {
-      final archive = LegacyBackupMigration.convert(
+      final archive = await LegacyBackupMigration.convert(
         decoded,
         localCatalog: localCatalog.data,
+        localPrefs: ScopedPrefsStore(
+          _databases.userState,
+        ).exportPortableEntries(),
+        readCue: readLegacyCue,
       );
       return (archive, (decoded as Map)['formatVersion'] as int);
     } on FormatException {

@@ -171,30 +171,64 @@ class _ReviewDialogState extends ConsumerState<_ReviewDialog> {
     final mgmt = ref.read(workManagementControllerProvider);
     final library = ref.read(libraryControllerProvider);
     var successCount = 0;
-    for (final work in targets) {
-      if (!mounted) break;
-      try {
-        final result = await mgmt.rematchReviewWork(work.id);
-        if (result.outcome == RematchWorkOutcome.matched ||
-            result.outcome == RematchWorkOutcome.autoMerged) {
-          successCount++;
-        } else {
-          final updatedCands = await mgmt.getScrapeCandidates(work.id);
-          if (mounted) {
-            setState(() => _candidatesByWork[work.id] = updatedCands);
+    var failureCount = 0;
+    var refreshFailed = false;
+    final diagnostic = ref
+        .read(featureLibraryDependenciesProvider)
+        .diagnosticLog;
+    try {
+      for (final work in targets) {
+        if (!mounted) break;
+        try {
+          final result = await mgmt.rematchReviewWork(work.id);
+          if (result.outcome == RematchWorkOutcome.matched ||
+              result.outcome == RematchWorkOutcome.autoMerged) {
+            successCount++;
+          } else if (result.outcome == RematchWorkOutcome.networkError) {
+            failureCount++;
+          } else {
+            final updatedCands = await mgmt.getScrapeCandidates(work.id);
+            if (mounted) {
+              setState(() => _candidatesByWork[work.id] = updatedCands);
+            }
           }
+        } catch (error, stack) {
+          failureCount++;
+          diagnostic.logError(
+            subsystem: DiagnosticSubsystem.ui,
+            code: 'review_batch_retry_failed',
+            message: '批量重新匹配条目失败',
+            error: error,
+            stackTrace: stack,
+          );
         }
-      } catch (_) {}
+        if (mounted) {
+          setState(() => _batchDone++);
+        }
+      }
+      if (!mounted) return;
+      await library.reload();
+    } catch (error, stack) {
+      refreshFailed = true;
+      diagnostic.logError(
+        subsystem: DiagnosticSubsystem.ui,
+        code: 'review_batch_refresh_failed',
+        message: '批量重新匹配后刷新失败',
+        error: error,
+        stackTrace: stack,
+      );
+    } finally {
       if (mounted) {
-        setState(() => _batchDone++);
+        setState(() => _batchRetrying = false);
       }
     }
-    await library.reload();
     if (!mounted) return;
-    setState(() => _batchRetrying = false);
+    final remaining = targets.length - successCount - failureCount;
     showKonataToast(
       context,
-      '批量重试完成：$successCount / ${targets.length} 条已自动完成匹配',
+      '批量重试：成功 $successCount 条，待复核 $remaining 条，失败 $failureCount 条'
+      '${refreshFailed ? '；列表刷新失败，请重试刷新' : ''}',
+      isError: failureCount > 0 || refreshFailed,
     );
   }
 

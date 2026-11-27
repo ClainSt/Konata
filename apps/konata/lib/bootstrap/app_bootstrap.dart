@@ -1105,6 +1105,8 @@ final class _KonataBootstrapRootState
   void didHaveMemoryPressure() => _trimImageCaches();
 
   void _trimImageCaches() {
+    // 同时释放编码图的两层内存缓存；保留作品目录中的磁盘图片。
+    widget.bootstrap.artworkCache.clearMemoryCache();
     konataSharedThumbnailByteLru.clear();
     PaintingBinding.instance.imageCache.clear();
   }
@@ -1263,57 +1265,67 @@ final class _KonataBootstrapRootState
                     themeMode: appearance.themeMode,
                     builder: (context, child) => AndroidScrollCaptureScope(
                       navigatorKey: widget.navigatorKey,
-                      child: Stack(
-                        children: <Widget>[
-                          ?child,
-                          ValueListenableBuilder<bool>(
-                            valueListenable: widget.videoStageOpen,
-                            builder: (context, videoOpened, _) {
-                              return ValueListenableBuilder<bool>(
-                                valueListenable: widget.audioStageOpen,
-                                builder: (context, audioOpened, _) {
-                                  return Material(
-                                    type: MaterialType.transparency,
-                                    child: buildHostFloatingPlaybackOverlay(
-                                      registry: registry,
-                                      platform: platform,
-                                      videoStageOpen: videoOpened,
-                                      audioStageOpen: audioOpened,
-                                      androidAudioFocusPort: widget
-                                          .bootstrap
-                                          .androidAudioFocusPort,
-                                      androidPipPort:
-                                          widget.bootstrap.androidPipPort,
-                                      onActiveMiniKindChanged: (kind) {
-                                        if (_activeMiniKind.value != kind) {
-                                          _activeMiniKind.value = kind;
-                                        }
-                                      },
-                                      onExpandVideoStage:
-                                          (workId, episodeId, variantId) {
-                                            unawaited(
-                                              widget.hostNavigator
-                                                  .openVideoPlayer(
-                                                    workId: workId,
-                                                    episodeId: episodeId,
-                                                    variantId: variantId,
-                                                  ),
-                                            );
-                                          },
-                                      onExpandAudioStage: () {
-                                        unawaited(
-                                          widget.hostNavigator
-                                              .expandActiveAudioStage(),
-                                        );
-                                      },
-                                    ),
-                                  );
-                                },
-                              );
-                            },
-                          ),
-                          const KonataToastViewport(),
-                        ],
+                      child: buildHostDesktopAudioSurface(
+                        registry: registry,
+                        platform: platform,
+                        audioStageOpen: widget.audioStageOpen,
+                        onExpandAudioStage: () => unawaited(
+                          widget.hostNavigator.expandActiveAudioStage(),
+                        ),
+                        onCloseAudioStage: () =>
+                            unawaited(widget.hostNavigator.pop()),
+                        child: Stack(
+                          children: <Widget>[
+                            ?child,
+                            ValueListenableBuilder<bool>(
+                              valueListenable: widget.videoStageOpen,
+                              builder: (context, videoOpened, _) {
+                                return ValueListenableBuilder<bool>(
+                                  valueListenable: widget.audioStageOpen,
+                                  builder: (context, audioOpened, _) {
+                                    return Material(
+                                      type: MaterialType.transparency,
+                                      child: buildHostFloatingPlaybackOverlay(
+                                        registry: registry,
+                                        platform: platform,
+                                        videoStageOpen: videoOpened,
+                                        audioStageOpen: audioOpened,
+                                        androidAudioFocusPort: widget
+                                            .bootstrap
+                                            .androidAudioFocusPort,
+                                        androidPipPort:
+                                            widget.bootstrap.androidPipPort,
+                                        onActiveMiniKindChanged: (kind) {
+                                          if (_activeMiniKind.value != kind) {
+                                            _activeMiniKind.value = kind;
+                                          }
+                                        },
+                                        onExpandVideoStage:
+                                            (workId, episodeId, variantId) {
+                                              unawaited(
+                                                widget.hostNavigator
+                                                    .openVideoPlayer(
+                                                      workId: workId,
+                                                      episodeId: episodeId,
+                                                      variantId: variantId,
+                                                    ),
+                                              );
+                                            },
+                                        onExpandAudioStage: () {
+                                          unawaited(
+                                            widget.hostNavigator
+                                                .expandActiveAudioStage(),
+                                          );
+                                        },
+                                      ),
+                                    );
+                                  },
+                                );
+                              },
+                            ),
+                            const KonataToastViewport(),
+                          ],
+                        ),
                       ),
                     ),
                     home: ValueListenableBuilder<FloatingMiniPlayerKind>(

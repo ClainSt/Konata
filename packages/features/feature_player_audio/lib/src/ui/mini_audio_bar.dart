@@ -130,16 +130,25 @@ class _MiniAudioBarState extends State<MiniAudioBar>
         if (!mounted ||
             !widget.visible ||
             controller != widget.controller ||
-            !controller.snapshot.isDesktopMiniWindow ||
-            side == null) {
+            !controller.snapshot.isDesktopMiniWindow) {
           return;
         }
-        setState(
-          () => _edgeSide = side == DesktopMiniDockSide.left
-              ? FloatingMiniEdgeSide.left
-              : FloatingMiniEdgeSide.right,
+        if (side == null) {
+          // 拖离屏幕吸附区后恢复圆盘；普通展开态自由拖动不受影响。
+          if (_desktopVisualState == FloatingMiniVisualState.tucked) {
+            await _setDesktopVisualState(FloatingMiniVisualState.collapsed);
+          }
+          return;
+        }
+        final nextSide = side == DesktopMiniDockSide.left
+            ? FloatingMiniEdgeSide.left
+            : FloatingMiniEdgeSide.right;
+        final changedSide = _edgeSide != nextSide;
+        setState(() => _edgeSide = nextSide);
+        await _setDesktopVisualState(
+          FloatingMiniVisualState.tucked,
+          forceResize: changedSide,
         );
-        await _setDesktopVisualState(FloatingMiniVisualState.tucked);
       } catch (_) {
         if (mounted) showKonataToast(context, '小窗吸附失败，请重试', isError: true);
       } finally {
@@ -469,8 +478,13 @@ class _MiniAudioBarState extends State<MiniAudioBar>
     );
   }
 
-  Future<void> _setDesktopVisualState(FloatingMiniVisualState next) async {
-    if (_desktopResizing || _desktopVisualState == next) return;
+  Future<void> _setDesktopVisualState(
+    FloatingMiniVisualState next, {
+    bool forceResize = false,
+  }) async {
+    if (_desktopResizing || (!forceResize && _desktopVisualState == next)) {
+      return;
+    }
     _desktopResizing = true;
     final size = _currentBoxSize(next);
     try {

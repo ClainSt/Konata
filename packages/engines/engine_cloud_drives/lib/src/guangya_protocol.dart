@@ -70,6 +70,8 @@ final class LegacyGuangYaProtocol implements GuangYaProtocol {
   final Stopwatch _clock = Stopwatch()..start();
   Future<void> _tail = Future.value();
   int _lastRequestMs = -100000;
+  int _stableDirectoryPages = 0;
+  bool _lastWasDirectory = false;
   int _cooldownUntilMs = 0;
   String? _access;
   String? _refreshToken;
@@ -113,20 +115,33 @@ final class LegacyGuangYaProtocol implements GuangYaProtocol {
     );
   }
 
-  Future<T> _serial<T>(Future<T> Function() operation) async {
+  Future<T> _serial<T>(
+    Future<T> Function() operation, {
+    required bool directoryRead,
+  }) async {
     _check();
     _checkCooldown();
     final result = _tail.then((_) async {
       _check();
       _checkCooldown();
-      final delay =
-          _spacing.inMilliseconds -
-          (_clock.elapsedMilliseconds - _lastRequestMs);
+      // 仅连续稳定的只读目录分页降至 350ms；认证、取链及故障后保留原间隔。
+      final interval =
+          directoryRead && _lastWasDirectory && _stableDirectoryPages >= 8
+          ? min(_spacing.inMilliseconds, 350)
+          : _spacing.inMilliseconds;
+      final delay = interval - (_clock.elapsedMilliseconds - _lastRequestMs);
       if (delay > 0) await Future<void>.delayed(Duration(milliseconds: delay));
       _check();
       _checkCooldown();
       _lastRequestMs = _clock.elapsedMilliseconds;
-      return operation();
+      _lastWasDirectory = directoryRead;
+      if (!directoryRead) _stableDirectoryPages = 0;
+      try {
+        return await operation();
+      } catch (_) {
+        _stableDirectoryPages = 0;
+        rethrow;
+      }
     });
     _tail = result.then<void>((_) {}, onError: (Object _, StackTrace _) {});
     return result;
@@ -137,26 +152,31 @@ final class LegacyGuangYaProtocol implements GuangYaProtocol {
     Uri uri,
     Map<String, String> headers,
     Map<String, Object?>? body,
-  ) => _serial(() async {
-    try {
-      final response = await _request(method, uri, headers, body);
-      _check();
-      return _json(response);
-    } on RateLimitedHttpException catch (error) {
-      throw _rateLimited(error.retryAfter);
-    } on SourceAccessException {
-      rethrow;
-    } on TerminalSourceAuthException {
-      rethrow;
-    } on SourceRateLimitException catch (error) {
-      throw _rateLimited(error.retryAfter);
-    } catch (_) {
-      throw const SourceAccessException(
-        SourceAccessProblemKind.network,
-        '光鸭请求失败',
-      );
-    }
-  });
+  ) => _serial(
+    () async {
+      try {
+        final response = await _request(method, uri, headers, body);
+        _check();
+        return _json(response);
+      } on RateLimitedHttpException catch (error) {
+        throw _rateLimited(error.retryAfter);
+      } on SourceAccessException {
+        rethrow;
+      } on TerminalSourceAuthException {
+        rethrow;
+      } on SourceRateLimitException catch (error) {
+        throw _rateLimited(error.retryAfter);
+      } catch (_) {
+        throw const SourceAccessException(
+          SourceAccessProblemKind.network,
+          '光鸭请求失败',
+        );
+      }
+    },
+    directoryRead:
+        uri.host == 'api.guangyapan.com' &&
+        uri.path == '/userres/v1/file/get_file_list',
+  );
 
   Map<String, dynamic> _json(KonataHttpResponse response) {
     Map<String, dynamic>? obj;
@@ -319,6 +339,7 @@ final class LegacyGuangYaProtocol implements GuangYaProtocol {
                 msg is String &&
                 msg.trim().toLowerCase() == 'success');
         if (explicitError || !success || data is! Map<String, dynamic>) {
+          _stableDirectoryPages = 0;
           final codeText = code is int && code >= 0 && code <= 999999
               ? '（服务端代码 $code）'
               : '（HTTP 200，响应结构不兼容）';
@@ -341,6 +362,15 @@ final class LegacyGuangYaProtocol implements GuangYaProtocol {
 
   @override
   Future<List<GuangYaFile>> list(String parentId) async {
+    try {
+      return await _listPages(parentId);
+    } catch (_) {
+      _stableDirectoryPages = 0;
+      rethrow;
+    }
+  }
+
+  Future<List<GuangYaFile>> _listPages(String parentId) async {
     const pageSize = 100;
     final result = <GuangYaFile>[];
     final seen = <String>{};
@@ -402,6 +432,7 @@ final class LegacyGuangYaProtocol implements GuangYaProtocol {
           size: kind == 2 ? 0 : (size is int && size >= 0 ? size : null),
         ));
       }
+      _stableDirectoryPages = min(_stableDirectoryPages + 1, 8);
       if (seen.length == total) return result;
       if (rows.length < pageSize) {
         throw const SourceAccessException(

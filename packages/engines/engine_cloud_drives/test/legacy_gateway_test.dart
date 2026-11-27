@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:engine_cloud_drives/engine_cloud_drives.dart';
 import 'package:konata_contracts/konata_contracts.dart';
@@ -32,6 +33,7 @@ LegacyGuangYaProtocol protocol(
   GuangYaRequest request, {
   Future<void> Function(String)? persist,
   int maxPages = 10,
+  Duration spacing = Duration.zero,
 }) => LegacyGuangYaProtocol(
   credentials: const GuangYaCredentials(
     clientId: 'fixture-client',
@@ -41,7 +43,7 @@ LegacyGuangYaProtocol protocol(
   ),
   request: request,
   persistRefresh: persist ?? (_) async {},
-  spacing: Duration.zero,
+  spacing: spacing,
   maxPages: maxPages,
 );
 
@@ -329,6 +331,221 @@ void main() {
         await api.close();
       }
     }
+  });
+
+  test('宽目录树深度优先减少缓存驱逐后的重复父目录请求', () async {
+    const branches = 96;
+    Future<({int calls, int elapsedMs, List<String> paths})> sample(
+      bool depthFirst,
+    ) async {
+      var calls = 0;
+      final api = protocol((method, uri, headers, body) async {
+        if (uri.host == 'account.guangyapan.com') return response(token('one'));
+        calls++;
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+        final parent = body!['parentId'] as String;
+        if (parent == 'root') {
+          return page(
+            List.generate(branches, (i) => row('dir-$i', 'dir-$i', kind: 2)),
+            branches,
+          );
+        }
+        if (parent.startsWith('dir-')) {
+          return page([row('sub-$parent', 'Scans', kind: 2)], 1);
+        }
+        return page([row('file-$parent', '01.jpg')], 1);
+      });
+      final gateway = GuangYaGateway(
+        protocol: api,
+        rootId: 'root',
+        listingHintTtl: Duration.zero,
+      );
+      final queue = <String>[''];
+      final paths = <String>[];
+      final watch = Stopwatch()..start();
+      try {
+        while (queue.isNotEmpty) {
+          final entries = await gateway.listDirectory(queue.removeAt(0));
+          for (final entry in entries) {
+            if (entry.isDirectory) {
+              if (depthFirst) {
+                queue.insert(0, entry.relativePath);
+              } else {
+                queue.add(entry.relativePath);
+              }
+            } else {
+              paths.add(entry.relativePath);
+            }
+          }
+        }
+        paths.sort();
+        return (
+          calls: calls,
+          elapsedMs: watch.elapsedMilliseconds,
+          paths: paths,
+        );
+      } finally {
+        await gateway.close();
+      }
+    }
+
+    await sample(false);
+    await sample(true);
+    final oldTimes = <int>[];
+    final newTimes = <int>[];
+    for (var i = 0; i < 5; i++) {
+      final before = await sample(false);
+      final after = await sample(true);
+      expect(before.calls, greaterThan(after.calls));
+      expect(after.calls, 1 + branches * 2);
+      expect(after.paths, before.paths);
+      expect(after.paths.length, branches);
+      oldTimes.add(before.elapsedMs);
+      newTimes.add(after.elapsedMs);
+      stdout.writeln(
+        '第${i + 1}次：广度 ${before.calls} 次/${before.elapsedMs}ms，深度 ${after.calls} 次/${after.elapsedMs}ms',
+      );
+    }
+    oldTimes.sort();
+    newTimes.sort();
+    stdout.writeln('中位数：广度 ${oldTimes[2]}ms，深度 ${newTimes[2]}ms');
+  }, timeout: const Timeout(Duration(minutes: 2)));
+
+  test('目录起搏稳定后缩短且请求失败后恢复原间隔', () async {
+    final clock = Stopwatch()..start();
+    final starts = <int>[];
+    var fail = false;
+    final api = protocol((method, uri, headers, body) async {
+      if (uri.host == 'account.guangyapan.com') return response(token('one'));
+      starts.add(clock.elapsedMilliseconds);
+      if (fail) {
+        throw const SourceAccessException(
+          SourceAccessProblemKind.network,
+          'fixture',
+        );
+      }
+      return page([], 0);
+    }, spacing: const Duration(milliseconds: 550));
+    addTearDown(api.close);
+    for (var i = 0; i < 11; i++) {
+      await api.list('root');
+    }
+    fail = true;
+    await expectLater(api.list('root'), throwsA(isA<SourceAccessException>()));
+    fail = false;
+    await api.list('root');
+    final gaps = [
+      for (var i = 1; i < starts.length; i++) starts[i] - starts[i - 1],
+    ];
+    expect(gaps.take(7), everyElement(greaterThanOrEqualTo(540)));
+    expect(gaps.skip(7).take(4), everyElement(greaterThanOrEqualTo(340)));
+    expect(gaps.last, greaterThanOrEqualTo(540));
+    final warm = gaps.take(7).toList()..sort();
+    final stable = gaps.skip(7).take(4).toList()..sort();
+    expect(stable[1], lessThan(warm[3]));
+    stdout.writeln('稳定目录间隔：${warm[3]}ms → ${stable[1]}ms；故障后 ${gaps.last}ms');
+  });
+
+  test('扫描提示避免重复枚举祖先，且目录重名仍拒绝', () async {
+    final calls = <String>[];
+    var duplicate = false;
+    final api = protocol((method, uri, headers, body) async {
+      if (uri.host == 'account.guangyapan.com') return response(token('one'));
+      final id = body!['parentId'] as String;
+      calls.add(id);
+      if (id == 'root') {
+        return page([
+          row('dir', 'A', kind: 2),
+          if (duplicate) row('other', 'A', kind: 2),
+        ], duplicate ? 2 : 1);
+      }
+      if (id == 'dir') return page([row('sub', 'Scans', kind: 2)], 1);
+      return page([row('file', '01.jpg')], 1);
+    });
+    final gateway = GuangYaGateway(
+      protocol: api,
+      rootId: 'root',
+      directoryCacheTtl: Duration.zero,
+    );
+    addTearDown(gateway.close);
+    await gateway.listDirectory('');
+    await gateway.listDirectory('A');
+    final entries = await gateway.listDirectory('A/Scans');
+    expect(entries.single.remoteFileId, 'file');
+    expect(calls, ['root', 'dir', 'sub']);
+    duplicate = true;
+    await gateway.listDirectory('');
+    await expectLater(
+      gateway.listDirectory('A'),
+      throwsA(isA<SourceAccessException>()),
+    );
+    expect(calls, ['root', 'dir', 'sub', 'root', 'root']);
+  });
+
+  test('五轮冷缓存目录遍历性能及清单等价', () async {
+    Future<({int calls, int ms, List<String> files})> sample(bool hints) async {
+      var calls = 0;
+      final api = protocol((method, uri, headers, body) async {
+        if (uri.host == 'account.guangyapan.com') return response(token('one'));
+        calls++;
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+        final id = body!['parentId'] as String;
+        if (id == 'root') {
+          return page(
+            List.generate(12, (i) => row('dir-$i', 'dir-$i', kind: 2)),
+            12,
+          );
+        }
+        if (id.startsWith('dir-')) {
+          return page([row('sub-$id', 'Scans', kind: 2)], 1);
+        }
+        return page([row('file-$id', '01.jpg')], 1);
+      });
+      final gateway = GuangYaGateway(
+        protocol: api,
+        rootId: 'root',
+        directoryCacheTtl: Duration.zero,
+        listingHintTtl: hints ? const Duration(minutes: 2) : Duration.zero,
+      );
+      final pending = <String>[''];
+      final files = <String>[];
+      final watch = Stopwatch()..start();
+      try {
+        while (pending.isNotEmpty) {
+          for (final entry in await gateway.listDirectory(
+            pending.removeLast(),
+          )) {
+            if (entry.isDirectory) {
+              pending.add(entry.relativePath);
+            } else {
+              files.add(entry.relativePath);
+            }
+          }
+        }
+        files.sort();
+        return (calls: calls, ms: watch.elapsedMilliseconds, files: files);
+      } finally {
+        await gateway.close();
+      }
+    }
+
+    await sample(false);
+    await sample(true);
+    final before = <int>[], after = <int>[];
+    for (var i = 0; i < 5; i++) {
+      final a = await sample(false), b = await sample(true);
+      expect(a.calls, 61);
+      expect(b.calls, 25);
+      expect(a.files, b.files);
+      before.add(a.ms);
+      after.add(b.ms);
+      stdout.writeln(
+        '第${i + 1}次：${a.calls}次/${a.ms}ms → ${b.calls}次/${b.ms}ms',
+      );
+    }
+    before.sort();
+    after.sort();
+    stdout.writeln('中位数：${before[2]}ms → ${after[2]}ms');
   });
 
   test('目录缓存到期后重查，关闭缓存时并发请求仍合并', () async {

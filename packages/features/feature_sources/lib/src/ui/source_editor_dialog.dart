@@ -363,7 +363,7 @@ class _SourceEditorDialogState extends ConsumerState<_SourceEditorDialog> {
                     ),
                     KonataDropdownOption(
                       value: MediaSourceKind.cloudDrive,
-                      label: '光鸭云盘（实验品）',
+                      label: '光鸭云盘（实验性）',
                     ),
                   ],
                   onChanged: changeKind,

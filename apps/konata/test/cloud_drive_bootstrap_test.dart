@@ -2,6 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:engine_cloud_drives/engine_cloud_drives.dart';
+import 'package:feature_sources/feature_sources.dart';
+import 'package:flutter/widgets.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:konata/bootstrap/app_bootstrap.dart';
 import 'package:konata_contracts/konata_contracts.dart';
@@ -19,6 +22,7 @@ void main() {
       addTearDown(() => root.deleteSync(recursive: true));
       final storage = InMemorySecureStorage();
       var requests = 0;
+      final signInClientIds = <String?>[];
       final boot = await KonataBootstrapContext.initialize(
         platform: platform,
         storageRoot: PortableStorageRootService(overrideRootPath: root.path),
@@ -28,6 +32,20 @@ void main() {
         autoStartOngoingWorksSync: false,
         cloudDriveRequest: (method, uri, headers, body) async {
           requests++;
+          if (uri.path == '/v1/shield/captcha/init') {
+            return KonataHttpResponse.text(
+              jsonEncode({
+                'captcha_token': 'fixture-captcha',
+                'expires_in': 60,
+              }),
+            );
+          }
+          if (uri.path == '/v1/auth/verification') {
+            signInClientIds.add(headers['X-Client-Id']);
+            return KonataHttpResponse.text(
+              jsonEncode({'verification_id': 'fixture-verification'}),
+            );
+          }
           final response = uri.host == 'account.guangyapan.com'
               ? <String, Object?>{
                   'access_token': 'fixture-access',
@@ -99,6 +117,23 @@ void main() {
         throwsA(isA<SourceAccessException>()),
       );
       expect(requests, 2);
+      final providers = ProviderContainer(
+        overrides: boot.toProviderOverrides(
+          navigator: HostAppNavigator(
+            navigatorKey: GlobalKey<NavigatorState>(),
+            onSwitchNavSection: (_) {},
+          ),
+        ),
+      );
+      addTearDown(providers.dispose);
+      final createSignIn = providers
+          .read(featureSourcesDependenciesProvider)
+          .createCloudSignIn;
+      expect(createSignIn, isNotNull);
+      final signIn = createSignIn!(null);
+      addTearDown(signIn.cancel);
+      await signIn.sendSms('+8613800101234', nationalNumber: '13800101234');
+      expect(signInClientIds, ['aMe-8VSlkrbQXpUR']);
     });
   }
 }

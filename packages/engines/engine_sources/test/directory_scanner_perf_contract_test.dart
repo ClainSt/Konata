@@ -34,6 +34,13 @@ class _TreeGateway implements MediaSourceGateway {
   Future<void> close() async {}
 }
 
+class _CloudTreeGateway extends _TreeGateway implements CloudDriveGateway {
+  _CloudTreeGateway(super.tree);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 RemoteEntry _file(String path, {String? remoteFileId}) => RemoteEntry(
   name: path.split('/').last,
   relativePath: path,
@@ -52,6 +59,32 @@ RemoteEntry _dir(String path, {String? etag, DateTime? modifiedAt}) =>
     );
 
 void main() {
+  test('云盘深度优先扫描保留所有文件及稳定路径顺序', () async {
+    final tree = <String, List<RemoteEntry>>{
+      '': [_dir('a'), _dir('b')],
+      'a': [_dir('a/Scans'), _file('a/01.mkv', remoteFileId: 'one')],
+      'b': [_dir('b/Scans'), _file('b/01.mkv', remoteFileId: 'two')],
+      'a/Scans': [_file('a/Scans/01.jpg')],
+      'b/Scans': [_file('b/Scans/01.jpg')],
+    };
+    for (final sourceId in ['', 'cloud']) {
+      final gateway = _CloudTreeGateway(tree);
+      final result = await const DirectoryScanner().scan(
+        gateway,
+        sourceId: sourceId,
+      );
+      expect(gateway.calls.keys, ['', 'b', 'b/Scans', 'a', 'a/Scans']);
+      expect(result.files.map((e) => e.relativePath), [
+        'a/01.mkv',
+        'a/Scans/01.jpg',
+        'b/01.mkv',
+        'b/Scans/01.jpg',
+      ]);
+      expect(result.files.first.remoteFileId, 'one');
+      expect(result.scannedDirectories, 5);
+    }
+  });
+
   group('远程目录扫描快照', () {
     const scanner = DirectoryScanner();
     final now = DateTime.utc(2026, 11, 23);

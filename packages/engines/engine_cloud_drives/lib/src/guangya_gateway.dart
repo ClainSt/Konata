@@ -14,9 +14,11 @@ final class GuangYaGateway implements CloudDriveGateway {
     required this.rootId,
     HttpClient Function()? createHttpClient,
     Duration directoryCacheTtl = const Duration(seconds: 30),
+    Duration listingHintTtl = const Duration(minutes: 2),
   }) : _createHttpClient = createHttpClient ?? HttpClient.new,
-       _directoryCacheTtl = directoryCacheTtl {
-    if (directoryCacheTtl.isNegative) {
+       _directoryCacheTtl = directoryCacheTtl,
+       _listingHintTtl = listingHintTtl {
+    if (directoryCacheTtl.isNegative || listingHintTtl.isNegative) {
       throw ArgumentError('云盘目录缓存有效期不能为负数');
     }
   }
@@ -30,6 +32,12 @@ final class GuangYaGateway implements CloudDriveGateway {
   final _directories = <String, ({List<GuangYaFile> files, int expiresAtMs})>{};
   final _pending = <String, Future<List<GuangYaFile>>>{};
   final _links = <String, _FileUpstream>{};
+  // 单网关遍历期间保留已列出的直接子目录标识；不用于文件播放或跨会话缓存。
+  final _listedChildren =
+      <String, ({Map<String, String> ids, int expiresAtMs})>{};
+  final Duration _listingHintTtl;
+  static const _listingHintParents = 256;
+  static const _listingHintChildren = 4096;
 
   /// 按稳定文件标识持有有界直链会话，只有访问时才刷新。
   Future<RenewableUpstream> upstreamFor(String relativePath) async {
@@ -138,17 +146,65 @@ final class GuangYaGateway implements CloudDriveGateway {
     return entry;
   }
 
+  String? _listedChildId(String path) {
+    final parts = _parts(path);
+    if (parts.isEmpty) return rootId;
+    final parent = parts.take(parts.length - 1).join('/');
+    final cached = _listedChildren[parent];
+    if (cached == null) return null;
+    if (_directoryClock.elapsedMilliseconds >= cached.expiresAtMs) {
+      _listedChildren.remove(parent);
+      return null;
+    }
+    // 已列出的子目录可直接按稳定 ID 遍历，无须重复枚举祖先目录。
+    return cached.ids[parts.last];
+  }
+
+  void _rememberChildren(String path, List<GuangYaFile> files) {
+    // 重新列举父目录后使旧子树提示失效，防止移动或重命名沿用旧路径。
+    _listedChildren.removeWhere(
+      (key, _) => key == path || path.isEmpty || key.startsWith('$path/'),
+    );
+    if (_listingHintTtl == Duration.zero) return;
+    final ids = <String, String>{};
+    final seen = <String>{};
+    for (final file in files) {
+      if (!seen.add(file.name)) {
+        ids.remove(file.name);
+      } else if (file.directory) {
+        ids[file.name] = file.id;
+      }
+      if (ids.length > _listingHintChildren) return;
+    }
+    if (ids.isEmpty) return;
+    _listedChildren[path] = (
+      ids: ids,
+      expiresAtMs:
+          _directoryClock.elapsedMilliseconds + _listingHintTtl.inMilliseconds,
+    );
+    if (_listedChildren.length > _listingHintParents) {
+      _listedChildren.remove(_listedChildren.keys.first);
+    }
+  }
+
   @override
   Future<List<RemoteEntry>> listDirectory(String relativePath) async {
-    final folder = await _resolve(relativePath);
-    if (!folder.directory) {
-      throw const SourceAccessException(
-        SourceAccessProblemKind.path,
-        '云盘目标不是目录',
-      );
+    _check();
+    var id = _listedChildId(relativePath);
+    if (id == null) {
+      final folder = await _resolve(relativePath);
+      if (!folder.directory) {
+        throw const SourceAccessException(
+          SourceAccessProblemKind.path,
+          '云盘目标不是目录',
+        );
+      }
+      id = folder.id;
     }
+    final files = await _children(id);
+    _rememberChildren(relativePath, files);
     return [
-      for (final file in await _children(folder.id))
+      for (final file in files)
         RemoteEntry(
           name: file.name,
           relativePath: relativePath.isEmpty
@@ -372,6 +428,7 @@ final class GuangYaGateway implements CloudDriveGateway {
     _closed = true;
     _directories.clear();
     _pending.clear();
+    _listedChildren.clear();
     _links.clear();
     _http?.close(force: true);
     _http = null;

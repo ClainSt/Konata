@@ -17,6 +17,11 @@ import 'feature_registry.dart';
 import 'host_storage_adapters.dart';
 import 'window_host_port.dart';
 
+const _defaultGuangYaClientId = String.fromEnvironment(
+  'KONATA_GUANGYA_LEGACY_CLIENT_ID',
+  defaultValue: 'aMe-8VSlkrbQXpUR',
+);
+
 /// 全局应用运行形态提供器（Windows 桌面 / Android 手机 / Android 平板）。
 final konataPlatformProvider = Provider<KonataPlatform>((ref) {
   throw UnimplementedError('konataPlatformProvider 必须由宿主启动壳覆盖注入');
@@ -335,7 +340,7 @@ final class KonataBootstrapContext {
     required this.webDavPool,
     required this.cloudDriveSessions,
     required this.cloudTransport,
-    this.cloudClientId = '',
+    this.cloudClientId = _defaultGuangYaClientId,
     required this.gatewayFactory,
     required this.streamBridge,
     required this.subtitleDirectoryIndex,
@@ -606,9 +611,7 @@ final class KonataBootstrapContext {
     UrlOpenerPort? urlOpener,
     KonataHttpClientPort? httpClient,
     GuangYaRequest? cloudDriveRequest,
-    String cloudClientId = const String.fromEnvironment(
-      'KONATA_GUANGYA_LEGACY_CLIENT_ID',
-    ),
+    String cloudClientId = _defaultGuangYaClientId,
     PlaybackHostWindowPort? hostWindow,
     KonataVideoTextureBridge? desktopSurfaceBridge,
     DesktopExternalPlayerStore? externalPlayerStore,

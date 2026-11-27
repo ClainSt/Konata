@@ -204,6 +204,8 @@ class DirectoryScanner {
     final effectiveProfile =
         profileOverride ?? profile ?? DirectoryScanProfile.forGateway(gateway);
     final controller = AdaptiveScanController(effectiveProfile);
+    // 云盘逐层深入遍历，减少短期目录缓存过期和广度遍历导致的驱逐。
+    final depthFirst = gateway is CloudDriveGateway;
     final normalizedRoots = normalizeScanRoots(scanRoots);
     final trackSnapshot = sourceId.isNotEmpty;
     final queue = ListQueue<String>();
@@ -453,7 +455,11 @@ class DirectoryScanner {
             } else {
               final child = _normalizeDirectory(entry.relativePath);
               if (child.isNotEmpty && !visitedDirs.contains(child)) {
-                queue.addLast(child);
+                if (depthFirst) {
+                  queue.addFirst(child);
+                } else {
+                  queue.addLast(child);
+                }
               }
             }
             continue;
@@ -560,7 +566,11 @@ class DirectoryScanner {
                 }
               }
             } else if (!visitedDirs.contains(normChild)) {
-              queue.addLast(normChild);
+              if (depthFirst) {
+                queue.addFirst(normChild);
+              } else {
+                queue.addLast(normChild);
+              }
             }
           }
           snapshotNodes[normalizedCurrent] = DirectoryScanSnapshotNode(

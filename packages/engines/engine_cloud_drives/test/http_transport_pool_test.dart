@@ -51,7 +51,12 @@ final class _Request implements HttpClientRequest {
   @override
   void write(Object? obj) {}
   @override
-  Future<HttpClientResponse> close() async => _Response();
+  Future<HttpClientResponse> close() async {
+    if (closeFailure case final error?) throw error;
+    return _Response();
+  }
+
+  Object? closeFailure;
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
@@ -65,9 +70,14 @@ final class _Client implements HttpClient {
   set findProxy(String Function(Uri)? value) {}
   bool closed = false;
   final requests = <_Request>[];
+  final openFailures = <Object>[];
+  int openAttempts = 0;
+  Object? requestCloseFailure;
   @override
   Future<HttpClientRequest> openUrl(String method, Uri url) async {
-    final request = _Request();
+    openAttempts++;
+    if (openFailures.isNotEmpty) throw openFailures.removeAt(0);
+    final request = _Request()..closeFailure = requestCloseFailure;
     requests.add(request);
     return request;
   }
@@ -82,6 +92,138 @@ final class _Client implements HttpClient {
 }
 
 void main() {
+  test('仅恢复一次未发送请求的瞬时握手中断', () async {
+    final client = _Client()
+      ..openFailures.add(
+        const HandshakeException('Connection terminated during handshake'),
+      );
+    final transport = GuangYaHttpTransport(
+      config: () => const KonataNetworkConfig(proxyMode: ProxyMode.none),
+      clientFactory: () => client,
+    );
+    addTearDown(transport.close);
+    final uri = Uri.https('account.guangyapan.com', '/v1/auth/token');
+    expect((await transport.request('POST', uri, {}, {})).statusCode, 200);
+    expect(client.openAttempts, 2);
+    expect(client.requests.length, 1);
+  });
+
+  test('请求发送阶段握手中断时不自动重放认证请求', () async {
+    final client = _Client()
+      ..requestCloseFailure = const HandshakeException(
+        'Connection terminated during handshake',
+      );
+    final transport = GuangYaHttpTransport(
+      config: () => const KonataNetworkConfig(proxyMode: ProxyMode.none),
+      clientFactory: () => client,
+    );
+    addTearDown(transport.close);
+    await expectLater(
+      transport.request(
+        'POST',
+        Uri.https('account.guangyapan.com', '/v1/auth/token'),
+        {},
+        {},
+      ),
+      throwsA(
+        isA<SourceAccessException>().having(
+          (e) => e.kind,
+          'kind',
+          SourceAccessProblemKind.tls,
+        ),
+      ),
+    );
+    expect(client.openAttempts, 1);
+    expect(client.requests.length, 1);
+    expect(client.closed, isTrue);
+  });
+
+  test('目录请求握手中断后废弃旧连接池并重查同一页', () async {
+    final clients = <_Client>[];
+    final transport = GuangYaHttpTransport(
+      config: () => const KonataNetworkConfig(proxyMode: ProxyMode.system),
+      clientFactory: () {
+        final c = _Client();
+        if (clients.isEmpty) {
+          c.requestCloseFailure = const HandshakeException(
+            'Connection terminated during handshake',
+          );
+        }
+        clients.add(c);
+        return c;
+      },
+    );
+    addTearDown(transport.close);
+    final response = await transport.request(
+      'POST',
+      Uri.https('api.guangyapan.com', '/userres/v1/file/get_file_list'),
+      {'Authorization': 'Bearer fixture'},
+      {'page': 12},
+    );
+    expect(response.statusCode, 200);
+    expect(clients.length, 2);
+    expect(clients.first.closed, isTrue);
+    expect(
+      clients.last.requests.single.headers.value('authorization'),
+      'Bearer fixture',
+    );
+  });
+
+  test('目录证书校验失败不换连接重试', () async {
+    final clients = <_Client>[];
+    final transport = GuangYaHttpTransport(
+      config: () => const KonataNetworkConfig(proxyMode: ProxyMode.none),
+      clientFactory: () {
+        final c = _Client()
+          ..openFailures.add(
+            const HandshakeException('CERTIFICATE_VERIFY_FAILED'),
+          );
+        clients.add(c);
+        return c;
+      },
+    );
+    addTearDown(transport.close);
+    await expectLater(
+      transport.request(
+        'POST',
+        Uri.https('api.guangyapan.com', '/userres/v1/file/get_file_list'),
+        {},
+        {},
+      ),
+      throwsA(isA<SourceAccessException>()),
+    );
+    expect(clients.length, 1);
+    expect(clients.single.openAttempts, 1);
+  });
+
+  test('证书校验失败不重试，报告域名且不包含底层敏感信息', () async {
+    final client = _Client()
+      ..openFailures.add(
+        const HandshakeException('CERTIFICATE_VERIFY_FAILED fixture-secret'),
+      );
+    final transport = GuangYaHttpTransport(
+      config: () => const KonataNetworkConfig(proxyMode: ProxyMode.none),
+      clientFactory: () => client,
+    );
+    addTearDown(transport.close);
+    await expectLater(
+      transport.request('POST', Uri.https('api.guangyapan.com', '/'), {}, {}),
+      throwsA(
+        isA<SourceAccessException>()
+            .having((e) => e.kind, 'kind', SourceAccessProblemKind.tls)
+            .having((e) => e.message, 'message', contains('api.guangyapan.com'))
+            .having(
+              (e) => e.message,
+              'message',
+              isNot(contains('fixture-secret')),
+            ),
+      ),
+    );
+    expect(client.openAttempts, 1);
+    expect(client.requests, isEmpty);
+    expect(client.closed, isTrue);
+  });
+
   test('十三页目录共用连接客户端，代理变化与退出释放连接', () async {
     var config = const KonataNetworkConfig(proxyMode: ProxyMode.none);
     final clients = <_Client>[];

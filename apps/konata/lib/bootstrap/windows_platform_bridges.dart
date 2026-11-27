@@ -487,8 +487,9 @@ final class WindowsPlaybackWindowAdapter
             previous.top,
           ),
         ).toNative();
-        await _fitMiniWindow();
         await _setAudioMiniRegion(audioContentSize);
+        // 区域更新后才吸附，确保原生计算使用新轮廓而非旧尺寸。
+        await _fitMiniWindow();
       } catch (error, stack) {
         win.minimumSize = previousMinSize;
         win.bounds = wm.RectToNative(previous).toNative();
@@ -531,9 +532,9 @@ final class WindowsPlaybackWindowAdapter
           );
       win.position = wm.OffsetToNative(desiredOrigin).toNative();
       win.isAlwaysOnTop = true;
-      await _fitMiniWindow();
       await _ensureNativeControlsHidden();
       await _setAudioMiniRegion(audioContentSize);
+      await _fitMiniWindow();
       _inMiniWindow = true;
     } catch (error, stack) {
       // 切换失败时恢复此前窗口属性；保留原始异常供调用方回滚界面状态。

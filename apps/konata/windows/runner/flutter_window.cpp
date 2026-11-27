@@ -19,11 +19,20 @@ std::string FitMiniWindow(HWND hwnd, const std::string& intent) {
   const RECT work = info.rcWork;
   const LONG width = bounds.right - bounds.left;
   const LONG height = bounds.bottom - bounds.top;
-  const LONG max_x = (std::max)(work.left, work.right - width);
-  const LONG max_y = (std::max)(work.top, work.bottom - height);
+  // 异形音频小窗的透明余量不属于可见边界；按实际窗口区域吸附。
+  RECT visible{0, 0, width, height};
+  RECT region{};
+  if (GetWindowRgnBox(hwnd, &region) != ERROR &&
+      region.right > region.left && region.bottom > region.top) {
+    visible = region;
+  }
+  const LONG min_x = work.left - visible.left;
+  const LONG min_y = work.top - visible.top;
+  const LONG max_x = (std::max)(min_x, work.right - visible.right);
+  const LONG max_y = (std::max)(min_y, work.bottom - visible.bottom);
   const LONG threshold = MulDiv(24, GetDpiForWindow(hwnd), 96);
-  const LONG left_distance = bounds.left - work.left;
-  const LONG right_distance = work.right - bounds.right;
+  const LONG left_distance = bounds.left + visible.left - work.left;
+  const LONG right_distance = work.right - bounds.left - visible.right;
   std::string side = "none";
   if (intent == "left" ||
       (intent == "snap" && left_distance <= threshold &&
@@ -33,9 +42,9 @@ std::string FitMiniWindow(HWND hwnd, const std::string& intent) {
              (intent == "snap" && right_distance <= threshold)) {
     side = "right";
   }
-  const LONG x = side == "left" ? work.left :
-      side == "right" ? max_x : std::clamp(bounds.left, work.left, max_x);
-  const LONG y = std::clamp(bounds.top, work.top, max_y);
+  const LONG x = side == "left" ? min_x :
+      side == "right" ? max_x : std::clamp(bounds.left, min_x, max_x);
+  const LONG y = std::clamp(bounds.top, min_y, max_y);
   if (x != bounds.left || y != bounds.top) {
     if (!SetWindowPos(hwnd, nullptr, x, y, 0, 0,
                      SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE)) {

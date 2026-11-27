@@ -535,7 +535,7 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('source_kind_dropdown')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('光鸭云盘（实验品）'));
+    await tester.tap(find.text('光鸭云盘（实验性）'));
     await tester.pumpAndSettle();
     expect(find.textContaining('本机尚无已授权光鸭账号'), findsOneWidget);
     expect(find.textContaining('密码（'), findsNothing);

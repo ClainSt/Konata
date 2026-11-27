@@ -104,7 +104,6 @@ abstract final class DetailWorkSeriesActionsHelper {
     required LibraryRepository repository,
     required List<SupplementaryScopeEdit> edits,
   }) async {
-    if (edits.isEmpty) return const <String>{};
     final editByVariantId = <String, SupplementaryScopeEdit>{
       for (final e in edits) e.variantId: e,
     };
@@ -112,6 +111,7 @@ abstract final class DetailWorkSeriesActionsHelper {
     final workById = <String, Work>{for (final w in allWorks) w.id: w};
     final affected = <String>{};
     final worksWithMovedEpisodes = <String>{};
+    final episodeIdsByWork = <String, Set<String>>{};
 
     final variantLocations =
         <String, ({MediaVariant variant, Episode? episode})>{};
@@ -120,6 +120,7 @@ abstract final class DetailWorkSeriesActionsHelper {
       if (!variants.any((v) => editByVariantId.containsKey(v.id))) continue;
       final eps = await repository.getEpisodesByWork(work.id);
       final epById = <String, Episode>{for (final e in eps) e.id: e};
+      episodeIdsByWork[work.id] = epById.keys.toSet();
       for (final v in variants) {
         if (editByVariantId.containsKey(v.id)) {
           variantLocations[v.id] = (
@@ -130,7 +131,7 @@ abstract final class DetailWorkSeriesActionsHelper {
       }
     }
 
-    for (final edit in edits) {
+    for (final edit in editByVariantId.values) {
       final loc = variantLocations[edit.variantId];
       if (loc == null) continue;
       final variant = loc.variant;
@@ -146,22 +147,32 @@ abstract final class DetailWorkSeriesActionsHelper {
           variant.assetKind == AssetKind.video &&
           loc.episode != null) {
         final oldEp = loc.episode!;
+        // 按原逻辑分集生成目标主键，使同一特典的版本分批迁入时也能合并。
         final newEpId = ScrapeWorkPersister.deterministicId(
-          '$desiredWorkId::scope_extra:${variant.id}',
+          '$desiredWorkId::scope_extra_episode:${oldEp.id}',
         );
-        await repository.upsertEpisode(
-          Episode(
-            id: newEpId,
-            workId: desiredWorkId,
-            seasonNumber: oldEp.seasonNumber,
-            episodeNumber: oldEp.episodeNumber,
-            category: oldEp.category,
-            extraType: oldEp.extraType,
-            title: oldEp.title,
-            overview: oldEp.overview,
-            stillPath: oldEp.stillPath,
-          ),
-        );
+        final targetEpisodeIds = episodeIdsByWork[desiredWorkId] ??= {
+          for (final episode in await repository.getEpisodesByWork(
+            desiredWorkId,
+          ))
+            episode.id,
+        };
+        if (targetEpisodeIds.add(newEpId)) {
+          await repository.upsertEpisode(
+            Episode(
+              id: newEpId,
+              workId: desiredWorkId,
+              seasonNumber: oldEp.seasonNumber,
+              episodeNumber: oldEp.episodeNumber,
+              episodeNumberEnd: oldEp.episodeNumberEnd,
+              category: oldEp.category,
+              extraType: oldEp.extraType,
+              title: oldEp.title,
+              overview: oldEp.overview,
+              stillPath: oldEp.stillPath,
+            ),
+          );
+        }
         resolvedEpisodeId = newEpId;
         worksWithMovedEpisodes.add(oldWorkId);
       }

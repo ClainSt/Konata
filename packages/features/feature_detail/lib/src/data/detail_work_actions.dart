@@ -869,11 +869,13 @@ final class DetailWorkActionsService {
   Future<Set<String>> updateSupplementaryScopes(
     List<SupplementaryScopeEdit> edits,
   ) async {
-    final affected =
-        await DetailWorkSeriesActionsHelper.updateSupplementaryScopes(
-          repository: _repository,
-          edits: edits,
-        );
+    if (edits.isEmpty) return const <String>{};
+    final affected = await _repository.runInTransaction(
+      () => DetailWorkSeriesActionsHelper.updateSupplementaryScopes(
+        repository: _repository,
+        edits: edits,
+      ),
+    );
     for (final id in affected) {
       _publishWorkChanged(id, 'edited');
     }

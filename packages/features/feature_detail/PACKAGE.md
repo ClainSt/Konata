@@ -34,4 +34,5 @@ Konata v3 番剧详情页、正片 / 特典 / CD 编排、正片单并发流式�
 
 - 通过 `dart run tool/verify.dart guard` 边界检查、`dart run tool/verify.dart analyze packages/features/feature_detail` 零告警静态分析、`dart run tool/verify.dart test packages/features/feature_detail` 单元测试与多视口 Widget 测试，以及 `pwsh -NoProfile -File scripts/check_comments.ps1` 纯简体中文注释校验。
 - 系列共享特典与 CD 路由采用聚合包中逻辑分集或物理版本的原始归属作品 ID，避免播放器按当前季度查询时丢失目标资源；自身分集多版本及默认播放归属保持不变。
+- 编辑特典、CD 和扫图的共享范围时，一批变更在同一个媒体库事务内提交。同一逻辑分集的多个视频版本迁入同一作品时复用目标分集，迁移保留物理版本 ID 和路径。
 - 详情页仅对可见跨季共享特典按归属作品补充最新分集历史，每个可见资源归属作品查询一次；不纳入其他季度正片、独享资源或音频历史，当前作品最近记录与续播推荐保持独立。

@@ -1,5 +1,6 @@
 import 'package:engine_playback/engine_playback.dart';
 import 'package:feature_player_audio/feature_player_audio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart'
     show kSecondaryMouseButton, PointerDeviceKind;
 import 'package:flutter/services.dart';
@@ -1074,6 +1075,66 @@ ${mismatched ? 'FILE "other.flac" WAVE' : ''}
     expect(h.engine.activeNativeClient, same(lease.client));
     expect(lease.client.isDisposed, isFalse);
     await h.engine.releaseNativeClient(lease.client);
+  });
+
+  testWidgets('手机 375dp 音频设置标题与下拉框、滑杆同排对齐', (tester) async {
+    final h = createHarness();
+    addTearDown(() async {
+      h.controller.dispose();
+      await h.db.close();
+    });
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    tester.view.physicalSize = const Size(375, 834);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      _wrapWithApp(
+        SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          child: SettingsAudioPanel(
+            preferences: h.prefsRepo,
+            controller: h.controller,
+            isDesktopPlatform: false,
+            isAndroidPlatform: true,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final rows = <(Finder, Finder)>[
+      (
+        find.text('重采样精度'),
+        find.byKey(const ValueKey('audio_resampler_precision')),
+      ),
+      (find.text('回放增益'), find.byKey(const ValueKey('audio_replay_gain'))),
+      (
+        find.textContaining('前置增益 ('),
+        find.byKey(const ValueKey('audio_preamp_slider')),
+      ),
+      (
+        find.textContaining('起播音量 ('),
+        find.byKey(const ValueKey('audio_volume_slider')),
+      ),
+    ];
+    double? right;
+    for (final (label, control) in rows) {
+      await tester.ensureVisible(control);
+      await tester.pumpAndSettle();
+      final l = tester.getRect(label);
+      final r = tester.getRect(control);
+      expect(l.right, lessThanOrEqualTo(r.left));
+      expect(l.center.dy, inInclusiveRange(r.top, r.bottom));
+      if (right != null) expect(r.right, closeTo(right, 0.1));
+      right = r.right;
+    }
+    expect(tester.takeException(), isNull);
+    await tester.ensureVisible(find.byKey(const ValueKey('audio_replay_gain')));
+    await tester.tap(find.byKey(const ValueKey('audio_replay_gain')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('按单曲').last);
+    await tester.pumpAndSettle();
+    expect(h.prefsRepo.read().replayGainMode, AudioReplayGainMode.track);
   });
 
   testWidgets('SettingsAudioPanel 与 featurePlayerAudioManifest 正确协同持久化和装配', (

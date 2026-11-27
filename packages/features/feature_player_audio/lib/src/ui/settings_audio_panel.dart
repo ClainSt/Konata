@@ -44,6 +44,10 @@ class SettingsAudioPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
+    // Mobile settings use a compact right column; large desktop controls stay unchanged.
+    final compact = isAndroidPlatform && MediaQuery.sizeOf(context).width < 600;
+    final dropdownWidth = compact ? 128.0 : 165.0;
+    final sliderWidth = compact ? 136.0 : 180.0;
     return StreamBuilder<AudioPlaybackPrefsData>(
       stream: preferences.watch(),
       initialData: preferences.read(),
@@ -139,15 +143,17 @@ class SettingsAudioPanel extends StatelessWidget {
                         ),
                       ),
                       if (controller != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 6, bottom: 4),
-                          child: KonataPillButton.secondary(
-                            label: '硬件核验与解锁',
-                            compact: true,
-                            icon: Icons.shield_outlined,
-                            onPressed: () => unawaited(
-                              showAudiophileSafetyDialog(context, controller!),
-                            ),
+                        KonataListTile(
+                          title: '硬件核验与解锁',
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          estimatedTrailingWidth: 24,
+                          trailing: Icon(
+                            Icons.chevron_right_rounded,
+                            size: 20,
+                            color: palette.textMuted,
+                          ),
+                          onTap: () => unawaited(
+                            showAudiophileSafetyDialog(context, controller!),
                           ),
                         ),
                       if (isDesktopPlatform)
@@ -176,11 +182,13 @@ class SettingsAudioPanel extends StatelessWidget {
                               ),
                         ),
                       AdaptiveSettingTile(
-                        title: 'libsoxr 重采样精度',
-                        estimatedTrailingWidth: 160,
+                        title: '重采样精度',
+                        minLeadingWidth: compact ? 112 : 140,
+                        estimatedTrailingWidth: dropdownWidth,
                         trailing: SizedBox(
-                          width: 165,
+                          width: dropdownWidth,
                           child: KonataDropdown<int>(
+                            key: const ValueKey('audio_resampler_precision'),
                             value: prefs.audioResamplerPrecision,
                             dense: true,
                             options: const [
@@ -261,19 +269,27 @@ class SettingsAudioPanel extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   AdaptiveSettingTile(
-                    title: '回放增益 (ReplayGain)',
+                    title: '回放增益',
                     subtitle: '根据响度标签平衡音量。',
-                    estimatedTrailingWidth: 165,
+                    minLeadingWidth: compact ? 112 : 140,
+                    estimatedTrailingWidth: dropdownWidth,
                     trailing: SizedBox(
-                      width: 165,
+                      width: dropdownWidth,
                       child: KonataDropdown<AudioReplayGainMode>(
+                        key: const ValueKey('audio_replay_gain'),
                         value: prefs.replayGainMode,
                         dense: true,
                         options: [
                           for (final mode in AudioReplayGainMode.values)
                             KonataDropdownOption(
                               value: mode,
-                              label: mode.label,
+                              label: compact
+                                  ? switch (mode) {
+                                      AudioReplayGainMode.none => '关闭',
+                                      AudioReplayGainMode.track => '按单曲',
+                                      AudioReplayGainMode.album => '按专辑',
+                                    }
+                                  : mode.label,
                             ),
                         ],
                         onChanged: (m) => _updateAndSync(
@@ -286,10 +302,12 @@ class SettingsAudioPanel extends StatelessWidget {
                     title:
                         '前置增益 (${prefs.replayGainPreampDb.toStringAsFixed(1)} dB)',
                     subtitle: '受安全限幅保护（启用时）。',
-                    estimatedTrailingWidth: 190,
+                    minLeadingWidth: compact ? 112 : 140,
+                    estimatedTrailingWidth: sliderWidth,
                     trailing: SizedBox(
-                      width: 180,
+                      width: sliderWidth,
                       child: Slider(
+                        key: const ValueKey('audio_preamp_slider'),
                         value: prefs.replayGainPreampDb,
                         min: -12.0,
                         max: 6.0,
@@ -301,11 +319,13 @@ class SettingsAudioPanel extends StatelessWidget {
                     ),
                   ),
                   AdaptiveSettingTile(
-                    title: '默认起播音量 (${prefs.defaultVolume.round()}%)',
-                    estimatedTrailingWidth: 190,
+                    title: '起播音量 (${prefs.defaultVolume.round()}%)',
+                    minLeadingWidth: compact ? 112 : 140,
+                    estimatedTrailingWidth: sliderWidth,
                     trailing: SizedBox(
-                      width: 180,
+                      width: sliderWidth,
                       child: Slider(
+                        key: const ValueKey('audio_volume_slider'),
                         value: prefs.defaultVolume,
                         min: 5.0,
                         max: 100.0,

@@ -3,9 +3,9 @@ import 'package:konata_contracts/konata_contracts.dart';
 
 import 'ui/settings_about_panel.dart';
 import 'ui/settings_appearance_panel.dart';
-import 'ui/settings_display_panel.dart';
 import 'ui/settings_network_panel.dart';
 import 'ui/settings_page.dart';
+import 'ui/settings_photos_storage_card.dart';
 
 /// 通用设置容器及四项通用设置分区的声明式注册清单。
 final FeatureManifest featureSettingsManifest = FeatureManifest(
@@ -21,8 +21,7 @@ final FeatureManifest featureSettingsManifest = FeatureManifest(
         initialSectionId: ctx.arguments['initialSectionId'] as String?,
         deepLinkPulse: (ctx.arguments['deepLinkPulse'] as int?) ?? 0,
         onDetailVisibilityChanged:
-            ctx.arguments['onDetailVisibilityChanged']
-                as ValueChanged<bool>?,
+            ctx.arguments['onDetailVisibilityChanged'] as ValueChanged<bool>?,
       ),
     ),
   ],
@@ -36,12 +35,12 @@ final FeatureManifest featureSettingsManifest = FeatureManifest(
       viewBuilder: (_) => const SettingsAppearancePanel(),
     ),
     SettingsSectionContribution(
-      id: 'display',
+      id: displaySettingsSectionId,
       title: '显示与存储',
       subtitle: '作品展示与图片缓存',
       iconKey: 'display',
       order: 15,
-      viewBuilder: (_) => const SettingsDisplayPanel(),
+      viewBuilder: (_) => const SettingsPhotosStorageCard(),
     ),
     SettingsSectionContribution(
       id: 'network',

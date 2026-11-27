@@ -5,6 +5,7 @@ import 'package:konata_contracts/konata_contracts.dart';
 import 'package:konata_storage/konata_storage.dart';
 
 import '../data/konata_backup_service.dart';
+import '../data/prefs_sync_slice.dart';
 import '../data/sync_device_store.dart';
 import '../data/sync_models.dart';
 import '../data/webdav_sync_transport.dart';
@@ -336,12 +337,16 @@ final class WebDavSyncCoordinator {
     WebDavSyncManifest manifest,
     List<SyncSliceContributor<Object?>> activeSlices,
   ) {
-    final versions = {
-      for (final slice in activeSlices) slice.sliceId: slice.schemaVersion,
+    final contributors = {
+      for (final slice in activeSlices) slice.sliceId: slice,
     };
     for (final entry in manifest.slices.values) {
-      final version = versions[entry.sliceId];
-      if (version != null && entry.schemaVersion != version) {
+      final contributor = contributors[entry.sliceId];
+      final compatible = contributor is PrefsSyncSlice
+          ? contributor.canReadVersion(entry.schemaVersion)
+          : contributor == null ||
+                entry.schemaVersion == contributor.schemaVersion;
+      if (!compatible) {
         throw WebDavSyncException('同步切片 ${entry.sliceId} 版本不兼容，请统一客户端版本');
       }
     }

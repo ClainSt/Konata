@@ -136,23 +136,8 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
     super.dispose();
   }
 
-  bool _isScanContribution(DetailTabContribution tab) {
-    final id = tab.id.toLowerCase();
-    final iconKey = tab.iconKey.toLowerCase();
-    final label = tab.label.toLowerCase();
-    return id.contains('scan') ||
-        iconKey.contains('scan') ||
-        label.contains('scan') ||
-        label.contains('扫图');
-  }
-
-  List<DetailTabContribution> _visibleExternalTabs() {
-    final raw = widget.bundle.visibleTabs;
-    if (widget.displayPreferences.showScanTab) return raw;
-    return raw
-        .where((tab) => !_isScanContribution(tab))
-        .toList(growable: false);
-  }
+  List<DetailTabContribution> _visibleExternalTabs() =>
+      widget.displayPreferences.filterTabs(widget.bundle.visibleTabs);
 
   List<MediaVariant> _visibleCdVariants() {
     if (!widget.displayPreferences.showCdTab) return const <MediaVariant>[];
@@ -314,13 +299,11 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
               )
               .toList();
 
-    final isExternal = _findExternalTab(_activeTabId) != null;
-    final canOpenFullList = (isExternal
-        ? _activeTabId == 'scan_viewer'
-        : ((_activeTabId == DetailDrawerTabIds.episodes && mains.isNotEmpty) ||
-              (_activeTabId == DetailDrawerTabIds.extras &&
-                  extras.isNotEmpty) ||
-              (_activeTabId == DetailDrawerTabIds.cd && cds.isNotEmpty)));
+    final canOpenFullList =
+        _findExternalTab(_activeTabId) != null ||
+        (_activeTabId == DetailDrawerTabIds.episodes && mains.isNotEmpty) ||
+        (_activeTabId == DetailDrawerTabIds.extras && extras.isNotEmpty) ||
+        (_activeTabId == DetailDrawerTabIds.cd && cds.isNotEmpty);
 
     return Column(
       mainAxisSize: MainAxisSize.min,

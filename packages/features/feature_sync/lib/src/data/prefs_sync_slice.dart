@@ -8,7 +8,7 @@ import 'sync_models.dart';
 /// 偏好设置同步切片贡献者（`sliceId: 'prefs_slice'`）。
 ///
 /// 基于 `ScopedPrefsStore` 按白名单/黑名单双层规则过滤敏感凭据与本机绝对路径键，
-/// 并执行确定性最后写入胜出（LWW）合并，绝不覆写本机 `SyncPolicy.deviceLocal` 配置。
+/// 按切片声明进行整份或逐字段合并，并保留本机专用配置。
 final class PrefsSyncSlice
     implements SyncSliceContributor<List<PortablePrefEntry>> {
   /// 创建绑定持久化存储器的偏好同步切片实例。
@@ -119,7 +119,10 @@ final class PrefsSyncSlice
   String get displayName => '偏好设置';
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  /// 旧版快照可作为逐字段版本启用前的基线。
+  bool canReadVersion(int version) => version == 1 || version == schemaVersion;
 
   /// 判断指定命名空间是否允许参与跨设备备份与同步。
   bool isNamespaceAllowed(String namespace) {
@@ -214,14 +217,9 @@ final class PrefsSyncSlice
         continue;
       }
       safeEntries.add(
-        PortablePrefEntry(
-          namespace: entry.namespace,
-          schemaVersion: entry.schemaVersion,
-          payload: sanitized,
-          updatedAtMs: entry.updatedAtMs,
-          sourceDeviceId: entry.sourceDeviceId.isEmpty
-              ? localDeviceId
-              : entry.sourceDeviceId,
+        FieldwisePortablePrefs.forDevice(
+          entry.withPayload(sanitized),
+          localDeviceId,
         ),
       );
     }
@@ -246,8 +244,8 @@ final class PrefsSyncSlice
     required SyncSlicePayload local,
     required SyncSlicePayload remote,
   }) {
-    final localEntries = _parseEntries(local.data);
-    final remoteEntries = _parseEntries(remote.data);
+    final localEntries = _parseEntries(local);
+    final remoteEntries = _parseEntries(remote);
 
     final localByNs = <String, PortablePrefEntry>{
       for (final item in localEntries) item.namespace: item,
@@ -268,13 +266,7 @@ final class PrefsSyncSlice
         skippedCount++;
         continue;
       }
-      final candidate = PortablePrefEntry(
-        namespace: rawRemote.namespace,
-        schemaVersion: rawRemote.schemaVersion,
-        payload: sanitizedPayload,
-        updatedAtMs: rawRemote.updatedAtMs,
-        sourceDeviceId: rawRemote.sourceDeviceId,
-      );
+      final candidate = rawRemote.withPayload(sanitizedPayload);
 
       final localMatch = localByNs[candidate.namespace];
       if (localMatch == null) {
@@ -283,8 +275,18 @@ final class PrefsSyncSlice
         continue;
       }
 
-      if (SyncSanitizer.canonicalJsonEncode(localMatch.payload) ==
-          SyncSanitizer.canonicalJsonEncode(candidate.payload)) {
+      if (_tracksFields(localMatch, candidate)) {
+        final merged = FieldwisePortablePrefs.merge(localMatch, candidate);
+        if (_samePayload(localMatch, merged)) {
+          skippedCount++;
+        } else {
+          updateCount++;
+          toApply.add(merged);
+        }
+        continue;
+      }
+
+      if (_samePayload(localMatch, candidate)) {
         skippedCount++;
         continue;
       }
@@ -319,8 +321,9 @@ final class PrefsSyncSlice
     required SyncSlicePayload remote,
     required String localDeviceId,
   }) {
-    final localEntries = _parseEntries(local.data);
-    final remoteEntries = _parseEntries(remote.data);
+    final localEntries = _parseEntries(local);
+    final remoteEntries = _parseEntries(remote);
+    final now = _nowMs?.call() ?? DateTime.now().millisecondsSinceEpoch;
     final localByNs = <String, PortablePrefEntry>{
       for (final item in localEntries) item.namespace: item,
     };
@@ -343,36 +346,45 @@ final class PrefsSyncSlice
         continue;
       }
       seenRemoteNs.add(rawRemote.namespace);
-      final entry = PortablePrefEntry(
-        namespace: rawRemote.namespace,
-        schemaVersion: rawRemote.schemaVersion,
-        payload: sanitizedPayload,
-        updatedAtMs: rawRemote.updatedAtMs,
-        sourceDeviceId: rawRemote.sourceDeviceId,
-      );
-      if (localByNs.containsKey(entry.namespace)) {
+      final entry = rawRemote.withPayload(sanitizedPayload);
+      final previous = localByNs[entry.namespace];
+      if (previous != null) {
         updateCount++;
       } else {
         insertCount++;
       }
-      toApply.add(entry);
+      toApply.add(
+        _tracksFields(previous, entry)
+            ? FieldwisePortablePrefs.restore(
+                previous,
+                entry,
+                now: now,
+                deviceId: localDeviceId,
+              )
+            : entry,
+      );
     }
 
-    final now = _nowMs?.call() ?? DateTime.now().millisecondsSinceEpoch;
     for (final localEntry in localEntries) {
       if (!isNamespaceAllowed(localEntry.namespace) ||
           seenRemoteNs.contains(localEntry.namespace)) {
         continue;
       }
       deleteCount++;
+      final empty = localEntry.withPayload(
+        const {},
+        updatedAtMs: now,
+        sourceDeviceId: localDeviceId,
+      );
       toApply.add(
-        PortablePrefEntry(
-          namespace: localEntry.namespace,
-          schemaVersion: localEntry.schemaVersion,
-          payload: const <String, Object?>{},
-          updatedAtMs: now,
-          sourceDeviceId: localDeviceId,
-        ),
+        FieldwisePortablePrefs.tracksFields(localEntry)
+            ? FieldwisePortablePrefs.restore(
+                localEntry,
+                empty,
+                now: now,
+                deviceId: localDeviceId,
+              )
+            : empty,
       );
     }
 
@@ -407,7 +419,7 @@ final class PrefsSyncSlice
     if (handle is! SqliteTransaction) {
       throw StateError('偏好同步缺少宿主写事务');
     }
-    _applyInTransaction(db, handle, plan.planData);
+    _applyInTransaction(db, handle, plan.planData, tx.localDeviceId);
     return SyncApplyCompletion.completed;
   }
 
@@ -415,6 +427,7 @@ final class PrefsSyncSlice
     UserStateDatabase db,
     SqliteTransaction tx,
     List<PortablePrefEntry> entries,
+    String localDeviceId,
   ) {
     for (final entry in entries) {
       if (!isNamespaceAllowed(entry.namespace)) continue;
@@ -422,23 +435,55 @@ final class PrefsSyncSlice
       if (existing != null && existing.syncPolicy == SyncPolicy.deviceLocal) {
         continue;
       }
-      final safePayload = sanitizePayloadMap(entry.payload);
+      var next = entry.withPayload(sanitizePayloadMap(entry.payload));
+      if (existing != null) {
+        Map<String, Object?> raw = const {};
+        try {
+          raw = SyncSanitizer.coerceStringKeyMap(
+            jsonDecode(existing.payloadJson),
+          );
+        } on FormatException {
+          // 损坏的本机旧配置不参与合并，由已校验的同步快照恢复。
+        }
+        final current = PortablePrefEntry(
+          namespace: existing.namespace,
+          schemaVersion: existing.schemaVersion,
+          payload: sanitizePayloadMap(raw),
+          updatedAtMs: existing.updatedAtMs,
+          sourceDeviceId: existing.sourceDeviceId,
+        );
+        if (_tracksFields(current, next)) {
+          // 规划至落盘之间的本机修改也进入同一次版本比较。
+          next = FieldwisePortablePrefs.merge(
+            FieldwisePortablePrefs.forDevice(current, localDeviceId),
+            next,
+          );
+        }
+      }
       db.scopedPrefs.upsertInTx(
         tx,
         ScopedPrefRecord(
           namespace: entry.namespace,
-          schemaVersion: entry.schemaVersion,
+          schemaVersion: next.schemaVersion,
           syncPolicy: SyncPolicy.portable,
-          payloadJson: jsonEncode(safePayload),
-          updatedAtMs: entry.updatedAtMs,
-          sourceDeviceId: entry.sourceDeviceId,
+          payloadJson: jsonEncode(next.payload),
+          updatedAtMs: next.updatedAtMs,
+          sourceDeviceId: next.sourceDeviceId,
         ),
       );
     }
   }
 
-  List<PortablePrefEntry> _parseEntries(Map<String, Object?> data) {
-    final rawList = data['entries'];
+  static bool _tracksFields(PortablePrefEntry? a, PortablePrefEntry b) =>
+      FieldwisePortablePrefs.tracksFields(b) ||
+      (a != null && FieldwisePortablePrefs.tracksFields(a));
+
+  static bool _samePayload(PortablePrefEntry a, PortablePrefEntry b) =>
+      SyncSanitizer.canonicalJsonEncode(a.payload) ==
+      SyncSanitizer.canonicalJsonEncode(b.payload);
+
+  List<PortablePrefEntry> _parseEntries(SyncSlicePayload snapshot) {
+    final rawList = snapshot.data['entries'];
     if (rawList is! List) return const <PortablePrefEntry>[];
     final result = <PortablePrefEntry>[];
     for (final item in rawList) {
@@ -447,7 +492,14 @@ final class PrefsSyncSlice
         SyncSanitizer.coerceStringKeyMap(item),
       );
       if (parsed != null && isNamespaceAllowed(parsed.namespace)) {
-        result.add(parsed);
+        final entry = snapshot.schemaVersion == 1
+            ? parsed.withPayload(
+                FieldwisePortablePrefs.valuesOf(parsed.payload),
+              )
+            : parsed;
+        result.add(
+          FieldwisePortablePrefs.forDevice(entry, snapshot.sourceDeviceId),
+        );
       }
     }
     return result;

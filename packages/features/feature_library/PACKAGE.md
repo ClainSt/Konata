@@ -15,12 +15,12 @@ Konata v3 媒体库海报墙、本地检索筛选、作品管理与待复核纠�
 - 注入容器：`FeatureLibraryDependencies`、`featureLibraryDependenciesProvider` 与宿主注入的 `workManageDialogPortProvider`
 - 零 Riverpod 数据与状态控制：`ChinesePinyinCollator`、`LibrarySearchMatcher`、`LibraryController`、`WorkManagementController`、`LibraryFilterPrefs`
 - 视图与毛玻璃弹窗使用 `LibraryPage`、`PosterCard`、`showReviewDialog`、`showDeleteWorkDialog`。艺术图经薄适配接入 `KonataManagedImage`，匹配、源文件复核与合并经 `WorkManageDialogPort` 复用详情模块。
-- 拼音排序表在已有媒体数据需要汉字排序时由宿主资产端口装载。
+- 拼音排序表在已有媒体数据需要汉字排序时由宿主资产端口装载。独立运行未提供词表时，汉字按码位稳定排序。
 - 媒体库全量刷新同轮请求合并，读取期间的新请求串行补跑，调用方等待本轮全部刷新完成。
 - 海报墙仅提取压制组，复用解析器按需开关；完整季集和特典识别继续由入库流程负责。
 - 搜索输入复用当前筛选及排序快照；数据、筛选或排序变化时同步重建，结果保持不可修改。
 - 海报卡传递作品 ID 与 posters 槽位，启用生产分作品磁盘缓存；候选预览图仍无归属槽位。
-- 海报加载直接复用 TmdbService 的缓存优先入口；未命中不重复探测，保留本地迁移、脏数据回源、清晰度与错误兜底语义。
+- 海报加载由刮削引擎提供，宿主为媒体库、历史和音频共用一个实例。并发去重按作品、缓存子目录和请求档位隔离。
 - 海报长标题恢复按需全文提示，仅允许悬停的当前卡片检测省略；滚动冷却和后台视频播放抑制时回落普通文本。
 - 内联搜索使用输入法组合保护及150ms防抖，组合开始取消旧任务、组合结束提交同文本；清空立即更新，收起与销毁取消延迟任务。
 - 媒体库末行底部留白为黄金源28dp与壳层底部避让高度之和，不压缩导航胶囊及小窗上方的独立页面间距。

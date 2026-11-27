@@ -1,20 +1,31 @@
 import 'package:flutter/widgets.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:konata_contracts/konata_contracts.dart';
 import 'package:konata_storage/konata_storage.dart';
 
 import 'data/library_catalog_sync_slice.dart';
 import 'data/playback_history_sync_slice.dart';
 import 'data/prefs_sync_slice.dart';
+import 'providers.dart';
 import 'ui/settings_backup_sync_panel.dart';
 
 Widget _buildBackupSyncSettingsSection(ViewSlotContext ctx) {
   return const SettingsBackupSyncPanel();
 }
 
+Widget _mountSyncRuntime(Object child) => Consumer(
+  child: child as Widget,
+  builder: (context, ref, child) {
+    ref.watch(syncBackupControllerProvider);
+    return child!;
+  },
+);
+
 /// 备份与同步功能模块静态注册清单（默认声明设置分组与内置三切片元数据）。
 const FeatureManifest featureSyncManifest = FeatureManifest(
   id: 'feature_sync',
   displayName: '备份与同步',
+  wrapRuntime: _mountSyncRuntime,
   settingsSections: <SettingsSectionContribution>[
     SettingsSectionContribution(
       id: 'backup_sync',
@@ -41,6 +52,7 @@ FeatureManifest createFeatureSyncManifest({
   return FeatureManifest(
     id: 'feature_sync',
     displayName: '备份与同步',
+    wrapRuntime: featureSyncManifest.wrapRuntime,
     settingsSections: featureSyncManifest.settingsSections,
     syncSlices: <SyncSliceContributor<Object?>>[
       PrefsSyncSlice(

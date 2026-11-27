@@ -8,7 +8,6 @@ import 'package:konata_design_system/konata_design_system.dart';
 import 'package:konata_storage/konata_storage.dart';
 
 import '../data/photos_cleanup_scanner.dart';
-import '../data/settings_display_prefs.dart';
 import '../data/settings_network_repository.dart';
 import '../data/settings_prefs.dart';
 
@@ -61,7 +60,6 @@ final class SettingsController extends ChangeNotifier {
     StorageRootPort? storageRoot,
     Future<Uint8List?> Function(String assetPath)? bundledMappingAssetLoader,
   }) : _appearanceRepo = SettingsAppearanceRepository(scopedPrefs),
-       _displayRepo = SettingsDisplayRepository(scopedPrefs),
        _networkRepo = SettingsNetworkRepository(
          scopedPrefs: scopedPrefs,
          secureStorage: secureStorage,
@@ -76,14 +74,9 @@ final class SettingsController extends ChangeNotifier {
          bundledAssetLoader: bundledMappingAssetLoader,
        ) {
     _appearance = _appearanceRepo.read();
-    _displayPrefs = _displayRepo.read();
     _networkConfig = _httpClient.config;
     _appearanceSub = _appearanceRepo.watch().listen((next) {
       _appearance = next;
-      _safeNotify();
-    });
-    _displaySub = _displayRepo.watch().listen((next) {
-      _displayPrefs = next;
       _safeNotify();
     });
     unawaited(initialize());
@@ -101,17 +94,14 @@ final class SettingsController extends ChangeNotifier {
   final NetworkConnectivityProbe? _connectivityProbeOverride;
 
   final SettingsAppearanceRepository _appearanceRepo;
-  final SettingsDisplayRepository _displayRepo;
   final SettingsNetworkRepository _networkRepo;
   final PhotosCleanupScanner _photosScanner;
   final BangumiTmdbMapUpdater _mappingUpdater;
 
   StreamSubscription<SettingsAppearancePrefs>? _appearanceSub;
-  StreamSubscription<SettingsDisplayPrefs>? _displaySub;
   bool _disposed = false;
 
   late SettingsAppearancePrefs _appearance;
-  late SettingsDisplayPrefs _displayPrefs;
   late KonataNetworkConfig _networkConfig;
   bool _isLoadingNetwork = true;
   bool _isSavingNetwork = false;
@@ -131,9 +121,6 @@ final class SettingsController extends ChangeNotifier {
 
   /// 当前主题外观配置。
   SettingsAppearancePrefs get appearance => _appearance;
-
-  /// 当前详情展示偏好配置。
-  SettingsDisplayPrefs get displayPrefs => _displayPrefs;
 
   /// 当前生效的主题模式。
   ThemeMode get themeMode => _appearance.themeMode;
@@ -228,35 +215,6 @@ final class SettingsController extends ChangeNotifier {
     _appearance = _appearance.copyWith(windowMaterial: next);
     _appearanceRepo.save(_appearance);
     _onWindowMaterialChanged?.call(next);
-    _safeNotify();
-  }
-
-  /// 切换详情页透明标题徽标显示。
-  void setShowTitleLogo(bool enabled) => _updateDisplayPrefs(
-    (current) => current.copyWith(showTitleLogo: enabled),
-  );
-
-  /// 切换详情页作品简介显示。
-  void setShowOverview(bool enabled) =>
-      _updateDisplayPrefs((current) => current.copyWith(showOverview: enabled));
-
-  /// 切换选集与特典卡片原始视频文件名显示。
-  void setShowRawVideoFilename(bool enabled) => _updateDisplayPrefs(
-    (current) => current.copyWith(showRawVideoFilename: enabled),
-  );
-
-  /// 切换详情页「CD」分类页签显示。
-  void setShowCdTab(bool enabled) =>
-      _updateDisplayPrefs((current) => current.copyWith(showCdTab: enabled));
-
-  /// 切换详情页「Scan」分类页签显示。
-  void setShowScanTab(bool enabled) =>
-      _updateDisplayPrefs((current) => current.copyWith(showScanTab: enabled));
-
-  void _updateDisplayPrefs(
-    SettingsDisplayPrefs Function(SettingsDisplayPrefs current) transform,
-  ) {
-    _displayPrefs = _displayRepo.update(transform);
     _safeNotify();
   }
 
@@ -608,7 +566,6 @@ final class SettingsController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _appearanceSub?.cancel();
-    _displaySub?.cancel();
     super.dispose();
   }
 

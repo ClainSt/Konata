@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:engine_playback/engine_playback.dart';
+import 'package:engine_scraping/engine_scraping.dart';
 import 'package:engine_sources/engine_sources.dart';
 import 'package:feature_detail/feature_detail.dart';
 import 'package:feature_history/feature_history.dart';
@@ -30,8 +31,7 @@ void configureFeatureDataAssets(AssetDataLoaderPort loader) {
 
 /// 宿主向业务模块装配层传递的运行时底座与引擎句柄集合。
 ///
-/// 所有可选业务模块的包级导入与依赖覆写均集中收口于本文件，
-/// 移除任意非核心业务包及其对应注册条目即可在不改动 `app_bootstrap.dart` 的前提下零报错编译。
+/// 宿主只为已注册功能接入运行时依赖。
 final class FeatureRuntimeWiring {
   /// 创建业务模块装配句柄集合。
   const FeatureRuntimeWiring({
@@ -59,6 +59,7 @@ final class FeatureRuntimeWiring {
     required this.audiophileCoordinator,
     required this.hostWindow,
     required this.autoStartDetailWarmupAndBackfill,
+    required this.autoStartOngoingWorksSync,
     this.listCloudAccountLocations,
     this.removeCloudAccountLocation,
     this.createCloudSignIn,
@@ -162,6 +163,9 @@ final class FeatureRuntimeWiring {
 
   /// 进入详情页后是否自动触发静默预热与正片补图。
   final bool autoStartDetailWarmupAndBackfill;
+
+  /// 是否启用媒体源的后台连载巡检。
+  final bool autoStartOngoingWorksSync;
 
   /// 桌面端 D3D11 视频纹理共享桥接器（仅 Windows 注入）。
   final KonataVideoTextureBridge? desktopSurfaceBridge;
@@ -323,23 +327,22 @@ List<FeatureManifest> buildRegisteredFeatureManifests({
   ScopedPrefsStore? scopedPrefs,
   KonataHttpClientPort? httpClient,
 }) {
-  return <FeatureManifest>[
-    featureDetailManifest,
-    featureHistoryManifest,
-    featureLibraryManifest,
-    createFeatureLyricsManifest(databases: databases, httpClient: httpClient),
-    featurePlayerAudioManifest,
-    featurePlayerVideoManifest,
-    createFeatureScanViewerManifest(databases: databases),
-    featureSettingsManifest,
-    featureSourcesManifest,
-    scopedPrefs == null
-        ? featureSyncManifest
-        : createFeatureSyncManifest(
-            databases: databases,
-            scopedPrefs: scopedPrefs,
-          ),
-    featureTrackerSyncManifest,
+  return [
+    for (final manifest in registeredFeatureManifests)
+      if (identical(manifest, featureLyricsManifest))
+        createFeatureLyricsManifest(
+          databases: databases,
+          httpClient: httpClient,
+        )
+      else if (identical(manifest, featureScanViewerManifest))
+        createFeatureScanViewerManifest(databases: databases)
+      else if (scopedPrefs != null && identical(manifest, featureSyncManifest))
+        createFeatureSyncManifest(
+          databases: databases,
+          scopedPrefs: scopedPrefs,
+        )
+      else
+        manifest,
   ];
 }
 
@@ -347,6 +350,10 @@ List<FeatureManifest> buildRegisteredFeatureManifests({
 List<Override> buildFeatureProviderOverrides(FeatureRuntimeWiring wiring) {
   final registry = wiring.featureRegistry;
   final platform = wiring.platform;
+  final artworkLoader = createArtworkByteLoader(
+    httpClient: wiring.httpClient,
+    artworkCache: wiring.artworkCache,
+  );
   final detailTabs = registry.detailTabsFor(platform);
   final detailActions = registry.detailActionsFor(platform);
   final settingsSections = registry.settingsSectionsFor(platform);
@@ -385,319 +392,339 @@ List<Override> buildFeatureProviderOverrides(FeatureRuntimeWiring wiring) {
   }
 
   return <Override>[
-    featureDetailDependenciesProvider.overrideWith(
-      (ref) => FeatureDetailDependencies(
-        databases: wiring.databases,
-        storageRoot: wiring.storageRoot,
-        diagnosticLog: wiring.diagnosticLog,
-        scopedPrefs: wiring.scopedPrefs,
-        domainEventBus: wiring.domainEventBus,
-        navigator: wiring.navigator,
-        filePicker: wiring.filePicker,
-        urlOpener: wiring.urlOpener,
-        httpClient: wiring.httpClient,
-        gatewayFactory: wiring.gatewayFactory,
-        streamBridge: wiring.streamBridge,
-        warmupService: wiring.warmupService,
-        photosStorage: wiring.photosStorage,
-        artworkCache: wiring.artworkCache,
-        platform: platform,
-        detailTabs: detailTabs,
-        detailActions: detailActions,
-        desktopRelayGateway: wiring.desktopRelayGateway,
-        prepareExternalVideo: wiring.desktopRelayGateway == null
-            ? null
-            : () async {
-                if (registry.containsFeature('feature_player_video')) {
-                  final video = ref.read(activeVideoSessionManagerProvider);
-                  if (!await video.closeActiveSession()) {
-                    throw StateError('无法关闭原视频会话');
+    if (registry.containsFeature('feature_detail'))
+      featureDetailDependenciesProvider.overrideWith(
+        (ref) => FeatureDetailDependencies(
+          databases: wiring.databases,
+          storageRoot: wiring.storageRoot,
+          diagnosticLog: wiring.diagnosticLog,
+          scopedPrefs: wiring.scopedPrefs,
+          domainEventBus: wiring.domainEventBus,
+          navigator: wiring.navigator,
+          filePicker: wiring.filePicker,
+          urlOpener: wiring.urlOpener,
+          httpClient: wiring.httpClient,
+          gatewayFactory: wiring.gatewayFactory,
+          streamBridge: wiring.streamBridge,
+          warmupService: wiring.warmupService,
+          photosStorage: wiring.photosStorage,
+          artworkCache: wiring.artworkCache,
+          platform: platform,
+          detailTabs: detailTabs,
+          detailActions: detailActions,
+          desktopRelayGateway: wiring.desktopRelayGateway,
+          prepareExternalVideo: wiring.desktopRelayGateway == null
+              ? null
+              : () async {
+                  if (registry.containsFeature('feature_player_video')) {
+                    final video = ref.read(activeVideoSessionManagerProvider);
+                    if (!await video.closeActiveSession()) {
+                      throw StateError('无法关闭原视频会话');
+                    }
                   }
-                }
-                if (hasAudio) {
-                  final audio = ref.read(audioPlaybackControllerProvider);
-                  if (audio.activeListenable.value) await audio.stopAndClose();
-                }
-              },
-        autoStartWarmupAndBackfill: wiring.autoStartDetailWarmupAndBackfill,
+                  if (hasAudio) {
+                    final audio = ref.read(audioPlaybackControllerProvider);
+                    if (audio.activeListenable.value) {
+                      await audio.stopAndClose();
+                    }
+                  }
+                },
+          autoStartWarmupAndBackfill: wiring.autoStartDetailWarmupAndBackfill,
+        ),
       ),
-    ),
-    featureHistoryDependenciesProvider.overrideWith((ref) {
-      final loader = ref.watch(libraryArtworkLoaderProvider);
-      return FeatureHistoryDependencies(
-        databases: wiring.databases,
-        navigator: wiring.navigator,
-        diagnosticLog: wiring.diagnosticLog,
-        platform: platform,
-        imageLoader: (id) async {
-          final work = wiring.databases.library.works.findById(id);
-          if (work == null) return null;
-          final primary = switch (work.posterRef) {
-            LocalCustomArtworkRef(:final localPath) => localPath,
-            RemoteArtworkRef(:final uri) => uri,
-            _ => null,
-          };
-          for (final path in [
-            primary,
-            work.posterFallback,
-            work.bangumiPosterPath,
-          ]) {
-            if (path == null || path.trim().isEmpty) continue;
-            final bytes = await loader(
-              path,
-              ownerWorkId: id.value,
-              subfolder: PhotoSubfolder.posters,
-            );
-            if (bytes != null && bytes.isNotEmpty) return bytes;
-          }
-          return null;
-        },
-        entryArtworkLoader: (entry) async {
-          final owner = entry.record.workId.value;
-          final variant = entry.variant;
-          if (entry.isAudio && variant != null) {
-            final path = variant.relativePath.replaceAll(r'\', '/');
-            final slash = path.lastIndexOf('/');
-            final dir = slash < 0 ? '.' : path.substring(0, slash);
-            final key =
-                'cd_cover::${variant.sourceId.value}::$dir::${variant.id.value}';
-            return wiring.photosStorage.readArtwork(
-              workId: owner,
+    if (registry.containsFeature('feature_history'))
+      featureHistoryDependenciesProvider.overrideWith((ref) {
+        return FeatureHistoryDependencies(
+          databases: wiring.databases,
+          navigator: wiring.navigator,
+          diagnosticLog: wiring.diagnosticLog,
+          platform: platform,
+          imageLoader: (id) async {
+            final work = wiring.databases.library.works.findById(id);
+            if (work == null) return null;
+            final primary = switch (work.posterRef) {
+              LocalCustomArtworkRef(:final localPath) => localPath,
+              RemoteArtworkRef(:final uri) => uri,
+              _ => null,
+            };
+            for (final path in [
+              primary,
+              work.posterFallback,
+              work.bangumiPosterPath,
+            ]) {
+              if (path == null || path.trim().isEmpty) continue;
+              final bytes = await artworkLoader(
+                path,
+                ownerWorkId: id.value,
+                subfolder: PhotoSubfolder.posters,
+              );
+              if (bytes != null && bytes.isNotEmpty) return bytes;
+            }
+            return null;
+          },
+          entryArtworkLoader: (entry) async {
+            final owner = entry.record.workId.value;
+            final variant = entry.variant;
+            if (entry.isAudio && variant != null) {
+              final path = variant.relativePath.replaceAll(r'\', '/');
+              final slash = path.lastIndexOf('/');
+              final dir = slash < 0 ? '.' : path.substring(0, slash);
+              final key =
+                  'cd_cover::${variant.sourceId.value}::$dir::${variant.id.value}';
+              return wiring.photosStorage.readArtwork(
+                workId: owner,
+                subfolder: PhotoSubfolder.thumbnails,
+                cacheKey: key,
+              );
+            }
+            final still = entry.stillPath;
+            if (still == null || still.trim().isEmpty) return null;
+            return artworkLoader(
+              still,
+              targetWidth: 320,
+              ownerWorkId: owner,
               subfolder: PhotoSubfolder.thumbnails,
-              cacheKey: key,
             );
-          }
-          final still = entry.stillPath;
-          if (still == null || still.trim().isEmpty) return null;
-          return loader(
-            still,
-            targetWidth: 320,
-            ownerWorkId: owner,
-            subfolder: PhotoSubfolder.thumbnails,
-          );
-        },
-      );
-    }),
-    workManageDialogPortProvider.overrideWithValue(
-      const HostWorkManageDialogs(),
-    ),
-    featureLibraryDependenciesProvider.overrideWithValue(
-      FeatureLibraryDependencies(
-        databases: wiring.databases,
-        storageRoot: wiring.storageRoot,
-        diagnosticLog: wiring.diagnosticLog,
-        scopedPrefs: wiring.scopedPrefs,
-        domainEventBus: wiring.domainEventBus,
-        navigator: wiring.navigator,
-        httpClient: wiring.httpClient,
-        photosStorage: wiring.photosStorage,
-        artworkCache: wiring.artworkCache,
-        platform: platform,
+          },
+        );
+      }),
+    if (registry.containsFeature('feature_library') &&
+        registry.containsFeature('feature_detail'))
+      workManageDialogPortProvider.overrideWithValue(
+        const HostWorkManageDialogs(),
       ),
-    ),
-    featureLyricsDependenciesProvider.overrideWith((ref) {
-      // 歌词点选跳转回调惰性读取音频控制器，彻底避免与 audioPlaybackControllerProvider 产生环形依赖。
-      final seekCallback =
-          wiring.onAudioSeekRequested ??
-          (hasAudio
-              ? (double targetSeconds, {bool resumePlayback = false}) {
-                  final audioCtrl = ref.read(audioPlaybackControllerProvider);
-                  unawaited(
-                    audioCtrl.seekToTrackPosition(
-                      Duration(milliseconds: (targetSeconds * 1000.0).round()),
+    if (registry.containsFeature('feature_library'))
+      featureLibraryDependenciesProvider.overrideWithValue(
+        FeatureLibraryDependencies(
+          databases: wiring.databases,
+          storageRoot: wiring.storageRoot,
+          diagnosticLog: wiring.diagnosticLog,
+          scopedPrefs: wiring.scopedPrefs,
+          domainEventBus: wiring.domainEventBus,
+          navigator: wiring.navigator,
+          httpClient: wiring.httpClient,
+          photosStorage: wiring.photosStorage,
+          artworkCache: wiring.artworkCache,
+          platform: platform,
+          artworkLoader: artworkLoader,
+        ),
+      ),
+    if (registry.containsFeature('feature_lyrics'))
+      featureLyricsDependenciesProvider.overrideWith((ref) {
+        // 歌词点选跳转回调惰性读取音频控制器，彻底避免与 audioPlaybackControllerProvider 产生环形依赖。
+        final seekCallback =
+            wiring.onAudioSeekRequested ??
+            (hasAudio
+                ? (double targetSeconds, {bool resumePlayback = false}) {
+                    final audioCtrl = ref.read(audioPlaybackControllerProvider);
+                    unawaited(
+                      audioCtrl.seekToTrackPosition(
+                        Duration(
+                          milliseconds: (targetSeconds * 1000.0).round(),
+                        ),
+                      ),
+                    );
+                    if (resumePlayback && !audioCtrl.playingListenable.value) {
+                      unawaited(audioCtrl.setPlaying(true));
+                    }
+                  }
+                : null);
+        return FeatureLyricsDependencies(
+          databases: wiring.databases,
+          scopedPrefs: wiring.scopedPrefs,
+          httpClient: wiring.httpClient,
+          diagnosticLog: wiring.diagnosticLog,
+          domainEventBus: wiring.domainEventBus,
+          playbackEngine: wiring.playbackEngine,
+          onSeekRequested: seekCallback,
+        );
+      }),
+    if (registry.containsFeature('feature_player_audio'))
+      featurePlayerAudioDependenciesProvider.overrideWith((ref) {
+        final lyricPort = hasLyrics
+            ? ref.watch(lyricDisplayPortProvider)
+            : null;
+        final lyricController = hasLyrics
+            ? ref.watch(lyricDisplayControllerProvider)
+            : null;
+        return FeaturePlayerAudioDependencies(
+          engine: wiring.playbackEngine,
+          safetyCoordinator: wiring.audiophileCoordinator,
+          prefsStore: wiring.scopedPrefs,
+          gatewayFactory: wiring.gatewayFactory,
+          streamBridge: wiring.streamBridge,
+          windowPort: wiring.hostWindow,
+          lyricPort: lyricPort,
+          lyricsViewportBuilder: lyricController == null
+              ? null
+              : (context, viewport) => ImmersiveLyricsViewport(
+                  itemId: viewport.trackKey,
+                  controller: lyricController,
+                  positionListenable: viewport.positionListenable,
+                  isPlayingListenable: viewport.isPlayingListenable,
+                  compact: viewport.compact,
+                  centerAligned: viewport.centerAligned,
+                  onTapEmptyArea: viewport.onTapEmptyArea,
+                ),
+          extraSidePanels: audioSidePanels,
+          database: wiring.databases,
+          photosStorage: wiring.photosStorage,
+          artworkCacheStore: wiring.artworkCache,
+          posterLoader: (path, workId) => artworkLoader(
+            path,
+            targetWidth: 512,
+            ownerWorkId: workId,
+            subfolder: PhotoSubfolder.posters,
+          ),
+          storageRoot: wiring.storageRoot,
+          domainEventBus: wiring.domainEventBus,
+          desktopRelayGateway: wiring.desktopRelayGateway,
+          desktopMpvDelegate: wiring.desktopProfileDelegate,
+          androidMediaSessionPort: wiring.androidMediaSessionPort,
+          logPort: wiring.diagnosticLog,
+          platform: platform,
+        );
+      }),
+    if (registry.containsFeature('feature_player_video'))
+      featurePlayerVideoDependenciesProvider.overrideWithValue(
+        FeaturePlayerVideoDependencies(
+          databases: wiring.databases,
+          storageRoot: wiring.storageRoot,
+          diagnosticLog: wiring.diagnosticLog,
+          scopedPrefs: wiring.scopedPrefs,
+          domainEventBus: wiring.domainEventBus,
+          navigator: wiring.navigator,
+          filePicker: wiring.filePicker,
+          urlOpener: wiring.urlOpener,
+          gatewayFactory: wiring.gatewayFactory,
+          streamBridge: wiring.streamBridge,
+          platform: platform,
+          hostWindow: wiring.hostWindow,
+          subtitleDirectoryIndex: wiring.warmupService,
+          playbackEngine: wiring.playbackEngine,
+          audiophileCoordinator: wiring.audiophileCoordinator,
+          desktopRelayGateway: wiring.desktopRelayGateway,
+          externalPlayerStore: wiring.externalPlayerStore,
+          readAudioRelayPreferences: hasAudio
+              ? () {
+                  final prefs = AudioPlaybackPreferences(
+                    store: wiring.scopedPrefs,
+                  ).read();
+                  return (
+                    port: prefs.foobarBeefwebPort,
+                    skipGuide: prefs.skipFoobarBeefwebPrompt,
+                  );
+                }
+              : null,
+          writeAudioRelayPreferences: hasAudio
+              ? ({int? port, bool? skipGuide}) {
+                  AudioPlaybackPreferences(
+                    store: wiring.scopedPrefs,
+                    eventBus: wiring.domainEventBus,
+                  ).update(
+                    (p) => p.copyWith(
+                      foobarBeefwebPort: port,
+                      skipFoobarBeefwebPrompt: skipGuide,
                     ),
                   );
-                  if (resumePlayback && !audioCtrl.playingListenable.value) {
-                    unawaited(audioCtrl.setPlaying(true));
-                  }
                 }
-              : null);
-      return FeatureLyricsDependencies(
-        databases: wiring.databases,
-        scopedPrefs: wiring.scopedPrefs,
-        httpClient: wiring.httpClient,
-        diagnosticLog: wiring.diagnosticLog,
-        domainEventBus: wiring.domainEventBus,
-        playbackEngine: wiring.playbackEngine,
-        onSeekRequested: seekCallback,
-      );
-    }),
-    featurePlayerAudioDependenciesProvider.overrideWith((ref) {
-      final lyricPort = hasLyrics ? ref.watch(lyricDisplayPortProvider) : null;
-      final lyricController = hasLyrics
-          ? ref.watch(lyricDisplayControllerProvider)
-          : null;
-      return FeaturePlayerAudioDependencies(
-        engine: wiring.playbackEngine,
-        safetyCoordinator: wiring.audiophileCoordinator,
-        prefsStore: wiring.scopedPrefs,
-        gatewayFactory: wiring.gatewayFactory,
-        streamBridge: wiring.streamBridge,
-        windowPort: wiring.hostWindow,
-        lyricPort: lyricPort,
-        lyricsViewportBuilder: lyricController == null
-            ? null
-            : (context, viewport) => ImmersiveLyricsViewport(
-                itemId: viewport.trackKey,
-                controller: lyricController,
-                positionListenable: viewport.positionListenable,
-                isPlayingListenable: viewport.isPlayingListenable,
-                compact: viewport.compact,
-                centerAligned: viewport.centerAligned,
-                onTapEmptyArea: viewport.onTapEmptyArea,
-              ),
-        extraSidePanels: audioSidePanels,
-        database: wiring.databases,
-        photosStorage: wiring.photosStorage,
-        artworkCacheStore: wiring.artworkCache,
-        posterLoader: (path, workId) => ref.read(libraryArtworkLoaderProvider)(
-          path,
-          targetWidth: 512,
-          ownerWorkId: workId,
-          subfolder: PhotoSubfolder.posters,
+              : null,
+          desktopSurfaceBridge: wiring.desktopSurfaceBridge,
+          desktopProfileDelegate: wiring.desktopProfileDelegate,
+          androidSurfacePort: wiring.androidSurfacePort,
+          mediaStorePublisher: wiring.mediaStorePublisher,
+          cloudSubsetCoordinator: wiring.cloudSubsetCoordinator,
+          legacyCodePageDecoder: wiring.legacyCodePageDecoder,
+          playerSidePanels: videoSidePanels,
+          pickExecutableFile: wiring.pickExecutableFile,
+          pickShaderFiles: shaderPicker,
         ),
-        storageRoot: wiring.storageRoot,
-        domainEventBus: wiring.domainEventBus,
-        desktopRelayGateway: wiring.desktopRelayGateway,
-        desktopMpvDelegate: wiring.desktopProfileDelegate,
-        androidMediaSessionPort: wiring.androidMediaSessionPort,
-        logPort: wiring.diagnosticLog,
-        platform: platform,
-      );
-    }),
-    featurePlayerVideoDependenciesProvider.overrideWithValue(
-      FeaturePlayerVideoDependencies(
-        databases: wiring.databases,
-        storageRoot: wiring.storageRoot,
-        diagnosticLog: wiring.diagnosticLog,
-        scopedPrefs: wiring.scopedPrefs,
-        domainEventBus: wiring.domainEventBus,
-        navigator: wiring.navigator,
-        filePicker: wiring.filePicker,
-        urlOpener: wiring.urlOpener,
-        gatewayFactory: wiring.gatewayFactory,
-        streamBridge: wiring.streamBridge,
-        platform: platform,
-        hostWindow: wiring.hostWindow,
-        subtitleDirectoryIndex: wiring.warmupService,
-        playbackEngine: wiring.playbackEngine,
-        audiophileCoordinator: wiring.audiophileCoordinator,
-        desktopRelayGateway: wiring.desktopRelayGateway,
-        externalPlayerStore: wiring.externalPlayerStore,
-        readAudioRelayPreferences: hasAudio
-            ? () {
-                final prefs = AudioPlaybackPreferences(
-                  store: wiring.scopedPrefs,
-                ).read();
-                return (
-                  port: prefs.foobarBeefwebPort,
-                  skipGuide: prefs.skipFoobarBeefwebPrompt,
-                );
-              }
-            : null,
-        writeAudioRelayPreferences: hasAudio
-            ? ({int? port, bool? skipGuide}) {
-                AudioPlaybackPreferences(
-                  store: wiring.scopedPrefs,
-                  eventBus: wiring.domainEventBus,
-                ).update(
-                  (p) => p.copyWith(
-                    foobarBeefwebPort: port,
-                    skipFoobarBeefwebPrompt: skipGuide,
-                  ),
-                );
-              }
-            : null,
-        desktopSurfaceBridge: wiring.desktopSurfaceBridge,
-        desktopProfileDelegate: wiring.desktopProfileDelegate,
-        androidSurfacePort: wiring.androidSurfacePort,
-        mediaStorePublisher: wiring.mediaStorePublisher,
-        cloudSubsetCoordinator: wiring.cloudSubsetCoordinator,
-        legacyCodePageDecoder: wiring.legacyCodePageDecoder,
-        playerSidePanels: videoSidePanels,
-        pickExecutableFile: wiring.pickExecutableFile,
-        pickShaderFiles: shaderPicker,
       ),
-    ),
-    featureScanViewerDependenciesProvider.overrideWithValue(
-      FeatureScanViewerDependencies(
-        databases: wiring.databases,
-        storageRoot: wiring.storageRoot,
-        diagnosticLog: wiring.diagnosticLog,
-        scopedPrefs: wiring.scopedPrefs,
-        gatewayFactory: wiring.gatewayFactory,
-        photosStorage: wiring.photosStorage,
-        platform: platform,
-        customStreamOpener:
-            wiring.customScanStreamOpener is ScanSourceStreamOpener
-            ? wiring.customScanStreamOpener! as ScanSourceStreamOpener
-            : null,
-        urlOpener: wiring.urlOpener,
+    if (registry.containsFeature('feature_scan_viewer'))
+      featureScanViewerDependenciesProvider.overrideWithValue(
+        FeatureScanViewerDependencies(
+          databases: wiring.databases,
+          storageRoot: wiring.storageRoot,
+          diagnosticLog: wiring.diagnosticLog,
+          scopedPrefs: wiring.scopedPrefs,
+          gatewayFactory: wiring.gatewayFactory,
+          photosStorage: wiring.photosStorage,
+          platform: platform,
+          customStreamOpener:
+              wiring.customScanStreamOpener is ScanSourceStreamOpener
+              ? wiring.customScanStreamOpener! as ScanSourceStreamOpener
+              : null,
+          urlOpener: wiring.urlOpener,
+        ),
       ),
-    ),
-    featureSettingsDependenciesProvider.overrideWithValue(
-      FeatureSettingsDependencies(
-        databases: wiring.databases,
-        scopedPrefs: wiring.scopedPrefs,
-        secureStorage: wiring.secureStorage,
-        httpClient: wiring.httpClient,
-        photosStorage: wiring.photosStorage,
-        backupFilePort: wiring.backupFilePort,
-        urlOpener: wiring.urlOpener,
-        diagnosticLog: wiring.diagnosticLog,
-        navigator: wiring.navigator,
-        currentPlatform: platform,
-        sections: settingsSections,
-        onThemeModeChanged: wiring.onThemeModeChanged,
-        onAmbientBackdropChanged: wiring.onAmbientBackdropChanged,
-        onWindowMaterialChanged: wiring.onWindowMaterialChanged,
+    if (registry.containsFeature('feature_settings'))
+      featureSettingsDependenciesProvider.overrideWithValue(
+        FeatureSettingsDependencies(
+          databases: wiring.databases,
+          scopedPrefs: wiring.scopedPrefs,
+          secureStorage: wiring.secureStorage,
+          httpClient: wiring.httpClient,
+          photosStorage: wiring.photosStorage,
+          backupFilePort: wiring.backupFilePort,
+          urlOpener: wiring.urlOpener,
+          diagnosticLog: wiring.diagnosticLog,
+          navigator: wiring.navigator,
+          currentPlatform: platform,
+          sections: settingsSections,
+          onThemeModeChanged: wiring.onThemeModeChanged,
+          onAmbientBackdropChanged: wiring.onAmbientBackdropChanged,
+          onWindowMaterialChanged: wiring.onWindowMaterialChanged,
+        ),
       ),
-    ),
-    featureSourcesDependenciesProvider.overrideWithValue(
-      FeatureSourcesDependencies(
-        databases: wiring.databases,
-        storageRoot: wiring.storageRoot,
-        secureStorage: wiring.secureStorage,
-        diagnosticLog: wiring.diagnosticLog,
-        scopedPrefs: wiring.scopedPrefs,
-        domainEventBus: wiring.domainEventBus,
-        navigator: wiring.navigator,
-        filePicker: wiring.filePicker,
-        httpClient: wiring.httpClient,
-        gatewayFactory: wiring.gatewayFactory,
-        photosStorage: wiring.photosStorage,
-        platform: platform,
-        listCloudAccountLocations: wiring.listCloudAccountLocations,
-        removeCloudAccountLocation: wiring.removeCloudAccountLocation,
-        createCloudSignIn: wiring.createCloudSignIn,
+    if (registry.containsFeature('feature_sources'))
+      featureSourcesDependenciesProvider.overrideWithValue(
+        FeatureSourcesDependencies(
+          databases: wiring.databases,
+          storageRoot: wiring.storageRoot,
+          secureStorage: wiring.secureStorage,
+          diagnosticLog: wiring.diagnosticLog,
+          scopedPrefs: wiring.scopedPrefs,
+          domainEventBus: wiring.domainEventBus,
+          navigator: wiring.navigator,
+          filePicker: wiring.filePicker,
+          httpClient: wiring.httpClient,
+          gatewayFactory: wiring.gatewayFactory,
+          photosStorage: wiring.photosStorage,
+          platform: platform,
+          autoStartOngoingWorksSync: wiring.autoStartOngoingWorksSync,
+          listCloudAccountLocations: wiring.listCloudAccountLocations,
+          removeCloudAccountLocation: wiring.removeCloudAccountLocation,
+          createCloudSignIn: wiring.createCloudSignIn,
+        ),
       ),
-    ),
-    featureSyncDependenciesProvider.overrideWithValue(
-      FeatureSyncDependencies(
-        databases: wiring.databases,
-        scopedPrefs: wiring.scopedPrefs,
-        secureStorage: wiring.secureStorage,
-        backupFilePort: wiring.backupFilePort,
-        eventBus: wiring.domainEventBus,
-        diagnosticLog: wiring.diagnosticLog,
-        extraSlices: externalSyncSlices,
-        connectionPool: wiring.webDavPool,
-        readLegacyCue: (id) =>
-            readIndexedLegacyCue(wiring.databases, wiring.gatewayFactory, id),
+    if (registry.containsFeature('feature_sync'))
+      featureSyncDependenciesProvider.overrideWithValue(
+        FeatureSyncDependencies(
+          databases: wiring.databases,
+          scopedPrefs: wiring.scopedPrefs,
+          secureStorage: wiring.secureStorage,
+          backupFilePort: wiring.backupFilePort,
+          eventBus: wiring.domainEventBus,
+          diagnosticLog: wiring.diagnosticLog,
+          extraSlices: externalSyncSlices,
+          connectionPool: wiring.webDavPool,
+          readLegacyCue: (id) =>
+              readIndexedLegacyCue(wiring.databases, wiring.gatewayFactory, id),
+        ),
       ),
-    ),
-    featureTrackerSyncDependenciesProvider.overrideWithValue(
-      FeatureTrackerSyncDependencies(
-        databases: wiring.databases,
-        secureStorage: wiring.secureStorage,
-        scopedPrefs: wiring.scopedPrefs,
-        domainEventBus: wiring.domainEventBus,
-        diagnosticLog: wiring.diagnosticLog,
-        httpClient: wiring.httpClient,
-        urlOpener: wiring.urlOpener,
-        platform: platform,
+    if (registry.containsFeature('feature_tracker_sync'))
+      featureTrackerSyncDependenciesProvider.overrideWithValue(
+        FeatureTrackerSyncDependencies(
+          databases: wiring.databases,
+          secureStorage: wiring.secureStorage,
+          scopedPrefs: wiring.scopedPrefs,
+          domainEventBus: wiring.domainEventBus,
+          diagnosticLog: wiring.diagnosticLog,
+          httpClient: wiring.httpClient,
+          urlOpener: wiring.urlOpener,
+          platform: platform,
+        ),
       ),
-    ),
   ];
 }
 
@@ -767,33 +794,6 @@ Future<List<LegacyCueTrack>?> readIndexedLegacyCue(
   } catch (_) {
     return null;
   }
-}
-
-/// 激活需要随应用生命周期常驻事件订阅与启动自动同步的已注册后台业务协调器。
-void activateRegisteredFeatureServices(
-  WidgetRef ref,
-  FeatureRegistry registry,
-) {
-  if (registry.containsFeature('feature_tracker_sync')) {
-    ref.watch(trackerSyncCoordinatorProvider);
-  }
-  if (registry.containsFeature('feature_sync')) {
-    ref.watch(syncBackupControllerProvider);
-  }
-}
-
-/// 按节流策略触发连载与近期活跃作品的后台静默追更巡检。
-void triggerOngoingWorksAutoSync(
-  WidgetRef ref,
-  FeatureRegistry registry, {
-  bool force = false,
-}) {
-  if (!registry.containsFeature('feature_sources')) return;
-  unawaited(
-    ref
-        .read(sourceScrapeControllerProvider)
-        .runOngoingWorksAutoSyncIfDue(force: force),
-  );
 }
 
 /// 尝试将当前全屏视频舞台切入跨页悬浮小窗或优雅退场（供 Android 根返回门控调用）。
@@ -1750,6 +1750,20 @@ final class FeatureRegistry {
 
   /// 已注册的全部业务模块清单（严格字母序）。
   final List<FeatureManifest> manifests;
+
+  /// 挂载当前平台已注册的应用生命周期任务。
+  Widget wrapRuntime(KonataPlatform platform, Widget child) {
+    for (final manifest in manifests.reversed) {
+      final wrap = manifest.wrapRuntime;
+      if (wrap == null || !manifest.isSupportedOn(platform)) continue;
+      final wrapped = wrap(child);
+      if (wrapped is! Widget) {
+        throw StateError('功能运行时必须返回组件：${manifest.id}');
+      }
+      child = wrapped;
+    }
+    return child;
+  }
 
   /// 查询指定标识的模块是否已注册。
   bool containsFeature(String featureId) =>

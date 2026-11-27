@@ -20,6 +20,7 @@ export 'package:konata_contracts/konata_contracts.dart'
         TmdbCredentialKind,
         TmdbNetworkConfig;
 
+export 'artwork_byte_loader.dart';
 export 'bangumi_service.dart';
 export 'fanart_service.dart';
 export 'tmdb_service.dart';

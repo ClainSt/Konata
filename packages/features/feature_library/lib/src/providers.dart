@@ -1,6 +1,3 @@
-import 'dart:async';
-import 'dart:typed_data';
-
 import 'package:engine_scraping/engine_scraping.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:konata_contracts/konata_contracts.dart';
@@ -10,14 +7,7 @@ import 'state/library_controller.dart';
 import 'state/work_management_controller.dart';
 
 /// 图像按需字节加载回调类型（供 `ManagedImage` 统一接入缓存与网络）。
-typedef LibraryArtworkLoader =
-    Future<Uint8List?> Function(
-      String path, {
-      int targetWidth,
-      TmdbImageSize imageSize,
-      String? ownerWorkId,
-      PhotoSubfolder? subfolder,
-    });
+typedef LibraryArtworkLoader = ArtworkByteLoader;
 
 /// `feature_library` 对宿主及集成测试暴露的显式依赖集合。
 final class FeatureLibraryDependencies {
@@ -33,6 +23,7 @@ final class FeatureLibraryDependencies {
     required this.photosStorage,
     required this.artworkCache,
     required this.platform,
+    this.artworkLoader,
   });
 
   /// 三库合一持久化门面。
@@ -64,6 +55,9 @@ final class FeatureLibraryDependencies {
 
   /// 当前宿主运行平台形态。
   final KonataPlatform platform;
+
+  /// 宿主共享的图片加载能力。
+  final ArtworkByteLoader? artworkLoader;
 }
 
 /// 媒体库依赖注入根 `Provider`（必须由宿主 `ProviderScope` 覆盖提供）。
@@ -76,9 +70,9 @@ final featureLibraryDependenciesProvider = Provider<FeatureLibraryDependencies>(
 );
 
 /// 由宿主连接至详情模块的作品管理弹窗端口。
-final workManageDialogPortProvider = Provider<WorkManageDialogPort>((ref) {
-  throw StateError('作品管理弹窗端口尚未装配');
-});
+final workManageDialogPortProvider = Provider<WorkManageDialogPort?>(
+  (ref) => null,
+);
 
 /// 媒体库主海报墙与待复核队列状态控制器 `Provider`。
 final libraryControllerProvider = Provider<LibraryController>((ref) {
@@ -114,64 +108,9 @@ final workManagementControllerProvider = Provider<WorkManagementController>((
 /// 优先命中 `ArtworkCacheStore` 或本机 `photos/` 缓存目录，未命中时回落受控 `TmdbService` 拉取并回写。
 final libraryArtworkLoaderProvider = Provider<LibraryArtworkLoader>((ref) {
   final deps = ref.watch(featureLibraryDependenciesProvider);
-  final tmdb = TmdbService(
-    httpClient: deps.httpClient,
-    artworkCache: deps.artworkCache,
-  );
-  // 仅合并进行中的同一艺术图请求；作品、子目录及实际请求档位必须一致。
-  final inFlight =
-      <
-        ({
-          String path,
-          TmdbImageSize size,
-          String? owner,
-          PhotoSubfolder? folder,
-        }),
-        Future<Uint8List?>
-      >{};
-  return (
-    String path, {
-    int targetWidth = 384,
-    TmdbImageSize imageSize = TmdbImageSize.w500,
-    String? ownerWorkId,
-    PhotoSubfolder? subfolder,
-  }) async {
-    final trimmed = path.trim();
-    if (trimmed.isEmpty) return null;
-    // 显式档位决定编码图片的请求尺寸，解码宽度仍由各自的图片组件控制。
-    final key = (
-      path: trimmed,
-      size: imageSize,
-      owner: ownerWorkId,
-      folder: subfolder,
-    );
-    final running = inFlight[key];
-    if (running != null) return running;
-    Future<Uint8List?> fetch() async {
-      try {
-        final fetched = await tmdb.fetchImageBytes(
-          trimmed,
-          size: imageSize,
-          targetWidth: targetWidth,
-          ownerWorkId: ownerWorkId,
-          subfolder: subfolder,
-          priority: RequestPriority.interactive,
-        );
-        return fetched.isNotEmpty ? fetched : null;
-      } catch (_) {
-        return null;
-      }
-    }
-
-    final future = fetch();
-    inFlight[key] = future;
-    try {
-      return await future;
-    } finally {
-      if (identical(inFlight[key], future)) {
-        // 此处移除的任务已在上方等待完成，无需再次等待。
-        unawaited(inFlight.remove(key));
-      }
-    }
-  };
+  return deps.artworkLoader ??
+      createArtworkByteLoader(
+        httpClient: deps.httpClient,
+        artworkCache: deps.artworkCache,
+      );
 });

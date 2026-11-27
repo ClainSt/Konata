@@ -398,7 +398,10 @@ final class KonataBackupService {
     required KonataRestoreMode mode,
     required String localDeviceId,
   }) {
-    if (remotePayload.schemaVersion != contributor.schemaVersion) {
+    final compatible = contributor is PrefsSyncSlice
+        ? contributor.canReadVersion(remotePayload.schemaVersion)
+        : remotePayload.schemaVersion == contributor.schemaVersion;
+    if (!compatible) {
       throw FormatException(
         '备份切片 ${contributor.sliceId} 版本不兼容：${remotePayload.schemaVersion}',
       );

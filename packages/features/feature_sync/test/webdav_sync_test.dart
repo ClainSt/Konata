@@ -602,6 +602,120 @@ void main() {
       await coordinatorB.syncNow(webDavConfig);
     });
 
+    test('旧偏好分片可升级，两端独立编辑合流且重复同步不上传', () async {
+      const detail = TypedPrefsSlice<Map<String, Object?>>(
+        namespace: 'feature_detail.display',
+        schemaVersion: 1,
+        syncPolicy: SyncPolicy.portable,
+        mergeByField: true,
+        defaultValue: {'showCdTab': true, 'showScanTab': true},
+        encode: _identityEncode,
+        decode: _identityDecode,
+      );
+      const baseline = {
+        'showCdTab': true,
+        'showScanTab': true,
+        'density': 'normal',
+      };
+      for (final db in [dbA, dbB]) {
+        db.userState.scopedPrefs.upsert(
+          ScopedPrefRecord(
+            namespace: detail.namespace,
+            schemaVersion: 1,
+            syncPolicy: SyncPolicy.portable,
+            payloadJson: jsonEncode(baseline),
+            updatedAtMs: 100,
+            sourceDeviceId: 'legacy',
+          ),
+        );
+      }
+      const legacy = SyncSlicePayload(
+        sliceId: PrefsSyncSlice.id,
+        schemaVersion: 1,
+        exportedAtMs: 900,
+        sourceDeviceId: 'legacy',
+        data: {
+          'entries': [
+            {
+              'namespace': 'feature_detail.display',
+              'schemaVersion': 1,
+              'payload': baseline,
+              'updatedAtMs': 900,
+              'sourceDeviceId': 'legacy',
+            },
+          ],
+        },
+      );
+      final hash = SyncSanitizer.computeSliceDataSha256(
+        sliceId: legacy.sliceId,
+        schemaVersion: legacy.schemaVersion,
+        data: legacy.data,
+      );
+      final path = WebDavSyncTransport.buildShardRelativePath(
+        sliceId: legacy.sliceId,
+        deviceId: legacy.sourceDeviceId,
+        sha256: hash,
+      );
+      final watermark = WebDavSliceWatermark(
+        sliceId: legacy.sliceId,
+        deviceId: legacy.sourceDeviceId,
+        deviceName: '旧设备',
+        platform: 'windows',
+        schemaVersion: 1,
+        updatedAtMs: 900,
+        shardPath: path,
+        sha256: hash,
+      );
+      final manifest = const WebDavSyncManifest().withEntry(watermark);
+      server.files['/dav/konata-sync/manifest.json'] = Uint8List.fromList(
+        utf8.encode(jsonEncode(manifest.toJson())),
+      );
+      server.files['/dav/konata-sync/$path'] = Uint8List.fromList(
+        gzip.encode(
+          utf8.encode(jsonEncode({...legacy.toJson(), 'sha256': hash})),
+        ),
+      );
+
+      prefsA.write(detail, {
+        ...baseline,
+        'showCdTab': false,
+        'density': 'compact',
+      }, updatedAtMs: 200);
+      prefsB.write(detail, {
+        ...baseline,
+        'showScanTab': false,
+        'density': 'wide',
+      }, updatedAtMs: 200);
+      final config = webDavConfig.copyWith(
+        selectedSliceIds: {PrefsSyncSlice.id},
+      );
+      await coordinatorA.syncNow(config);
+      await coordinatorB.syncNow(config);
+      await coordinatorA.syncNow(config);
+      final repeated = await coordinatorB.syncNow(config);
+      expect(repeated.uploadedShards, 0);
+      for (final prefs in [prefsA, prefsB]) {
+        expect(prefs.read(detail), {
+          'showCdTab': false,
+          'showScanTab': false,
+          'density': 'wide',
+        });
+      }
+      final upgraded = WebDavSyncManifest.fromJson(
+        jsonDecode(utf8.decode(server.files['/dav/konata-sync/manifest.json']!))
+            as Map<String, Object?>,
+      );
+      expect(
+        upgraded.findEntry(PrefsSyncSlice.id, 'device_a')?.schemaVersion,
+        2,
+      );
+      expect(
+        upgraded.findEntry(PrefsSyncSlice.id, 'device_b')?.schemaVersion,
+        2,
+      );
+      expect(upgraded.findEntry(PrefsSyncSlice.id, 'legacy')?.schemaVersion, 1);
+    });
+
     test('无强 ETag 的现有清单拒绝发布且不上传分片', () async {
       await coordinatorA.syncNow(webDavConfig);
       server.includeEtags = false;

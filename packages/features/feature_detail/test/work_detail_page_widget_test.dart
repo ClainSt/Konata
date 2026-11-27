@@ -718,6 +718,7 @@ void main() {
       scanTab = DetailTabContribution(
         id: 'scan_viewer',
         label: 'Scan',
+        kind: DetailTabKind.scan,
         iconKey: 'scan',
         order: 40,
         isVisibleForWork: (_) async => true,
@@ -726,7 +727,16 @@ void main() {
       ctrl = harness.createController(
         const WorkId.trusted('w_ui_1'),
         platform: KonataPlatform.windows,
-        detailTabs: <DetailTabContribution>[scanTab],
+        detailTabs: <DetailTabContribution>[
+          scanTab,
+          DetailTabContribution(
+            id: 'supplement_index',
+            label: 'Scan 制作资料',
+            iconKey: 'scan',
+            order: 50,
+            viewBuilder: (_) => const Text('制作资料索引'),
+          ),
+        ],
       );
       await ctrl.load();
     });
@@ -1136,6 +1146,20 @@ void main() {
         findsNothing,
       );
       expect(find.textContaining('繁华的人类文明毁灭之后'), findsNothing);
+      const supplementTab = ValueKey<String>('detail_tab_supplement_index');
+      expect(find.byKey(supplementTab), findsOneWidget);
+      await tester.tap(find.byKey(supplementTab));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 260));
+      await tester.tap(find.byKey(const Key('detail_drawer_view_all_button')));
+      await tester.pumpAndSettle();
+      expect(find.text('少女终末旅行 · 完整列表'), findsOneWidget);
+      expect(find.byKey(supplementTab), findsWidgets);
+      expect(
+        find.byKey(const ValueKey<String>('detail_tab_scan_viewer')),
+        findsNothing,
+      );
+      expect(find.text('制作资料索引'), findsWidgets);
     });
   });
 

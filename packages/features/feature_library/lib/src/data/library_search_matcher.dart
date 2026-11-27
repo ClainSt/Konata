@@ -39,7 +39,7 @@ abstract final class LibrarySearchMatcher {
     required Work work,
     required List<String> releaseGroups,
     required String rawQuery,
-  }) => _compile(rawQuery).rank(work, releaseGroups);
+  }) => _compile(rawQuery).rank(work, releaseGroups)?.index;
 
   /// 每轮检索只解析一次查询，避免每部作品重复运行正则与分词。
   static _CompiledQuery _compile(String rawQuery) {
@@ -72,10 +72,10 @@ abstract final class LibrarySearchMatcher {
   }) {
     if (rawQuery.trim().isEmpty) return items;
     final query = _compile(rawQuery);
-    final buckets = List.generate(4, (_) => <T>[]);
+    final buckets = List.generate(_MatchRank.values.length, (_) => <T>[]);
     for (final item in items) {
       final rank = query.rank(workOf(item), releaseGroupsOf(item));
-      if (rank != null) buckets[rank].add(item);
+      if (rank != null) buckets[rank.index].add(item);
     }
     return List<T>.unmodifiable(buckets.expand((bucket) => bucket));
   }
@@ -104,7 +104,7 @@ final class LibrarySearchIndex<T> {
   List<T> search(String rawQuery) {
     if (rawQuery.trim().isEmpty) return _items;
     final query = LibrarySearchMatcher._compile(rawQuery);
-    final buckets = List.generate(4, (_) => <T>[]);
+    final buckets = List.generate(_MatchRank.values.length, (_) => <T>[]);
     for (final entry in _entries) {
       final fields = entry.fields;
       final rank = query.rank(
@@ -112,7 +112,7 @@ final class LibrarySearchIndex<T> {
         fields.releaseGroups,
         prepared: fields,
       );
-      if (rank != null) buckets[rank].add(entry.item);
+      if (rank != null) buckets[rank.index].add(entry.item);
     }
     return List<T>.unmodifiable(buckets.expand((bucket) => bucket));
   }
@@ -136,6 +136,13 @@ final class _SearchFields {
   ];
 }
 
+enum _MatchRank {
+  titlePrefix,
+  titleContains,
+  originalTitle,
+  releaseGroupOrYear,
+}
+
 enum _QueryKind { empty, tmdb, bgm, group, general }
 
 /// 单次查询的临时解析结果，不缓存作品元数据或跨查询状态。
@@ -146,16 +153,22 @@ final class _CompiledQuery {
   final int? id;
   final List<String> terms;
 
-  int? rank(Work work, List<String> releaseGroups, {_SearchFields? prepared}) {
+  _MatchRank? rank(
+    Work work,
+    List<String> releaseGroups, {
+    _SearchFields? prepared,
+  }) {
     switch (kind) {
       case _QueryKind.empty:
-        return 0;
+        return _MatchRank.titlePrefix;
       case _QueryKind.tmdb:
-        return id != null && work.tmdbId == id ? 0 : null;
+        return id != null && work.tmdbId == id ? _MatchRank.titlePrefix : null;
       case _QueryKind.bgm:
-        return id != null && work.bangumiId == id ? 0 : null;
+        return id != null && work.bangumiId == id
+            ? _MatchRank.titlePrefix
+            : null;
       case _QueryKind.group:
-        if (terms.isEmpty) return 0;
+        if (terms.isEmpty) return _MatchRank.titlePrefix;
         final normalizedGroups =
             prepared?.groups ??
             [
@@ -165,7 +178,7 @@ final class _CompiledQuery {
         return terms.every(
               (term) => normalizedGroups.any((group) => group.contains(term)),
             )
-            ? 0
+            ? _MatchRank.titlePrefix
             : null;
       case _QueryKind.general:
         final title =
@@ -175,18 +188,22 @@ final class _CompiledQuery {
         String? originalTitle;
         String? yearText;
         List<String>? groups;
-        var worstRank = 0;
+        var worstRank = _MatchRank.titlePrefix;
         for (final term in terms) {
           if (title.startsWith(term)) continue;
           if (title.contains(term)) {
-            if (worstRank < 1) worstRank = 1;
+            if (worstRank.index < _MatchRank.titleContains.index) {
+              worstRank = _MatchRank.titleContains;
+            }
             continue;
           }
           originalTitle ??=
               prepared?.originalTitle ??
               LibrarySearchMatcher.normalizeForSearch(work.originalTitle ?? '');
           if (originalTitle.contains(term)) {
-            if (worstRank < 2) worstRank = 2;
+            if (worstRank.index < _MatchRank.originalTitle.index) {
+              worstRank = _MatchRank.originalTitle;
+            }
             continue;
           }
           groups ??=
@@ -198,7 +215,7 @@ final class _CompiledQuery {
           yearText ??= prepared?.yearText ?? work.year?.toString() ?? '';
           if (groups.any((group) => group.contains(term)) ||
               (yearText.isNotEmpty && yearText.contains(term))) {
-            if (worstRank < 3) worstRank = 3;
+            worstRank = _MatchRank.releaseGroupOrYear;
             continue;
           }
           return null;

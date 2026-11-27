@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:engine_playback/engine_playback.dart';
+import 'package:engine_playback/src/infrastructure/players/windows_player_discovery.dart';
 import 'package:konata_contracts/konata_contracts.dart';
 import 'package:konata_storage/konata_storage.dart';
 import 'package:test/test.dart';
@@ -338,6 +339,29 @@ class _FakeBeefwebServer {
 }
 
 void main() {
+  test('Windows 播放器发现采用实际安装目录和 PATH', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'konata-player-location-',
+    );
+    addTearDown(() => root.delete(recursive: true));
+    final pot = File('${root.path}\\DAUM\\PotPlayer\\PotPlayerMini64.exe');
+    await pot.create(recursive: true);
+    expect(
+      discoverWindowsExternalPlayer({
+        'ProgramFiles': root.path,
+      })?.executablePath,
+      pot.path,
+    );
+    final mpv = File('${root.path}\\mpv.exe');
+    await mpv.create();
+    final discovered = discoverWindowsExternalPlayer({
+      'ProgramFiles': root.path,
+      'Path': 'relative-path;"${root.path}"',
+    });
+    expect(discovered?.kind, ExternalPlayerKind.mpv);
+    expect(discovered?.executablePath, mpv.path);
+  }, skip: !Platform.isWindows);
+
   test('严格云盘范围读取不越过短文件 EOF', () async {
     final data = Uint8List.fromList([1, 2, 3, 4, 5]);
     final gateway = _StrictCloudGateway({'cover.webp': data});

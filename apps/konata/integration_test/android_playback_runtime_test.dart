@@ -128,6 +128,7 @@ void main() {
         androidPipPort: AndroidPipAdapter(),
         useInMemoryDatabases: true,
         autoStartDetailWarmupAndBackfill: false,
+        autoStartOngoingWorksSync: false,
       );
       bootstrap = boot;
       const work = WorkId.trusted('android-audit-work');

@@ -25,6 +25,7 @@ void main() {
         secureStorage: storage,
         useInMemoryDatabases: true,
         autoStartDetailWarmupAndBackfill: false,
+        autoStartOngoingWorksSync: false,
         cloudDriveRequest: (method, uri, headers, body) async {
           requests++;
           final response = uri.host == 'account.guangyapan.com'

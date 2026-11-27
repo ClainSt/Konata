@@ -23,6 +23,7 @@ final class FeatureSourcesDependencies {
     required this.gatewayFactory,
     required this.photosStorage,
     required this.platform,
+    this.autoStartOngoingWorksSync = true,
     this.listCloudAccountLocations,
     this.removeCloudAccountLocation,
     this.createCloudSignIn,
@@ -63,6 +64,9 @@ final class FeatureSourcesDependencies {
 
   /// 当前运行平台类型（桌面 / 手机 / 平板）。
   final KonataPlatform platform;
+
+  /// 是否开启应用生命周期驱动的连载巡检。
+  final bool autoStartOngoingWorksSync;
 
   /// 本机已授权云盘根地址列表，不包含令牌或账号密码。
   final Future<List<({String location, String? maskedPhone})>> Function()?

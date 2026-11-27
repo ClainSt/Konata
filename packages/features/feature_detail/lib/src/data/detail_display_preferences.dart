@@ -76,6 +76,14 @@ class DetailDisplayPreferences {
   /// 未识别的未来扩展键（往返写回时原样透传保留）。
   final Map<String, Object?> extraFields;
 
+  /// 应用显示偏好，保留作品可见性过滤后的其他扩展标签。
+  List<DetailTabContribution> filterTabs(List<DetailTabContribution> tabs) =>
+      showScanTab
+      ? tabs
+      : tabs
+            .where((tab) => tab.kind != DetailTabKind.scan)
+            .toList(growable: false);
+
   /// 返回更新指定展示开关后的新偏好实例。
   DetailDisplayPreferences copyWith({
     bool? showTitleLogo,
@@ -111,6 +119,7 @@ class DetailDisplayPreferences {
         namespace: 'feature_detail.display',
         schemaVersion: 1,
         syncPolicy: SyncPolicy.portable,
+        mergeByField: true,
         defaultValue: DetailDisplayPreferences(),
         encode: encodeJson,
         decode: decodeJson,

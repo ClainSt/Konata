@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:engine_sources/engine_sources.dart';
@@ -294,22 +293,6 @@ void main() {
     final db = KonataDatabaseBundle.openInMemory();
     addTearDown(db.close);
 
-    // 预置 feature_detail 既有四项字段，验证设置面板编辑后完整保留且零覆盖。
-    db.userState.scopedPrefs.upsert(
-      ScopedPrefRecord(
-        namespace: 'feature_detail.display',
-        schemaVersion: 1,
-        syncPolicy: SyncPolicy.portable,
-        payloadJson: jsonEncode(<String, Object?>{
-          'showMainHeroBackdrop': false,
-          'showEpisodeStillThumbnails': true,
-          'showOriginalSubtitlesOnCards': false,
-          'autoSilentWarmup': false,
-        }),
-        updatedAtMs: 500,
-      ),
-    );
-
     final backupPort = _FakeBackupFilePort();
     final urlOpener = _FakeUrlOpener();
     final materials = <KonataWindowMaterial>[];
@@ -317,6 +300,14 @@ void main() {
     final themes = <ThemeMode>[];
 
     final externalSections = <SettingsSectionContribution>[
+      SettingsSectionContribution(
+        id: 'display_test_child',
+        title: '扩展面板标题',
+        iconKey: 'display',
+        order: 10,
+        parentSectionId: displaySettingsSectionId,
+        viewBuilder: (_) => const Text('显示扩展内容'),
+      ),
       SettingsSectionContribution(
         id: 'ext_desktop_player',
         title: '外部播放器（仅桌面）',
@@ -430,54 +421,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(ambients, equals(<bool>[true]));
 
-    // 切换至「显示与存储」并验证展示偏好持久化与既有字段保留。
     await tester.tap(find.text('显示与存储'));
     await tester.pumpAndSettle();
-    expect(find.text('详情页标题'), findsOneWidget);
-    expect(find.text('作品简介'), findsOneWidget);
-    expect(find.text('原始视频文件名'), findsOneWidget);
-    expect(find.text('「CD」分类页签'), findsOneWidget);
-    expect(find.text('「Scan」分类页签'), findsOneWidget);
+    expect(find.text('扩展面板标题'), findsNothing);
+    expect(find.text('显示扩展内容'), findsOneWidget);
     expect(find.text('本地图片存储'), findsOneWidget);
-
-    final titleSelector = find.byKey(
-      const ValueKey('settings_display_title_segmented'),
-    );
-    expect(titleSelector, findsOneWidget);
-    await tester.tap(
-      find.descendant(of: titleSelector, matching: find.text('文字标题')),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.descendant(of: titleSelector, matching: find.text('标题徽标')),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.descendant(of: titleSelector, matching: find.text('文字标题')),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey('settings_display_raw_filename_switch')),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey('settings_display_cd_tab_switch')),
-    );
-    await tester.pumpAndSettle();
-
-    final displayRecord = db.userState.scopedPrefs.findByNamespace(
-      'feature_detail.display',
-    )!;
-    final decodedDisplay =
-        jsonDecode(displayRecord.payloadJson) as Map<String, dynamic>;
-    expect(decodedDisplay['showTitleText'], isTrue);
-    expect(decodedDisplay['showTitleLogo'], isFalse);
-    expect(decodedDisplay['showRawVideoFilename'], isFalse);
-    expect(decodedDisplay['showCdTab'], isFalse);
-    expect(decodedDisplay['showMainHeroBackdrop'], isFalse);
-    expect(decodedDisplay['showEpisodeStillThumbnails'], isTrue);
-    expect(decodedDisplay['showOriginalSubtitlesOnCards'], isFalse);
-    expect(decodedDisplay['autoSilentWarmup'], isFalse);
 
     // 切换至外部注入面板。
     await tester.tap(find.text('外部播放器（仅桌面）'));
@@ -649,7 +597,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // 旧深链 `storage` 自动落地到「显示与存储」面板。
-    expect(find.text('详情页标题'), findsOneWidget);
+    expect(find.text('本地图片存储'), findsOneWidget);
     expect(find.text('本地图片存储'), findsOneWidget);
     expect(find.text('打开 photos 文件夹'), findsOneWidget);
 

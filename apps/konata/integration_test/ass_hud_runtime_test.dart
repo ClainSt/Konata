@@ -55,6 +55,7 @@ void main() {
       legacyCodePageDecoder: windowsLegacyCodePageDecoder,
       useInMemoryDatabases: true,
       autoStartDetailWarmupAndBackfill: false,
+      autoStartOngoingWorksSync: false,
     );
     Future<void> until(
       bool Function() condition,

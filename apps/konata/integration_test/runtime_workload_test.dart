@@ -43,6 +43,7 @@ void main() {
       urlOpener: const NoopUrlOpenerPort(),
       useInMemoryDatabases: true,
       autoStartDetailWarmupAndBackfill: false,
+      autoStartOngoingWorksSync: false,
     );
     try {
       expect(bootstrap.databases.isCacheOpen, isFalse);

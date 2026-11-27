@@ -20,6 +20,15 @@ final class _FileLoader implements AssetDataLoaderPort {
 
 void main() {
   group('ChinesePinyinCollator 与 LibrarySearchMatcher 核心算法', () {
+    setUp(() => ChinesePinyinCollator.configure(_FileLoader()));
+    tearDown(() => ChinesePinyinCollator.configure(null));
+
+    test('独立运行时未注入词表仍可稳定比较汉字', () async {
+      ChinesePinyinCollator.configure(null);
+      await ChinesePinyinCollator.prepare();
+      expect(ChinesePinyinCollator.pinyinRankOfRune('轻'.runes.first), -1);
+      expect(ChinesePinyinCollator.compareNames('一', '二'), lessThan(0));
+    });
     test('拼音表在排序需要时并发合并读取并支持释放', () async {
       final loader = _FileLoader();
       ChinesePinyinCollator.configure(loader);
@@ -44,7 +53,8 @@ void main() {
       expect(ChinesePinyinCollator.isLoaded, isFalse);
     });
 
-    test('完整覆盖 20902 个标准基本汉字并输出有效拼音首字母与排位', () {
+    test('完整覆盖 20902 个标准基本汉字并输出有效拼音首字母与排位', () async {
+      await ChinesePinyinCollator.prepare();
       var covered = 0;
       for (var cp = 0x4E00; cp <= 0x9FA5; cp++) {
         final initial = ChinesePinyinCollator.pinyinInitialOfRune(cp);
@@ -62,7 +72,8 @@ void main() {
       );
     });
 
-    test('遵循「符号 -> 自然数字 -> 英文 -> 中文拼音」并支持自然数字序', () {
+    test('遵循「符号 -> 自然数字 -> 英文 -> 中文拼音」并支持自然数字序', () async {
+      await ChinesePinyinCollator.prepare();
       final raw = <String>[
         '轻音少女',
         '孤独摇滚！',

@@ -68,16 +68,17 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       mergedById[external.id] = external;
     }
 
-    final visible = mergedById.values
-        .where((section) => section.isSupportedOn(deps.currentPlatform))
-        .toList()
-      ..sort((a, b) {
-        final orderCmp = a.order.compareTo(b.order);
-        if (orderCmp != 0) {
-          return orderCmp;
-        }
-        return a.id.compareTo(b.id);
-      });
+    final visible =
+        mergedById.values
+            .where((section) => section.isSupportedOn(deps.currentPlatform))
+            .toList()
+          ..sort((a, b) {
+            final orderCmp = a.order.compareTo(b.order);
+            if (orderCmp != 0) {
+              return orderCmp;
+            }
+            return a.id.compareTo(b.id);
+          });
     return visible;
   }
 
@@ -91,8 +92,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         return raw;
       }
       // 保留旧深链标识 `storage` 向统一「显示与存储 (`display`)」分区的平滑映射兼容。
-      if (raw == 'storage' && validIds.contains('display')) {
-        return 'display';
+      if (raw == 'storage' && validIds.contains(displaySettingsSectionId)) {
+        return displaySettingsSectionId;
       }
     }
     return visibleSections.first.id;
@@ -113,7 +114,10 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     final directDeps = widget.dependencies;
     final FeatureSettingsDependencies deps =
         directDeps ?? ref.watch(featureSettingsDependenciesProvider);
-    final visibleSections = _resolveVisibleSections(deps);
+    final contributions = _resolveVisibleSections(deps);
+    final visibleSections = contributions
+        .where((section) => section.parentSectionId == null)
+        .toList(growable: false);
 
     if (visibleSections.isEmpty) {
       return const Column(
@@ -135,16 +139,35 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 !section.isSupportedOn(KonataPlatform.androidPhone) &&
                 !section.isSupportedOn(KonataPlatform.androidTablet),
             panel: (ctx) {
-              final built = section.viewBuilder(
-                ViewSlotContext(
-                  platformContext: ctx,
-                  arguments: <String, Object?>{'sectionId': section.id},
-                ),
+              final panels = <Widget>[
+                for (final contribution in [
+                  ...contributions.where(
+                    (item) => item.parentSectionId == section.id,
+                  ),
+                  section,
+                ])
+                  if (contribution.viewBuilder(
+                        ViewSlotContext(
+                          platformContext: ctx,
+                          arguments: <String, Object?>{
+                            'sectionId': contribution.id,
+                          },
+                        ),
+                      )
+                      case final Widget panel)
+                    panel,
+              ];
+              if (panels.isEmpty) return const SizedBox.shrink();
+              if (panels.length == 1) return panels.single;
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (var i = 0; i < panels.length; i++) ...[
+                    if (i > 0) const SizedBox(height: 16),
+                    panels[i],
+                  ],
+                ],
               );
-              if (built is Widget) {
-                return built;
-              }
-              return const SizedBox.shrink();
             },
           ),
         )

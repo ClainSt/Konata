@@ -17,10 +17,14 @@ abstract final class ChinesePinyinCollator {
   static const _assetPath = 'assets/data/pinyin.bin.gz';
   static AssetDataLoaderPort? _loader;
   static Uint8List? _loadedRanks;
-  static Future<Uint8List>? _pending;
+  static Future<Uint8List?>? _pending;
 
   /// 配置媒体库按需读入的宿主资产。
-  static void configure(AssetDataLoaderPort? loader) => _loader = loader;
+  static void configure(AssetDataLoaderPort? loader) {
+    if (identical(_loader, loader)) return;
+    release();
+    _loader = loader;
+  }
 
   /// 汉字排序表是否已解码。
   static bool get isLoaded => _loadedRanks != null;
@@ -31,7 +35,7 @@ abstract final class ChinesePinyinCollator {
 
   /// 在有汉字排序需求时异步读取排序表。
   static Future<void> prepare() async {
-    if (isLoaded) return;
+    if (isLoaded || _loader == null) return;
     final pending = _pending ??= _readBundled();
     try {
       final ranks = await pending;
@@ -47,24 +51,9 @@ abstract final class ChinesePinyinCollator {
     _loadedRanks = null;
   }
 
-  static Future<Uint8List> _readBundled() async {
+  static Future<Uint8List?> _readBundled() async {
     final compressed = await _loader?.loadBytes(_assetPath);
-    return compressed == null ? _readFromCheckout() : _decode(compressed);
-  }
-
-  static Uint8List get _pinyinRanks => _loadedRanks ??= _readFromCheckout();
-
-  static Uint8List _readFromCheckout() {
-    var directory = Directory.current.absolute;
-    while (true) {
-      final file = File.fromUri(
-        directory.uri.resolve('apps/konata/$_assetPath'),
-      );
-      if (file.existsSync()) return _decode(file.readAsBytesSync());
-      final parent = directory.parent;
-      if (parent.path == directory.path) throw StateError('未装载拼音词表');
-      directory = parent;
-    }
+    return compressed == null ? null : _decode(compressed);
   }
 
   static Uint8List _decode(Uint8List compressed) {
@@ -77,8 +66,8 @@ abstract final class ChinesePinyinCollator {
 
   /// 查询单个汉字（`U+4E00..U+9FA5`）对应的汉语拼音首字母（`a..z`），非汉字返回 `null`。
   static String? pinyinInitialOfRune(int rune) {
-    if (rune < _cjkStart || rune > _cjkEnd) return null;
-    final rank = _pinyinRanks[rune - _cjkStart];
+    final rank = pinyinRankOfRune(rune);
+    if (rank < 0) return null;
     final initialIdx = rank ~/ _subBuckets;
     if (initialIdx < 0 || initialIdx >= _initials.length) return null;
     return _initials[initialIdx];
@@ -87,7 +76,7 @@ abstract final class ChinesePinyinCollator {
   /// 查询单个汉字对应的拼音压缩排序键（`0..252`，同首字母内亦按全拼有序），非汉字返回 `-1`。
   static int pinyinRankOfRune(int rune) {
     if (rune < _cjkStart || rune > _cjkEnd) return -1;
-    return _pinyinRanks[rune - _cjkStart];
+    return _loadedRanks?[rune - _cjkStart] ?? -1;
   }
 
   /// 按「符号 -> 自然数字 -> 忽略大小写英文字母 -> 中文拼音首字母及全拼序 -> 其他字符」比较两个名称。
@@ -181,13 +170,12 @@ abstract final class ChinesePinyinCollator {
       return (2 << 20) | cu;
     }
     if (cu >= _cjkStart && cu <= _cjkEnd) {
-      return (3 << 20) | _pinyinRanks[cu - _cjkStart];
+      // 独立运行时未提供词表的汉字按码位稳定排序。
+      return (3 << 20) | (_loadedRanks?[cu - _cjkStart] ?? cu);
     }
     if (cu < 0x80) {
       return cu;
     }
     return (4 << 20) | cu;
   }
-
-  // 覆盖 U+4E00..U+9FA5 全部 20902 个标准简繁汉字的拼音排序分桶表（Base64 扁平编码）。
 }

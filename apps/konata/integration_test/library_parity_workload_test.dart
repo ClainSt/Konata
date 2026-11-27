@@ -76,6 +76,7 @@ void main() {
       urlOpener: const NoopUrlOpenerPort(),
       useInMemoryDatabases: true,
       autoStartDetailWarmupAndBackfill: false,
+      autoStartOngoingWorksSync: false,
     );
     try {
       final db = bootstrap.databases.library;

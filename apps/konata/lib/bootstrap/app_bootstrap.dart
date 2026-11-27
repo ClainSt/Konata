@@ -108,6 +108,7 @@ final class HostAppNavigator implements AppNavigator {
     this.onShowMessage,
     this.hasVideoFeature = true,
     this.hasAudioFeature = true,
+    this.hasDetailFeature = true,
   });
 
   /// 顶层原生路由导航键。
@@ -134,6 +135,9 @@ final class HostAppNavigator implements AppNavigator {
   /// 宿主是否已注册音频播放模块。
   final bool hasAudioFeature;
 
+  /// 宿主是否已注册作品详情模块。
+  final bool hasDetailFeature;
+
   @override
   Future<void> switchNavSection(String sectionId) async {
     final nav = navigatorKey.currentState;
@@ -145,6 +149,10 @@ final class HostAppNavigator implements AppNavigator {
 
   @override
   Future<void> openWorkDetail(WorkId workId, {String? initialTabId}) async {
+    if (!hasDetailFeature) {
+      onShowMessage?.call('作品详情功能未启用');
+      return;
+    }
     final nav = navigatorKey.currentState;
     if (nav == null) return;
     await nav.push<void>(
@@ -169,6 +177,10 @@ final class HostAppNavigator implements AppNavigator {
     int? initialPositionSeconds,
     bool initialPlaying = true,
   }) async {
+    if (!hasVideoFeature) {
+      onShowMessage?.call('视频播放功能未启用');
+      return;
+    }
     final nav = navigatorKey.currentState;
     if (nav == null) return;
     onVideoStageVisibilityChanged?.call(true);
@@ -223,6 +235,10 @@ final class HostAppNavigator implements AppNavigator {
     int? initialCueTrackIndex,
     int? initialPositionSeconds,
   }) async {
+    if (!hasAudioFeature) {
+      onShowMessage?.call('音频播放功能未启用');
+      return;
+    }
     final nav = navigatorKey.currentState;
     if (nav == null) return;
     onAudioStageVisibilityChanged?.call(true);
@@ -344,6 +360,7 @@ final class KonataBootstrapContext {
     this.pickExecutableFile,
     this.pickShaderFiles,
     this.autoStartDetailWarmupAndBackfill = true,
+    this.autoStartOngoingWorksSync = true,
     this.customScanStreamOpener,
   });
 
@@ -467,6 +484,9 @@ final class KonataBootstrapContext {
   /// 进入详情页后是否自动触发静默预热与正片缺失剧照抽帧补图。
   final bool autoStartDetailWarmupAndBackfill;
 
+  /// 是否启用媒体源模块在启动及切回前台时的自动巡检。
+  final bool autoStartOngoingWorksSync;
+
   /// 可选自定义扫图原图流读取器（供离线端到端集成测试注入）。
   final Object? customScanStreamOpener;
 
@@ -555,6 +575,7 @@ final class KonataBootstrapContext {
       pickExecutableFile: pickExecutableFile,
       pickShaderFiles: pickShaderFiles,
       autoStartDetailWarmupAndBackfill: autoStartDetailWarmupAndBackfill,
+      autoStartOngoingWorksSync: autoStartOngoingWorksSync,
       customScanStreamOpener: customScanStreamOpener,
       onThemeModeChanged: onThemeModeChanged,
       onAmbientBackdropChanged: onAmbientBackdropChanged,
@@ -607,6 +628,7 @@ final class KonataBootstrapContext {
     Future<List<HostPickedFile>> Function()? pickShaderFiles,
     bool useInMemoryDatabases = false,
     bool autoStartDetailWarmupAndBackfill = true,
+    bool autoStartOngoingWorksSync = true,
     Object? customScanStreamOpener,
   }) async {
     final diagnosticLog = DiagnosticLogStore();
@@ -781,6 +803,7 @@ final class KonataBootstrapContext {
       pickExecutableFile: pickExecutableFile,
       pickShaderFiles: pickShaderFiles,
       autoStartDetailWarmupAndBackfill: autoStartDetailWarmupAndBackfill,
+      autoStartOngoingWorksSync: autoStartOngoingWorksSync,
       customScanStreamOpener: customScanStreamOpener,
     );
   }
@@ -830,6 +853,9 @@ final class _KonataBootstrapAppState extends State<KonataBootstrapApp> {
     );
     _navigator = HostAppNavigator(
       navigatorKey: _navigatorKey,
+      hasDetailFeature: widget.bootstrap.featureRegistry.containsFeature(
+        'feature_detail',
+      ),
       hasVideoFeature: widget.bootstrap.featureRegistry.containsFeature(
         'feature_player_video',
       ),
@@ -914,30 +940,33 @@ final class _KonataBootstrapAppState extends State<KonataBootstrapApp> {
           );
         },
       ),
-      child: _KonataBootstrapRoot(
-        bootstrap: widget.bootstrap,
-        platformLabel: widget.platformLabel,
-        navigatorKey: _navigatorKey,
-        hostNavigator: _navigator,
-        windowHost: widget.windowHost,
-        requestedSectionId: _requestedSectionId,
-        requestedSettingsSectionId: _requestedSettingsSectionId,
-        settingsDeepLinkPulse: _settingsDeepLinkPulse,
-        pendingToast: _pendingToast,
-        videoStageOpen: _videoStageOpen,
-        audioStageOpen: _audioStageOpen,
-        fullscreenMediaActive: _fullscreenMediaActive,
-        appearanceNotifier: _appearanceNotifier,
-        onToggleTheme: () {
-          final current = _appearanceNotifier.value;
-          final nextMode = current.themeMode == ThemeMode.dark
-              ? ThemeMode.light
-              : ThemeMode.dark;
-          _updateAppearance(
-            current.copyWith(themeMode: nextMode),
-            persist: true,
-          );
-        },
+      child: widget.bootstrap.featureRegistry.wrapRuntime(
+        widget.bootstrap.platform,
+        _KonataBootstrapRoot(
+          bootstrap: widget.bootstrap,
+          platformLabel: widget.platformLabel,
+          navigatorKey: _navigatorKey,
+          hostNavigator: _navigator,
+          windowHost: widget.windowHost,
+          requestedSectionId: _requestedSectionId,
+          requestedSettingsSectionId: _requestedSettingsSectionId,
+          settingsDeepLinkPulse: _settingsDeepLinkPulse,
+          pendingToast: _pendingToast,
+          videoStageOpen: _videoStageOpen,
+          audioStageOpen: _audioStageOpen,
+          fullscreenMediaActive: _fullscreenMediaActive,
+          appearanceNotifier: _appearanceNotifier,
+          onToggleTheme: () {
+            final current = _appearanceNotifier.value;
+            final nextMode = current.themeMode == ThemeMode.dark
+                ? ThemeMode.light
+                : ThemeMode.dark;
+            _updateAppearance(
+              current.copyWith(themeMode: nextMode),
+              persist: true,
+            );
+          },
+        ),
       ),
     );
   }
@@ -994,7 +1023,6 @@ final class _KonataBootstrapRootState
 
   HostDiagnosticsRuntimeBridge? _diagnosticsBridge;
   void Function()? _unbindResizeChannel;
-  Timer? _ongoingSyncStartupTimer;
 
   int _selectedIndex = 0;
   String _searchQuery = '';
@@ -1039,14 +1067,6 @@ final class _KonataBootstrapRootState
         unawaited(_restoreAndroidVideoOnce());
       }
     });
-
-    // 启动后错峰 5 秒触发连载追更静默巡检（销毁时自动取消，避免测试悬空定时器）。
-    if (widget.bootstrap.autoStartDetailWarmupAndBackfill) {
-      _ongoingSyncStartupTimer = Timer(const Duration(seconds: 5), () {
-        if (!mounted) return;
-        triggerOngoingWorksAutoSync(ref, widget.bootstrap.featureRegistry);
-      });
-    }
   }
 
   Future<void> _restoreAndroidVideoOnce() async {
@@ -1095,10 +1115,6 @@ final class _KonataBootstrapRootState
         state == AppLifecycleState.paused) {
       _trimImageCaches();
     }
-    if (state == AppLifecycleState.resumed &&
-        widget.bootstrap.autoStartDetailWarmupAndBackfill) {
-      triggerOngoingWorksAutoSync(ref, widget.bootstrap.featureRegistry);
-    }
   }
 
   @override
@@ -1113,8 +1129,6 @@ final class _KonataBootstrapRootState
 
   @override
   void dispose() {
-    _ongoingSyncStartupTimer?.cancel();
-    _ongoingSyncStartupTimer = null;
     _unbindResizeChannel?.call();
     _unbindResizeChannel = null;
     _diagnosticsBridge?.dispose();
@@ -1170,10 +1184,6 @@ final class _KonataBootstrapRootState
     final registry = ref.read(featureRegistryProvider);
     final platform = ref.read(konataPlatformProvider);
     final registered = registry.navSectionsFor(platform);
-    final byId = <String, NavSectionContribution>{
-      for (final section in registered) section.id: section,
-    };
-
     final entries = <_ShellNavEntry>[
       for (final section in registered)
         _ShellNavEntry(
@@ -1187,12 +1197,18 @@ final class _KonataBootstrapRootState
         ),
     ];
 
-    for (final fallback in KonataNavItem.defaults) {
-      if (!byId.containsKey(fallback.id)) {
-        entries.add(_ShellNavEntry(id: fallback.id, item: fallback));
-      }
-    }
-    return entries;
+    return entries.isEmpty
+        ? [
+            const _ShellNavEntry(
+              id: 'status',
+              item: KonataNavItem(
+                id: 'status',
+                label: 'Konata',
+                icon: Icons.info_outline,
+              ),
+            ),
+          ]
+        : entries;
   }
 
   @override
@@ -1202,7 +1218,6 @@ final class _KonataBootstrapRootState
     final registry = ref.watch(featureRegistryProvider);
     final platform = ref.watch(konataPlatformProvider);
     final databases = ref.watch(databaseBundleProvider);
-    activateRegisteredFeatureServices(ref, registry);
 
     final lane = KonataLaneConfig.resolveLane();
     final title = lane.isEmpty
@@ -1213,7 +1228,9 @@ final class _KonataBootstrapRootState
     final safeIndex = navEntries.isEmpty
         ? 0
         : _selectedIndex.clamp(0, navEntries.length - 1);
-    final libraryIndex = navEntries.indexWhere((e) => e.id == 'library');
+    final searchIndex = navEntries.indexWhere(
+      (entry) => entry.contribution?.supportsSearch == true,
+    );
     final windowHost = widget.windowHost;
 
     return KonataDesktopWindowChromeScope(
@@ -1346,10 +1363,12 @@ final class _KonataBootstrapRootState
                           },
                           onToggleTheme: widget.onToggleTheme,
                           searchQuery: _searchQuery,
-                          searchPageIndex: libraryIndex >= 0 ? libraryIndex : 0,
-                          onSearchChanged: (value) {
-                            setState(() => _searchQuery = value);
-                          },
+                          searchPageIndex: searchIndex,
+                          onSearchChanged: searchIndex < 0
+                              ? null
+                              : (value) {
+                                  setState(() => _searchQuery = value);
+                                },
                           navigationHidden:
                               _mobileSettingsDetailOpen &&
                               navEntries[safeIndex].id == 'settings',
@@ -1370,7 +1389,9 @@ final class _KonataBootstrapRootState
                                       ViewSlotContext(
                                         platformContext: slotBuildContext,
                                         arguments: <String, Object?>{
-                                          if (entry.id == 'library')
+                                          if (entry
+                                              .contribution!
+                                              .supportsSearch)
                                             'searchQuery': _searchQuery,
                                           if (entry.id ==
                                               'settings') ...<String, Object?>{

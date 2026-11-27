@@ -15,6 +15,7 @@ final FeatureManifest featureLibraryManifest = FeatureManifest(
       label: '媒体库',
       iconKey: 'library',
       order: 10,
+      supportsSearch: true,
       viewBuilder: (slotContext) => LibraryPage(slotContext: slotContext),
     ),
   ],

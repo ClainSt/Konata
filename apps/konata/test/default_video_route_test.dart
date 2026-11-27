@@ -73,6 +73,7 @@ void main() {
         urlOpener: const NoopUrlOpenerPort(),
         useInMemoryDatabases: true,
         autoStartDetailWarmupAndBackfill: false,
+        autoStartOngoingWorksSync: false,
         desktopRelayGateway: relay,
       );
     });

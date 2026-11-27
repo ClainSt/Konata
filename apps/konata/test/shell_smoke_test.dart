@@ -8,11 +8,13 @@ import 'package:engine_scraping/engine_scraping.dart' show ReleaseGroups;
 import 'package:feature_detail/feature_detail.dart';
 import 'package:feature_history/feature_history.dart';
 import 'package:feature_library/feature_library.dart';
+import 'package:feature_player_audio/feature_player_audio.dart';
 import 'package:feature_scan_viewer/feature_scan_viewer.dart';
 import 'package:feature_settings/feature_settings.dart';
 import 'package:feature_sources/feature_sources.dart';
 import 'package:flutter/services.dart' show MethodCall, StandardMethodCodec;
 import 'package:flutter/widgets.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:konata/bootstrap/app_bootstrap.dart';
 import 'package:konata/bootstrap/feature_registry.dart';
@@ -22,6 +24,115 @@ import 'package:konata_design_system/konata_design_system.dart';
 import 'package:konata_storage/konata_storage.dart';
 
 void main() {
+  testWidgets('停用媒体库后隐藏其导航和搜索，历史和音频仍可加载海报', (tester) async {
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final directory = Directory.systemTemp.createTempSync('konata_no_library_');
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final registry = FeatureRegistry(
+      registeredFeatureManifests
+          .where((manifest) => manifest.id != 'feature_library')
+          .toList(),
+    );
+    final bootstrap = (await tester.runAsync(
+      () => KonataBootstrapContext.initialize(
+        platform: KonataPlatform.windows,
+        storageRoot: PortableStorageRootService(
+          overrideRootPath: directory.path,
+        ),
+        secureStorage: InMemorySecureStorage(),
+        useInMemoryDatabases: true,
+        featureRegistry: registry,
+        autoStartDetailWarmupAndBackfill: false,
+        autoStartOngoingWorksSync: false,
+      ),
+    ))!;
+    addTearDown(() => tester.runAsync(bootstrap.dispose));
+    const workId = WorkId.trusted('work-without-library');
+    final poster = File('${directory.path}/poster.png');
+    final bytes = Uint8List.fromList([1, 2, 3]);
+    poster.writeAsBytesSync(bytes);
+    bootstrap.databases.library.works.upsert(
+      WorkRecord(
+        id: workId,
+        title: '独立封面',
+        posterRef: ArtworkRef.localCustom(localPath: poster.path, locked: true),
+      ),
+    );
+    await tester.pumpWidget(
+      KonataBootstrapApp(bootstrap: bootstrap, platformLabel: 'Windows'),
+    );
+    await _pumpFrames(tester);
+    expect(find.byType(LibraryPage), findsNothing);
+    expect(find.text('媒体库'), findsNothing);
+    await tester.tap(find.text('播放记录').first);
+    await _pumpFrames(tester);
+    expect(find.byType(PlaybackHistoryPage), findsOneWidget);
+    final shell = tester.widget<KonataAdaptiveShell>(
+      find.byType(KonataAdaptiveShell),
+    );
+    expect(shell.onSearchChanged, isNull);
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(PlaybackHistoryPage)),
+    );
+    await tester.runAsync(() async {
+      final history = container.read(featureHistoryDependenciesProvider);
+      final audio = container.read(featurePlayerAudioDependenciesProvider);
+      expect(await history.imageLoader!(workId), bytes);
+      expect(await audio.posterLoader!(poster.path, workId.value), bytes);
+    });
+    await tester.pumpWidget(const SizedBox.shrink());
+    await _pumpFrames(tester);
+  });
+
+  testWidgets('关闭详情预热时仍由媒体源模块调度启动和前台巡检', (tester) async {
+    final directory = Directory.systemTemp.createTempSync(
+      'konata_sources_runtime_',
+    );
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final registry = FeatureRegistry([featureSourcesManifest]);
+    final bootstrap = (await tester.runAsync(
+      () => KonataBootstrapContext.initialize(
+        platform: KonataPlatform.windows,
+        storageRoot: PortableStorageRootService(
+          overrideRootPath: directory.path,
+        ),
+        secureStorage: InMemorySecureStorage(),
+        useInMemoryDatabases: true,
+        featureRegistry: registry,
+        autoStartDetailWarmupAndBackfill: false,
+      ),
+    ))!;
+    addTearDown(() => tester.runAsync(bootstrap.dispose));
+    final scraper = _CountingSourceScrapeController();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          ...bootstrap.toProviderOverrides(
+            navigator: HostAppNavigator(
+              navigatorKey: GlobalKey<NavigatorState>(),
+              onSwitchNavSection: (_) {},
+            ),
+          ),
+          sourceScrapeControllerProvider.overrideWithValue(scraper),
+        ],
+        child: registry.wrapRuntime(
+          KonataPlatform.windows,
+          const SizedBox.shrink(),
+        ),
+      ),
+    );
+    expect(scraper.calls, 0);
+    await tester.pump(const Duration(seconds: 5));
+    expect(scraper.calls, 1);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    expect(scraper.calls, 2);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('Windows 原生通道转发缩放与最小化并支持解绑', (tester) async {
     final resizing = ValueNotifier(false);
     addTearDown(resizing.dispose);
@@ -83,6 +194,7 @@ void main() {
           urlOpener: const NoopUrlOpenerPort(),
           useInMemoryDatabases: true,
           autoStartDetailWarmupAndBackfill: false,
+          autoStartOngoingWorksSync: false,
           customScanStreamOpener: (source, variant, maxBytes) async {
             final sampleRgba = Uint8List(4 * 4 * 4)..fillRange(0, 64, 0xFF);
             final webp = CompactWebpEncoder.encodeRgba(
@@ -406,6 +518,26 @@ void main() {
       await tester.tap(find.text('设置').first);
       await _pumpFrames(tester);
       expect(find.byType(SettingsPage), findsOneWidget);
+      final detailPrefs = DetailDisplayPreferencesStore(bootstrap.scopedPrefs);
+      detailPrefs.write(
+        const DetailDisplayPreferences(
+          showMainHeroBackdrop: false,
+          extraFields: {'futureDisplayOption': '保留'},
+        ),
+      );
+      await tester.tap(find.text('显示与存储'));
+      await _pumpFrames(tester);
+      expect(find.text('本地图片存储'), findsOneWidget);
+      expect(find.text('详情页标题'), findsOneWidget);
+      await tester.tap(
+        find.byKey(const ValueKey('settings_display_cd_tab_switch')),
+      );
+      await _pumpFrames(tester);
+      final updatedDetailPrefs = detailPrefs.read();
+      expect(updatedDetailPrefs.showCdTab, isFalse);
+      expect(updatedDetailPrefs.showScanTab, isTrue);
+      expect(updatedDetailPrefs.showMainHeroBackdrop, isFalse);
+      expect(updatedDetailPrefs.extraFields['futureDisplayOption'], '保留');
       expect(find.text('备份与同步'), findsWidgets);
       expect(find.text('追踪记录'), findsWidgets);
 
@@ -519,6 +651,7 @@ void main() {
         urlOpener: const NoopUrlOpenerPort(),
         useInMemoryDatabases: true,
         autoStartDetailWarmupAndBackfill: false,
+        autoStartOngoingWorksSync: false,
       );
       addTearDown(bootstrap.dispose);
 
@@ -549,5 +682,16 @@ void main() {
 Future<void> _pumpFrames(WidgetTester tester, {int count = 5}) async {
   for (var i = 0; i < count; i++) {
     await tester.pump(const Duration(milliseconds: 80));
+  }
+}
+
+final class _CountingSourceScrapeController extends Fake
+    implements SourceScrapeController {
+  int calls = 0;
+
+  @override
+  Future<int> runOngoingWorksAutoSyncIfDue({bool force = false}) async {
+    calls++;
+    return 0;
   }
 }

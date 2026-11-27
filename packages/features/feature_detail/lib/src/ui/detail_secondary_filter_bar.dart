@@ -102,7 +102,7 @@ class DetailSecondaryFilterBar extends StatelessWidget {
           id: ext.id,
           label: ext.label,
 
-          count: ext.id == 'scan_viewer' ? scanCount : null,
+          count: ext.kind == DetailTabKind.scan ? scanCount : null,
         ),
     ];
 

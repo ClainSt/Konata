@@ -125,9 +125,7 @@ class SubtitleFontPoolManager {
   ///
   /// 大于等于 64 KiB 的字体包通过 `TransferableTypedData` 在单次后台 Isolate 内完成
   /// SHA-256、安全解包与原子落盘，仅回传轻量元数据，避免跨线程拷贝数 MB 字体字节流。
-  Future<ResolvedSubtitleFontSet> ingestFontZipBytes(
-    Uint8List zipBytes,
-  ) async {
+  Future<ResolvedSubtitleFontSet> ingestFontZipBytes(Uint8List zipBytes) async {
     final poolRoot = await PlaybackStoragePaths.ensureFontPoolDir(_storageRoot);
     if (zipBytes.length < _isolateOffloadBytes) {
       final setHash = sha256.convert(zipBytes).toString().substring(0, 16);
@@ -347,7 +345,12 @@ class SubtitleFontPoolManager {
                 Directory('/system_ext/fonts'),
               ]
             : Platform.isWindows
-            ? [Directory(r'C:\Windows\Fonts')]
+            ? [
+                for (final variable in ['SystemRoot', 'windir'])
+                  if (Platform.environment[variable] case final String root
+                      when p.isAbsolute(root))
+                    Directory(p.join(root, 'Fonts')),
+              ]
             : [Directory('/usr/share/fonts')]);
 
     final scored = <({File file, int priority})>[];
@@ -378,10 +381,7 @@ class SubtitleFontPoolManager {
     }
 
     scored.sort((a, b) => b.priority.compareTo(a.priority));
-    return scored
-        .take(maxResults)
-        .map((e) => e.file)
-        .toList(growable: false);
+    return scored.take(maxResults).map((e) => e.file).toList(growable: false);
   }
 
   /// 按需随机读取字体头与 `cmap` 表，实证校验字体文件是否包含真实中文字符字形（默认验证汉字“中” `U+4E2D`）。
@@ -629,8 +629,11 @@ class SubtitleFontPoolManager {
     required int fallbackIndex,
   }) {
     final base = p.posix.basename(rawName.replaceAll('\\', '/'));
-    final cleaned = base.replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1F]'), '_').trim();
-    if (cleaned.isEmpty || !AssUueFontDecoder.isSupportedFontFileName(cleaned)) {
+    final cleaned = base
+        .replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1F]'), '_')
+        .trim();
+    if (cleaned.isEmpty ||
+        !AssUueFontDecoder.isSupportedFontFileName(cleaned)) {
       return 'font_$fallbackIndex.ttf';
     }
     return cleaned;
@@ -645,7 +648,10 @@ class SubtitleFontPoolManager {
       input.add(entries[name]!);
     }
     input.close();
-    return (sink.digest ?? sha256.convert(const [])).toString().substring(0, 16);
+    return (sink.digest ?? sha256.convert(const [])).toString().substring(
+      0,
+      16,
+    );
   }
 
   static const List<String> _nonCjkFontNameBlocklist = <String>[
@@ -716,7 +722,9 @@ class SubtitleFontPoolManager {
     try {
       for (final entity in dir.listSync(followLinks: false)) {
         if (entity is! File) continue;
-        if (!AssUueFontDecoder.isSupportedFontFileName(p.basename(entity.path))) {
+        if (!AssUueFontDecoder.isSupportedFontFileName(
+          p.basename(entity.path),
+        )) {
           continue;
         }
         if (await _hasValidFontHeader(entity)) {
@@ -724,7 +732,11 @@ class SubtitleFontPoolManager {
         }
       }
     } catch (error) {
-      developer.log('可恢复异常已记录', name: 'konata.subtitle_font_pool_manager', error: error);
+      developer.log(
+        '可恢复异常已记录',
+        name: 'konata.subtitle_font_pool_manager',
+        error: error,
+      );
     }
     return count;
   }

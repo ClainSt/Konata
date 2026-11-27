@@ -262,6 +262,122 @@ void main() {
     });
   });
 
+  test('旧版偏好归档可智能合并和覆盖还原，覆盖后旧值不会重新出现', () async {
+    final db = KonataDatabaseBundle.openInMemory();
+    addTearDown(db.close);
+    final prefs = ScopedPrefsStore(db.userState);
+    const detail = TypedPrefsSlice<Map<String, Object?>>(
+      namespace: 'feature_detail.display',
+      schemaVersion: 1,
+      syncPolicy: SyncPolicy.portable,
+      mergeByField: true,
+      defaultValue: {},
+      encode: _identityEncode,
+      decode: _identityDecode,
+    );
+    prefs.write(detail, {
+      'showCdTab': false,
+      'showScanTab': false,
+    }, updatedAtMs: 100);
+    final service = KonataBackupService(
+      databases: db,
+      scopedPrefs: prefs,
+      deviceStore: SyncDeviceStore(db.userState.syncMeta),
+    );
+    final slice = PrefsSyncSlice(userStateDb: db.userState, scopedPrefs: prefs);
+    final previous = await slice.exportSlice(localDeviceId: 'device-a');
+    final archive = KonataBackupArchive.create(
+      exportedAtMs: 200,
+      deviceId: 'legacy',
+      deviceName: '旧设备',
+      platform: 'windows',
+      appVersion: 'legacy',
+      slicePayloads: [
+        const SyncSlicePayload(
+          sliceId: PrefsSyncSlice.id,
+          schemaVersion: 1,
+          exportedAtMs: 200,
+          sourceDeviceId: 'legacy',
+          data: {
+            'entries': [
+              {
+                'namespace': 'feature_detail.display',
+                'schemaVersion': 1,
+                'payload': {'showCdTab': true, 'showOverview': false},
+                'updatedAtMs': 200,
+                'sourceDeviceId': 'legacy',
+              },
+            ],
+          },
+        ),
+      ],
+    );
+    final bytes = Uint8List.fromList(utf8.encode(jsonEncode(archive.toJson())));
+    await service.restoreFromArchiveBytes(
+      bytes,
+      mode: KonataRestoreMode.smartMerge,
+    );
+    expect(prefs.read(detail), {
+      'showCdTab': false,
+      'showScanTab': false,
+      'showOverview': false,
+    });
+    await service.restoreFromArchiveBytes(
+      bytes,
+      mode: KonataRestoreMode.overwrite,
+    );
+    expect(prefs.read(detail), {'showCdTab': true, 'showOverview': false});
+    final current = await slice.exportSlice(localDeviceId: 'device-a');
+    expect(
+      slice.planMerge(local: current, remote: previous).hasChanges,
+      isFalse,
+    );
+  });
+
+  test('偏好合并规划后发生的本机编辑在事务中保留', () async {
+    final db = KonataDatabaseBundle.openInMemory();
+    final peer = KonataDatabaseBundle.openInMemory();
+    addTearDown(db.close);
+    addTearDown(peer.close);
+    final prefs = ScopedPrefsStore(db.userState);
+    final peerPrefs = ScopedPrefsStore(peer.userState);
+    final localSlice = PrefsSyncSlice(
+      userStateDb: db.userState,
+      scopedPrefs: prefs,
+    );
+    final peerSlice = PrefsSyncSlice(
+      userStateDb: peer.userState,
+      scopedPrefs: peerPrefs,
+    );
+    const detail = TypedPrefsSlice<Map<String, Object?>>(
+      namespace: 'feature_detail.display',
+      schemaVersion: 1,
+      syncPolicy: SyncPolicy.portable,
+      mergeByField: true,
+      defaultValue: {},
+      encode: _identityEncode,
+      decode: _identityDecode,
+    );
+    prefs.write(detail, {'showCdTab': true}, updatedAtMs: 100);
+    peerPrefs.write(detail, {'showScanTab': false}, updatedAtMs: 200);
+    final plan = localSlice.planMerge(
+      local: await localSlice.exportSlice(localDeviceId: 'device-a'),
+      remote: await peerSlice.exportSlice(localDeviceId: 'device-b'),
+    );
+    prefs.write(detail, {'showCdTab': false}, updatedAtMs: 300);
+    db.userState.engine.runTransaction((tx) {
+      localSlice.applyMergePlan(
+        DatabaseBundleSyncTransactionContext(
+          localDeviceId: 'device-a',
+          appliedAtMs: 400,
+          userStateTx: tx,
+        ),
+        plan,
+      );
+    });
+    expect(prefs.read(detail), {'showCdTab': false, 'showScanTab': false});
+  });
+
   group('PlaybackHistorySyncSlice 跨源聚类、完播态与墓碑规则', () {
     late KonataDatabaseBundle dbA;
     late KonataDatabaseBundle dbB;

@@ -5,8 +5,6 @@ library;
 
 export 'src/data/photos_cleanup_scanner.dart'
     show PhotosCleanupScanner, PhotosCleanupSnapshot, WorkPhotoStorageEntry;
-export 'src/data/settings_display_prefs.dart'
-    show SettingsDisplayPrefs, SettingsDisplayRepository;
 export 'src/data/settings_network_repository.dart'
     show SettingsNetworkRepository;
 export 'src/data/settings_prefs.dart'
@@ -24,7 +22,6 @@ export 'src/ui/photo_custom_cleanup_dialog.dart'
     show PhotoCustomCleanupSelection, showPhotoCustomCleanupDialog;
 export 'src/ui/settings_about_panel.dart' show SettingsAboutPanel;
 export 'src/ui/settings_appearance_panel.dart' show SettingsAppearancePanel;
-export 'src/ui/settings_display_panel.dart' show SettingsDisplayPanel;
 export 'src/ui/settings_network_panel.dart' show SettingsNetworkPanel;
 export 'src/ui/settings_page.dart' show SettingsPage;
 export 'src/ui/settings_photos_storage_card.dart'

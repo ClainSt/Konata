@@ -1,3 +1,5 @@
+import 'package:flutter/widgets.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:konata_contracts/konata_contracts.dart';
 
 import 'data/bangumi_tracker_provider.dart';
@@ -8,6 +10,13 @@ import 'ui/settings_bangumi_sync_card.dart';
 final FeatureManifest featureTrackerSyncManifest = FeatureManifest(
   id: 'feature_tracker_sync',
   displayName: '追番进度同步',
+  wrapRuntime: (child) => Consumer(
+    child: child as Widget,
+    builder: (context, ref, child) {
+      ref.watch(trackerSyncCoordinatorProvider);
+      return child!;
+    },
+  ),
   settingsSections: <SettingsSectionContribution>[
     SettingsSectionContribution(
       id: 'bangumi_sync',

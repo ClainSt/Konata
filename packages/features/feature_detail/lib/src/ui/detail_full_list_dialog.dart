@@ -96,9 +96,7 @@ class _DetailFullListDialogState extends State<DetailFullListDialog> {
     final multiSeason =
         DetailSupplementaryHelper.groupMainBySeason(mains).length > 1;
 
-    final externalTabs = widget.displayPreferences.showScanTab
-        ? b.visibleTabs.where((t) => t.id == 'scan_viewer').toList()
-        : <DetailTabContribution>[];
+    final externalTabs = widget.displayPreferences.filterTabs(b.visibleTabs);
     final external = externalTabs.where((t) => t.id == _activeTab).firstOrNull;
     final filters = <({String id, String label, int count})>[];
     final groups = DetailSupplementaryHelper.groupMainBySeason(mains);

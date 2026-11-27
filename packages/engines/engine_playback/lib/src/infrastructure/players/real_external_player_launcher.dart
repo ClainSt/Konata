@@ -18,6 +18,7 @@ import 'foobar_beefweb_tracker.dart';
 import 'mpv_ipc_tracker.dart';
 import 'playback_sidecar_helpers.dart';
 import 'potplayer_win32_tracker.dart';
+import 'windows_player_discovery.dart';
 
 /// 外部播放器进程拉起抽象（方便单测注入替身）。
 typedef ProcessStarter =
@@ -919,40 +920,9 @@ class RealExternalPlayerLauncher implements ExternalPlayerLauncher {
         return null;
       }
     }
-    const presets = <({ExternalPlayerKind kind, String name, String path})>[
-      (
-        kind: ExternalPlayerKind.mpv,
-        name: 'MPV',
-        path: r'C:\Program Files\mpv\mpv.exe',
-      ),
-      (
-        kind: ExternalPlayerKind.mpv,
-        name: 'MPV',
-        path: r'C:\ProgramData\chocolatey\bin\mpv.exe',
-      ),
-      (
-        kind: ExternalPlayerKind.potplayer,
-        name: 'PotPlayer',
-        path: r'C:\Program Files\DAUM\PotPlayer\PotPlayerMini64.exe',
-      ),
-      (
-        kind: ExternalPlayerKind.potplayer,
-        name: 'PotPlayer',
-        path: r'C:\Program Files (x86)\DAUM\PotPlayer\PotPlayerMini.exe',
-      ),
-    ];
-    for (final preset in presets) {
-      if (File(preset.path).existsSync()) {
-        return ExternalPlayerConfig(
-          id: 'auto_${preset.kind.name}',
-          name: preset.name,
-          kind: preset.kind,
-          executablePath: preset.path,
-          isDefault: true,
-        );
-      }
-    }
-    return null;
+    return Platform.isWindows
+        ? discoverWindowsExternalPlayer(Platform.environment)
+        : null;
   }
 
   Future<String> _writeLocalShadowCue({

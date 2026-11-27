@@ -50,13 +50,13 @@ class ReviewWorkItemCard extends StatefulWidget {
   final VoidCallback onRematch;
 
   /// 打开手动搜索与混合匹配弹窗。
-  final VoidCallback onManualMatch;
+  final VoidCallback? onManualMatch;
 
   /// 打开源文件核对与拆包弹窗。
-  final VoidCallback onInspectSourceFiles;
+  final VoidCallback? onInspectSourceFiles;
 
   /// 打开并入已有作品弹窗。
-  final VoidCallback onMergeIntoExisting;
+  final VoidCallback? onMergeIntoExisting;
 
   /// 确认保留当前元数据并移出待复核队列。
   final VoidCallback onDismissReview;

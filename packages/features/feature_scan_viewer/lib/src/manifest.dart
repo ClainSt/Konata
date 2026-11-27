@@ -73,6 +73,7 @@ const FeatureManifest featureScanViewerManifest = FeatureManifest(
       id: ScanViewerAvailability.detailTabId,
       label: 'Scan',
       iconKey: 'scan_viewer',
+      kind: DetailTabKind.scan,
       order: 40,
       viewBuilder: _buildScanViewerTabSlot,
     ),
@@ -91,6 +92,7 @@ FeatureManifest createFeatureScanViewerManifest({
         id: ScanViewerAvailability.detailTabId,
         label: 'Scan',
         iconKey: 'scan_viewer',
+        kind: DetailTabKind.scan,
         order: 40,
         viewBuilder: _buildScanViewerTabSlot,
         isVisibleForWork: (workId) =>

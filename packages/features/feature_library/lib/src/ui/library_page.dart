@@ -196,36 +196,40 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
     final libraryController = ref.read(libraryControllerProvider);
     final mgmt = ref.read(workManagementControllerProvider);
     final work = item.work;
+    final dialogs = ref.read(workManageDialogPortProvider);
 
     final action = await showKonataGlassMenu<String>(
       anchorContext: anchorContext,
-      items: const <KonataGlassMenuItem<String>>[
-        KonataGlassMenuItem<String>(
+      items: <KonataGlassMenuItem<String>>[
+        const KonataGlassMenuItem<String>(
           value: 'detail',
           label: '查看详情',
           icon: Icons.open_in_new_rounded,
         ),
-        KonataGlassMenuItem<String>(
+        const KonataGlassMenuItem<String>(
           value: 'rematch',
           label: '重新自动匹配',
           icon: Icons.auto_awesome_outlined,
         ),
-        KonataGlassMenuItem<String>(
-          value: 'match',
-          label: '手动匹配元数据',
-          icon: Icons.search_rounded,
-        ),
-        KonataGlassMenuItem<String>(
-          value: 'files',
-          label: '查看源文件与拆分',
-          icon: Icons.video_library_outlined,
-        ),
-        KonataGlassMenuItem<String>(
-          value: 'merge',
-          label: '并入其他作品',
-          icon: Icons.merge_type_rounded,
-        ),
-        KonataGlassMenuItem<String>(
+        if (dialogs != null)
+          const KonataGlassMenuItem<String>(
+            value: 'match',
+            label: '手动匹配元数据',
+            icon: Icons.search_rounded,
+          ),
+        if (dialogs != null)
+          const KonataGlassMenuItem<String>(
+            value: 'files',
+            label: '查看源文件与拆分',
+            icon: Icons.video_library_outlined,
+          ),
+        if (dialogs != null)
+          const KonataGlassMenuItem<String>(
+            value: 'merge',
+            label: '并入其他作品',
+            icon: Icons.merge_type_rounded,
+          ),
+        const KonataGlassMenuItem<String>(
           value: 'delete',
           label: '移出媒体库',
           icon: Icons.delete_outline_rounded,
@@ -263,26 +267,23 @@ class _LibraryPageState extends ConsumerState<LibraryPage> {
           showKonataToast(context, '重新匹配失败：$err', isError: true);
         }
       case 'files':
-        final changed = await ref
-            .read(workManageDialogPortProvider)
-            .showSourceFilesReviewDialog(
-              context,
-              workId: WorkId.trusted(work.id),
-            );
-        if (changed && mounted) await libraryController.reload();
+        final changed = await dialogs?.showSourceFilesReviewDialog(
+          context,
+          workId: WorkId.trusted(work.id),
+        );
+        if (changed == true && mounted) await libraryController.reload();
       case 'match':
-        final changed = await ref
-            .read(workManageDialogPortProvider)
-            .showManualMatchDialog(context, workId: WorkId.trusted(work.id));
-        if (changed && mounted) await libraryController.reload();
+        final changed = await dialogs?.showManualMatchDialog(
+          context,
+          workId: WorkId.trusted(work.id),
+        );
+        if (changed == true && mounted) await libraryController.reload();
       case 'merge':
-        final changed = await ref
-            .read(workManageDialogPortProvider)
-            .showWorkMergeDialog(
-              context,
-              sourceWorkId: WorkId.trusted(work.id),
-            );
-        if (changed && mounted) await libraryController.reload();
+        final changed = await dialogs?.showWorkMergeDialog(
+          context,
+          sourceWorkId: WorkId.trusted(work.id),
+        );
+        if (changed == true && mounted) await libraryController.reload();
       case 'delete':
         final confirm = await showDeleteWorkDialog(context, work: work);
         if (!mounted || confirm == null) return;

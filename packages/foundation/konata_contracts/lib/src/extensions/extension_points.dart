@@ -53,6 +53,7 @@ final class NavSectionContribution {
     required this.viewBuilder,
     this.supportedPlatforms = allKonataPlatforms,
     this.keepAlive = true,
+    this.supportsSearch = false,
   });
 
   /// 稳定分区唯一标识。
@@ -76,10 +77,16 @@ final class NavSectionContribution {
   /// 是否启用懒加载保活。
   final bool keepAlive;
 
+  /// 是否接收宿主顶栏的搜索词。
+  final bool supportsSearch;
+
   /// 判断当前运行平台是否支持挂载该导航分区。
   bool isSupportedOn(KonataPlatform platform) =>
       supportedPlatforms.contains(platform);
 }
+
+/// 显示与存储设置分区的稳定标识。
+const displaySettingsSectionId = 'display';
 
 /// 扩展点 2：设置分区贡献声明（支持按 Windows / Android 手机 / 平板过滤）。
 final class SettingsSectionContribution {
@@ -91,11 +98,15 @@ final class SettingsSectionContribution {
     required this.order,
     required this.viewBuilder,
     this.subtitle,
+    this.parentSectionId,
     this.supportedPlatforms = allKonataPlatforms,
   });
 
   /// 稳定设置分区标识。
   final String id;
+
+  /// 指定父分区时按顺序嵌入其面板，随父分区一起显示。
+  final String? parentSectionId;
 
   /// 分区标题。
   final String title;
@@ -120,6 +131,15 @@ final class SettingsSectionContribution {
       supportedPlatforms.contains(platform);
 }
 
+/// 详情标签的内容类型，由标签注册方声明。
+enum DetailTabKind {
+  /// 通用扩展内容。
+  general,
+
+  /// 扫图画廊，受 Scan 显示偏好控制。
+  scan,
+}
+
 /// 扩展点 3：作品详情页标签页贡献声明（如 `feature_scan_viewer` 扫图画廊挂载入口）。
 final class DetailTabContribution {
   /// 创建详情页标签页贡献。
@@ -131,10 +151,14 @@ final class DetailTabContribution {
     required this.viewBuilder,
     this.supportedPlatforms = allKonataPlatforms,
     this.isVisibleForWork,
+    this.kind = DetailTabKind.general,
   });
 
   /// 稳定标签页标识。
   final String id;
+
+  /// 标签内容类型。
+  final DetailTabKind kind;
 
   /// 标签展示文案。
   final String label;
@@ -534,6 +558,7 @@ final class FeatureManifest {
     this.dataProviders = const <DataProviderContribution>[],
     this.syncSlices = const <SyncSliceContributor<Object?>>[],
     this.cloudDriveProviders = const <CloudDriveProviderContribution>[],
+    this.wrapRuntime,
   });
 
   /// 模块唯一稳定标识（建议与包名一致，如 `feature_library`）。
@@ -568,6 +593,9 @@ final class FeatureManifest {
 
   /// 可选只读云盘驱动贡献。
   final List<CloudDriveProviderContribution> cloudDriveProviders;
+
+  /// 可选应用生命周期挂载，用宿主传入的根视图构造包装视图。
+  final Object Function(Object child)? wrapRuntime;
 
   /// 判断模块是否在当前平台启用。
   bool isSupportedOn(KonataPlatform platform) =>

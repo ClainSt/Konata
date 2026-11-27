@@ -271,8 +271,8 @@ class _ReviewDialogState extends ConsumerState<_ReviewDialog> {
   Future<void> _handleManualMatch(Work work) async {
     final matched = await ref
         .read(workManageDialogPortProvider)
-        .showManualMatchDialog(context, workId: WorkId.trusted(work.id));
-    if (matched && mounted) {
+        ?.showManualMatchDialog(context, workId: WorkId.trusted(work.id));
+    if (matched == true && mounted) {
       await ref.read(libraryControllerProvider).reload();
     }
   }
@@ -281,8 +281,8 @@ class _ReviewDialogState extends ConsumerState<_ReviewDialog> {
     await _runForWork(work.id, () async {
       final changed = await ref
           .read(workManageDialogPortProvider)
-          .showWorkMergeDialog(context, sourceWorkId: WorkId.trusted(work.id));
-      if (changed && mounted) {
+          ?.showWorkMergeDialog(context, sourceWorkId: WorkId.trusted(work.id));
+      if (changed == true && mounted) {
         await ref.read(libraryControllerProvider).reload();
       }
     });
@@ -291,8 +291,10 @@ class _ReviewDialogState extends ConsumerState<_ReviewDialog> {
   Future<void> _handleSourceFiles(Work work) async {
     final changed = await ref
         .read(workManageDialogPortProvider)
-        .showSourceFilesReviewDialog(context, workId: WorkId.trusted(work.id));
-    if (changed && mounted) await ref.read(libraryControllerProvider).reload();
+        ?.showSourceFilesReviewDialog(context, workId: WorkId.trusted(work.id));
+    if (changed == true && mounted) {
+      await ref.read(libraryControllerProvider).reload();
+    }
   }
 
   Future<void> _handleDismiss(Work work) async {
@@ -326,6 +328,7 @@ class _ReviewDialogState extends ConsumerState<_ReviewDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final hasWorkDialogs = ref.watch(workManageDialogPortProvider) != null;
     final p = context.palette;
     final controller = ref.watch(libraryControllerProvider);
     final dialogMaxHeight = MediaQuery.sizeOf(context).height * 0.84;
@@ -476,10 +479,15 @@ class _ReviewDialogState extends ConsumerState<_ReviewDialog> {
                               onEnsureCandidatesLoaded: () =>
                                   _ensureCandidatesLoaded(work.id),
                               onRematch: () => _handleRematch(work),
-                              onManualMatch: () => _handleManualMatch(work),
-                              onInspectSourceFiles: () =>
-                                  _handleSourceFiles(work),
-                              onMergeIntoExisting: () => _handleMerge(work),
+                              onManualMatch: hasWorkDialogs
+                                  ? () => _handleManualMatch(work)
+                                  : null,
+                              onInspectSourceFiles: hasWorkDialogs
+                                  ? () => _handleSourceFiles(work)
+                                  : null,
+                              onMergeIntoExisting: hasWorkDialogs
+                                  ? () => _handleMerge(work)
+                                  : null,
                               onDismissReview: () => _handleDismiss(work),
                               onAcceptCandidate: (candidate) =>
                                   _handleAcceptCandidate(work, candidate),

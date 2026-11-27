@@ -13,7 +13,7 @@ Konata v3 番剧详情页、正片 / 特典 / CD 编排、正片单并发流式�
 ## 核心模块与公开出口
 
 - **清单与依赖注入（`lib/src/manifest.dart`、`lib/src/providers.dart`）**：
-  - `featureDetailManifest`（`FeatureManifest(id: 'feature_detail', displayName: '作品详情')`）；
+  - `featureDetailManifest`（将详情展示选项挂载到「显示与存储」分区）；
   - `FeatureDetailDependencies`（完整承接 `databases`、`storageRoot`、`diagnosticLog`、`scopedPrefs`、`domainEventBus`、`navigator`、`filePicker`、`urlOpener`、`httpClient`、`gatewayFactory`、`streamBridge`、`warmupService`、`photosStorage`、`artworkCache`、`platform`、`detailTabs`、`detailActions`）与 `featureDetailDependenciesProvider`。
 - **领域辅助与抽帧服务（`lib/src/data/`）**：
   - `DetailTitleTypographyResolver`、`ClearLogoLegibility`、`MediaDisplayFormatter`、`ArtworkCropMath`、`LocalArtworkCropper`；

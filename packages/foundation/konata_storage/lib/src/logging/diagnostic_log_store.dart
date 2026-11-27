@@ -17,7 +17,7 @@ final class DiagnosticLogStore implements DiagnosticLogPort {
     this.maxErrorEntries = 150,
     this.maxEntriesPerSubsystem = 80,
     this.maxBreadcrumbs = 80,
-    this.appVersion = '3.0.0-dev',
+    this.appVersion = KonataAppVersion.release,
     DateTime Function()? clock,
   }) : _clock = clock ?? DateTime.now;
 
@@ -328,15 +328,11 @@ final class DiagnosticLogStore implements DiagnosticLogPort {
       'runtimeSnapshot': <Map<String, Object?>>[
         for (final s in sections) s.toJson(),
       ],
-      'breadcrumbs': <Map<String, Object?>>[
-        for (final c in crumbs) c.toJson(),
-      ],
+      'breadcrumbs': <Map<String, Object?>>[for (final c in crumbs) c.toJson()],
       'incidents': <Map<String, Object?>>[
         for (final ev in _errorRing) ev.toJson(),
       ],
-      'timeline': <Map<String, Object?>>[
-        for (final ev in merged) ev.toJson(),
-      ],
+      'timeline': <Map<String, Object?>>[for (final ev in merged) ev.toJson()],
     };
     return const JsonEncoder.withIndent('  ').convert(payload);
   }
@@ -351,34 +347,49 @@ final class DiagnosticLogStore implements DiagnosticLogPort {
 
     final buf = StringBuffer()
       ..writeln('============================================================')
-      ..writeln('Konata v3 运行诊断报告')
+      ..writeln('Konata 问题报告')
       ..writeln('============================================================')
       ..writeln('导出时间: ${_clock().toIso8601String()}')
       ..writeln('应用版本: Konata $appVersion')
       ..writeln(
         '运行平台: ${Platform.operatingSystem} ${Platform.operatingSystemVersion}',
       )
-      ..writeln(
-        '事件计数: 错误=${counts.errorCount} | 警告=${counts.warningCount} | '
-        '合并事件=${merged.length} | 轨迹=${counts.breadcrumbCount}',
-      )
+      ..writeln(DiagnosticReadableReport.overview(counts))
       ..writeln();
 
-    buf.writeln('=== 1. 故障分诊总览 ===');
+    buf.writeln('=== 1. 最近问题与处理建议 ===');
     if (faults.isEmpty) {
       buf.writeln('当前未捕获任何异常或警告。');
     } else {
       for (var i = 0; i < faults.length; i++) {
         final f = faults[i];
-        buf.writeln(
-          '${i + 1}. [${f.severity.badge}][${f.subsystem.code}][${f.code}] '
-          '次数=${f.count} | ${f.sampleMessage}',
-        );
+        buf.writeln('${i + 1}. ${DiagnosticReadableReport.formatFault(f)}');
       }
     }
     buf.writeln();
 
-    buf.writeln('=== 2. 运行状态快照（已脱敏） ===');
+    buf.writeln('=== 2. 最近操作 ===');
+    if (crumbs.isEmpty) {
+      buf.writeln('暂无操作记录。');
+    } else {
+      for (final crumb in crumbs.reversed.take(12).toList().reversed) {
+        buf.writeln(
+          '  ${crumb.timestamp.toLocal().toString().split('.').first} ${crumb.label}',
+        );
+      }
+    }
+    buf.writeln();
+    buf.writeln('=== 3. 最近运行记录 ===');
+    for (final ev in merged.reversed.take(12).toList().reversed) {
+      buf.writeln(DiagnosticReadableReport.formatEvent(ev));
+    }
+    buf.writeln();
+    buf.writeln('=== 以下为开发者排查信息（已脱敏） ===');
+    buf.writeln('--- 故障详情 ---');
+    for (final f in faults) {
+      buf.writeln(jsonEncode(f.toJson()));
+    }
+    buf.writeln('--- 应用运行状态 ---');
     if (sections.isEmpty) {
       buf.writeln('（无附加运行状态快照）');
     } else {
@@ -391,7 +402,7 @@ final class DiagnosticLogStore implements DiagnosticLogPort {
     }
     buf.writeln();
 
-    buf.writeln('=== 3. 操作轨迹 ===');
+    buf.writeln('--- 完整操作记录 ---');
     if (crumbs.isEmpty) {
       buf.writeln('暂无操作轨迹记录。');
     } else {
@@ -401,7 +412,7 @@ final class DiagnosticLogStore implements DiagnosticLogPort {
     }
     buf.writeln();
 
-    buf.writeln('=== 4. 合并事件时间线 ===');
+    buf.writeln('--- 完整事件记录 ---');
     if (merged.isEmpty) {
       buf.writeln('暂无运行事件。');
     } else {

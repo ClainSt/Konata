@@ -27,7 +27,7 @@ final class FeatureSyncDependencies {
     this.eventBus,
     this.diagnosticLog,
     this.extraSlices = const <SyncSliceContributor<Object?>>[],
-    this.appVersion = '3.0.0',
+    this.appVersion = KonataAppVersion.release,
     this.connectionPool,
     this.httpClientFactory,
     this.readFileBytes,

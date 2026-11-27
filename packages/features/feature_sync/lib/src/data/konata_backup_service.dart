@@ -44,7 +44,7 @@ final class KonataBackupService {
     required this._deviceStore,
     List<SyncSliceContributor<Object?>> extraSlices =
         const <SyncSliceContributor<Object?>>[],
-    this._appVersion = '3.0.0',
+    this._appVersion = KonataAppVersion.release,
     int Function()? nowMs,
     this._eventBus,
     this._diagnosticLog,

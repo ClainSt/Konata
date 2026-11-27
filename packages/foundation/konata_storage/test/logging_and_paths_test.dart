@@ -75,6 +75,23 @@ void main() {
 
       final decoded = jsonDecode(jsonText) as Map<String, Object?>;
       expect(decoded['schemaVersion'], 3);
+      expect((decoded['app'] as Map)['version'], '1.0.0');
+      final report = await store.buildTextReport();
+      expect(report, contains('Konata 1.0.0'));
+      expect(report, contains('WebDAV 登录验证失败'));
+      expect(report, contains('检查 WebDAV 用户名和密码'));
+      expect(report, contains('进入作品详情页'));
+      expect(report, contains('开发者排查信息'));
+      expect(report, contains('WEBDAV_401'));
+      for (final secret in [
+        'myPass99',
+        'abc123',
+        'tmdb_secret_key',
+        'plain-secret-value',
+        'SecretUser',
+      ]) {
+        expect(report, isNot(contains(secret)));
+      }
 
       final storageRoot = PortableStorageRootService(
         overrideRootPath: tempDir.path,
@@ -83,7 +100,9 @@ void main() {
       expect(File(exportedPath).existsSync(), isTrue);
       expect(
         exportedPath,
-        contains(p.join(StoragePathNames.userdataDir, StoragePathNames.logsSubdir)),
+        contains(
+          p.join(StoragePathNames.userdataDir, StoragePathNames.logsSubdir),
+        ),
       );
     });
   });
@@ -101,10 +120,11 @@ void main() {
       final releaseDir = Directory(p.join(tempDir.path, 'ReleasePortable'))
         ..createSync(recursive: true);
       final fakeExe = p.join(releaseDir.path, 'Konata.exe');
-      final detectedRelease = PortableStorageRootService.detectDesktopBasePathSync(
-        workingDirectoryPath: tempDir.path,
-        resolvedExecutablePath: fakeExe,
-      );
+      final detectedRelease =
+          PortableStorageRootService.detectDesktopBasePathSync(
+            workingDirectoryPath: tempDir.path,
+            resolvedExecutablePath: fakeExe,
+          );
       expect(detectedRelease, releaseDir.path);
 
       // 模拟隔离车道与三库路径布局。

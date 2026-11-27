@@ -51,7 +51,7 @@ final class SettingsController extends ChangeNotifier {
     required this._backupFilePort,
     required this._urlOpener,
     required this._diagnosticLog,
-    this._appVersion = '3.0.0',
+    this._appVersion = KonataAppVersion.release,
     this._onThemeModeChanged,
     this._onAmbientBackdropChanged,
     this._onWindowMaterialChanged,
@@ -439,26 +439,25 @@ final class SettingsController extends ChangeNotifier {
     final secrets = await _networkRepo.readCurrentSecretsForRedaction();
 
     final buf = StringBuffer()
-      ..writeln('Konata $_appVersion 诊断定位摘要')
-      ..writeln(
-        '事件统计：异常 ${counts.errorCount} · 警告 ${counts.warningCount} · '
-        '总事件 ${counts.totalEvents} · 轨迹 ${counts.breadcrumbCount}',
-      );
+      ..writeln('Konata $_appVersion 问题摘要')
+      ..writeln(DiagnosticReadableReport.overview(counts));
     if (faults.isNotEmpty) {
-      buf.writeln('最近故障分诊：');
+      buf.writeln('最近问题：');
       for (final fault in faults.take(5)) {
-        buf.writeln(
-          '- [${fault.severity.badge}][${fault.subsystem.code}][${fault.code}] '
-          'x${fault.count} ${fault.sampleMessage}',
-        );
+        buf.writeln('- ${DiagnosticReadableReport.formatFault(fault)}');
       }
     }
     if (events.isNotEmpty) {
       final start = events.length > 12 ? events.length - 12 : 0;
-      buf.writeln('最近事件轨迹：');
+      buf.writeln('最近运行记录：');
       for (final ev in events.sublist(start)) {
-        buf.writeln('- ${ev.formatCompactLine()}');
+        buf.writeln('- ${DiagnosticReadableReport.formatEvent(ev)}');
       }
+    }
+    if (faults.isNotEmpty) {
+      buf.writeln(
+        '问题编号（供开发者查询）：${faults.take(5).map((f) => f.code).join('、')}',
+      );
     }
     return _redactDiagnosticText(buf.toString(), secrets);
   }
@@ -490,7 +489,7 @@ final class SettingsController extends ChangeNotifier {
       return await _backupFilePort.saveFile(
         fileName: fileName,
         bytes: bytes,
-        dialogTitle: asJson ? '导出结构化诊断包 (JSON)' : '导出诊断日志报告 (TXT)',
+        dialogTitle: asJson ? '导出日志（JSON）' : '导出日志（TXT）',
       );
     } finally {
       _isExportingDiagnostics = false;

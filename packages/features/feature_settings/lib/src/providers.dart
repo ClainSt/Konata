@@ -21,7 +21,7 @@ final class FeatureSettingsDependencies {
     required this.navigator,
     required this.currentPlatform,
     this.sections = const <SettingsSectionContribution>[],
-    this.appVersion = '3.0.0',
+    this.appVersion = KonataAppVersion.release,
     this.storageRoot,
     this.onThemeModeChanged,
     this.onAmbientBackdropChanged,

@@ -34,9 +34,9 @@ class SettingsAboutPanel extends ConsumerWidget {
       } else {
         showKonataToast(context, '已导出诊断日志至 $savedPath');
       }
-    } catch (e) {
+    } catch (_) {
       if (context.mounted) {
-        showKonataToast(context, '导出诊断日志失败：$e', isError: true);
+        showKonataToast(context, '导出日志失败，请重试。', isError: true);
       }
     }
   }
@@ -49,11 +49,11 @@ class SettingsAboutPanel extends ConsumerWidget {
       final summary = await ctrl.buildCompactDiagnosticSummary();
       await Clipboard.setData(ClipboardData(text: summary));
       if (context.mounted) {
-        showKonataToast(context, '已复制诊断定位摘要，可直接粘贴排查问题');
+        showKonataToast(context, '已复制问题摘要');
       }
-    } catch (e) {
+    } catch (_) {
       if (context.mounted) {
-        showKonataToast(context, '复制诊断摘要失败：$e', isError: true);
+        showKonataToast(context, '复制摘要失败，请重试。', isError: true);
       }
     }
   }
@@ -148,10 +148,19 @@ class SettingsAboutPanel extends ConsumerWidget {
               padding: EdgeInsets.zero,
               child: Column(
                 children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 16, 18, 4),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        '错误 ${counts.errorCount} · 警告 ${counts.warningCount}',
+                        style: TextStyle(fontSize: 12, color: p.textSecondary),
+                      ),
+                    ),
+                  ),
                   KonataListTile(
-                    title: '详细调试日志',
-                    subtitle:
-                        '始终保留异常、子系统状态与操作轨迹（当前 ${counts.errorCount} 异常 · ${counts.warningCount} 警告 · ${counts.totalEvents} 事件）；复现复杂问题前可开启完整追踪。',
+                    title: '详细日志',
+                    subtitle: '排查问题时开启，记录更多信息。',
                     leading: _buildLeadingBox(
                       Icon(
                         Icons.bug_report_outlined,
@@ -173,8 +182,8 @@ class SettingsAboutPanel extends ConsumerWidget {
                   ),
                   KonataListTile(
                     key: const ValueKey('settings_export_diagnostics_txt'),
-                    title: '导出最近异常日志',
-                    subtitle: '导出含故障源码锚点、当前运行态快照、操作轨迹与脱敏时间线的 TXT 诊断报告',
+                    title: '导出日志（TXT）',
+                    subtitle: '便于阅读的问题报告',
                     leading: _buildLeadingBox(
                       Icon(
                         Icons.description_outlined,
@@ -203,8 +212,8 @@ class SettingsAboutPanel extends ConsumerWidget {
                   ),
                   KonataListTile(
                     key: const ValueKey('settings_export_diagnostics_json'),
-                    title: '导出结构化诊断包 (.json)',
-                    subtitle: '导出包含故障信息、运行状态与操作记录的诊断数据',
+                    title: '导出日志（JSON）',
+                    subtitle: '供开发者排查问题',
                     leading: _buildLeadingBox(
                       Icon(
                         Icons.data_object_rounded,
@@ -233,8 +242,7 @@ class SettingsAboutPanel extends ConsumerWidget {
                   ),
                   KonataListTile(
                     key: const ValueKey('settings_copy_diagnostic_summary'),
-                    title: '复制诊断定位摘要',
-                    subtitle: '一键复制精简故障分诊、运行快照与最近 12 步操作轨迹至剪贴板',
+                    title: '复制问题摘要',
                     leading: _buildLeadingBox(
                       Icon(
                         Icons.content_copy_rounded,
@@ -259,8 +267,8 @@ class SettingsAboutPanel extends ConsumerWidget {
                     ),
                     KonataListTile(
                       key: const ValueKey('settings_clear_diagnostics'),
-                      title: '清空当前诊断缓冲',
-                      subtitle: '清除内存中的历史日志与轨迹，方便干净复现下一次问题',
+                      title: '清空日志',
+                      subtitle: '仅清除本次运行记录',
                       leading: _buildLeadingBox(
                         Icon(
                           Icons.cleaning_services_outlined,
@@ -275,7 +283,7 @@ class SettingsAboutPanel extends ConsumerWidget {
                       ),
                       onTap: () {
                         effectiveController.clearDiagnosticLogs();
-                        showKonataToast(context, '已清空当前诊断日志缓冲');
+                        showKonataToast(context, '已清空日志');
                       },
                     ),
                   ],

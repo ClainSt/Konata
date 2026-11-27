@@ -436,8 +436,9 @@ void main() {
     await tester.tap(find.text('关于'));
     await tester.pumpAndSettle();
     expect(find.textContaining('Schema v3'), findsNothing);
-    expect(find.text('导出包含故障信息、运行状态与操作记录的诊断数据'), findsOneWidget);
-    await tester.tap(find.text('导出结构化诊断包 (.json)'));
+    expect(find.text('供开发者排查问题'), findsOneWidget);
+    expect(find.text('版本 1.0.0'), findsOneWidget);
+    await tester.tap(find.text('导出日志（JSON）'));
     await tester.pumpAndSettle();
     expect(backupPort.savedFiles.length, equals(1));
 

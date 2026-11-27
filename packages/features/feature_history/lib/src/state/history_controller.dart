@@ -20,6 +20,8 @@ enum HistorySelectionAction {
 /// 监听 `PlaybackRecordDao.watchRecent()` 与作品库变更，组装自然日作品时间轴，
 /// 处理搜索过滤、点击续播路由跳转、作品详情跳转、标记完播与单条/批量/清空软删除墓碑。
 final class HistoryController extends ChangeNotifier {
+  static final _cueHistoryId = RegExp(r'^cd::(.+)(#cue:|::track_)(\d+)$');
+
   /// 创建播放记录控制器。
   HistoryController({
     required this._databases,
@@ -202,14 +204,24 @@ final class HistoryController extends ChangeNotifier {
     try {
       if (entry.isAudio) {
         final record = entry.record;
-        // 兼容当前物理版本#cue:轨号和旧版::track_轨号历史标识。
-        final match = RegExp(
-          r'^cd::.+(?:#cue:|::track_)(\d+)$',
-        ).firstMatch(record.episodeId.value);
-        final track = match == null ? null : int.tryParse(match.group(1)!);
+        final match = _cueHistoryId.firstMatch(record.episodeId.value);
+        final track = match == null ? null : int.tryParse(match.group(3)!);
+        var variantId = record.variantId;
+        // 旧版把清单主键写进历史标识，物理版本字段可能指向另一音频入口。
+        if (match != null && match.group(2) == '::track_' && track != null) {
+          final cue = _databases.library.mediaVariants.findById(
+            VariantId.trusted(match.group(1)!),
+          );
+          if (cue != null &&
+              cue.workId == record.workId &&
+              cue.assetKind == AssetKind.cdAlbum &&
+              KonataMediaExtensions.isCueSheetFile(cue.fileName)) {
+            variantId = cue.id;
+          }
+        }
         await _navigator.openAudioPlayer(
           workId: record.workId,
-          variantId: record.variantId,
+          variantId: variantId,
           initialCueTrackIndex: track,
           initialPositionSeconds: record.isCompleted
               ? 0

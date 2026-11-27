@@ -17,4 +17,4 @@ Konata 日记式播放记录时间轴业务包，向宿主贡献主导航「播�
 - **同步墓碑删除**：单条删除、整组删除与清空全部仅调用 `PlaybackRecordDao.softDelete` / `clearAll` 写入软删除墓碑，绝不触碰任何物理媒体文件。
 - **状态零 Riverpod**：`lib/src/data/` 与 `lib/src/state/` 不引入 `flutter_riverpod`，UI 仅使用 `konata_design_system` 与 Flutter 基础库。
 
-- 音频历史续播按记录归属和物理版本导航，兼容 #cue: 与 ::track_ 轨号标识；已听完以零秒起播。
+- 音频历史续播按记录归属导航。旧版 `::track_` 记录优先使用标识内仍有效的同作品 CUE 清单，清单失效时回退到记录的物理版本。`#cue:` 记录使用物理版本。已听完以零秒起播。

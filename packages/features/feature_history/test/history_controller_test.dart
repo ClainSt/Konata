@@ -375,6 +375,69 @@ void main() {
     expect(navigator.detailCalls.single.value, equals('w_frieren'));
   });
 
+  test('旧版 CUE 续播优先使用记录中的同作品清单，失效时回退物理版本', () async {
+    const workId = WorkId.trusted('w_bocchi');
+    const physicalId = VariantId.trusted('v_b_ost');
+    const cueId = VariantId.trusted('legacy-cue');
+    const otherWorkCueId = VariantId.trusted('other-work-cue');
+    for (final (variantId, owner) in [
+      (cueId, workId),
+      (otherWorkCueId, const WorkId.trusted('w_frieren')),
+    ]) {
+      db.library.mediaVariants.upsert(
+        MediaVariantRecord(
+          id: variantId,
+          workId: owner,
+          sourceId: const SourceId.trusted('src_1'),
+          relativePath: 'CD/${variantId.value}.cue',
+          fileName: '${variantId.value}.cue',
+          fileSize: 128,
+          assetKind: AssetKind.cdAlbum,
+        ),
+      );
+    }
+    final controller = HistoryController(
+      databases: db,
+      navigator: navigator,
+      diagnosticLog: _StubLog(),
+    );
+    addTearDown(controller.dispose);
+
+    Future<void> resume(String episodeId, VariantId expectedId) async {
+      db.userState.playbackRecords.upsert(
+        PlaybackRecordEntity(
+          id: 'legacy-cue-resume',
+          workId: workId,
+          episodeId: EpisodeId.trusted(episodeId),
+          variantId: physicalId,
+          playedAtMs: fixedNow.millisecondsSinceEpoch,
+          positionSeconds: 23,
+          durationSeconds: 100,
+        ),
+      );
+      controller.refresh();
+      final entry = controller.dayGroups
+          .expand((day) => day.works)
+          .expand((work) => work.items)
+          .singleWhere((item) => item.record.id == 'legacy-cue-resume');
+      await controller.resumePlayback(entry);
+      final call = navigator.audioCalls.last;
+      expect(call.workId, workId);
+      expect(call.variantId, expectedId);
+      expect(call.initialCueTrackIndex, 3);
+      expect(call.initialPositionSeconds, 23);
+    }
+
+    await resume('cd::legacy-cue::track_3', cueId);
+    await resume('cd::other-work-cue::track_3', physicalId);
+    await resume('cd::legacy-cue#cue:3', physicalId);
+    db.library.mediaVariants.softDelete(
+      cueId,
+      deletedAtMs: fixedNow.millisecondsSinceEpoch,
+    );
+    await resume('cd::legacy-cue::track_3', physicalId);
+  });
+
   test('单条软删除与清空全部均落盘跨设备同步墓碑', () {
     final controller = HistoryController(
       databases: db,

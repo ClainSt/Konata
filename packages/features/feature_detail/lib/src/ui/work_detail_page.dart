@@ -536,6 +536,7 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
     final requestKey = '$cacheKey|${isDark ? 'd' : 'l'}';
     if (_sampledDissolveKey != requestKey) {
       _sampledDissolveKey = requestKey;
+      _sampledDissolveColor = null;
       final Future<Uint8List> fetchFuture = imageLoader is ManagedArtworkLoader
           ? imageLoader(
               sourcePath,
@@ -712,14 +713,17 @@ class _WorkDetailPageState extends ConsumerState<WorkDetailPage> {
                       isTabletPortrait ||
                       isNarrowWindowFallback ||
                       isShortLandscapeFallback) {
+                    final portraitCanvas = p.elevatedSurface.withValues(
+                      alpha: 1,
+                    );
                     final dissolveColor =
                         _resolvePortraitDissolveColor(
                           work: bundle.work,
                           imageLoader: imageLoader,
                           isDark: p.isDark,
-                          themeBg: p.canvas,
+                          themeBg: portraitCanvas,
                         ) ??
-                        p.canvas;
+                        portraitCanvas;
                     return ColoredBox(
                       color: dissolveColor,
                       child: DetailPortraitStageLayout(

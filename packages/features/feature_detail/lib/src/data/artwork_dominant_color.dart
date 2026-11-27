@@ -68,18 +68,21 @@ abstract final class ArtworkDominantColor {
     required Color themeBackground,
   }) {
     final hsl = HSLColor.fromColor(rawColor);
-    if (isDark) {
-      final tinted = hsl
-          .withSaturation(hsl.saturation.clamp(0.08, 0.36))
-          .withLightness(0.10)
-          .toColor();
-      return Color.lerp(themeBackground, tinted, 0.56) ?? themeBackground;
-    }
-    final tinted = hsl
-        .withSaturation(hsl.saturation.clamp(0.06, 0.24))
-        .withLightness(0.93)
-        .toColor();
-    return Color.lerp(themeBackground, tinted, 0.52) ?? themeBackground;
+    final tinted =
+        (isDark
+                ? hsl
+                      .withSaturation(hsl.saturation.clamp(0.0, 0.64))
+                      .withLightness(hsl.lightness.clamp(0.22, 0.35))
+                : hsl
+                      .withSaturation(hsl.saturation.clamp(0.06, 0.24))
+                      .withLightness(0.93))
+            .toColor()
+            .withValues(alpha: 1);
+    // 溶底色必须独立于底层材质；透明画布不参与混色，避免同色在海报边界两侧呈现不同结果。
+    final base = themeBackground.a == 0
+        ? tinted
+        : themeBackground.withValues(alpha: 1);
+    return Color.lerp(base, tinted, isDark ? 0.88 : 0.52) ?? tinted;
   }
 
   static Color? _extractBottomEdgeDominantRgb({

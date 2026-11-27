@@ -1,5 +1,6 @@
 import 'package:engine_scraping/engine_scraping.dart';
 import 'package:feature_detail/feature_detail.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:konata_design_system/konata_design_system.dart';
@@ -25,6 +26,18 @@ void main() {
           extraType: ExtraKind.sp,
         ),
     ];
+    String? copiedText;
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') {
+        copiedText = (call.arguments as Map)['text'] as String?;
+      }
+      return null;
+    });
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
+    );
     for (final width in [760.0, 360.0]) {
       tester.view.physicalSize = Size(width, 800);
       tester.view.devicePixelRatio = 1;
@@ -56,6 +69,37 @@ void main() {
       await tester.pumpAndSettle();
       expect(selected, {'v0', 'v1'});
       expect(tester.takeException(), isNull);
+      await tester.longPress(
+        find.byKey(const ValueKey('mapping_file_info_v0')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('文件信息'), findsOneWidget);
+      expect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is SelectableText &&
+              widget.data == rows.first.variant.fileName,
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is SelectableText &&
+              widget.data == rows.first.variant.relativePath,
+        ),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('复制文件名'));
+      await tester.pumpAndSettle();
+      expect(copiedText, rows.first.variant.fileName);
+      await tester.longPress(
+        find.byKey(const ValueKey('mapping_file_info_v0')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('复制相对路径'));
+      await tester.pumpAndSettle();
+      expect(copiedText, rows.first.variant.relativePath);
       await tester.tap(find.byType(EpisodeSlotPickerButton).first);
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);

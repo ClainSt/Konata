@@ -44,7 +44,7 @@ class SettingsAudioPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
-    // Mobile settings use a compact right column; large desktop controls stay unchanged.
+    // 手机窄屏采用紧凑右侧控件，桌面宽屏保持原尺寸。
     final compact = isAndroidPlatform && MediaQuery.sizeOf(context).width < 600;
     final dropdownWidth = compact ? 128.0 : 165.0;
     final sliderWidth = compact ? 136.0 : 180.0;

@@ -475,9 +475,7 @@ final class SyncBackupController extends ChangeNotifier {
     );
     try {
       await _webDavCoordinator.testConnection(config);
-      _setState(
-        _state.copyWith(webDavTestSuccessMessage: '连接成功！服务器地址与远端同步目录可用'),
-      );
+      _setState(_state.copyWith(webDavTestSuccessMessage: '连接成功，已验证同步目录读写'));
     } catch (error) {
       _setState(_state.copyWith(lastErrorMessage: _toUserError(error)));
       rethrow;

@@ -1306,6 +1306,34 @@ ${mismatched ? 'FILE "other.flac" WAVE' : ''}
       find.byKey(const ValueKey('salt_smoke_playback_capsule')),
       findsOneWidget,
     );
+    final playPause = find.byKey(
+      const ValueKey('audio_desktop_play_pause_button'),
+    );
+    final playButton = tester.widget<KonataCapsuleIconButton>(playPause);
+    expect(playButton.highlighted, isFalse);
+    expect(playButton.showHoverBackground, isFalse);
+    expect(playButton.fixedSize, 40);
+    final menu = find.byKey(const ValueKey('audio_top_menu_button'));
+    final closedMenu = tester.widget<KonataCapsuleIconButton>(menu);
+    expect(closedMenu.highlighted, isFalse);
+    expect(closedMenu.showHoverBackground, isFalse);
+    expect(closedMenu.fixedSize, 36);
+    await tester.tap(menu);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(
+      find.byKey(const ValueKey('audio_unified_menu_overlay')),
+      findsOneWidget,
+    );
+    final openedMenu = tester.widget<KonataCapsuleIconButton>(menu);
+    expect(openedMenu.highlighted, isFalse);
+    expect(openedMenu.showHoverBackground, isFalse);
+    expect(openedMenu.icon, closedMenu.icon);
+    await tester.tap(menu);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(
+      find.byKey(const ValueKey('audio_unified_menu_overlay')),
+      findsNothing,
+    );
     final queue = find.byKey(const ValueKey('audio_desktop_queue_button'));
     expect(queue, findsOneWidget);
     expect(tester.widget<KonataCapsuleIconButton>(queue).highlighted, isFalse);
@@ -1450,6 +1478,20 @@ ${mismatched ? 'FILE "other.flac" WAVE' : ''}
     );
     await tester.pump();
 
+    final playPause = find.byKey(
+      const ValueKey('audio_portrait_play_pause_button'),
+    );
+    final playButton = tester.widget<KonataCapsuleIconButton>(playPause);
+    expect(playButton.highlighted, isFalse);
+    expect(playButton.showHoverBackground, isFalse);
+    expect(playButton.fixedSize, 60);
+    expect(playButton.size, 34);
+    final expectedIcon = h.controller.playingListenable.value
+        ? Icons.pause_rounded
+        : Icons.play_arrow_rounded;
+    expect(playButton.icon, expectedIcon);
+    expect(tester.getSize(playPause), const Size(60, 60));
+
     // 1. 进入 Android 手机舞台即锁定纯竖屏 DeviceOrientation.portraitUp。
     expect(
       recordedOrientations,
@@ -1487,8 +1529,17 @@ ${mismatched ? 'FILE "other.flac" WAVE' : ''}
     expect(find.byKey(const ValueKey('portrait_cover')), findsOneWidget);
 
     // 4. 点击右上角菜单：统一呈现无损输出链路信息及 embedded=true 动态歌词面板。
-    await tester.tap(find.byKey(const ValueKey('audio_top_menu_button')));
+    final menu = find.byKey(const ValueKey('audio_top_menu_button'));
+    final closedMenu = tester.widget<KonataCapsuleIconButton>(menu);
+    expect(closedMenu.highlighted, isFalse);
+    expect(closedMenu.showHoverBackground, isFalse);
+    expect(closedMenu.fixedSize, 44);
+    await tester.tap(menu);
     await tester.pump(const Duration(milliseconds: 220));
+    final openedMenu = tester.widget<KonataCapsuleIconButton>(menu);
+    expect(openedMenu.highlighted, isFalse);
+    expect(openedMenu.showHoverBackground, isFalse);
+    expect(openedMenu.icon, closedMenu.icon);
     expect(
       find.byKey(const ValueKey('audio_unified_menu_overlay')),
       findsOneWidget,

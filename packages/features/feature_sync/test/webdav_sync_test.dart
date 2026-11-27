@@ -21,6 +21,9 @@ final class _InMemoryWebDavServer {
   final Map<String, Uint8List> files = <String, Uint8List>{};
   final List<String> requestLog = <String>[];
   bool includeEtags = true;
+  bool denyWrites = false;
+  bool denyDirectoryCreation = false;
+  bool rejectExistingShardsWith405 = false;
   Completer<void>? manifestBarrier;
   int waitingManifestPuts = 0;
   int conflicts = 0;
@@ -59,8 +62,17 @@ final class _InMemoryWebDavServer {
     }
 
     if (method == 'MKCOL') {
-      createdDirs.add(path);
-      return http.StreamedResponse(Stream<List<int>>.value(const <int>[]), 201);
+      final created = !denyDirectoryCreation && createdDirs.add(path);
+      return http.StreamedResponse(
+        Stream<List<int>>.value(const <int>[]),
+        created ? 201 : 405,
+      );
+    }
+    if (method == 'PROPFIND') {
+      return http.StreamedResponse(
+        Stream<List<int>>.value(const <int>[]),
+        createdDirs.contains(path) ? 207 : 404,
+      );
     }
 
     if (method == 'GET') {
@@ -79,7 +91,17 @@ final class _InMemoryWebDavServer {
       );
     }
 
+    if (method == 'DELETE') {
+      files.remove(path);
+      return http.StreamedResponse(Stream<List<int>>.value(const <int>[]), 204);
+    }
     if (method == 'PUT') {
+      if (denyWrites) {
+        return http.StreamedResponse(
+          Stream<List<int>>.value(const <int>[]),
+          405,
+        );
+      }
       final bytes = await request.finalize().toBytes();
       if (path.endsWith('/manifest.json') && forcedManifestConflicts > 0) {
         forcedManifestConflicts--;
@@ -98,6 +120,14 @@ final class _InMemoryWebDavServer {
         await barrier.future.timeout(const Duration(seconds: 5));
       }
       final old = files[path];
+      if (rejectExistingShardsWith405 &&
+          old != null &&
+          path.endsWith('.json.gz')) {
+        return http.StreamedResponse(
+          Stream<List<int>>.value(const <int>[]),
+          405,
+        );
+      }
       final ifMatch = request.headers['if-match'];
       final ifNoneMatch = request.headers['if-none-match'];
       if ((ifMatch != null && (old == null || etag(old) != ifMatch)) ||
@@ -302,6 +332,44 @@ void main() {
       await eventBusB.dispose();
       await dbA.close();
       await dbB.close();
+    });
+
+    test('连接测试验证真实文件读写并清理探测文件，拒绝只读服务端', () async {
+      await coordinatorA.testConnection(webDavConfig);
+      expect(server.files, isEmpty);
+      expect(server.countRequests('PUT', pathContains: 'konata-probe-'), 1);
+      expect(server.countRequests('GET', pathContains: 'konata-probe-'), 1);
+      expect(server.countRequests('DELETE', pathContains: 'konata-probe-'), 1);
+      server.denyWrites = true;
+      await expectLater(
+        coordinatorA.testConnection(webDavConfig),
+        throwsA(
+          isA<WebDavSyncException>().having((e) => e.statusCode, 'status', 405),
+        ),
+      );
+      expect(server.files, isEmpty);
+    });
+
+    test('目录已存在时核实 405，目录无法创建时不得继续上传', () async {
+      await coordinatorA.testConnection(webDavConfig);
+      final directories = Set<String>.of(server.createdDirs);
+      expect(directories, hasLength(2));
+      await coordinatorA.testConnection(webDavConfig);
+      expect(server.createdDirs, directories);
+      expect(server.countRequests('PROPFIND'), 2);
+      expect(server.files, isEmpty);
+
+      server.createdDirs.clear();
+      server.denyDirectoryCreation = true;
+      final puts = server.countRequests('PUT');
+      await expectLater(
+        coordinatorA.testConnection(webDavConfig),
+        throwsA(
+          isA<WebDavSyncException>().having((e) => e.statusCode, 'status', 405),
+        ),
+      );
+      expect(server.countRequests('PUT'), puts);
+      expect(server.files, isEmpty);
     });
 
     test('扩展切片第二条SQL失败时双库回滚，不发布水位或完成事件，重试成功', () async {
@@ -759,6 +827,57 @@ void main() {
         expect(server.files[entry.key], orderedEquals(entry.value));
       }
       expect(server.files.length, 4);
+    });
+
+    test('拒绝重复创建分片的服务端仅复用完整同版本内容', () async {
+      server.forcedManifestConflicts = 4;
+      await expectLater(
+        coordinatorA.syncNow(webDavConfig),
+        throwsA(isA<WebDavSyncException>()),
+      );
+      final shards = Map<String, Uint8List>.of(server.files);
+      expect(shards, hasLength(3));
+      server.rejectExistingShardsWith405 = true;
+
+      // 损坏的同名文件必须拒绝，不能发布清单或记录同步完成。
+      final damagedPath = shards.keys.first;
+      server.files[damagedPath] = Uint8List.fromList([1, 2, 3]);
+      await expectLater(
+        coordinatorA.syncNow(webDavConfig),
+        throwsA(
+          isA<WebDavSyncException>().having((e) => e.statusCode, 'status', 405),
+        ),
+      );
+      expect(storeA.readMeta(SyncDeviceStore.metaKeyWebDavLastSyncMs), isNull);
+      expect(
+        server.files.containsKey('/dav/konata-sync/manifest.json'),
+        isFalse,
+      );
+
+      // 恢复测试夹具中的正确内容，复用时原分片字节不变。
+      server.files[damagedPath] = shards[damagedPath]!;
+      await coordinatorA.syncNow(webDavConfig);
+      expect(
+        storeA.readMeta(SyncDeviceStore.metaKeyWebDavLastSyncMs),
+        isNotNull,
+      );
+      for (final entry in shards.entries) {
+        expect(server.files[entry.key], orderedEquals(entry.value));
+      }
+      expect(server.files, hasLength(4));
+    });
+
+    test('新分片上传被拒绝时不得发布清单或记录成功', () async {
+      server.denyWrites = true;
+      await expectLater(
+        coordinatorA.syncNow(webDavConfig),
+        throwsA(
+          isA<WebDavSyncException>().having((e) => e.statusCode, 'status', 405),
+        ),
+      );
+      expect(server.files, isEmpty);
+      expect(storeA.readMeta(SyncDeviceStore.metaKeyWebDavLastSyncMs), isNull);
+      expect(storeA.readLocalSliceSha256('prefs_slice'), isNull);
     });
 
     test('同设备标识的不同会话冲突时仅一个清单发布成功', () async {
@@ -1219,6 +1338,11 @@ void main() {
         ),
         nowMs: () => 6000,
       );
+      await a.testConnection(config);
+      expect(backend.files, isEmpty);
+      expect(backend.countRequests('PUT', pathContains: 'konata-probe-'), 1);
+      expect(backend.countRequests('GET', pathContains: 'konata-probe-'), 1);
+      expect(backend.countRequests('DELETE', pathContains: 'konata-probe-'), 1);
       prefsA.write(
         appearanceSlice,
         {'themeMode': 'dark'},

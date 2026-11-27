@@ -159,16 +159,17 @@ extension _ScanLightboxDialogViews on _ScanLightboxDialogState {
               ),
             ),
           ],
-          KonataCapsuleIconButton(
-            icon: _fullscreen
-                ? Icons.fullscreen_exit_rounded
-                : Icons.fullscreen_rounded,
-            tooltip: _fullscreen ? '退出全屏' : '全屏',
-            color: KonataTheme.pureWhite,
-            size: 20,
-            fixedSize: buttonFixedSize,
-            onTap: _toggleFullscreen,
-          ),
+          if (!isAndroid)
+            KonataCapsuleIconButton(
+              icon: _fullscreen
+                  ? Icons.fullscreen_exit_rounded
+                  : Icons.fullscreen_rounded,
+              tooltip: _fullscreen ? '退出全屏' : '全屏',
+              color: KonataTheme.pureWhite,
+              size: 20,
+              fixedSize: buttonFixedSize,
+              onTap: _toggleFullscreen,
+            ),
           if (!denseHeader && isWindows)
             KonataCapsuleIconButton(
               icon: Icons.open_in_new_rounded,

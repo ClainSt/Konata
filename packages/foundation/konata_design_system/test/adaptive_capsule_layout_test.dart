@@ -8,7 +8,7 @@ void main() {
   const safe = EdgeInsets.fromLTRB(0, 24, 0, 20);
 
   group('三端自适应胶囊与悬浮小窗几何布局', () {
-    test('手机矮横屏维持底部紧凑导航且与音频圆钮整体水平居中无重叠', () {
+    test('手机矮横屏底部导航独立水平居中且音频圆钮避让导航', () {
       final cramped = AdaptiveCapsuleLayout(
         size: const Size(568, 320),
         safe: safe,
@@ -17,10 +17,8 @@ void main() {
       );
       expect(cramped.shortPhone, isTrue);
       expect(cramped.verticalNavigation, isFalse);
-      expect(cramped.inlinePhoneAudioPaired, isTrue);
       final miniRect = cramped.floatingMiniWindowRect!;
-      final groupCenter = (cramped.navigationRect.left + miniRect.right) / 2.0;
-      expect(groupCenter, closeTo(284.0, 0.5));
+      expect(cramped.navigationRect.center.dx, closeTo(284.0, 0.5));
       expect(miniRect.overlaps(cramped.navigationRect), isFalse);
     });
 
@@ -124,23 +122,50 @@ void main() {
       }
     });
 
-    test('手机一级页音频圆钮与底栏胶囊同行居中并排且零额外底高', () {
-      final navOnly = AdaptiveCapsuleLayout(
-        size: const Size(390, 844),
-        safe: safe,
-        android: true,
-      );
-      final paired = AdaptiveCapsuleLayout(
-        size: const Size(390, 844),
-        safe: safe,
-        android: true,
-        miniKind: FloatingMiniPlayerKind.audio,
-      );
-      expect(paired.inlinePhoneAudioPaired, isTrue);
-      final discRect = paired.floatingMiniWindowRect!;
-      expect(discRect.overlaps(paired.navigationRect), isFalse);
-      expect(paired.bottomClearance, closeTo(navOnly.bottomClearance, 0.1));
-    });
+    for (final size in const [
+      Size(320, 640),
+      Size(390, 844),
+      Size(844, 390),
+      Size(1024, 700),
+    ]) {
+      test('音频小窗各状态不改变主导航位置 $size', () {
+        final baseline = AdaptiveCapsuleLayout(
+          size: size,
+          safe: safe,
+          android: true,
+        );
+        for (final state in FloatingMiniVisualState.values) {
+          for (final side in FloatingMiniEdgeSide.values) {
+            for (final anchor in <Offset?>[
+              null,
+              const Offset(0, 1),
+              const Offset(1, 1),
+              const Offset(0.4, 0.3),
+            ]) {
+              final active = AdaptiveCapsuleLayout(
+                size: size,
+                safe: safe,
+                android: true,
+                miniKind: FloatingMiniPlayerKind.audio,
+                visualState: state,
+                edgeSide: side,
+                normalizedMiniAnchor: anchor,
+              );
+              expect(active.navigationRect, baseline.navigationRect);
+              final miniRect = active.floatingMiniWindowRect!;
+              expect(miniRect.overlaps(active.navigationRect), isFalse);
+              expect(
+                active.bottomClearance,
+                greaterThanOrEqualTo(baseline.bottomClearance),
+              );
+              if (state == FloatingMiniVisualState.expanded) {
+                expect(miniRect.width, greaterThan(miniRect.height));
+              }
+            }
+          }
+        }
+      });
+    }
   });
 
   group('四视口组件与三端外壳渲染回归', () {
@@ -223,6 +248,57 @@ void main() {
         }
       });
     }
+
+    testWidgets('手机实际导航在音频小窗状态变化期间始终居中', (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      var kind = FloatingMiniPlayerKind.none;
+      var visualState = FloatingMiniVisualState.collapsed;
+      late StateSetter update;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: KonataTheme.darkTheme(),
+          home: StatefulBuilder(
+            builder: (context, setState) {
+              update = setState;
+              return KonataAdaptiveShell(
+                navItems: KonataNavItem.defaults,
+                pages: const [SizedBox(), SizedBox(), SizedBox(), SizedBox()],
+                selectedIndex: 0,
+                onSelectedIndexChanged: (_) {},
+                onToggleTheme: () {},
+                miniKind: kind,
+                visualState: visualState,
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final nav = find.byType(CapsuleNavigation);
+      final baseline = tester.getRect(nav);
+      expect(baseline.center.dx, 195);
+      for (final state in FloatingMiniVisualState.values) {
+        update(() {
+          kind = FloatingMiniPlayerKind.audio;
+          visualState = state;
+        });
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 80));
+        expect(tester.getRect(nav), baseline);
+        await tester.pumpAndSettle();
+        expect(tester.getRect(nav), baseline);
+      }
+      update(() => kind = FloatingMiniPlayerKind.none);
+      await tester.pumpAndSettle();
+      expect(tester.getRect(nav), baseline);
+      expect(tester.takeException(), isNull);
+    });
 
     testWidgets('AdaptiveActionHeader 窄屏折叠搜索图标、点击原地展开与清除', (tester) async {
       debugDefaultTargetPlatformOverride = TargetPlatform.android;

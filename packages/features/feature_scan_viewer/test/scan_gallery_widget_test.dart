@@ -515,29 +515,54 @@ void main() {
             );
           }
           expect(tester.takeException(), isNull, reason: '${vp.name} 等高流越界');
-          // 同时挂载灯箱弹窗校验四视口零溢出，并在销毁后校验 96 MiB 滑窗即时释放归零。
+          // 通过实际入口验证移动端独立页面及桌面弹窗，关闭后释放内存滑窗。
           final memoryWindow = ScanLightboxMemoryWindow();
           await tester.pumpWidget(
             MaterialApp(
               theme: KonataTheme.darkTheme(),
               home: Scaffold(
-                body: ScanLightboxDialog(
-                  workId: WorkId('w_vp'),
-                  workTitle: vp.name,
-                  scans: items,
-                  sourcesById: {'src_v': source},
-                  initialVariant: items.first,
-                  scanSummary: summary,
-                  scheduler: scheduler,
-                  loader: loader,
-                  memoryWindow: memoryWindow,
-                  platform: vp.konataPlatform,
+                body: Builder(
+                  builder: (context) => GestureDetector(
+                    onTap: () => unawaited(
+                      showScanLightboxDialog(
+                        context,
+                        workId: WorkId('w_vp'),
+                        workTitle: vp.name,
+                        scans: items,
+                        sourcesById: {'src_v': source},
+                        initialVariant: items.first,
+                        scanSummary: summary,
+                        scheduler: scheduler,
+                        loader: loader,
+                        memoryWindow: memoryWindow,
+                        platform: vp.konataPlatform,
+                      ),
+                    ),
+                    child: const Text('打开画册'),
+                  ),
                 ),
               ),
             ),
           );
           galleryCtrl.dispose();
           await tester.pump();
+          await tester.tap(find.text('打开画册'));
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 400));
+          final viewer = find.byType(ScanLightboxDialog);
+          expect(viewer, findsOneWidget);
+          final route = ModalRoute.of(tester.element(viewer))!;
+          final isMobile = vp.konataPlatform != KonataPlatform.windows;
+          expect(route.opaque, isMobile);
+          if (isMobile) {
+            expect(tester.getSize(viewer), vp.size);
+            expect(find.byType(Dialog), findsNothing);
+            expect(find.byIcon(Icons.fullscreen_exit_rounded), findsNothing);
+            expect(find.byIcon(Icons.fullscreen_rounded), findsNothing);
+            expect(find.text('打开画册'), findsNothing);
+          } else {
+            expect(find.byType(Dialog), findsOneWidget);
+          }
           for (
             var round = 0;
             round < 20 && memoryWindow.totalBytes == 0;
@@ -551,9 +576,11 @@ void main() {
           expect(tester.takeException(), isNull, reason: '${vp.name} 灯箱存在布局异常');
           expect(memoryWindow.totalBytes, greaterThan(0));
 
-          // 卸载灯箱，确认内存滑窗同步清空释放。
-          await tester.pumpWidget(const SizedBox.shrink());
-          await tester.pump();
+          // 通过页面返回栈退出，确认底层页面和内存滑窗均正确恢复。
+          Navigator.of(tester.element(viewer)).pop();
+          await tester.pumpAndSettle();
+          expect(viewer, findsNothing);
+          expect(find.text('打开画册'), findsOneWidget);
           expect(memoryWindow.totalBytes, 0);
           expect(memoryWindow.isEmpty, isTrue);
         }

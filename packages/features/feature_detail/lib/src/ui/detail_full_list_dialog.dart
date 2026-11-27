@@ -194,7 +194,7 @@ class _DetailFullListDialogState extends State<DetailFullListDialog> {
       height: dialogHeight.toDouble(),
       title: '${b.work.title} · 完整列表',
       headerTrailing: SizedBox(
-        width: screen.width < 600 ? 150 : 260,
+        width: screen.width < 600 ? double.infinity : 260,
         child: KonataSearchField(
           key: const ValueKey('detail_full_list_search'),
           onChanged: (value) {

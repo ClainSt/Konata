@@ -506,11 +506,26 @@ class TmdbService {
       }
       final primaryUri = Uri.parse(trimmed);
       final backupUri = _resolveBackupImageUrl(primaryUri);
-      final bytes = await _fetchValidatedRasterBytes(
-        primaryUri: primaryUri,
-        backupUri: backupUri,
-        priority: priority,
-      );
+      Uint8List bytes;
+      try {
+        bytes = await _fetchValidatedRasterBytes(
+          primaryUri: primaryUri,
+          backupUri: backupUri,
+          priority: priority,
+        );
+      } catch (_) {
+        // Fanart 的预览图可能缺失，而对应原图仍然可用。沿同源原图及其镜像继续加载。
+        final original = Uri.parse(FanartUrlHelper.toOriginalUrl(trimmed));
+        if (primaryUri.host.toLowerCase() != 'assets.fanart.tv' ||
+            original == primaryUri) {
+          rethrow;
+        }
+        bytes = await _fetchValidatedRasterBytes(
+          primaryUri: original,
+          backupUri: _resolveBackupImageUrl(original),
+          priority: priority,
+        );
+      }
       await requestCache?.write(
         cacheKey,
         bytes,

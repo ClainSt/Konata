@@ -71,6 +71,29 @@ void main() {
       );
     });
 
+    test('历史快照中已格式化的集号及合并区间不重复拼接', () {
+      for (final title in ['01 · 序章', '01-02 · 序章']) {
+        expect(
+          EpisodeTitleFormatter.formatHistorySubtitleFields(
+            episodeTitle: title,
+            isAudioRecord: false,
+            seasonNumber: 1,
+            episodeNumber: 1,
+          ),
+          title,
+        );
+      }
+      expect(
+        EpisodeTitleFormatter.formatHistorySubtitleFields(
+          episodeTitle: '02 · 不同编号的标题',
+          isAudioRecord: false,
+          seasonNumber: 1,
+          episodeNumber: 1,
+        ),
+        '01 · 02 · 不同编号的标题',
+      );
+    });
+
     test('播放记录副标题正确清洗音频前缀并保留特典标签', () {
       expect(
         EpisodeTitleFormatter.formatHistorySubtitleFields(

@@ -71,7 +71,7 @@ class KonataAdaptiveShell extends StatefulWidget {
   /// Windows 桌面端是否叠加轻柔流光氛围画布。
   final bool desktopAmbientBackdropEnabled;
 
-  /// 当前活跃悬浮小窗类型（用于计算移动端安全避让与手机并排协同）。
+  /// 当前活跃悬浮小窗类型（仅用于计算移动端安全避让，不改变主导航位置）。
   final FloatingMiniPlayerKind miniKind;
 
   /// 悬浮小窗归一化停靠锚点。

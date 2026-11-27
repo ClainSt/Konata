@@ -289,7 +289,39 @@ void main() {
       );
       video.setSubtitleDelay(0);
       video.setAudioDelay(0);
+      final topBar = find.byKey(const ValueKey('embedded_video_top_bar'));
+      await until(() => topBar.evaluate().isNotEmpty, '视频顶部栏未显示');
+      expect(
+        find.descendant(of: topBar, matching: find.text('01 · 实播')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: topBar,
+          matching: find.textContaining('Android 实播验收'),
+        ),
+        findsNothing,
+      );
       await capture('video-stage');
+      await tap(find.byKey(const ValueKey('video_top_video_sheet_button')));
+      final sheet = find.byKey(const ValueKey('video_side_sheet'));
+      await until(() => sheet.evaluate().isNotEmpty, '视频控制台未显示');
+      expect(find.text('播放控制台'), findsNothing);
+      for (final tab in VideoSideSheetTab.values) {
+        expect(
+          find.descendant(of: sheet, matching: find.text(tab.label)),
+          findsWidgets,
+        );
+      }
+      await capture('video-control-sheet');
+      await tap(
+        find.descendant(
+          of: sheet,
+          matching: find.byType(KonataGlassCloseButton),
+        ),
+      );
+      await until(() => sheet.evaluate().isEmpty, '控制台未关闭');
+      evidence['video_title_and_sheet'] = true;
       await tap(find.byKey(const ValueKey('video_collapse_button')));
       await until(
         () =>
@@ -410,7 +442,123 @@ void main() {
       evidence['audio_portrait'] = true;
       final audioClient = boot.playbackEngine.activeNativeClient;
       final position = player.currentTrackPositionSeconds;
+      final controls = find.byKey(
+        const ValueKey('salt_portrait_bottom_controls'),
+      );
+      final playPause = find.byKey(
+        const ValueKey('audio_portrait_play_pause_button'),
+      );
+      await until(() => playPause.evaluate().isNotEmpty, '主播放按钮未就绪');
+      Future<void> waitPlayPause(bool playing) async {
+        final expected = playing
+            ? Icons.pause_rounded
+            : Icons.play_arrow_rounded;
+        await until(
+          () =>
+              player.playingListenable.value == playing &&
+              tester.widget<KonataCapsuleIconButton>(playPause).icon ==
+                  expected,
+          '原生播放状态与主按钮图标尚未一致',
+        );
+      }
+
+      await waitPlayPause(false);
+      void assertFrameless(Finder finder) {
+        final button = tester.widget<KonataCapsuleIconButton>(finder);
+        expect(button.highlighted, isFalse);
+        expect(button.showHoverBackground, isFalse);
+      }
+
+      assertFrameless(playPause);
+      expect(tester.getSize(playPause), const Size(60, 60));
+      expect(
+        tester.widget<KonataCapsuleIconButton>(playPause).icon,
+        Icons.play_arrow_rounded,
+      );
+      await tap(playPause);
+      await waitPlayPause(true);
+      assertFrameless(playPause);
+      expect(
+        tester.widget<KonataCapsuleIconButton>(playPause).icon,
+        Icons.pause_rounded,
+      );
+      await tap(playPause);
+      await waitPlayPause(false);
+      await player.seekRelativeTrackSeconds(position);
+      await until(
+        () => (player.currentTrackPositionSeconds - position).abs() < 0.5,
+        '未恢复验收断点',
+      );
+      final menu = find.byKey(const ValueKey('audio_top_menu_button'));
+      assertFrameless(menu);
+      await tap(menu);
+      final menuOverlay = find.byKey(
+        const ValueKey('audio_unified_menu_overlay'),
+      );
+      await until(() => menuOverlay.evaluate().isNotEmpty, '播放设置菜单未打开');
+      assertFrameless(menu);
+      await capture('audio-menu-frameless');
+      await tap(
+        find.descendant(
+          of: menuOverlay,
+          matching: find.byType(KonataGlassCloseButton),
+        ),
+      );
+      await until(() => menuOverlay.evaluate().isEmpty, '播放设置菜单未关闭');
+      assertFrameless(menu);
+      expect(boot.playbackEngine.activeNativeClient, same(audioClient));
+      evidence['audio_primary_and_menu_frameless'] = true;
+      final loopLabels = {'顺序播放', '列表循环', '单曲循环', '随机播放'};
+      final loop = find.descendant(
+        of: controls,
+        matching: find.byWidgetPredicate(
+          (w) => w is KonataCapsuleIconButton && loopLabels.contains(w.tooltip),
+        ),
+      );
+      await until(() => loop.evaluate().isNotEmpty, '循环按钮未就绪');
+      final initialMode = player.snapshot.loopMode;
+      for (var i = 0; i < 4; i++) {
+        expect(
+          tester.widget<KonataCapsuleIconButton>(loop).highlighted,
+          isFalse,
+        );
+        await tap(loop);
+      }
+      expect(player.snapshot.loopMode, initialMode);
+      final queue = find.byKey(const ValueKey('audio_portrait_queue_button'));
+      final initialIcon = tester.widget<KonataCapsuleIconButton>(queue).icon;
+      expect(
+        tester.widget<KonataCapsuleIconButton>(queue).highlighted,
+        isFalse,
+      );
+      final reflection = find.byKey(
+        const ValueKey('immersive_cover_reflection'),
+      );
+      await until(() => reflection.evaluate().isNotEmpty, '封面倒影未出现');
+      expect(tester.getSize(reflection).height, greaterThan(0));
+      expect(
+        find.descendant(
+          of: reflection,
+          matching: find.byWidgetPredicate(
+            (w) => w is Transform && w.transform.entry(1, 1) == -1.0,
+          ),
+        ),
+        findsOneWidget,
+      );
       await capture('audio-stage');
+      await tap(queue);
+      expect(
+        tester.widget<KonataCapsuleIconButton>(queue).highlighted,
+        isFalse,
+      );
+      expect(
+        tester.widget<KonataCapsuleIconButton>(queue).icon,
+        isNot(initialIcon),
+      );
+      await capture('audio-queue');
+      await tap(queue);
+      expect(tester.widget<KonataCapsuleIconButton>(queue).icon, initialIcon);
+      evidence['audio_loop_queue_and_reflection'] = true;
       await tap(find.byKey(const ValueKey('audio_minimize_button')));
       final disc = find.byKey(const ValueKey('mini_audio_disc_surface'));
       await until(() => disc.evaluate().isNotEmpty, 'Android 音频圆盘未出现');

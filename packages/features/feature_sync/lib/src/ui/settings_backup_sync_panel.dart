@@ -722,12 +722,7 @@ class _SettingsBackupSyncPanelState
       if (!context.mounted) return;
       showKonataToast(context, 'WebDAV 连接测试成功');
     } catch (_) {
-      if (!context.mounted) return;
-      showKonataToast(
-        context,
-        controller.state.lastErrorMessage ?? 'WebDAV 连接失败',
-        isError: true,
-      );
+      // 控制器已记录错误，页面统一展示。
     }
   }
 
@@ -742,12 +737,7 @@ class _SettingsBackupSyncPanelState
       if (!context.mounted || outcome == null) return;
       showKonataToast(context, '同步完成：${outcome.toSummaryMessage()}');
     } catch (_) {
-      if (!context.mounted) return;
-      showKonataToast(
-        context,
-        controller.state.lastErrorMessage ?? 'WebDAV 同步失败',
-        isError: true,
-      );
+      // 控制器已记录错误，页面统一展示。
     }
   }
 

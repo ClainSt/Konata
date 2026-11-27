@@ -115,21 +115,13 @@ class _VideoSideSheetState extends State<VideoSideSheet> {
     final p = context.palette;
     final panels = _supportedPanels;
     final mq = MediaQuery.of(context);
-    final isShortLandscape =
-        mq.size.height < KonataAdaptiveTokens.shortViewportHeight;
     final isTouch = widget.controller.env.platform != KonataPlatform.windows;
-    // 确保右滑侧栏在任意三端横屏视口（含矮屏手机横屏）下均稳定停留在 52px 播控胶囊上方呼吸间距处。
+    // 宽屏避让播控胶囊，矮屏由侧栏直接按真实安全区铺满。
     final capsuleBottomMargin = isTouch
         ? math.max(mq.padding.bottom, 14.0)
         : KonataPlaybackTokens.capsuleBottomOffset;
     final desiredBottomInset =
         capsuleBottomMargin + VideoPlaybackCapsule.capsuleHeight + 14.0;
-    final effectiveMq =
-        isShortLandscape && mq.padding.bottom + 8.0 < desiredBottomInset
-        ? mq.copyWith(
-            padding: mq.padding.copyWith(bottom: desiredBottomInset - 8.0),
-          )
-        : mq;
 
     return ListenableBuilder(
       listenable: widget.controller,
@@ -137,84 +129,70 @@ class _VideoSideSheetState extends State<VideoSideSheet> {
         final state = widget.controller.state;
         final prefs = widget.controller.env.preferencesStore.read();
 
-        return MediaQuery(
-          data: effectiveMq,
-          child: KonataGlassSideSheet(
-            key: const ValueKey('video_side_sheet'),
-            title: '播放控制台',
-            width: KonataPlaybackTokens.videoSideSheetWidth,
-            bottomInset: desiredBottomInset,
-            onClose: widget.onClose,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
+        return KonataGlassSideSheet(
+          key: const ValueKey('video_side_sheet'),
+          header: KonataSegmentedCapsule<String>(
+            expand: true,
+            compact: true,
+            selected: _selectedKey,
+            options: [
+              for (final tab in VideoSideSheetTab.values)
+                KonataSegmentOption(value: tab.name, label: tab.label),
+            ],
+            onChanged: (key) => setState(() => _selectedKey = key),
+          ),
+          width: KonataPlaybackTokens.videoSideSheetWidth,
+          bottomInset: desiredBottomInset,
+          onClose: widget.onClose,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (panels.isNotEmpty)
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: MediaQuery.withClampedTextScaling(
-                    maxScaleFactor: 1.15,
-                    child: KonataSegmentedCapsule<String>(
-                      expand: true,
-                      compact: true,
-                      selected: _selectedKey,
-                      options: [
-                        for (final tab in VideoSideSheetTab.values)
-                          KonataSegmentOption(
-                            value: tab.name,
-                            label: tab.label,
-                          ),
-                      ],
-                      onChanged: (key) => setState(() => _selectedKey = key),
-                    ),
-                  ),
-                ),
-                if (panels.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: [
-                          for (final panel in panels)
-                            Padding(
-                              padding: const EdgeInsets.only(right: 6),
-                              child: _SheetTabButton(
-                                key: ValueKey(
-                                  'side_sheet_tab_contrib_${panel.id}',
-                                ),
-                                label: panel.label,
-                                icon: KonataIconRegistry.resolve(panel.iconKey),
-                                selected:
-                                    _selectedKey ==
-                                    '$_contribPrefix${panel.id}',
-                                onTap: () => setState(
-                                  () => _selectedKey =
-                                      '$_contribPrefix${panel.id}',
-                                ),
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        for (final panel in panels)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 6),
+                            child: _SheetTabButton(
+                              key: ValueKey(
+                                'side_sheet_tab_contrib_${panel.id}',
+                              ),
+                              label: panel.label,
+                              icon: KonataIconRegistry.resolve(panel.iconKey),
+                              selected:
+                                  _selectedKey == '$_contribPrefix${panel.id}',
+                              onTap: () => setState(
+                                () =>
+                                    _selectedKey = '$_contribPrefix${panel.id}',
                               ),
                             ),
-                        ],
-                      ),
-                    ),
-                  ),
-                const SizedBox(height: 12),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 8, 8),
-                    child: StreamBuilder<VideoPlaybackPreferences>(
-                      stream: _prefsStream,
-                      initialData: prefs,
-                      builder: (context, snapshot) => _buildSelectedBody(
-                        context,
-                        p,
-                        state,
-                        snapshot.data ?? prefs,
-                        panels,
-                      ),
+                          ),
+                      ],
                     ),
                   ),
                 ),
-              ],
-            ),
+              const SizedBox(height: 12),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 8, 8),
+                  child: StreamBuilder<VideoPlaybackPreferences>(
+                    stream: _prefsStream,
+                    initialData: prefs,
+                    builder: (context, snapshot) => _buildSelectedBody(
+                      context,
+                      p,
+                      state,
+                      snapshot.data ?? prefs,
+                      panels,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         );
       },

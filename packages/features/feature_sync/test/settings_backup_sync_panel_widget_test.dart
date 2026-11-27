@@ -134,6 +134,10 @@ final class _WidgetFakeHttpClient extends http.BaseClient {
         headers: {'etag': '"widget-etag"'},
       );
     }
+    if (method == 'DELETE') {
+      _server.files.remove(path);
+      return http.StreamedResponse(Stream<List<int>>.value(const <int>[]), 204);
+    }
     if (method == 'PUT') {
       final body = await request.finalize().toBytes();
       _server.files[path] = Uint8List.fromList(body);

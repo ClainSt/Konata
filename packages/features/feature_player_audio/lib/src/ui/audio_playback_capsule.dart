@@ -541,8 +541,10 @@ class AudioPlaybackCapsule extends StatelessWidget {
                       KonataCapsuleIconButton(
                         icon: loopIcon,
                         tooltip: loopTooltip,
-                        color: Colors.white.withValues(alpha: 0.80),
-                        highlighted: loopActive,
+                        color: Colors.white.withValues(
+                          alpha: loopActive ? 0.96 : 0.68,
+                        ),
+                        showHoverBackground: false,
                         onTap: controller.cycleLoopMode,
                         size: 18,
                         fixedSize: 34.0,
@@ -555,11 +557,24 @@ class AudioPlaybackCapsule extends StatelessWidget {
                         size: 24,
                         fixedSize: 40.0,
                       ),
-                      _FrostedPlayPauseCircle(
-                        playingListenable: controller.playingListenable,
-                        onTap: () => unawaited(controller.togglePlayPause()),
-                        diameter: 46,
-                        iconSize: 26,
+                      ValueListenableBuilder<bool>(
+                        valueListenable: controller.playingListenable,
+                        builder: (context, playing, _) =>
+                            KonataCapsuleIconButton(
+                              key: const ValueKey(
+                                'audio_compact_play_pause_button',
+                              ),
+                              icon: playing
+                                  ? Icons.pause_rounded
+                                  : Icons.play_arrow_rounded,
+                              tooltip: playing ? '暂停' : '继续播放',
+                              color: Colors.white,
+                              fixedSize: 46,
+                              size: 26,
+                              showHoverBackground: false,
+                              onTap: () =>
+                                  unawaited(controller.togglePlayPause()),
+                            ),
                       ),
                       KonataCapsuleIconButton(
                         icon: Icons.skip_next_rounded,
@@ -575,6 +590,7 @@ class AudioPlaybackCapsule extends StatelessWidget {
                             : Icons.queue_music_rounded,
                         tooltip: isQueueOpen ? '歌词' : '播放队列',
                         color: Colors.white.withValues(alpha: 0.84),
+                        showHoverBackground: false,
                         onTap: onToggleQueue,
                         size: 18,
                         fixedSize: 34.0,
@@ -662,7 +678,7 @@ class AudioPlaybackCapsule extends StatelessWidget {
                               ),
                             ),
                             const SizedBox(width: 12),
-                            // 居中：通透播控簇（播放模式、上一曲、磨砂播放/暂停、下一曲）。
+                            // 居中：无框播控簇（播放模式、上一曲、播放/暂停、下一曲）。
                             Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
@@ -672,7 +688,7 @@ class AudioPlaybackCapsule extends StatelessWidget {
                                   color: Colors.white.withValues(
                                     alpha: loopActive ? 0.96 : 0.68,
                                   ),
-                                  highlighted: false,
+                                  showHoverBackground: false,
                                   onTap: controller.cycleLoopMode,
                                   size: 18,
                                   fixedSize: 34.0,
@@ -691,6 +707,10 @@ class AudioPlaybackCapsule extends StatelessWidget {
                                   valueListenable: controller.playingListenable,
                                   builder: (context, playing, _) =>
                                       KonataCapsuleIconButton(
+                                        key: const ValueKey(
+                                          'audio_desktop_play_pause_button',
+                                        ),
+                                        showHoverBackground: false,
                                         icon: playing
                                             ? Icons.pause_rounded
                                             : Icons.play_arrow_rounded,
@@ -724,6 +744,7 @@ class AudioPlaybackCapsule extends StatelessWidget {
                                   color: Colors.white,
                                   fixedSize: 34,
                                   size: 19,
+                                  showHoverBackground: false,
                                   onTap: onToggleQueue,
                                 ),
                               ],
@@ -840,59 +861,6 @@ class AudioPlaybackCapsule extends StatelessWidget {
           );
         },
       ),
-    );
-  }
-}
-
-/// 烟熏玻璃胶囊内居中纯白磨砂圆形播放/暂停键。
-class _FrostedPlayPauseCircle extends StatelessWidget {
-  const _FrostedPlayPauseCircle({
-    required this.playingListenable,
-    required this.onTap,
-    required this.diameter,
-    required this.iconSize,
-  });
-
-  final ValueListenable<bool> playingListenable;
-  final VoidCallback onTap;
-  final double diameter;
-  final double iconSize;
-
-  @override
-  Widget build(BuildContext context) {
-    return ValueListenableBuilder<bool>(
-      valueListenable: playingListenable,
-      builder: (context, isPlaying, _) {
-        return Semantics(
-          button: true,
-          label: isPlaying ? '暂停 (Space)' : '继续播放 (Space)',
-          child: MouseRegion(
-            cursor: SystemMouseCursors.click,
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: onTap,
-              child: Container(
-                width: diameter,
-                height: diameter,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white.withValues(alpha: 0.16),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.24),
-                    width: 1.0,
-                  ),
-                ),
-                alignment: Alignment.center,
-                child: Icon(
-                  isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                  size: iconSize,
-                  color: Colors.white,
-                ),
-              ),
-            ),
-          ),
-        );
-      },
     );
   }
 }

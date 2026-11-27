@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:engine_sources/engine_sources.dart';
@@ -133,7 +134,63 @@ final class WebDavSyncTransport {
   Future<void> testConnection(WebDavSyncConfig config) async {
     _parseValidatedBaseUri(config.baseUrl);
     await ensureSyncDirectories(config);
-    await fetchManifest(config);
+    final manifest = await fetchManifest(config);
+    manifest.requireWritable();
+    await _verifyWriteAccess(config);
+  }
+
+  /// 使用同步分片目录中的独立随机测试文件验证读写权限，绝不修改清单或已发布分片。
+  Future<void> _verifyWriteAccess(WebDavSyncConfig config) async {
+    final random = Random.secure();
+    final token = List.generate(
+      16,
+      (_) => random.nextInt(256),
+    ).map((value) => value.toRadixString(16).padLeft(2, '0')).join();
+    final uri = resolveRelativeUri(
+      config,
+      '$slicesDirectoryName/konata-probe-$token.json.gz',
+    );
+    final bytes = gzip.encode(utf8.encode(jsonEncode({'probe': token})));
+    final uploaded = await _sendWithAuth(
+      config: config,
+      method: 'PUT',
+      uri: uri,
+      headers: const {
+        HttpHeaders.contentTypeHeader: 'application/gzip',
+        'If-None-Match': '*',
+      },
+      body: bytes,
+    );
+    if (uploaded.statusCode < 200 || uploaded.statusCode >= 300) {
+      throw _buildHttpException('服务器不允许写入同步目录', uploaded.statusCode);
+    }
+    try {
+      final downloaded = await _sendWithAuth(
+        config: config,
+        method: 'GET',
+        uri: uri,
+      );
+      if (downloaded.statusCode != 200) {
+        throw _buildHttpException('无法读取同步测试文件', downloaded.statusCode);
+      }
+      if (downloaded.bodyBytes.length != bytes.length ||
+          !List.generate(
+            bytes.length,
+            (i) => i,
+          ).every((i) => bytes[i] == downloaded.bodyBytes[i])) {
+        throw const WebDavSyncException('同步测试文件内容与上传内容不一致');
+      }
+    } finally {
+      final deleted = await _sendWithAuth(
+        config: config,
+        method: 'DELETE',
+        uri: uri,
+      );
+      if ((deleted.statusCode < 200 || deleted.statusCode >= 300) &&
+          deleted.statusCode != 404) {
+        throw _buildHttpException('无法清理独立的同步测试文件', deleted.statusCode);
+      }
+    }
   }
 
   /// 逐级 `MKCOL` 创建同步根目录及 `slices/` 子目录（幂等容忍已存在）。
@@ -161,12 +218,18 @@ final class WebDavSyncTransport {
       );
       if (res.statusCode == 200 ||
           res.statusCode == 201 ||
-          res.statusCode == 204 ||
-          res.statusCode == 301 ||
-          res.statusCode == 302 ||
-          res.statusCode == 405 ||
-          res.statusCode == 409) {
+          res.statusCode == 204) {
         continue;
+      }
+      // 405 可表示目录已存在，也可能是服务端禁止写入；必须确认目标确实可访问。
+      if (res.statusCode == 405 || res.statusCode == 409) {
+        final probe = await _sendWithAuth(
+          config: config,
+          method: 'PROPFIND',
+          uri: dirUri,
+          headers: const {'Depth': '0'},
+        );
+        if (probe.statusCode == 207) continue;
       }
       if (res.statusCode == 401 || res.statusCode == 403) {
         throw WebDavSyncException(
@@ -365,16 +428,21 @@ final class WebDavSyncTransport {
       },
       body: gzBytes,
     );
-    if (res.statusCode == 412) {
-      // 重试或相同内容版本已存在时，只复用经过完整校验的分片。
-      await downloadSliceShard(config, watermark);
-      return;
+    if (res.statusCode == 412 || res.statusCode == 405) {
+      // 内容寻址分片不可覆盖；拒绝重复创建时，仅允许复用身份和哈希均一致的远端内容。
+      try {
+        await downloadSliceShard(config, watermark);
+        return;
+      } on WebDavSyncException catch (error) {
+        if (res.statusCode == 412) rethrow;
+        throw WebDavSyncException(
+          '服务器拒绝上传同步数据，且无法确认已有数据完整。请检查同步目录写入权限（HTTP 405）。${error.statusCode == null ? ' 已有数据校验失败。' : ''}',
+          statusCode: 405,
+        );
+      }
     }
     if (res.statusCode < 200 || res.statusCode >= 300) {
-      throw _buildHttpException(
-        '上传同步切片 `${watermark.sliceId}` 失败',
-        res.statusCode,
-      );
+      throw _buildHttpException('上传同步数据失败', res.statusCode);
     }
   }
 
@@ -626,6 +694,12 @@ final class WebDavSyncTransport {
     if (status == 401 || status == 403) {
       return WebDavSyncException(
         '$prefix（HTTP $status：账号或应用密码认证失败）',
+        statusCode: status,
+      );
+    }
+    if (status == 405) {
+      return WebDavSyncException(
+        '$prefix：服务器不允许此操作，请检查 WebDAV 地址及同步目录写入权限（HTTP 405）',
         statusCode: status,
       );
     }

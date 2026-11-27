@@ -925,6 +925,21 @@ void main() {
       expect(darkDissolve!.computeLuminance(), lessThan(0.15));
       expect(lightDissolve!.computeLuminance(), greaterThan(0.65));
 
+      for (final dark in [true, false]) {
+        for (final base in [
+          const ui.Color(0x00000000),
+          const ui.Color(0xDC11141E),
+          const ui.Color(0xEBFFFFFF),
+        ]) {
+          final result = ArtworkDominantColor.harmonizeWithTheme(
+            const ui.Color(0xFFB82B41),
+            isDark: dark,
+            themeBackground: base,
+          );
+          expect(result.a, 1.0, reason: '溶底色不得继承画布透明度');
+        }
+      }
+
       final emptyFallback =
           await ArtworkDominantColor.sampleBottomDissolveColor(
             bytes: Uint8List(0),

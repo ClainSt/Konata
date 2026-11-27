@@ -228,6 +228,9 @@ abstract final class EpisodeTitleFormatter {
     }
     final epNumStr = episodeNumber.toString().padLeft(2, '0');
     if (isValidTitle && !isGenericEpisodePlaceholder(rawTitle)) {
+      // 历史快照可能已由公共卡片格式化器生成，保留对应集号及合并区间。
+      final existingPrefix = RegExp('^$epNumStr(?:-[0-9]+)? · ');
+      if (existingPrefix.hasMatch(rawTitle)) return rawTitle;
       return '$epNumStr · $rawTitle';
     }
     return '第 $epNumStr 话';

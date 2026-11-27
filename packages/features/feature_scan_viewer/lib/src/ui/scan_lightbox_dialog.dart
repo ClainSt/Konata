@@ -54,25 +54,34 @@ Future<void> showScanLightboxDialog(
   ScanWindowFullscreenPort? windowFullscreen,
   DiagnosticLogPort? diagnosticLog,
 }) {
-  return showKonataGlassDialog<void>(
-    context: context,
-    builder: (_) => ScanLightboxDialog(
-      workId: workId,
-      workTitle: workTitle,
-      scans: scans,
-      sourcesById: sourcesById,
-      initialVariant: initialVariant,
-      initialVolumeKey: initialVolumeKey,
-      scanSummary: scanSummary,
-      scheduler: scheduler,
-      loader: loader,
-      memoryWindow: memoryWindow,
-      platform: platform,
-      urlOpener: urlOpener,
-      windowFullscreen: windowFullscreen,
-      diagnosticLog: diagnosticLog,
-    ),
+  final isAndroid = platform != null
+      ? platform != KonataPlatform.windows
+      : KonataAdaptiveTokens.isAndroid;
+  Widget buildViewer(BuildContext _) => ScanLightboxDialog(
+    workId: workId,
+    workTitle: workTitle,
+    scans: scans,
+    sourcesById: sourcesById,
+    initialVariant: initialVariant,
+    initialVolumeKey: initialVolumeKey,
+    scanSummary: scanSummary,
+    scheduler: scheduler,
+    loader: loader,
+    memoryWindow: memoryWindow,
+    platform: platform,
+    urlOpener: urlOpener,
+    windowFullscreen: windowFullscreen,
+    diagnosticLog: diagnosticLog,
   );
+  if (isAndroid) {
+    return Navigator.of(context, rootNavigator: true).push<void>(
+      PageRouteBuilder<void>(
+        pageBuilder: (context, _, _) => buildViewer(context),
+        opaque: true,
+      ),
+    );
+  }
+  return showKonataGlassDialog<void>(context: context, builder: buildViewer);
 }
 
 /// Scan 画集毛玻璃全屏高清内置灯箱：
@@ -184,6 +193,10 @@ class _ScanLightboxDialogState extends State<ScanLightboxDialog> {
   _ScanFitMode _fitMode = _ScanFitMode.fitWindow;
 
   bool _fullscreen = false;
+
+  bool get _isAndroid => widget.platform != null
+      ? widget.platform != KonataPlatform.windows
+      : KonataAdaptiveTokens.isAndroid;
   bool _enteredSystemFullscreen = false;
   bool _chromeVisible = true;
   bool _showFilmstrip = true;
@@ -203,6 +216,12 @@ class _ScanLightboxDialogState extends State<ScanLightboxDialog> {
   @override
   void initState() {
     super.initState();
+    _fullscreen = _isAndroid;
+    if (_fullscreen && KonataAdaptiveTokens.isAndroid) {
+      unawaited(
+        SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky),
+      );
+    }
     _ownsMemoryWindow = widget.memoryWindow == null;
     _memoryWindow = widget.memoryWindow ?? ScanLightboxMemoryWindow();
     _transformController.addListener(_handleTransformChanged);
@@ -946,135 +965,143 @@ class _ScanLightboxDialogState extends State<ScanLightboxDialog> {
         ? BorderRadius.zero
         : KonataTheme.borderRadiusCapsule;
 
-    final dialogSurface = CallbackShortcuts(
-      bindings: {
-        const SingleActivator(LogicalKeyboardKey.escape): () {
-          if (_fullscreen) {
-            unawaited(_setFullscreen(false));
-          } else {
-            Navigator.of(context).pop();
-          }
-        },
+    final shortcuts = <ShortcutActivator, VoidCallback>{
+      const SingleActivator(LogicalKeyboardKey.escape): () {
+        if (_fullscreen && !_isAndroid) {
+          unawaited(_setFullscreen(false));
+        } else {
+          Navigator.of(context).pop();
+        }
+      },
+      if (!_isAndroid)
         const SingleActivator(LogicalKeyboardKey.keyF): () =>
             unawaited(_setFullscreen(!_fullscreen)),
-        const SingleActivator(LogicalKeyboardKey.digit0): _resetZoom,
-        if (_scopedScans.length > 1)
-          const SingleActivator(LogicalKeyboardKey.arrowLeft): () {
-            if (safeIdx > 0) unawaited(_selectIndex(safeIdx - 1));
-          },
-        if (_scopedScans.length > 1)
-          const SingleActivator(LogicalKeyboardKey.arrowRight): () {
-            if (safeIdx < _scopedScans.length - 1) {
-              unawaited(_selectIndex(safeIdx + 1));
-            }
-          },
-      },
-      child: Focus(
-        autofocus: true,
-        child: Dialog(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          insetPadding: EdgeInsets.all(inset),
-          child: ClipRRect(
+      const SingleActivator(LogicalKeyboardKey.digit0): _resetZoom,
+      if (_scopedScans.length > 1)
+        const SingleActivator(LogicalKeyboardKey.arrowLeft): () {
+          if (safeIdx > 0) unawaited(_selectIndex(safeIdx - 1));
+        },
+      if (_scopedScans.length > 1)
+        const SingleActivator(LogicalKeyboardKey.arrowRight): () {
+          if (safeIdx < _scopedScans.length - 1) {
+            unawaited(_selectIndex(safeIdx + 1));
+          }
+        },
+    };
+    final surface = ClipRRect(
+      borderRadius: cornerRadius,
+      child: KonataAdaptiveBackdropBlur(
+        filter: KonataTheme.blurFilterLightbox,
+        child: Container(
+          width: dialogWidth,
+          height: dialogHeight,
+          decoration: BoxDecoration(
+            color: _isAndroid
+                ? KonataTheme.cinemaObsidian
+                : _fullscreen
+                ? KonataTheme.cinemaObsidian.withValues(alpha: 0.96)
+                : KonataTheme.lightboxDarkSurface.withValues(alpha: 0.86),
             borderRadius: cornerRadius,
-            child: KonataAdaptiveBackdropBlur(
-              filter: KonataTheme.blurFilterLightbox,
-              child: Container(
-                width: dialogWidth,
-                height: dialogHeight,
-                decoration: BoxDecoration(
-                  color: _fullscreen
-                      ? KonataTheme.cinemaObsidian.withValues(alpha: 0.96)
-                      : KonataTheme.lightboxDarkSurface.withValues(alpha: 0.86),
-                  borderRadius: cornerRadius,
-                  border: _fullscreen
-                      ? null
-                      : Border.all(color: KonataTheme.overlayWhiteBorder),
-                ),
-                child: SafeArea(
-                  top: _fullscreen,
-                  bottom: _fullscreen,
-                  left: _fullscreen,
-                  right: _fullscreen,
-                  child: Column(
+            border: _fullscreen
+                ? null
+                : Border.all(color: KonataTheme.overlayWhiteBorder),
+          ),
+          child: SafeArea(
+            top: _fullscreen,
+            bottom: _fullscreen,
+            left: _fullscreen,
+            right: _fullscreen,
+            child: Column(
+              children: [
+                if (_chromeVisible) ...[
+                  _buildTopBar(
+                    p: p,
+                    current: current,
+                    source: source,
+                    safeIdx: safeIdx,
+                    dialogWidth: dialogWidth,
+                    compact: compact,
+                  ),
+                  Divider(height: 1, color: p.hairline),
+                ],
+                Expanded(
+                  child: Stack(
+                    fit: StackFit.expand,
                     children: [
-                      if (_chromeVisible) ...[
-                        _buildTopBar(
-                          p: p,
-                          current: current,
-                          source: source,
-                          safeIdx: safeIdx,
-                          dialogWidth: dialogWidth,
-                          compact: compact,
-                        ),
-                        Divider(height: 1, color: p.hairline),
-                      ],
-                      Expanded(
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            _buildViewportBody(p, safeIdx),
-                            if (_loadingFull && _placeholderProvider != null)
-                              Positioned(
-                                right: 14,
-                                bottom: 14,
-                                child: IgnorePointer(
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 6,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: KonataTheme.scrimBlackDense,
-                                      borderRadius:
-                                          KonataTheme.borderRadiusPill,
-                                      border: Border.all(
-                                        color: KonataTheme.overlayWhiteBorder,
-                                        width: 0.8,
-                                      ),
-                                    ),
-                                    child: const Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        SizedBox(
-                                          width: 12,
-                                          height: 12,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 1.8,
-                                            color: KonataTheme.pureWhite,
-                                          ),
-                                        ),
-                                        SizedBox(width: 7),
-                                        Text(
-                                          '加载原图…',
-                                          style: TextStyle(
-                                            color: KonataTheme.pureWhite,
-                                            fontSize:
-                                                KonataTheme.fontSizeCaptionSm,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
+                      _buildViewportBody(p, safeIdx),
+                      if (_loadingFull && _placeholderProvider != null)
+                        Positioned(
+                          right: 14,
+                          bottom: 14,
+                          child: IgnorePointer(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: KonataTheme.scrimBlackDense,
+                                borderRadius: KonataTheme.borderRadiusPill,
+                                border: Border.all(
+                                  color: KonataTheme.overlayWhiteBorder,
+                                  width: 0.8,
                                 ),
                               ),
-                          ],
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  SizedBox(
+                                    width: 12,
+                                    height: 12,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 1.8,
+                                      color: KonataTheme.pureWhite,
+                                    ),
+                                  ),
+                                  SizedBox(width: 7),
+                                  Text(
+                                    '加载原图…',
+                                    style: TextStyle(
+                                      color: KonataTheme.pureWhite,
+                                      fontSize: KonataTheme.fontSizeCaptionSm,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
                         ),
-                      ),
-                      if (_chromeVisible &&
-                          _showFilmstrip &&
-                          _scopedScans.length > 1) ...[
-                        Divider(height: 1, color: p.hairline),
-                        _buildFilmstrip(p, safeIdx),
-                      ],
                     ],
                   ),
                 ),
-              ),
+                if (_chromeVisible &&
+                    _showFilmstrip &&
+                    _scopedScans.length > 1) ...[
+                  Divider(height: 1, color: p.hairline),
+                  _buildFilmstrip(p, safeIdx),
+                ],
+              ],
             ),
           ),
         ),
+      ),
+    );
+    final dialogSurface = CallbackShortcuts(
+      bindings: shortcuts,
+      child: Focus(
+        autofocus: true,
+        child: _isAndroid
+            ? Material(
+                color: KonataTheme.cinemaObsidian,
+                child: SizedBox.expand(child: surface),
+              )
+            : Dialog(
+                backgroundColor: Colors.transparent,
+                elevation: 0,
+                insetPadding: EdgeInsets.all(inset),
+                child: surface,
+              ),
       ),
     );
 
@@ -1088,7 +1115,7 @@ class _ScanLightboxDialogState extends State<ScanLightboxDialog> {
 
   /// 同步切换灯箱无边框沉浸态与操作系统级窗口全屏。
   Future<void> _setFullscreen(bool enable) async {
-    if (_fullscreen == enable) return;
+    if (_isAndroid || _fullscreen == enable) return;
     if (mounted) {
       setState(() => _fullscreen = enable);
     } else {

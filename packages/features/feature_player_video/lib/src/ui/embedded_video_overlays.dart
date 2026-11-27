@@ -460,9 +460,7 @@ class _EmbeddedVideoOverlaysState extends State<EmbeddedVideoOverlays> {
                     workMediaType: state.currentWork?.tmdbMediaType,
                     mainEpisodeCount: state.currentBundle?.mainEpisodes.length,
                   );
-                  final headerTitle = workTitle.isEmpty
-                      ? epTitle
-                      : '$workTitle · $epTitle';
+                  final headerTitle = epTitle;
 
                   final topInset = math.max(safe.top, 12.0);
                   final horizontalInset = math.max(

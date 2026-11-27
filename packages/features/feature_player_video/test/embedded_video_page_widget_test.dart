@@ -248,7 +248,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byKey(const ValueKey('video_side_sheet')), findsOneWidget);
-      expect(find.text('播放控制台'), findsOneWidget);
+      expect(find.text('播放控制台'), findsNothing);
       expect(find.byType(KonataSegmentedCapsule<String>), findsOneWidget);
       await tester.tap(find.text('画面'));
       await tester.pumpAndSettle();

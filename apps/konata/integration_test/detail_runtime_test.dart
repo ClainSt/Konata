@@ -429,7 +429,18 @@ void main() {
         '第一册灯箱页码不正确',
       );
       await capture('multiscan-lightbox-first');
-      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      // 等待灯箱路由完成入场并取得焦点，再执行键盘翻页验收。
+      final scanRoute = ModalRoute.of(tester.element(lightbox))!;
+      await until(
+        () => scanRoute.isCurrent && (scanRoute.animation?.isCompleted ?? true),
+        '灯箱路由未完成入场',
+      );
+      await tester.pump();
+      debugPrint(
+        'SCAN_KEY_FOCUS_BEFORE: ${FocusManager.instance.primaryFocus}',
+      );
+      final handled = await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      debugPrint('SCAN_KEY_HANDLED: $handled');
       await until(
         () => find.textContaining('2 / 2').evaluate().isNotEmpty,
         '第一册翻页失败',

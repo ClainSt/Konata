@@ -252,7 +252,6 @@ abstract final class KonataPlaybackTokens {
   static const double floatingMiniEarTabWidth = 24.0;
   static const double floatingMiniEarTabHeight = 72.0;
   static const double floatingMiniEdgeTuckDragThreshold = 20.0;
-  static const double floatingMiniPhoneNavInlineGap = 10.0;
   static const double floatingMiniRadius = 16.0;
   static const double floatingMiniBorderWidth = 1.0;
   static const double floatingMiniEdgeMargin = 12.0;
@@ -361,8 +360,9 @@ abstract final class KonataPlaybackTokens {
   static const double detailActionCapsuleBorderWidth = 1.0;
 
   /// 解析详情页同行主操作胶囊的标准高度。
-  static double detailActionCapsuleHeight({required bool isTouch}) =>
-      isTouch ? detailActionCapsuleTouchHeight : detailActionCapsuleDesktopHeight;
+  static double detailActionCapsuleHeight({required bool isTouch}) => isTouch
+      ? detailActionCapsuleTouchHeight
+      : detailActionCapsuleDesktopHeight;
 
   /// 全局鼠标滚轮与键盘音量调节步进（0 ~ 100，精确 1% 整数步进）。
   static const double wheelVolumeStep = 1.0;
@@ -398,14 +398,14 @@ abstract final class KonataPlaybackTokens {
   static const double albumCoverSize = 340.0;
   static const double albumCoverRadius = 14.0;
   static const double albumReflectionHeight = 104.0;
-  static const double albumReflectionBlurSigma = 2.8;
+  static const double albumReflectionBlurSigma = 1.2;
 
   /// 封面倒影遮罩四侧安全外扩边距（需大于 3×模糊半径，防止分数缩放比设备边缘漏出 1px 未遮罩亮线）。
   static const double albumReflectionMaskBleed = 12.0;
   static const double auroraBlurSigma = 88.0;
   static const List<Color> albumReflectionMaskColors = [
-    Color(0x52FFFFFF),
-    Color(0x18FFFFFF),
+    Color(0x78FFFFFF),
+    Color(0x30FFFFFF),
     Colors.transparent,
   ];
   static const double lyricActiveFontSize = 34.0;
@@ -425,6 +425,7 @@ abstract final class KonataPlaybackTokens {
     final ms = (seconds * 1000).round();
     return Duration(milliseconds: ms < 250 ? 250 : ms);
   }
+
   static const double lyricBlurStep1 = 1.5;
   static const double lyricBlurStep2 = 3.0;
   static const double lyricBlurStepFar = 4.4;
@@ -457,9 +458,7 @@ abstract final class KonataPlaybackTokens {
     milliseconds: 140,
   );
   static const Duration equalizerCycleDuration = Duration(milliseconds: 1150);
-  static const Duration lyricUserScrollResetDelay = Duration(
-    seconds: 3,
-  );
+  static const Duration lyricUserScrollResetDelay = Duration(seconds: 3);
   static const Duration lyricScrollIdleSettleDelay = Duration(
     milliseconds: 140,
   );

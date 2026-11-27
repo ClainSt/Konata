@@ -45,7 +45,8 @@ try {
         $env:KONATA_ISOLATED_VALIDATION = '1'
         Push-Location (Join-Path $root 'apps/konata')
         try {
-            Invoke-Checked 'flutter' @('test','integration_test/android_playback_runtime_test.dart','-d',$serial,'--dart-define=KONATA_LANE=android_audit','--dart-define=KONATA_ANDROID_AUDIT_URL=http://127.0.0.1:48763')
+            $androidTest = if ($env:KONATA_DETAIL_AUDIT -eq 'true') { 'integration_test/android_detail_runtime_test.dart' } else { 'integration_test/android_playback_runtime_test.dart' }
+            Invoke-Checked 'flutter' @('test',$androidTest,'-d',$serial,'--dart-define=KONATA_LANE=android_audit','--dart-define=KONATA_ANDROID_AUDIT_URL=http://127.0.0.1:48763')
         } finally {
             Pop-Location
             $env:KONATA_ISOLATED_VALIDATION = $previousIsolated

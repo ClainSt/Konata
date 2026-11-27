@@ -504,74 +504,155 @@ class _FileMappingRowTile extends StatelessWidget {
     return KonataSurfaceCard(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       borderColor: checked ? p.accent : null,
-      child: Row(
-        children: [
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: enabled ? onToggleCheck : null,
-            child: Padding(
-              padding: const EdgeInsets.all(4),
-              child: Container(
-                width: 18,
-                height: 18,
-                decoration: BoxDecoration(
-                  color: checked ? p.accent : p.softFill,
-                  borderRadius: KonataTheme.borderRadiusXs,
-                  border: Border.all(
-                    color: checked ? p.accent : p.hairline,
-                    width: 1.2,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final narrow = constraints.maxWidth < 460;
+          final fileInfo = Builder(
+            builder: (anchorContext) {
+              Future<void> openFileMenu() async {
+                final choice = await showKonataGlassDialog<String>(
+                  context: anchorContext,
+                  builder: (dialogContext) => KonataGlassDialog(
+                    title: '文件信息',
+                    width: 520,
+                    maxHeight: 480,
+                    actions: [
+                      KonataPillButton.secondary(
+                        label: '复制文件名',
+                        compact: true,
+                        onPressed: () =>
+                            Navigator.of(dialogContext).pop('name'),
+                      ),
+                      KonataPillButton.primary(
+                        label: '复制相对路径',
+                        compact: true,
+                        onPressed: () =>
+                            Navigator.of(dialogContext).pop('path'),
+                      ),
+                    ],
+                    child: SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text('文件名', style: KonataTheme.captionStyle(p)),
+                          const SizedBox(height: 6),
+                          SelectableText(
+                            row.variant.fileName,
+                            style: KonataTheme.bodyLabelStyle(p),
+                          ),
+                          const SizedBox(height: 16),
+                          Text('相对路径', style: KonataTheme.captionStyle(p)),
+                          const SizedBox(height: 6),
+                          SelectableText(
+                            row.variant.relativePath,
+                            style: KonataTheme.bodyLabelStyle(p),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+                if (choice == null || !anchorContext.mounted) return;
+                await Clipboard.setData(
+                  ClipboardData(
+                    text: choice == 'name'
+                        ? row.variant.fileName
+                        : row.variant.relativePath,
+                  ),
+                );
+                if (anchorContext.mounted) {
+                  showKonataToast(anchorContext, '已复制');
+                }
+              }
+
+              return GestureDetector(
+                key: ValueKey('mapping_file_info_${row.variant.id}'),
+                behavior: HitTestBehavior.opaque,
+                onLongPress: openFileMenu,
+                onSecondaryTap: openFileMenu,
+                child: KonataTooltip(
+                  message:
+                      '${row.variant.fileName}\n${row.variant.relativePath}',
+                  triggerMode: TooltipTriggerMode.manual,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        row.variant.fileName,
+                        maxLines: narrow ? 3 : 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: KonataTheme.bodyLabelStyle(
+                          p,
+                          fontSize: KonataTheme.fontSizeCaption,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        row.variant.relativePath,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: KonataTheme.captionStyle(p).copyWith(
+                          color: p.textMuted,
+                          fontSize: KonataTheme.fontSizeCaptionXs,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                child: checked
-                    ? const Icon(
-                        Icons.check_rounded,
-                        size: 13,
-                        color: KonataTheme.pureWhite,
-                      )
-                    : null,
+              );
+            },
+          );
+          final picker = EpisodeSlotPickerButton(
+            row: row,
+            referenceEpisodes: referenceEpisodes,
+            defaultMainSeason: defaultMainSeason,
+            enabled: enabled,
+            onPicked: onPickedSlot,
+          );
+          return Row(
+            children: [
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: enabled ? onToggleCheck : null,
+                child: Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: Container(
+                    width: 18,
+                    height: 18,
+                    decoration: BoxDecoration(
+                      color: checked ? p.accent : p.softFill,
+                      borderRadius: KonataTheme.borderRadiusXs,
+                      border: Border.all(
+                        color: checked ? p.accent : p.hairline,
+                        width: 1.2,
+                      ),
+                    ),
+                    child: checked
+                        ? const Icon(
+                            Icons.check_rounded,
+                            size: 13,
+                            color: KonataTheme.pureWhite,
+                          )
+                        : null,
+                  ),
+                ),
               ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            flex: 3,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  row.variant.fileName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: KonataTheme.bodyLabelStyle(
-                    p,
-                    fontSize: KonataTheme.fontSizeCaption,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  row.variant.relativePath,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: KonataTheme.captionStyle(p).copyWith(
-                    color: p.textMuted,
-                    fontSize: KonataTheme.fontSizeCaptionXs,
-                  ),
-                ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: narrow
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [fileInfo, const SizedBox(height: 8), picker],
+                      )
+                    : fileInfo,
+              ),
+              if (!narrow) ...[
+                const SizedBox(width: 10),
+                SizedBox(width: 170, child: picker),
               ],
-            ),
-          ),
-          const SizedBox(width: 10),
-          SizedBox(
-            width: 170,
-            child: EpisodeSlotPickerButton(
-              row: row,
-              referenceEpisodes: referenceEpisodes,
-              defaultMainSeason: defaultMainSeason,
-              enabled: enabled,
-              onPicked: onPickedSlot,
-            ),
-          ),
-        ],
+            ],
+          );
+        },
       ),
     );
   }

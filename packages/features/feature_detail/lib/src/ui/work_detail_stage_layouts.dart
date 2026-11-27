@@ -404,18 +404,13 @@ class DetailPortraitStageLayout extends StatelessWidget {
             children: [
               Stack(
                 children: [
-                  Positioned(
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    child: DetailPortraitHeroHeader(
-                      work: work,
-                      imageLoader: imageLoader,
-                      viewportWidth: viewport.width,
-                      viewportHeight: viewport.height,
-                      dissolveColor: dissolveColor,
-                      showHeroBackdrop: displayPreferences.showMainHeroBackdrop,
-                    ),
+                  DetailPortraitHeroHeader(
+                    work: work,
+                    imageLoader: imageLoader,
+                    viewportWidth: viewport.width,
+                    viewportHeight: viewport.height,
+                    dissolveColor: dissolveColor,
+                    showHeroBackdrop: displayPreferences.showMainHeroBackdrop,
                   ),
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,

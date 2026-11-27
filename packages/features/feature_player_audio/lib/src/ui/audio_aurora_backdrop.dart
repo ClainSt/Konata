@@ -532,7 +532,7 @@ class ImmersiveCoverWithReflection extends StatelessWidget {
                           end: Alignment.bottomCenter,
                           colors:
                               KonataPlaybackTokens.albumReflectionMaskColors,
-                          stops: [0.0, 0.34, 0.92],
+                          stops: [0.0, 0.55, 1.0],
                         ).createShader(
                           Rect.fromLTWH(
                             0,

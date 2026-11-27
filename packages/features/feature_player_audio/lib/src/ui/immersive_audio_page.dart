@@ -613,8 +613,8 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
                 key: const ValueKey('audio_top_menu_button'),
                 icon: Icons.tune_rounded,
                 tooltip: '播放设置',
-                color: Colors.white.withValues(alpha: 0.92),
-                highlighted: _menuOpen,
+                color: Colors.white.withValues(alpha: _menuOpen ? 1.0 : 0.92),
+                showHoverBackground: false,
                 size: 19,
                 fixedSize: 36.0,
                 onTap: () => setState(() {
@@ -721,8 +721,8 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
             key: const ValueKey('audio_top_menu_button'),
             icon: Icons.tune_rounded,
             tooltip: '播放设置',
-            color: Colors.white.withValues(alpha: 0.90),
-            highlighted: _menuOpen,
+            color: Colors.white.withValues(alpha: _menuOpen ? 1.0 : 0.90),
+            showHoverBackground: false,
             size: 21,
             fixedSize: 44.0,
             onTap: () => setState(() {
@@ -793,8 +793,8 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
                   color: Colors.white.withValues(
                     alpha: loopActive ? 0.96 : 0.66,
                   ),
-                  highlighted: loopActive,
                   onTap: widget.controller.cycleLoopMode,
+                  showHoverBackground: false,
                   size: 21,
                   fixedSize: 44.0,
                 ),
@@ -809,34 +809,18 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
                 ValueListenableBuilder<bool>(
                   valueListenable: widget.controller.playingListenable,
                   builder: (context, isPlaying, _) {
-                    return Semantics(
-                      button: true,
-                      label: isPlaying ? '暂停' : '继续播放',
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: () =>
-                            unawaited(widget.controller.togglePlayPause()),
-                        child: Container(
-                          width: 60,
-                          height: 60,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Colors.white.withValues(alpha: 0.16),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.26),
-                              width: 1.0,
-                            ),
-                          ),
-                          alignment: Alignment.center,
-                          child: Icon(
-                            isPlaying
-                                ? Icons.pause_rounded
-                                : Icons.play_arrow_rounded,
-                            size: 34,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
+                    return KonataCapsuleIconButton(
+                      key: const ValueKey('audio_portrait_play_pause_button'),
+                      icon: isPlaying
+                          ? Icons.pause_rounded
+                          : Icons.play_arrow_rounded,
+                      tooltip: isPlaying ? '暂停' : '继续播放',
+                      color: Colors.white,
+                      fixedSize: 60,
+                      size: 34,
+                      showHoverBackground: false,
+                      onTap: () =>
+                          unawaited(widget.controller.togglePlayPause()),
                     );
                   },
                 ),
@@ -855,8 +839,8 @@ class _ImmersiveAudioPageState extends State<ImmersiveAudioPage> {
                       : Icons.queue_music_rounded,
                   tooltip: _portraitQueueOpen ? '歌词' : '播放队列',
                   color: Colors.white.withValues(alpha: 0.84),
-                  highlighted: _portraitQueueOpen,
                   onTap: () => _handleToggleQueue(true),
+                  showHoverBackground: false,
                   size: 21,
                   fixedSize: 44.0,
                 ),

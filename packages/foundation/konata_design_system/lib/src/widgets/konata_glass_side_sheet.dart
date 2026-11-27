@@ -13,7 +13,8 @@ class KonataGlassSideSheet extends StatefulWidget {
   /// 创建悬浮毛玻璃侧栏。
   const KonataGlassSideSheet({
     super.key,
-    required this.title,
+    this.title = '',
+    this.header,
     required this.onClose,
     required this.child,
     this.width = 420,
@@ -22,6 +23,9 @@ class KonataGlassSideSheet extends StatefulWidget {
 
   /// 顶部主标题（纯文字 20px Bold，无左侧图标与下方硬分割线）。
   final String title;
+
+  /// 自定义顶部操作区，替代文字标题。
+  final Widget? header;
 
   /// 关闭回调（收起动画完成后触发）。
   final VoidCallback onClose;
@@ -54,16 +58,14 @@ class _KonataGlassSideSheetState extends State<KonataGlassSideSheet>
       vsync: this,
       duration: KonataTheme.navSliderDuration,
     );
-    _slideAnimation = Tween<Offset>(
-      begin: const Offset(1.06, 0),
-      end: Offset.zero,
-    ).animate(
-      CurvedAnimation(
-        parent: _controller,
-        curve: Curves.easeOutCubic,
-        reverseCurve: Curves.easeInCubic,
-      ),
-    );
+    _slideAnimation =
+        Tween<Offset>(begin: const Offset(1.06, 0), end: Offset.zero).animate(
+          CurvedAnimation(
+            parent: _controller,
+            curve: Curves.easeOutCubic,
+            reverseCurve: Curves.easeInCubic,
+          ),
+        );
     _fadeAnimation = CurvedAnimation(
       parent: _controller,
       curve: Curves.easeOut,
@@ -118,7 +120,10 @@ class _KonataGlassSideSheetState extends State<KonataGlassSideSheet>
     final topInset = isAndroid
         ? (isShort
               ? math.max(8.0, safe.top + 8.0)
-              : math.max(KonataAdaptiveTokens.tabletTopSafeMin, safe.top + 12.0))
+              : math.max(
+                  KonataAdaptiveTokens.tabletTopSafeMin,
+                  safe.top + 12.0,
+                ))
         : 56.0;
     final bottomInset = isAndroid && isShort
         ? math.max(8.0, safe.bottom + 8.0)
@@ -146,10 +151,8 @@ class _KonataGlassSideSheetState extends State<KonataGlassSideSheet>
           width: effectiveWidth,
           child: ValueListenableBuilder<double>(
             valueListenable: _dragDx,
-            builder: (context, dx, child) => Transform.translate(
-              offset: Offset(dx, 0),
-              child: child,
-            ),
+            builder: (context, dx, child) =>
+                Transform.translate(offset: Offset(dx, 0), child: child),
             child: SlideTransition(
               position: _slideAnimation,
               child: DecoratedBox(
@@ -198,16 +201,20 @@ class _KonataGlassSideSheetState extends State<KonataGlassSideSheet>
                                 child: Row(
                                   children: [
                                     Expanded(
-                                      child: Text(
-                                        widget.title,
-                                        style: TextStyle(
-                                          color: p.textPrimary,
-                                          fontSize: isShort ? 17 : 20,
-                                          fontWeight: FontWeight.w700,
-                                          letterSpacing: -0.2,
-                                        ),
-                                      ),
+                                      child:
+                                          widget.header ??
+                                          Text(
+                                            widget.title,
+                                            style: TextStyle(
+                                              color: p.textPrimary,
+                                              fontSize: isShort ? 17 : 20,
+                                              fontWeight: FontWeight.w700,
+                                              letterSpacing: -0.2,
+                                            ),
+                                          ),
                                     ),
+                                    if (widget.header != null)
+                                      const SizedBox(width: 8),
                                     KonataGlassCloseButton(
                                       onPressed: _handleClose,
                                     ),

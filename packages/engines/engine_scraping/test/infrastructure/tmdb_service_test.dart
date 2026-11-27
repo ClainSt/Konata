@@ -19,6 +19,30 @@ http.Response _jsonResponse(Object data, [int statusCode = 200]) {
 
 void main() {
   group('TmdbService & PriorityHttpScheduler', () {
+    test('Fanart 预览不存在时回退同一资源的原图', () async {
+      final requests = <Uri>[];
+      final service = TmdbService(
+        httpClient: TmdbHttpClient(
+          config: const TmdbNetworkConfig(credential: 'v3_test'),
+          scheduler: PriorityHttpScheduler(),
+          httpClient: MockClient((request) async {
+            requests.add(request.url);
+            if (request.url.path.contains('/preview/')) {
+              return http.Response('not found', 404);
+            }
+            return http.Response.bytes([9, 8, 7], 200);
+          }),
+        ),
+      );
+      expect(
+        await service.fetchImageBytes(
+          'https://assets.fanart.tv/preview/tv/42/hdtvlogo/test.png',
+        ),
+        [9, 8, 7],
+      );
+      expect(requests.any((uri) => uri.path.contains('/fanart/')), isTrue);
+    });
+
     test('自动识别 v3 API Key 并附加 api_key 查询参数', () async {
       Uri? capturedUri;
       String? capturedAuth;
@@ -119,23 +143,15 @@ void main() {
       var bgCalls = 0;
 
       // 占满唯一的 Background 槽位，同时测试相同 dedupeKey 合并去重
-      final f1 = scheduler.schedule<int>(
-        RequestPriority.background,
-        () async {
-          bgCalls++;
-          await gate.future;
-          return 1;
-        },
-        dedupeKey: 'same_url',
-      );
-      final f2 = scheduler.schedule<int>(
-        RequestPriority.background,
-        () async {
-          bgCalls++;
-          return 2;
-        },
-        dedupeKey: 'same_url',
-      );
+      final f1 = scheduler.schedule<int>(RequestPriority.background, () async {
+        bgCalls++;
+        await gate.future;
+        return 1;
+      }, dedupeKey: 'same_url');
+      final f2 = scheduler.schedule<int>(RequestPriority.background, () async {
+        bgCalls++;
+        return 2;
+      }, dedupeKey: 'same_url');
 
       // 此时 Background 队列已满，但 Interactive 通道必须能立即完成
       final interactiveResult = await scheduler.schedule<String>(
@@ -275,7 +291,9 @@ void main() {
         if (request.url.host == 'api.tmdb.org') {
           backupCalls++;
           if (backupCalls == 1) {
-            throw const HandshakeException('Connection terminated during handshake');
+            throw const HandshakeException(
+              'Connection terminated during handshake',
+            );
           }
           if (backupCalls == 2) {
             return _jsonResponse({'results': <Map<String, Object?>>[]});
@@ -316,67 +334,70 @@ void main() {
       expect(cooldown.isCoolingDown('api.themoviedb.org', fakeNow), isTrue);
     });
 
-    test('PriorityHttpScheduler 排队等待槽位的请求在 429 冷却后才发包，且支持 retryOnRateLimit=false 立即熔断', () async {
-      final scheduler = PriorityHttpScheduler(
-        backgroundConcurrency: 1,
-        maxRetries: 2,
-      );
-      final events = <String>[];
-      DateTime? secondStartedAt;
-      DateTime? rateLimitedAt;
+    test(
+      'PriorityHttpScheduler 排队等待槽位的请求在 429 冷却后才发包，且支持 retryOnRateLimit=false 立即熔断',
+      () async {
+        final scheduler = PriorityHttpScheduler(
+          backgroundConcurrency: 1,
+          maxRetries: 2,
+        );
+        final events = <String>[];
+        DateTime? secondStartedAt;
+        DateTime? rateLimitedAt;
 
-      final first = scheduler.schedule<String>(
-        RequestPriority.background,
-        () async {
-          if (rateLimitedAt == null) {
-            rateLimitedAt = DateTime.now();
-            events.add('first_429');
-            throw const RateLimitedHttpException(Duration(milliseconds: 220));
-          }
-          events.add('first_ok');
-          return 'ok1';
-        },
-        bucketKey: 'test_bucket',
-      );
-      // 第二个请求在首个请求触发 429 前已进入等待队列，放行时必须遵守新写入的冷却窗口
-      final second = scheduler.schedule<String>(
-        RequestPriority.background,
-        () async {
-          secondStartedAt = DateTime.now();
-          events.add('second_ok');
-          return 'ok2';
-        },
-        bucketKey: 'test_bucket',
-      );
-
-      expect(await first, 'ok1');
-      expect(await second, 'ok2');
-      expect(rateLimitedAt, isNotNull);
-      expect(secondStartedAt, isNotNull);
-      expect(
-        secondStartedAt!.difference(rateLimitedAt!).inMilliseconds,
-        greaterThanOrEqualTo(180),
-        reason: '队列中已有待发请求也必须等待 429 冷却结束再发包',
-      );
-
-      // retryOnRateLimit=false 应首次 429 即直接上抛，不触发退避休眠
-      var fastFailCalls = 0;
-      final sw = Stopwatch()..start();
-      await expectLater(
-        scheduler.schedule<void>(
+        final first = scheduler.schedule<String>(
           RequestPriority.background,
           () async {
-            fastFailCalls++;
-            throw const RateLimitedHttpException(Duration(seconds: 30));
+            if (rateLimitedAt == null) {
+              rateLimitedAt = DateTime.now();
+              events.add('first_429');
+              throw const RateLimitedHttpException(Duration(milliseconds: 220));
+            }
+            events.add('first_ok');
+            return 'ok1';
           },
-          bucketKey: 'fast_fail_bucket',
-          retryOnRateLimit: false,
-        ),
-        throwsA(isA<RateLimitedHttpException>()),
-      );
-      sw.stop();
-      expect(fastFailCalls, 1);
-      expect(sw.elapsedMilliseconds, lessThan(200));
-    });
+          bucketKey: 'test_bucket',
+        );
+        // 第二个请求在首个请求触发 429 前已进入等待队列，放行时必须遵守新写入的冷却窗口
+        final second = scheduler.schedule<String>(
+          RequestPriority.background,
+          () async {
+            secondStartedAt = DateTime.now();
+            events.add('second_ok');
+            return 'ok2';
+          },
+          bucketKey: 'test_bucket',
+        );
+
+        expect(await first, 'ok1');
+        expect(await second, 'ok2');
+        expect(rateLimitedAt, isNotNull);
+        expect(secondStartedAt, isNotNull);
+        expect(
+          secondStartedAt!.difference(rateLimitedAt!).inMilliseconds,
+          greaterThanOrEqualTo(180),
+          reason: '队列中已有待发请求也必须等待 429 冷却结束再发包',
+        );
+
+        // retryOnRateLimit=false 应首次 429 即直接上抛，不触发退避休眠
+        var fastFailCalls = 0;
+        final sw = Stopwatch()..start();
+        await expectLater(
+          scheduler.schedule<void>(
+            RequestPriority.background,
+            () async {
+              fastFailCalls++;
+              throw const RateLimitedHttpException(Duration(seconds: 30));
+            },
+            bucketKey: 'fast_fail_bucket',
+            retryOnRateLimit: false,
+          ),
+          throwsA(isA<RateLimitedHttpException>()),
+        );
+        sw.stop();
+        expect(fastFailCalls, 1);
+        expect(sw.elapsedMilliseconds, lessThan(200));
+      },
+    );
   });
 }

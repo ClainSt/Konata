@@ -131,19 +131,6 @@ class AdaptiveCapsuleLayout {
               KonataAdaptiveTokens.navigationPadding * 2);
   }
 
-  /// 手机一级主页面是否启用「底部导航胶囊 + 右侧 56dp 圆形音频圆钮」同行水平居中并排协同。
-  bool get inlinePhoneAudioPaired =>
-      android &&
-      !tablet &&
-      navigationVisible &&
-      miniKind == FloatingMiniPlayerKind.audio &&
-      visualState != FloatingMiniVisualState.tucked &&
-      (size.width - safe.horizontal) >=
-          (navigationLength +
-              KonataPlaybackTokens.floatingMiniPhoneNavInlineGap +
-              KonataPlaybackTokens.floatingMiniAudioDiscSize +
-              16.0);
-
   /// 左侧工作区避让宽度。
   double get leftClearance => verticalNavigation && navigationVisible
       ? (KonataAdaptiveTokens.tabletNavEdgeGap +
@@ -166,19 +153,6 @@ class AdaptiveCapsuleLayout {
         safe.bottom -
         KonataAdaptiveTokens.safeGap -
         navigationThickness;
-    if (inlinePhoneAudioPaired) {
-      final groupWidth =
-          navigationLength +
-          KonataPlaybackTokens.floatingMiniPhoneNavInlineGap +
-          KonataPlaybackTokens.floatingMiniAudioDiscSize;
-      final groupLeft = (size.width - groupWidth) / 2.0;
-      return Rect.fromLTWH(
-        groupLeft,
-        top,
-        navigationLength,
-        navigationThickness,
-      );
-    }
     return Rect.fromLTWH(
       (size.width - navigationLength) / 2,
       top,
@@ -259,8 +233,7 @@ class AdaptiveCapsuleLayout {
         }
         return Size(w, h);
       case FloatingMiniPlayerKind.audio:
-        if (visualState == FloatingMiniVisualState.expanded &&
-            !inlinePhoneAudioPaired) {
+        if (visualState == FloatingMiniVisualState.expanded) {
           final targetPillW =
               (size.width *
                       KonataPlaybackTokens.floatingMiniAudioPillWidthRatio)
@@ -280,11 +253,6 @@ class AdaptiveCapsuleLayout {
                     KonataPlaybackTokens.floatingMiniAudioPillMaxHeight,
                   );
           return Size(pillW, pillH);
-        }
-        if (inlinePhoneAudioPaired) {
-          return const Size.square(
-            KonataPlaybackTokens.floatingMiniAudioDiscSize,
-          );
         }
         final discSide =
             (size.shortestSide *
@@ -413,17 +381,6 @@ class AdaptiveCapsuleLayout {
       return null;
     }
     final miniSize = resolveMiniWindowSize(miniKind);
-    if (inlinePhoneAudioPaired) {
-      final nav = navigationRect;
-      final discTop = nav.center.dy - miniSize.height / 2.0;
-      return Rect.fromLTWH(
-        nav.right + KonataPlaybackTokens.floatingMiniPhoneNavInlineGap,
-        discTop,
-        miniSize.width,
-        miniSize.height,
-      );
-    }
-
     final b = safeBoundsFor(miniSize);
     if (visualState == FloatingMiniVisualState.tucked) {
       final earX = edgeSide == FloatingMiniEdgeSide.left
@@ -474,8 +431,7 @@ class AdaptiveCapsuleLayout {
     final baseNavClearance = !verticalNavigation && navigationVisible
         ? size.height - navigationRect.top + KonataAdaptiveTokens.safeGap
         : safe.bottom + KonataAdaptiveTokens.safeGap;
-    if (visualState == FloatingMiniVisualState.tucked ||
-        inlinePhoneAudioPaired) {
+    if (visualState == FloatingMiniVisualState.tucked) {
       return baseNavClearance;
     }
     final miniRect = floatingMiniWindowRect;

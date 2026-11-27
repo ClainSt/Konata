@@ -13,6 +13,7 @@ class KonataDraggableScrollbar extends StatefulWidget {
     this.trackVisibility = false,
     this.padding,
     this.trackInsets,
+    this.balancedHorizontalInset,
   });
 
   /// 接收已绑定的 [ScrollController] 并构建内部可滚动视图。
@@ -33,6 +34,9 @@ class KonataDraggableScrollbar extends StatefulWidget {
 
   /// 滚动条轨道自身的上下左右缩进（用于与带渐隐内边距的列表正文首尾严格对齐）。
   final EdgeInsets? trackInsets;
+
+  /// 可选对称内容留白。将右侧滚动轨道计入该留白，而非额外叠加。
+  final double? balancedHorizontalInset;
 
   @override
   State<KonataDraggableScrollbar> createState() =>
@@ -90,6 +94,10 @@ class _KonataDraggableScrollbarState extends State<KonataDraggableScrollbar> {
         KonataTheme.scrollbarContentGap +
         (theme.crossAxisMargin ?? 0.0) +
         trackPadding.right;
+    final balanced = widget.balancedHorizontalInset;
+    final inset = balanced == null
+        ? gutter
+        : (balanced > gutter ? balanced : gutter);
     Widget bar = Scrollbar(
       controller: controller,
       thumbVisibility: widget.thumbVisibility,
@@ -97,7 +105,9 @@ class _KonataDraggableScrollbarState extends State<KonataDraggableScrollbar> {
       interactive: true,
       scrollbarOrientation: ScrollbarOrientation.right,
       child: Padding(
-        padding: EdgeInsets.only(right: gutter),
+        padding: balanced == null
+            ? EdgeInsets.only(right: gutter)
+            : EdgeInsets.symmetric(horizontal: inset),
         child: MediaQuery(data: media, child: inner),
       ),
     );

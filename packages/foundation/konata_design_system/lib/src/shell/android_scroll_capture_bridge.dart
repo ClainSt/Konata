@@ -123,6 +123,18 @@ class _AndroidScrollCaptureScopeState extends State<AndroidScrollCaptureScope>
   Future<dynamic> _handleMethodCall(MethodCall call) async {
     if (!mounted) return null;
     switch (call.method) {
+      case 'queryScrollTarget':
+        final candidate = _findPrimaryVerticalScrollable();
+        if (candidate == null) return const <String, Object>{'ready': false};
+        final dpr = View.of(context).devicePixelRatio;
+        final r = candidate.visibleRect;
+        return <String, Object>{
+          'ready': true,
+          'leftPx': (r.left * dpr).round(),
+          'topPx': (r.top * dpr).round(),
+          'rightPx': (r.right * dpr).round(),
+          'bottomPx': (r.bottom * dpr).round(),
+        };
       case 'beginCapture':
         return _beginCapture();
       case 'scrollToCaptureArea':
@@ -148,6 +160,8 @@ class _AndroidScrollCaptureScopeState extends State<AndroidScrollCaptureScope>
         if (!mounted) return;
         _syncMetricsNow();
       });
+      // 静止页面没有下一帧时，必须主动请求，否则目标一直未同步。
+      SchedulerBinding.instance.ensureVisualUpdate();
     });
   }
 

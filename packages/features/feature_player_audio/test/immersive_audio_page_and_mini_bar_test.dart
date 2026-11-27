@@ -433,7 +433,7 @@ ${mismatched ? 'FILE "other.flac" WAVE' : ''}
       ),
     );
     await tester.pump();
-    await tester.tap(find.text('检查硬件实证并管理当次会话满幅解锁'));
+    await tester.tap(find.text('硬件核验与解锁'));
     await tester.pumpAndSettle();
     final unlock = find.widgetWithText(KonataPillButton, '解锁当次会话满幅输出');
     expect(tester.widget<KonataPillButton>(unlock).onPressed, isNull);
@@ -477,7 +477,7 @@ ${mismatched ? 'FILE "other.flac" WAVE' : ''}
       ),
     );
     await tester.pump();
-    await tester.tap(find.text('检查硬件实证并管理当次会话满幅解锁'));
+    await tester.tap(find.text('硬件核验与解锁'));
     await tester.pumpAndSettle();
     final unlock = find.widgetWithText(KonataPillButton, '解锁当次会话满幅输出');
     final feedback = find.byKey(const ValueKey('audio_safety_action_feedback'));
@@ -1099,8 +1099,8 @@ ${mismatched ? 'FILE "other.flac" WAVE' : ''}
     );
     await tester.pump();
 
-    expect(find.text('发烧输出与 -12 dBFS 防爆耳安全链'), findsOneWidget);
-    expect(find.text('回放增益与常规音控'), findsOneWidget);
+    expect(find.text('输出与安全保护'), findsOneWidget);
+    expect(find.text('增益与音量'), findsOneWidget);
     expect(find.text('桌面端外部音频转发接力'), findsNothing);
     expect(find.textContaining('Beefweb'), findsNothing);
     expect(featurePlayerAudioManifest.settingsSections.single.title, '音频');

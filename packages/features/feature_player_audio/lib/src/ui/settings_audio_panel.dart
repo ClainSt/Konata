@@ -71,7 +71,7 @@ class SettingsAudioPanel extends StatelessWidget {
                         children: [
                           Expanded(
                             child: Text(
-                              '发烧输出与 -12 dBFS 防爆耳安全链',
+                              '输出与安全保护',
                               style: TextStyle(
                                 color: palette.textPrimary,
                                 fontSize: 15,
@@ -80,7 +80,7 @@ class SettingsAudioPanel extends StatelessWidget {
                             ),
                           ),
                           KonataSpecBadge(
-                            label: unlocked ? '本次会话已解锁满幅' : '-12 dBFS 安全门锁开启',
+                            label: unlocked ? '已解锁' : '保护中',
                             highlighted: !unlocked,
                             icon: Icons.verified_user_outlined,
                           ),
@@ -88,8 +88,8 @@ class SettingsAudioPanel extends StatelessWidget {
                       ),
                       const SizedBox(height: 8),
                       AdaptiveSettingTile(
-                        title: '启用发烧输出 -12 dBFS 安全天花板',
-                        subtitle: '未经物理电平实证或新接入 DAC 时在末端强制串联限幅与 150ms 淡入斜坡',
+                        title: '-12 dBFS 安全限幅',
+                        subtitle: '更换设备或未经核验时自动限幅。',
                         trailing: KonataSwitch(
                           value: !unlocked,
                           semanticLabel: '安全限幅',
@@ -142,7 +142,7 @@ class SettingsAudioPanel extends StatelessWidget {
                         Padding(
                           padding: const EdgeInsets.only(top: 6, bottom: 4),
                           child: KonataPillButton.secondary(
-                            label: '检查硬件实证并管理当次会话满幅解锁',
+                            label: '硬件核验与解锁',
                             compact: true,
                             icon: Icons.shield_outlined,
                             onPressed: () => unawaited(
@@ -153,7 +153,6 @@ class SettingsAudioPanel extends StatelessWidget {
                       if (isDesktopPlatform)
                         AdaptiveSettingTile(
                           title: '默认 CD 音频引擎',
-                          subtitle: '内置音频支持沉浸式舞台、迷你播放器与分轨歌词',
                           estimatedTrailingWidth: 300,
                           trailing:
                               KonataSegmentedCapsule<PreferredPlaybackEngine>(
@@ -177,8 +176,7 @@ class SettingsAudioPanel extends StatelessWidget {
                               ),
                         ),
                       AdaptiveSettingTile(
-                        title: 'libsoxr 线性相位重采样精度',
-                        subtitle: '在需要采样率变换时使用的精度档位（28-bit 为推荐高保真均衡值）',
+                        title: 'libsoxr 重采样精度',
                         estimatedTrailingWidth: 160,
                         trailing: SizedBox(
                           width: 165,
@@ -211,8 +209,8 @@ class SettingsAudioPanel extends StatelessWidget {
                       ),
                       if (isDesktopPlatform) ...[
                         AdaptiveSettingTile(
-                          title: '桌面独占输出模式 (WASAPI Exclusive)',
-                          subtitle: '绕过系统混音器以低抖动独占声卡（配合安全门锁防首次切设备爆音）',
+                          title: 'WASAPI 独占输出',
+                          subtitle: '绕过系统混音器，独占声卡。',
                           trailing: KonataSwitch(
                             value: prefs.exclusiveAudioOutput,
                             onChanged: (val) => _updateAndSync(
@@ -221,8 +219,8 @@ class SettingsAudioPanel extends StatelessWidget {
                           ),
                         ),
                         AdaptiveSettingTile(
-                          title: 'HDMI / S/PDIF 压缩源码透传',
-                          subtitle: '透传 AC3 / DTS 等原始压缩流至功放；与软件 DSP 严格互斥',
+                          title: 'HDMI / S/PDIF 源码透传',
+                          subtitle: '与软件 DSP 互斥。',
                           trailing: KonataSwitch(
                             value: prefs.bitstreamPassthrough,
                             onChanged: (val) => _updateAndSync(
@@ -233,8 +231,8 @@ class SettingsAudioPanel extends StatelessWidget {
                       ],
                       if (isAndroidPlatform)
                         AdaptiveSettingTile(
-                          title: 'Android USB DAC 逐位直通协商',
-                          subtitle: 'Android 14+ 外接解码器时优先协商 BIT_PERFECT 物理直出',
+                          title: 'USB DAC 逐位直通',
+                          subtitle: '需 Android 14+ 及兼容设备。',
                           trailing: KonataSwitch(
                             value: prefs.androidBitPerfectUsb,
                             onChanged: (val) => _updateAndSync(
@@ -254,7 +252,7 @@ class SettingsAudioPanel extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '回放增益与常规音控',
+                    '增益与音量',
                     style: TextStyle(
                       color: palette.textPrimary,
                       fontSize: 15,
@@ -264,7 +262,7 @@ class SettingsAudioPanel extends StatelessWidget {
                   const SizedBox(height: 8),
                   AdaptiveSettingTile(
                     title: '回放增益 (ReplayGain)',
-                    subtitle: '读取内嵌或标签中的响度元数据以平衡不同专辑间音量跳跃',
+                    subtitle: '根据响度标签平衡音量。',
                     estimatedTrailingWidth: 165,
                     trailing: SizedBox(
                       width: 165,
@@ -286,8 +284,8 @@ class SettingsAudioPanel extends StatelessWidget {
                   ),
                   AdaptiveSettingTile(
                     title:
-                        '前置增益微调 (${prefs.replayGainPreampDb.toStringAsFixed(1)} dB)',
-                    subtitle: '正向增量时将自动受末端 -12 dBFS 限幅保护约束',
+                        '前置增益 (${prefs.replayGainPreampDb.toStringAsFixed(1)} dB)',
+                    subtitle: '受安全限幅保护（启用时）。',
                     estimatedTrailingWidth: 190,
                     trailing: SizedBox(
                       width: 180,
@@ -304,7 +302,6 @@ class SettingsAudioPanel extends StatelessWidget {
                   ),
                   AdaptiveSettingTile(
                     title: '默认起播音量 (${prefs.defaultVolume.round()}%)',
-                    subtitle: '新会话开启时的初始安全缩放百分比',
                     estimatedTrailingWidth: 190,
                     trailing: SizedBox(
                       width: 180,
@@ -319,8 +316,7 @@ class SettingsAudioPanel extends StatelessWidget {
                     ),
                   ),
                   AdaptiveSettingTile(
-                    title: '变速保持音高不失真',
-                    subtitle: '倍速播放期间启用 Scaletempo2 保持人声与乐器原调',
+                    title: '变速保持音高',
                     trailing: KonataSwitch(
                       value: prefs.keepPitch,
                       onChanged: (val) =>
@@ -328,8 +324,7 @@ class SettingsAudioPanel extends StatelessWidget {
                     ),
                   ),
                   AdaptiveSettingTile(
-                    title: '启用页内可拖拽迷你悬浮唱片栏',
-                    subtitle: '收起全屏音频舞台后在屏幕边角保留可自由拖拽与停靠的便携控制条',
+                    title: '页内音频小窗',
                     trailing: KonataSwitch(
                       value: prefs.audioFloatingMiniEnabled,
                       onChanged: (val) => _updateAndSync(

@@ -135,12 +135,11 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('默认播放内核与自动化行为', style: KonataTheme.cardTitleStyle(p)),
+                  Text('播放设置', style: KonataTheme.cardTitleStyle(p)),
                   const SizedBox(height: 12),
                   if (platform == KonataPlatform.windows)
                     AdaptiveSettingTile(
                       title: '默认视频播放引擎',
-                      subtitle: '选择默认在应用内全屏舞台播片或交由外置工具接力',
                       estimatedTrailingWidth: 260,
                       trailing: KonataSegmentedCapsule<PreferredPlaybackEngine>(
                         compact: true,
@@ -160,7 +159,6 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
                     ),
                   AdaptiveSettingTile(
                     title: '正片完播自动连播下一集',
-                    subtitle: '当前剧集自然播放结束后短暂提示并切换下一集',
                     trailing: KonataSwitch(
                       key: const ValueKey('settings_auto_next_switch'),
                       value: prefs.autoPlayNextEpisode,
@@ -169,7 +167,6 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
                   ),
                   AdaptiveSettingTile(
                     title: '自动跳过显式命名片头与片尾',
-                    subtitle: '仅对媒体明确标注片头或片尾名称的章节执行自动跳转',
                     trailing: KonataSwitch(
                       key: const ValueKey('settings_auto_skip_switch'),
                       value: prefs.autoSkipChapters,
@@ -188,7 +185,6 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
                     ),
                   AdaptiveSettingTile(
                     title: '画质缩放滤镜档位',
-                    subtitle: '平衡高保真动漫锐化还原与设备渲染功耗',
                     estimatedTrailingWidth: 240,
                     trailing: KonataDropdown<VideoQualityPreset>(
                       value: quality.preset,
@@ -207,7 +203,7 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
                   if (platform == KonataPlatform.windows)
                     AdaptiveSettingTile(
                       title: '桌面端视频渲染管线',
-                      subtitle: '优先高色深共享纹理同层合成，兼顾高动态范围自动升档',
+                      subtitle: '支持高色深及 HDR 输出。',
                       estimatedTrailingWidth: 260,
                       trailing: KonataDropdown<VideoOutputPipelineMode>(
                         value: quality.outputPipelineMode,
@@ -225,7 +221,7 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
                     ),
                   AdaptiveSettingTile(
                     title: '硬件加速解码',
-                    subtitle: '高危高比特深度流自动介入多线程软解防花屏保护',
+                    subtitle: '不兼容时自动回退软解。',
                     trailing: KonataSwitch(
                       key: const ValueKey('settings_hwdec_switch'),
                       value: quality.hardwareDecode,
@@ -236,7 +232,6 @@ class _SettingsPlayersPanelState extends ConsumerState<SettingsPlayersPanel> {
                   ),
                   AdaptiveSettingTile(
                     title: '实时画面去色带',
-                    subtitle: '平滑暗场景压制产生的色彩断层阶梯',
                     trailing: KonataSwitch(
                       key: const ValueKey('settings_deband_switch'),
                       value: quality.debandEnabled,

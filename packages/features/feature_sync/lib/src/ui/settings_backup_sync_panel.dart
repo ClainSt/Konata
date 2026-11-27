@@ -147,23 +147,24 @@ class _SettingsBackupSyncPanelState
         _hydrateWebDavFormIfNeeded(state);
         final palette = context.palette;
 
-        final content = Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              _buildLocalBackupCard(context, controller, state, palette),
-              const SizedBox(height: 16),
-              _buildWebDavSyncCard(context, controller, state, palette),
-            ],
-          ),
+        final content = Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            _buildLocalBackupCard(context, controller, state, palette),
+            const SizedBox(height: 16),
+            _buildWebDavSyncCard(context, controller, state, palette),
+          ],
         );
 
-        if (widget.embedded) {
-          return content;
-        }
-        return SingleChildScrollView(child: content);
+        // 设置页宿主统一负责卡片外侧边距与纵向滚动。
+        if (widget.embedded) return content;
+        return SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(
+            horizontal: KonataAdaptiveTokens.horizontalInset,
+          ),
+          child: content,
+        );
       },
     );
   }
@@ -183,18 +184,10 @@ class _SettingsBackupSyncPanelState
           _SectionTitleRow(
             icon: Icons.cloud_download_outlined,
             title: '创建备份与恢复',
-            subtitle: '选择需要备份或恢复的数据，恢复前可预览变更。',
+            subtitle: '支持按项目备份和恢复。',
             palette: palette,
           ),
           const SizedBox(height: 14),
-          if (state.deviceId.isNotEmpty) ...<Widget>[
-            _StatusInfoPill(
-              icon: Icons.devices_outlined,
-              label: '本机设备：${state.deviceName}（ID: ${state.deviceId}）',
-              palette: palette,
-            ),
-            const SizedBox(height: 10),
-          ],
           if (state.lastLocalBackupAtMs != null) ...<Widget>[
             _StatusInfoPill(
               icon: Icons.history_outlined,
@@ -263,7 +256,7 @@ class _SettingsBackupSyncPanelState
           _SettingsSwitchRow(
             switchKey: const Key('webdav_enabled_switch'),
             title: '启用 WebDAV 同步',
-            subtitle: '开启后支持一键同步与自动策略调度',
+            subtitle: '',
             value: _webDavEnabled,
             onChanged: state.isBusy
                 ? null
@@ -365,14 +358,22 @@ class _SettingsBackupSyncPanelState
           KonataListTile(
             key: const Key('webdav_sync_items'),
             title: '同步项目',
-            estimatedTrailingWidth: 108,
-            trailing: KonataPillButton.secondary(
-              label:
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            estimatedTrailingWidth: 96,
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
                   '已选 ${state.availableSlices.where((s) => activeWebDavSliceIds.contains(s.sliceId)).length} / ${state.availableSlices.length}',
-              icon: Icons.chevron_right_rounded,
-              onPressed: state.isBusy
-                  ? null
-                  : () => _selectWebDavItems(context, controller),
+                  style: TextStyle(fontSize: 12, color: palette.textSecondary),
+                ),
+                const SizedBox(width: 4),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  size: 20,
+                  color: palette.textMuted,
+                ),
+              ],
             ),
             onTap: state.isBusy
                 ? null
@@ -382,7 +383,7 @@ class _SettingsBackupSyncPanelState
           _SettingsSwitchRow(
             switchKey: const Key('webdav_startup_sync_switch'),
             title: '启动时自动同步',
-            subtitle: '应用打开完成初始化后静默拉取并合流远端切片变更',
+            subtitle: '',
             value: _autoSyncOnStartup,
             onChanged: state.isBusy
                 ? null
@@ -393,7 +394,7 @@ class _SettingsBackupSyncPanelState
           _SettingsSwitchRow(
             switchKey: const Key('webdav_stop_playback_sync_switch'),
             title: '停播后自动上传',
-            subtitle: '播放停止并完成防抖后静默同步本机观看进度',
+            subtitle: '',
             value: _autoSyncOnPlaybackStop,
             onChanged: state.isBusy
                 ? null
@@ -1105,11 +1106,13 @@ class _SettingsSwitchRow extends StatelessWidget {
                   color: palette.textPrimary,
                 ),
               ),
-              const SizedBox(height: 2),
-              Text(
-                subtitle,
-                style: TextStyle(fontSize: 12, color: palette.textSecondary),
-              ),
+              if (subtitle.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: TextStyle(fontSize: 12, color: palette.textSecondary),
+                ),
+              ],
             ],
           ),
         ),

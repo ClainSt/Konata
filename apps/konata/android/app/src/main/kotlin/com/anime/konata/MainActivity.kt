@@ -78,6 +78,7 @@ class MainActivity : FlutterActivity() {
     private var mediaSessionChannel: MethodChannel? = null
     private var pipChannel: MethodChannel? = null
     private var scrollCaptureChannel: MethodChannel? = null
+    private var captureFlutterSurface: FlutterSurfaceView? = null
     private var underlaySurfaceHost: AndroidUnderlaySurfaceHost? = null
     private var audioFocusRequest: AudioFocusRequest? = null
     private var pipReceiverRegistered = false
@@ -180,6 +181,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onFlutterSurfaceViewCreated(flutterSurfaceView: FlutterSurfaceView) {
         super.onFlutterSurfaceViewCreated(flutterSurfaceView)
+        captureFlutterSurface = flutterSurfaceView
         // 显式覆写 Flutter 透明模式默认施加的 setZOrderOnTop(true)：
         // 将 Flutter 表面精确锚定在 MediaOverlay 层（严格位于底层索引 0 视频 SurfaceView 之上，
         // 同时保持在窗口 DecorView 顶层浮层与 PixelCopy.request(window, ...) 体系之内）。
@@ -333,6 +335,7 @@ class MainActivity : FlutterActivity() {
         pipChannel = null
         scrollCaptureChannel?.setMethodCallHandler(null)
         scrollCaptureChannel = null
+        captureFlutterSurface = null
         underlaySurfaceHost?.destroy()
         underlaySurfaceHost = null
         super.cleanUpFlutterEngine(flutterEngine)
@@ -801,13 +804,6 @@ class MainActivity : FlutterActivity() {
                         } else {
                             scrollTargetRect.setEmpty()
                         }
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                            window.decorView.scrollCaptureHint = if (scrollHasTarget) {
-                                android.view.View.SCROLL_CAPTURE_HINT_INCLUDE
-                            } else {
-                                android.view.View.SCROLL_CAPTURE_HINT_AUTO
-                            }
-                        }
                         result.success(null)
                     }
                     else -> result.notImplemented()
@@ -911,6 +907,8 @@ class MainActivity : FlutterActivity() {
 
     @RequiresApi(Build.VERSION_CODES.S)
     private fun installScrollCaptureCallback() {
+        // 始终让系统询问当前路由，不依赖异步缓存是否已更新。
+        window.decorView.scrollCaptureHint = android.view.View.SCROLL_CAPTURE_HINT_INCLUDE
         window.decorView.setScrollCaptureCallback(object : ScrollCaptureCallback {
             private var captureWindowRect = Rect()
 
@@ -918,11 +916,46 @@ class MainActivity : FlutterActivity() {
                 signal: CancellationSignal,
                 onReady: Consumer<Rect>
             ) {
-                if (signal.isCanceled || !scrollHasTarget || scrollTargetRect.isEmpty) {
+                if (signal.isCanceled) {
                     onReady.accept(Rect())
                     return
                 }
-                onReady.accept(Rect(scrollTargetRect))
+                val channel = scrollCaptureChannel
+                if (channel == null) {
+                    onReady.accept(Rect())
+                    return
+                }
+                var delivered = false
+                fun finish(rect: Rect) {
+                    if (delivered) return
+                    delivered = true
+                    onReady.accept(if (signal.isCanceled) Rect() else rect)
+                }
+                val timeout = Runnable { finish(Rect()) }
+                mainHandler.postDelayed(timeout, 500)
+                channel.invokeMethod("queryScrollTarget", null, object : MethodChannel.Result {
+                    override fun success(result: Any?) {
+                        mainHandler.removeCallbacks(timeout)
+                        val map = result as? Map<*, *>
+                        val rect = Rect(
+                            (map?.get("leftPx") as? Number)?.toInt() ?: 0,
+                            (map?.get("topPx") as? Number)?.toInt() ?: 0,
+                            (map?.get("rightPx") as? Number)?.toInt() ?: 0,
+                            (map?.get("bottomPx") as? Number)?.toInt() ?: 0
+                        )
+                        finish(if (map?.get("ready") == true && !rect.isEmpty) rect else Rect())
+                    }
+
+                    override fun error(code: String, msg: String?, details: Any?) {
+                        mainHandler.removeCallbacks(timeout)
+                        finish(Rect())
+                    }
+
+                    override fun notImplemented() {
+                        mainHandler.removeCallbacks(timeout)
+                        finish(Rect())
+                    }
+                })
             }
 
             override fun onScrollCaptureStart(
@@ -944,21 +977,22 @@ class MainActivity : FlutterActivity() {
                             val top = (map?.get("topPx") as? Number)?.toInt() ?: scrollTargetRect.top
                             val right = (map?.get("rightPx") as? Number)?.toInt() ?: scrollTargetRect.right
                             val bottom = (map?.get("bottomPx") as? Number)?.toInt() ?: scrollTargetRect.bottom
-                            captureWindowRect = if (right > left && bottom > top) {
+                            captureWindowRect = if (map?.get("ready") == true &&
+                                right > left && bottom > top && !signal.isCanceled) {
                                 Rect(left, top, right, bottom)
                             } else {
-                                Rect(scrollTargetRect)
+                                Rect()
                             }
                             onReady.run()
                         }
 
                         override fun error(code: String, msg: String?, details: Any?) {
-                            captureWindowRect = Rect(scrollTargetRect)
+                            captureWindowRect = Rect()
                             onReady.run()
                         }
 
                         override fun notImplemented() {
-                            captureWindowRect = Rect(scrollTargetRect)
+                            captureWindowRect = Rect()
                             onReady.run()
                         }
                     })
@@ -1026,15 +1060,30 @@ class MainActivity : FlutterActivity() {
                             }
 
                             val srcRect = Rect(copyLeft, viewTop + localTop, copyRight, viewTop + localTop + stripHeight)
+                            // Flutter 使用独立 SurfaceView。Window 的缓冲区不包含其实际画面。
+                            val surface = captureFlutterSurface
+                            if (surface == null || !surface.holder.surface.isValid) {
+                                onComplete.accept(Rect())
+                                return
+                            }
+                            val location = IntArray(2)
+                            surface.getLocationInWindow(location)
+                            val surfaceRect = Rect(srcRect).apply {
+                                offset(-location[0], -location[1])
+                            }
+                            if (!Rect(0, 0, surface.width, surface.height).contains(surfaceRect)) {
+                                onComplete.accept(Rect())
+                                return
+                            }
                             val bitmap = Bitmap.createBitmap(copyWidth, stripHeight, Bitmap.Config.ARGB_8888)
                             try {
-                                PixelCopy.request(window, srcRect, bitmap, { copyResult ->
+                                PixelCopy.request(surface, surfaceRect, bitmap, { copyResult ->
                                     try {
                                         if (copyResult == PixelCopy.SUCCESS && !signal.isCanceled) {
                                             val resultRect = Rect(
-                                                captureArea.left,
+                                                copyLeft - viewLeft,
                                                 visStart,
-                                                captureArea.left + copyWidth,
+                                                copyRight - viewLeft,
                                                 visEnd
                                             )
                                             val canvas: Canvas? = try {

@@ -327,14 +327,10 @@ class _SettingsCategoriesState<T> extends State<_SettingsCategories<T>> {
   @override
   Widget build(BuildContext context) => KonataDraggableScrollbar(
     controller: _scroll,
+    balancedHorizontalInset: KonataAdaptiveTokens.horizontalInset,
     builder: (_, controller) => SingleChildScrollView(
       controller: controller,
-      padding: EdgeInsets.fromLTRB(
-        KonataAdaptiveTokens.horizontalInset,
-        0,
-        KonataAdaptiveTokens.horizontalInset,
-        widget.bottomClearance,
-      ),
+      padding: EdgeInsets.only(bottom: widget.bottomClearance),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
@@ -408,13 +404,11 @@ class _SettingsPanelState<T> extends State<_SettingsPanel<T>> {
   @override
   Widget build(BuildContext context) => KonataDraggableScrollbar(
     controller: _scroll,
+    balancedHorizontalInset: KonataAdaptiveTokens.horizontalInset,
     builder: (_, controller) => SingleChildScrollView(
       controller: controller,
-      padding: EdgeInsets.fromLTRB(
-        KonataAdaptiveTokens.horizontalInset,
-        0,
-        KonataAdaptiveTokens.horizontalInset,
-        KonataAdaptiveTokens.settingsGap + widget.bottomClearance,
+      padding: EdgeInsets.only(
+        bottom: KonataAdaptiveTokens.settingsGap + widget.bottomClearance,
       ),
       child: KeyedSubtree(
         key: ValueKey<T>(widget.category.value),

@@ -221,9 +221,58 @@ void main() {
               secureStorage: secure,
               extraSlices: <SyncSliceContributor<Object?>>[extra],
             ),
-            child: const SettingsBackupSyncPanel(),
+            child: const SingleChildScrollView(
+              padding: EdgeInsets.symmetric(
+                horizontal: KonataAdaptiveTokens.horizontalInset,
+              ),
+              child: SettingsBackupSyncPanel(embedded: true),
+            ),
           ),
         );
+        await tester.pumpAndSettle();
+
+        final cards = find.byType(KonataSurfaceCard);
+        expect(cards, findsNWidgets(2));
+        for (final card in [cards.first, cards.last]) {
+          expect(
+            tester.getTopLeft(card).dx,
+            closeTo(KonataAdaptiveTokens.horizontalInset, 0.1),
+          );
+          expect(
+            tester.getSize(card).width,
+            closeTo(
+              item.size.width - 2 * KonataAdaptiveTokens.horizontalInset,
+              0.1,
+            ),
+          );
+        }
+        expect(
+          find.descendant(
+            of: find.byType(SettingsBackupSyncPanel),
+            matching: find.byType(SingleChildScrollView),
+          ),
+          findsNothing,
+        );
+        expect(find.textContaining('本机设备：'), findsNothing);
+        final items = find.byKey(const Key('webdav_sync_items'));
+        expect(
+          find.descendant(of: items, matching: find.byType(KonataPillButton)),
+          findsNothing,
+        );
+        expect(
+          find.descendant(
+            of: items,
+            matching: find.byIcon(Icons.chevron_right_rounded),
+          ),
+          findsOneWidget,
+        );
+        await tester.ensureVisible(items);
+        await tester.tap(
+          find.descendant(of: items, matching: find.text('同步项目')),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('webdav_items_confirm')), findsOneWidget);
+        await tester.tap(find.byKey(const Key('webdav_items_cancel')));
         await tester.pumpAndSettle();
 
         expect(find.text('创建备份与恢复'), findsOneWidget);

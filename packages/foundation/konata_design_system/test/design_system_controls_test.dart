@@ -339,7 +339,10 @@ void main() {
           icon: Icons.palette_outlined,
           title: '外观',
           summary: '深色模式',
-          panel: (_) => const Text('面板_外观'),
+          panel: (_) => const KonataSurfaceCard(
+            key: ValueKey('settings_test_card'),
+            child: Text('面板_外观'),
+          ),
         ),
         AdaptiveSettingsCategory<String>(
           value: 'external',
@@ -405,6 +408,14 @@ void main() {
       await tester.pumpAndSettle();
       expect(detailVisible, isTrue);
       expect(find.text('面板_外观'), findsOneWidget);
+      final card = tester.getRect(
+        find.byKey(const ValueKey('settings_test_card')),
+      );
+      expect(card.left, closeTo(390 - card.right, 0.1));
+      expect(
+        card.left,
+        greaterThanOrEqualTo(KonataAdaptiveTokens.horizontalInset),
+      );
       expect(
         find.byKey(const ValueKey('settings_detail_back')),
         findsOneWidget,

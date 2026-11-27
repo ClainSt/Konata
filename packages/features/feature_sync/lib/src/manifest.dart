@@ -10,7 +10,7 @@ import 'providers.dart';
 import 'ui/settings_backup_sync_panel.dart';
 
 Widget _buildBackupSyncSettingsSection(ViewSlotContext ctx) {
-  return const SettingsBackupSyncPanel();
+  return const SettingsBackupSyncPanel(embedded: true);
 }
 
 Widget _mountSyncRuntime(Object child) => Consumer(

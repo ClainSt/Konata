@@ -93,6 +93,24 @@ void _seedV1(KonataDatabaseBundle db) {
   );
 }
 
+void _addLegacyAudio(Map<String, Object?> payload) {
+  (payload['playbackEntries']! as List<Object?>).add({
+    'playbackKey': 'playback::tmdb:tv:100565:s1::audio::01',
+    'canonicalWorkKey': 'tmdb:tv:100565:s1',
+    'secondaryWorkKeys': ['bgm:293049'],
+    'seasonNumber': 1,
+    'episodeNumber': 7,
+    'isAudio': true,
+    'episodeTitle': '01',
+    'positionSeconds': 12,
+    'durationSeconds': 100,
+    'isCompleted': false,
+    'playedAtMs': 1700000000000,
+    'updatedAtMs': 1700000000000,
+    'sourceDeviceId': 'golden-fixture',
+  });
+}
+
 void main() {
   test('真实黄金源 v2 压缩备份迁移空磁盘库，重开保留六类目录、锁及进度', () async {
     final root = await Directory.systemTemp.createTemp(
@@ -244,6 +262,148 @@ void main() {
     expect(history.workId.value, 'local-work');
     expect(history.episodeId.value, 'local-ep');
     expect(history.variantId.value, 'local-video');
+  });
+
+  for (final version in [1, 2]) {
+    test('v$version 旧备份按唯一曲名恢复普通音频断点与原曲目编号', () async {
+      final root = await Directory.systemTemp.createTemp(
+        'konata-legacy-audio-',
+      );
+      addTearDown(() => root.delete(recursive: true));
+      final storage = PortableStorageRootService(overrideRootPath: root.path);
+      final db = await KonataDatabaseBundle.openFromStorageRoot(storage);
+      try {
+        if (version == 1) {
+          _seedV1(db);
+          db.library.mediaVariants.upsert(
+            const MediaVariantRecord(
+              id: VariantId.trusted('local-cd'),
+              workId: WorkId.trusted('local-work'),
+              sourceId: SourceId.trusted('local-source'),
+              relativePath: 'CD/01.flac',
+              fileName: '01.flac',
+              fileSize: 512,
+              assetKind: AssetKind.cdAlbum,
+            ),
+          );
+        }
+        final service = _service(db);
+        final bytes = await _mutate(version, _addLegacyAudio);
+        expect(
+          (await service.previewRestore(bytes)).legacyFormatVersion,
+          version,
+        );
+        expect(db.userState.playbackRecords.listAllWithTombstones(), isEmpty);
+        await service.restoreFromArchiveBytes(bytes);
+        if (version == 1) await service.restoreFromArchiveBytes(bytes);
+      } finally {
+        await db.close();
+      }
+
+      final reopened = await KonataDatabaseBundle.openFromStorageRoot(storage);
+      addTearDown(reopened.close);
+      final prefix = version == 1 ? 'local' : 'old';
+      final records = reopened.userState.playbackRecords
+          .listAllWithTombstones();
+      expect(records, hasLength(2));
+      final audio = records.singleWhere(
+        (record) => record.episodeId.value == 'cd::$prefix-cd',
+      );
+      expect(audio.id, 'cd::$prefix-work::$prefix-cd');
+      expect(audio.variantId.value, '$prefix-cd');
+      expect(audio.canonicalKey, 'playback::tmdb:tv:100565:s1::audio::01::t7');
+      expect(audio.positionSeconds, 12);
+      expect(audio.episodeNumber, 7);
+      expect(
+        records.singleWhere((record) => record != audio).positionSeconds,
+        42,
+      );
+    });
+  }
+
+  test('旧音频遇到同名文件或 CUE 清单时拒绝整份归档', () async {
+    for (final (fileName, errorText) in [
+      ('01.flac', '无法按曲名唯一关联可播放文件'),
+      ('另一张专辑.cue', '归档无法区分普通曲目与分轨'),
+    ]) {
+      final db = KonataDatabaseBundle.openInMemory();
+      try {
+        final bytes = await _mutate(2, (payload) {
+          _addLegacyAudio(payload);
+          final catalog = payload['libraryCatalog']! as Map<String, Object?>;
+          final variants = (catalog['variants']! as List<Object?>)
+              .cast<Map<String, Object?>>();
+          final cd = variants.singleWhere(
+            (variant) => variant['id'] == 'old-cd',
+          );
+          variants.add({
+            ...cd,
+            'id': 'other-cd',
+            'relativePath': 'CD2/$fileName',
+            'fileName': fileName,
+          });
+        });
+        final service = _service(db);
+        final rejects = throwsA(
+          isA<FormatException>().having(
+            (e) => e.message,
+            '原因',
+            contains(errorText),
+          ),
+        );
+        await expectLater(service.previewRestore(bytes), rejects);
+        await expectLater(service.restoreFromArchiveBytes(bytes), rejects);
+        expect(db.library.works.listVisible(), isEmpty);
+        expect(db.userState.playbackRecords.listAllWithTombstones(), isEmpty);
+        expect(ScopedPrefsStore(db.userState).read(_appearance), isEmpty);
+      } finally {
+        await db.close();
+      }
+    }
+  });
+
+  test('旧归档音频墓碑借助同归档记录，按更新时间裁决', () async {
+    for (final (includeAudio, deletedAt, expectedDeletedAt) in [
+      (true, 1700000000001, 1700000000001),
+      (true, 1699999999999, null),
+      (false, 1700000000001, null),
+    ]) {
+      final db = KonataDatabaseBundle.openInMemory();
+      try {
+        final bytes = await _mutate(2, (payload) {
+          if (includeAudio) _addLegacyAudio(payload);
+          (payload['tombstones']! as List<Object?>).add({
+            'entityKey': 'playback::tmdb:tv:100565:s1::audio::01',
+            'entityType': 'playback',
+            'deletedAtMs': deletedAt,
+            'deviceId': 'legacy-delete',
+          });
+        });
+        final service = _service(db);
+        if (!includeAudio) {
+          await expectLater(
+            service.restoreFromArchiveBytes(bytes),
+            throwsFormatException,
+          );
+          expect(db.library.works.listVisible(), isEmpty);
+          expect(db.userState.playbackRecords.listAllWithTombstones(), isEmpty);
+          continue;
+        }
+        await service.restoreFromArchiveBytes(bytes);
+        final records = db.userState.playbackRecords.listAllWithTombstones();
+        final audio = records.singleWhere(
+          (record) => record.episodeId.value == 'cd::old-cd',
+        );
+        expect(audio.deletedAtMs, expectedDeletedAt);
+        expect(audio.episodeNumber, 7);
+        expect(
+          records.singleWhere((record) => record != audio).deletedAtMs,
+          isNull,
+        );
+      } finally {
+        await db.close();
+      }
+    }
   });
 
   test('篡改、未知偏好、墓碑、旧音频、路径穿越、未知目录字段与隐藏语义拒绝', () async {

@@ -406,7 +406,8 @@ final class LegacyBackupMigration {
         'updatedAtMs',
         'sourceDeviceId',
       }, '播放记录');
-      if (row['isAudio'] != false) _fail('旧音频播放身份尚不能无歧义转换');
+      final isAudio = row['isAudio'];
+      if (isAudio is! bool) _fail('播放媒体类型无效');
       final primary = _string(row['canonicalWorkKey'], '播放作品身份');
       final rawSecondary = row['secondaryWorkKeys'] == null
           ? <Object?>[]
@@ -427,31 +428,44 @@ final class LegacyBackupMigration {
       final number = row['episodeNumber'] == null
           ? null
           : _integer(row['episodeNumber'], '集号');
-      final eps = episodes
-          .where(
-            (e) =>
-                e['workId'] == work['id'] &&
-                e['deletedAtMs'] == null &&
-                e['seasonNumber'] == season &&
-                e['episodeNumber'] == number,
-          )
-          .toList();
-      if (eps.length != 1 || eps.single['category'] != 'main') {
-        _fail('播放记录无法唯一关联正片分集');
+      final title = _string(row['episodeTitle'], '播放标题', allowEmpty: true);
+      final workVariants = variants.where(
+        (v) => v['workId'] == work['id'] && v['deletedAtMs'] == null,
+      );
+      final workId = _string(work['id'], '作品标识');
+      final Map<String, Object?> variant;
+      final String epId;
+      final String id;
+      if (isAudio) {
+        variant = _resolvePlainAudio(workVariants, title);
+        final variantId = _string(variant['id'], '物理版本');
+        epId = 'cd::$variantId';
+        id = 'cd::$workId::$variantId';
+      } else {
+        final eps = episodes
+            .where(
+              (e) =>
+                  e['workId'] == workId &&
+                  e['deletedAtMs'] == null &&
+                  e['seasonNumber'] == season &&
+                  e['episodeNumber'] == number,
+            )
+            .toList();
+        if (eps.length != 1 || eps.single['category'] != 'main') {
+          _fail('播放记录无法唯一关联正片分集');
+        }
+        final ep = eps.single;
+        final candidates = workVariants
+            .where((v) => v['episodeId'] == ep['id'])
+            .toList();
+        if (candidates.length != 1 ||
+            candidates.single['assetKind'] != 'video') {
+          _fail('播放记录无法唯一关联物理视频版本');
+        }
+        variant = candidates.single;
+        epId = _string(ep['id'], '分集标识');
+        id = '$workId::$epId';
       }
-      final ep = eps.single;
-      final vars = variants
-          .where(
-            (v) =>
-                v['workId'] == work['id'] &&
-                v['episodeId'] == ep['id'] &&
-                v['deletedAtMs'] == null,
-          )
-          .toList();
-      if (vars.length != 1 || vars.single['assetKind'] != 'video') {
-        _fail('播放记录无法唯一关联物理视频版本');
-      }
-      final variant = vars.single;
       final srcs = sources
           .where(
             (s) => s['id'] == variant['sourceId'] && s['deletedAtMs'] == null,
@@ -462,23 +476,30 @@ final class LegacyBackupMigration {
           .where((k) => k.name == srcs.single['kind'])
           .singleOrNull;
       if (kind == null) _fail('播放来源无效');
-      final key = SyncSanitizer.buildPlaybackKey(
+      final legacyKey = SyncSanitizer.buildPlaybackKey(
         canonicalWorkKey: primary,
         seasonNumber: season,
-        episodeNumber: number,
-        isAudio: false,
+        episodeNumber: isAudio ? null : number,
+        isAudio: isAudio,
+        audioTrackHint: isAudio ? title : null,
       );
-      if (key != row['playbackKey'] || !keys.add(key)) _fail('旧播放逻辑键无效或重复');
-      final workId = _string(work['id'], '作品标识');
-      final epId = _string(ep['id'], '分集标识');
-      if (!targets.add('$workId::$epId')) _fail('多个旧播放记录指向同一物理分集');
+      if (legacyKey != row['playbackKey'] || !keys.add(legacyKey)) {
+        _fail('旧播放逻辑键无效或重复');
+      }
+      if (!targets.add(id)) _fail('多个旧播放记录指向同一播放条目');
       final pos = _integer(row['positionSeconds'], '播放位置');
       final duration = _integer(row['durationSeconds'], '播放时长');
       if (row['isCompleted'] is! bool) _fail('播放完成状态无效');
       result.add(
         SyncPlaybackHistoryItem(
-          id: '$workId::$epId',
-          playbackKey: key,
+          id: id,
+          playbackKey: SyncSanitizer.buildPlaybackKey(
+            canonicalWorkKey: primary,
+            seasonNumber: season,
+            episodeNumber: number,
+            isAudio: isAudio,
+            audioTrackHint: isAudio ? title : null,
+          ),
           canonicalWorkKey: primary,
           secondaryWorkKeys: aliases.where((k) => k != primary).toList(),
           workId: workId,
@@ -486,8 +507,8 @@ final class LegacyBackupMigration {
           variantId: _string(variant['id'], '物理版本'),
           seasonNumber: season,
           episodeNumber: number,
-          isAudio: false,
-          episodeTitle: _string(row['episodeTitle'], '播放标题', allowEmpty: true),
+          isAudio: isAudio,
+          episodeTitle: title,
           sourceKind: kind,
           playedAtMs: _integer(row['playedAtMs'], '播放时间'),
           positionSeconds: pos,
@@ -503,7 +524,36 @@ final class LegacyBackupMigration {
     return result;
   }
 
-  /// 旧墓碑没有物理标识，必须先通过完整逻辑键唯一解析真实分集。
+  static Map<String, Object?> _resolvePlainAudio(
+    Iterable<Map<String, Object?>> workVariants,
+    String title,
+  ) {
+    final titleKey = SyncSanitizer.normalizeTitleKey(title);
+    if (titleKey.isEmpty) _fail('旧音频缺少可用于匹配的曲名');
+    final matches = <Map<String, Object?>>[];
+    for (final variant in workVariants) {
+      if (variant['assetKind'] != 'cdAlbum') continue;
+      final fileName = _string(variant['fileName'], '音频文件名');
+      // 旧归档只保存曲名与编号，有分轨清单时无法证明曲名来自普通文件。
+      if (KonataMediaExtensions.isCueSheetFile(fileName)) {
+        _fail('旧音频所属作品含 CUE，归档无法区分普通曲目与分轨');
+      }
+      final dot = fileName.lastIndexOf('.');
+      final stem = dot > 0 ? fileName.substring(0, dot) : fileName;
+      if (SyncSanitizer.normalizeTitleKey(stem) == titleKey) {
+        matches.add(variant);
+      }
+    }
+    if (matches.length != 1 ||
+        !KonataMediaExtensions.isPlayableAudioFile(
+          matches.single['fileName']! as String,
+        )) {
+      _fail('旧音频无法按曲名唯一关联可播放文件');
+    }
+    return matches.single;
+  }
+
+  /// 旧墓碑没有物理标识，视频按逻辑键解析，音频借助同归档内已解析的记录。
   static List<Map<String, Object?>> _mergePlaybackTombstones(
     List<Map<String, Object?>> active,
     List<Map<String, Object?>> tombstones,
@@ -513,6 +563,17 @@ final class LegacyBackupMigration {
     final byId = <String, SyncPlaybackHistoryItem>{
       for (final item in active)
         item['id']! as String: SyncPlaybackHistoryItem.tryFromJson(item)!,
+    };
+    final audioByLegacyKey = {
+      for (final item in byId.values)
+        if (item.isAudio)
+          SyncSanitizer.buildPlaybackKey(
+            canonicalWorkKey: item.canonicalWorkKey,
+            seasonNumber: item.seasonNumber,
+            episodeNumber: null,
+            isAudio: true,
+            audioTrackHint: item.episodeTitle,
+          ): item,
     };
     final seen = <String>{};
     for (final row in tombstones) {
@@ -524,13 +585,25 @@ final class LegacyBackupMigration {
       }, '删除墓碑');
       if (row['entityType'] != 'playback') _fail('作品或其他旧版墓碑尚不能安全转换');
       final key = _string(row['entityKey'], '删除墓碑标识');
-      final parsed = RegExp(
-        r'^playback::(.+)::s([0-9]+)::(e[0-9]+|feature)$',
-      ).firstMatch(key);
-      if (parsed == null) _fail('旧删除墓碑不是可识别的普通视频逻辑键');
       final deletedAt = _integer(row['deletedAtMs'], '删除时间');
       if (deletedAt == 0) _fail('删除时间无效');
       final source = _string(row['deviceId'], '删除设备');
+      final audio = audioByLegacyKey[key];
+      if (audio != null) {
+        if (!seen.add(audio.id)) _fail('多个旧删除墓碑指向同一音频条目');
+        if (audio.effectiveTimestampMs <= deletedAt) {
+          byId[audio.id] = audio.copyWith(
+            updatedAtMs: deletedAt,
+            sourceDeviceId: source,
+            deletedAtMs: deletedAt,
+          );
+        }
+        continue;
+      }
+      final parsed = RegExp(
+        r'^playback::(.+)::s([0-9]+)::(e[0-9]+|feature)$',
+      ).firstMatch(key);
+      if (parsed == null) _fail('旧删除墓碑无法唯一关联播放条目');
       final number = parsed.group(3)!;
       final converted = _convertPlaybacks(
         [

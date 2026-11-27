@@ -251,6 +251,11 @@ final class PlaybackHistoryMergePlan {
 /// - 软删除墓碑裁决（阻止旧记录复活，同时允许删除后重播重新激活）。
 final class PlaybackHistorySyncSlice
     implements SyncSliceContributor<PlaybackHistoryMergePlan> {
+  static const _audioPrefix = 'cd::';
+  static final _cueTrackId = RegExp(
+    r'^(?:cd|audio)::.+(?:#cue:|::track_)([0-9]+)$',
+  );
+
   /// 创建绑定三库存储器的播放历史同步切片实例。
   const PlaybackHistorySyncSlice({
     required KonataDatabaseBundle this._databases,
@@ -598,11 +603,20 @@ WHERE ${PlaybackRecordsSchema.colDeletedAtMs} IS NULL;
           final cdVariant = _matchLocalAudioVariant(workVars, item);
           targetVariantId = cdVariant?.id.value ?? item.variantId;
           if (cdVariant != null) {
-            targetEpisodeId =
-                item.episodeNumber != null &&
-                    cdVariant.fileName.toLowerCase().endsWith('.cue')
-                ? 'audio::${cdVariant.id.value}::track_${item.episodeNumber}'
-                : 'audio::${cdVariant.id.value}';
+            final isCueSheet = KonataMediaExtensions.isCueSheetFile(
+              cdVariant.fileName,
+            );
+            final trackMatch = _cueTrackId.firstMatch(item.episodeId);
+            final explicitTrack = trackMatch == null
+                ? null
+                : int.tryParse(trackMatch.group(1)!);
+            // 整轨音频承载多条 CUE 分轨，换成本地版本时仍须保留轨号。
+            final track =
+                explicitTrack ?? (isCueSheet ? item.episodeNumber : null);
+            final suffix = track == null
+                ? ''
+                : (isCueSheet ? '::track_$track' : '#cue:$track');
+            targetEpisodeId = '$_audioPrefix$targetVariantId$suffix';
           } else {
             targetEpisodeId = item.episodeId;
           }
@@ -632,7 +646,11 @@ WHERE ${PlaybackRecordsSchema.colDeletedAtMs} IS NULL;
         final existing =
             existingByWorkEp['$workIdStr::$targetEpisodeId'] ??
             existingById[item.id];
-        final recordId = existing?.id ?? '$workIdStr::$targetEpisodeId';
+        final recordId =
+            existing?.id ??
+            (item.isAudio && targetEpisodeId.startsWith(_audioPrefix)
+                ? '$_audioPrefix$workIdStr::${targetEpisodeId.substring(_audioPrefix.length)}'
+                : '$workIdStr::$targetEpisodeId');
 
         final entity = PlaybackRecordEntity(
           id: recordId,

@@ -12,7 +12,7 @@ import 'prefs_sync_slice.dart';
 import 'sync_device_store.dart';
 import 'sync_models.dart';
 
-/// 本地 `.konata` 选择性备份导出、干跑预览与原子恢复服务（零框架依赖）。
+/// 本地 `.konata` 选择性备份导出、恢复预览与切片恢复服务。
 final class KonataBackupService {
   /// 与旧版文件选择上限一致，防止误选大视频。
   static const int maxArchiveBytes = 32 * 1024 * 1024;
@@ -272,7 +272,7 @@ final class KonataBackupService {
     );
   }
 
-  /// 在统一跨库事务上下文中原子应用选定的 `.konata` 切片恢复计划，落盘后记录元信息并发布同步完成事件。
+  /// 在两个数据库各自的事务内应用选中的恢复切片，两库提交后记录元信息并发布同步完成事件。
   Future<KonataSyncOutcome> restoreFromArchiveBytes(
     Uint8List rawBytes, {
     Set<String>? selectedSliceIds,

@@ -545,14 +545,14 @@ void main() {
     }
   });
 
-  test('v2 同一备份内活跃记录与墓碑按时间裁决，作品墓碑仍拒绝', () async {
+  test('v2 同一备份内活跃记录与墓碑按时间裁决，未知墓碑类型拒绝', () async {
     final db = KonataDatabaseBundle.openInMemory();
     addTearDown(db.close);
     final service = _service(db);
     final unsupported = await _mutate(2, (p) {
       (p['tombstones']! as List).add({
-        'entityKey': 'work_id::old-work',
-        'entityType': 'work_catalog',
+        'entityKey': 'series::old-series',
+        'entityType': 'series',
         'deletedAtMs': 1700000000001,
         'deviceId': 'legacy-delete',
       });
@@ -574,6 +574,137 @@ void main() {
     final record = db.userState.playbackRecords.listAllWithTombstones().single;
     expect(record.deletedAtMs, 1700000000001);
     expect(record.variantId.value, 'old-video');
+  });
+
+  test('v2 作品墓碑晚于作品时删除作品并跳过其播放记录，较早墓碑保留作品', () async {
+    for (final key in ['work_id::old-work', 'work_catalog::bgm:293049']) {
+      final db = KonataDatabaseBundle.openInMemory();
+      try {
+        final bytes = await _mutate(2, (p) {
+          (p['tombstones']! as List).add({
+            'entityKey': key,
+            'entityType': 'work_catalog',
+            'deletedAtMs': 1700000000001,
+            'deviceId': 'legacy-delete',
+          });
+        });
+        await _service(db).restoreFromArchiveBytes(bytes);
+        expect(db.library.works.listVisible(), isEmpty, reason: key);
+        final work = db.library.works.listAllWithTombstones().single;
+        expect(work.deletedAtMs, 1700000000001);
+        final episodes = db.library.episodes.listByWork(
+          work.id,
+          includeDeleted: true,
+        );
+        final variants = db.library.mediaVariants.listByWork(
+          work.id,
+          includeDeleted: true,
+        );
+        expect(episodes, hasLength(2));
+        expect(variants, hasLength(4));
+        expect(
+          episodes.map((row) => row.deletedAtMs),
+          everyElement(1700000000001),
+        );
+        expect(
+          variants.map((row) => row.deletedAtMs),
+          everyElement(1700000000001),
+        );
+        expect(
+          db.userState.playbackRecords.listAllWithTombstones().where(
+            (r) => r.deletedAtMs == null,
+          ),
+          isEmpty,
+          reason: key,
+        );
+      } finally {
+        await db.close();
+      }
+    }
+
+    final db = KonataDatabaseBundle.openInMemory();
+    addTearDown(db.close);
+    final older = await _mutate(2, (p) {
+      (p['tombstones']! as List).add({
+        'entityKey': 'work_catalog::tmdb:tv:100565:s1',
+        'entityType': 'work_catalog',
+        'deletedAtMs': 1699999999999,
+        'deviceId': 'legacy-delete',
+      });
+    });
+    await _service(db).restoreFromArchiveBytes(older);
+    expect(db.library.works.listVisible(), hasLength(1));
+    expect(db.userState.playbackRecords.listAllWithTombstones(), hasLength(1));
+  });
+
+  test('v2 缺少对应实体的作品墓碑拒绝，目标库保持空库', () async {
+    final db = KonataDatabaseBundle.openInMemory();
+    addTearDown(db.close);
+    final bytes = await _mutate(2, (p) {
+      (p['tombstones']! as List).add({
+        'entityKey': 'work_id::absent-work',
+        'entityType': 'work_catalog',
+        'deletedAtMs': 1700000000001,
+        'deviceId': 'legacy-delete',
+      });
+    });
+    await expectLater(
+      _service(db).restoreFromArchiveBytes(bytes),
+      throwsFormatException,
+    );
+    expect(db.library.works.listAllWithTombstones(), isEmpty);
+    expect(db.userState.playbackRecords.listAllWithTombstones(), isEmpty);
+  });
+
+  test('v2 整理状态墓碑裁决不清除完整目录内的资料锁', () async {
+    for (final newer in [true, false]) {
+      final db = KonataDatabaseBundle.openInMemory();
+      try {
+        final bytes = await _mutate(2, (p) {
+          final row = (p['workOverrides']! as List).single as Map;
+          row['title'] = '已过期的整理状态';
+          (p['tombstones']! as List).add({
+            'entityKey': 'work_override::tmdb:tv:100565:s1',
+            'entityType': 'work_override',
+            'deletedAtMs': newer ? 1700000000001 : 1699999999999,
+            'deviceId': 'legacy-delete',
+          });
+        });
+        if (newer) {
+          await _service(db).restoreFromArchiveBytes(bytes);
+          final work = db.library.works.listVisible().single;
+          expect(work.title, '合成作品');
+          expect(work.metadataLocked, isTrue);
+        } else {
+          await expectLater(
+            _service(db).restoreFromArchiveBytes(bytes),
+            throwsFormatException,
+          );
+          expect(db.library.works.listAllWithTombstones(), isEmpty);
+        }
+      } finally {
+        await db.close();
+      }
+    }
+  });
+
+  test('v1 作品墓碑缺少完整目录时拒绝', () async {
+    final db = KonataDatabaseBundle.openInMemory();
+    addTearDown(db.close);
+    _seedV1(db);
+    final bytes = await _mutate(1, (p) {
+      (p['tombstones']! as List).add({
+        'entityKey': 'work_id::local-work',
+        'entityType': 'work_catalog',
+        'deletedAtMs': 1700000000001,
+        'deviceId': 'legacy-delete',
+      });
+    });
+    await expectLater(
+      _service(db).restoreFromArchiveBytes(bytes),
+      throwsFormatException,
+    );
+    expect(db.library.works.listVisible(), hasLength(1));
   });
 
   test('v1 未匹配与歧义物理版本拒绝，现有库保持不变', () async {

@@ -55,9 +55,46 @@ final class LegacyBackupMigration {
       ),
     );
 
-    final tombstones = _rows(payload['tombstones'], '删除墓碑');
-    final overrides = _rows(payload['workOverrides'], '整理状态');
-    final playbacks = _rows(payload['playbackEntries'], '播放记录');
+    final playbackTombstones = <Map<String, Object?>>[];
+    final workTombstones = <String, int>{};
+    final overrideTombstones = <String, int>{};
+    for (final row in _rows(payload['tombstones'], '删除墓碑')) {
+      _onlyKeys(row, {
+        'entityKey',
+        'entityType',
+        'deletedAtMs',
+        'deviceId',
+      }, '删除墓碑');
+      final key = _string(row['entityKey'], '删除墓碑标识');
+      final deletedAt = _integer(row['deletedAtMs'], '删除时间');
+      if (deletedAt == 0) _fail('删除时间无效');
+      _string(row['deviceId'], '删除设备');
+      switch (row['entityType']) {
+        case 'playback':
+          playbackTombstones.add(row);
+        case 'work_catalog':
+          // 黄金源删除作品时按作品 ID 与全部身份键各写一条墓碑。
+          final validPrefix =
+              key.startsWith('work_id::') || key.startsWith('work_catalog::');
+          if (!validPrefix || key.endsWith('::')) _fail('作品删除墓碑标识无效');
+          final previous = workTombstones[key] ?? 0;
+          workTombstones[key] = deletedAt > previous ? deletedAt : previous;
+        case 'work_override':
+          if (!key.startsWith('work_override::') || key.endsWith('::')) {
+            _fail('整理状态删除墓碑标识无效');
+          }
+          final previous = overrideTombstones[key] ?? 0;
+          overrideTombstones[key] = deletedAt > previous ? deletedAt : previous;
+        default:
+          _fail('未知类型的旧版墓碑尚不能安全转换');
+      }
+    }
+    // 与黄金源合并引擎一致：晚于整理状态的墓碑使该整理状态失效。
+    final overrides = [
+      for (final row in _rows(payload['workOverrides'], '整理状态'))
+        if (!_isOverrideSuppressed(row, overrideTombstones)) row,
+    ];
+    var playbacks = _rows(payload['playbackEntries'], '播放记录');
     final prefs = _object(payload['preferences'], '偏好');
     _onlyKeys(prefs, {'updatedAtMs', 'values'}, '偏好');
     final values = _object(prefs['values'], '偏好值');
@@ -101,6 +138,7 @@ final class LegacyBackupMigration {
     }
 
     final Map<String, Object?> catalog;
+    var deletedAliases = <String>{};
     if (version == 2) {
       if (_catalogKeys.any((key) => _rows(localCatalog[key], key).isNotEmpty)) {
         _fail('完整目录迁移仅允许空目标媒体库，请在独立空库中恢复');
@@ -109,22 +147,33 @@ final class LegacyBackupMigration {
         _object(payload['libraryCatalog'], '完整目录'),
         device,
       );
+      _applyWorkTombstones(catalog, workTombstones);
+      deletedAliases = _deletedWorkAliases(catalog);
       add(LibraryCatalogSyncSlice.id, catalog);
       _checkMirroredOverrides(overrides, catalog);
     } else {
       if (payload.containsKey('libraryCatalog')) _fail('v1 信封不应含完整目录');
       if (overrides.isNotEmpty) _fail('v1 整理状态缺少完整目录，尚不能安全转换');
+      if (workTombstones.isNotEmpty || overrideTombstones.isNotEmpty) {
+        _fail('v1 作品或整理状态墓碑缺少完整目录，尚不能安全转换');
+      }
       catalog = localCatalog;
     }
 
-    if (playbacks.isNotEmpty || tombstones.isNotEmpty) {
+    // 黄金源对已删除作品的播放记录按“未匹配”跳过，这里保持一致。
+    playbacks = [
+      for (final row in playbacks)
+        if (!_rowAliases(row).any(deletedAliases.contains)) row,
+    ];
+    if (playbacks.isNotEmpty || playbackTombstones.isNotEmpty) {
       final active = _convertPlaybacks(playbacks, catalog, device);
       add(PlaybackHistorySyncSlice.id, {
         'records': _mergePlaybackTombstones(
           active,
-          tombstones,
+          playbackTombstones,
           catalog,
           device,
+          deletedAliases,
         ),
       });
     }
@@ -349,6 +398,8 @@ final class LegacyBackupMigration {
           .toList();
       if (matched.length != 1) _fail('整理状态无法唯一关联完整目录');
       final work = matched.single;
+      // 黄金源只把整理状态应用到现存作品，已删除作品的整理状态不再生效。
+      if (work['deletedAtMs'] != null) continue;
       for (final entry in row.entries) {
         final key = entry.key;
         if (['updatedAtMs', 'sourceDeviceId'].contains(key)) continue;
@@ -376,6 +427,79 @@ final class LegacyBackupMigration {
         }
       }
     }
+  }
+
+  static bool _isOverrideSuppressed(
+    Map<String, Object?> row,
+    Map<String, int> overrideTombstones,
+  ) {
+    var latest = 0;
+    for (final key in _rowAliases(row)) {
+      final deletedAt = overrideTombstones['work_override::$key'] ?? 0;
+      if (deletedAt > latest) latest = deletedAt;
+    }
+    final updatedAt = row['updatedAtMs'];
+    return latest > 0 && updatedAt is int && latest > updatedAt;
+  }
+
+  /// 按黄金源合并引擎的规则，把晚于作品更新时间的作品墓碑写成目录内的删除标记，
+  /// 并同时标记该作品的分集与媒体版本。缺少实体的墓碑不能安全持久化，拒绝转换。
+  static void _applyWorkTombstones(
+    Map<String, Object?> catalog,
+    Map<String, int> workTombstones,
+  ) {
+    if (workTombstones.isEmpty) return;
+    final works = catalog['works']! as List<Map<String, Object?>>;
+    final deletedAtByWork = <String, int>{};
+    final matchedKeys = <String>{};
+    for (final work in works) {
+      final id = work['id']! as String;
+      final idKey = 'work_id::$id';
+      if (workTombstones.containsKey(idKey)) matchedKeys.add(idKey);
+      var latest = workTombstones[idKey] ?? 0;
+      for (final key in _rowAliases(work)) {
+        final aliasKey = 'work_catalog::$key';
+        if (workTombstones.containsKey(aliasKey)) matchedKeys.add(aliasKey);
+        final deletedAt = workTombstones[aliasKey] ?? 0;
+        if (deletedAt > latest) latest = deletedAt;
+      }
+      if (latest > (work['updatedAtMs']! as int)) {
+        work['deletedAtMs'] = latest;
+        deletedAtByWork[id] = latest;
+      }
+    }
+    if (matchedKeys.length != workTombstones.length) {
+      _fail('作品删除墓碑缺少对应目录实体，无法保留删除身份');
+    }
+    for (final key in ['episodes', 'variants']) {
+      for (final row in catalog[key]! as List<Map<String, Object?>>) {
+        final deletedAt = deletedAtByWork[row['workId']];
+        if (deletedAt != null) row['deletedAtMs'] = deletedAt;
+      }
+    }
+  }
+
+  /// 仅收集已删除作品独占的身份键，避免误伤仍然有效的同名作品。
+  static Set<String> _deletedWorkAliases(Map<String, Object?> catalog) {
+    final deleted = <String>{};
+    final active = <String>{};
+    for (final work in _rows(catalog['works'], '作品')) {
+      (work['deletedAtMs'] == null ? active : deleted).addAll(
+        _rowAliases(work),
+      );
+    }
+    return deleted.difference(active);
+  }
+
+  static Set<String> _rowAliases(Map<String, Object?> row) {
+    final secondary = row['secondaryWorkKeys'];
+    return {
+      if (row['canonicalWorkKey'] case final String key when key.isNotEmpty)
+        key,
+      if (secondary is List)
+        for (final key in secondary)
+          if (key is String && key.isNotEmpty) key,
+    };
   }
 
   static List<Map<String, Object?>> _convertPlaybacks(
@@ -559,6 +683,7 @@ final class LegacyBackupMigration {
     List<Map<String, Object?>> tombstones,
     Map<String, Object?> catalog,
     String device,
+    Set<String> deletedAliases,
   ) {
     final byId = <String, SyncPlaybackHistoryItem>{
       for (final item in active)
@@ -604,6 +729,8 @@ final class LegacyBackupMigration {
         r'^playback::(.+)::s([0-9]+)::(e[0-9]+|feature)$',
       ).firstMatch(key);
       if (parsed == null) _fail('旧删除墓碑无法唯一关联播放条目');
+      // 作品已按墓碑删除时，其播放墓碑没有可作用的现存条目。
+      if (deletedAliases.contains(parsed.group(1))) continue;
       final number = parsed.group(3)!;
       final converted = _convertPlaybacks(
         [

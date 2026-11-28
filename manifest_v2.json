@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 2,
+  "snapshotDate": "2026-11-28",
+  "snapshotDateInt": 20261128,
+  "uniqueBangumiCount": 20920,
+  "recordCount": 21158,
+  "binBytes": 338552,
+  "binSha256": "d3cf0345d9f7498c4a61b92243e3032f1b347424fca38139f7e6aede35721a9b",
+  "upstreamSource": "open-ani/bangumi-tmdb (CC BY 4.0) + Wikidata (CC0 1.0) + bangumi-data (MIT) + Fribb/anime-lists (MIT)",
+  "upstreamCommit": "5ed3c83629fe6aa254b8d2a3fd0ee67929aa60e5",
+  "generatedAt": "2026-11-28T04:27:41Z",
+  "bangumiDataAddedCount": 130,
+  "tvdbLinkedCount": 6742
+}

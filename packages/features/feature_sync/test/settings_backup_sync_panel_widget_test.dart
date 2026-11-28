@@ -131,7 +131,7 @@ final class _WidgetFakeHttpClient extends http.BaseClient {
         Stream<List<int>>.value(data),
         200,
         contentLength: data.length,
-        headers: {'etag': '"widget-etag"'},
+        headers: {'etag': '"${base64Encode(data)}"'},
       );
     }
     if (method == 'DELETE') {
@@ -140,6 +140,21 @@ final class _WidgetFakeHttpClient extends http.BaseClient {
     }
     if (method == 'PUT') {
       final body = await request.finalize().toBytes();
+      final previous = _server.files[path];
+      final ifMatch = request.headers['if-match'];
+      if (ifMatch != null &&
+          (previous == null || ifMatch != '"${base64Encode(previous)}"')) {
+        return http.StreamedResponse(
+          Stream<List<int>>.value(const <int>[]),
+          412,
+        );
+      }
+      if (request.headers['if-none-match'] == '*' && previous != null) {
+        return http.StreamedResponse(
+          Stream<List<int>>.value(const <int>[]),
+          412,
+        );
+      }
       _server.files[path] = Uint8List.fromList(body);
       return http.StreamedResponse(Stream<List<int>>.value(const <int>[]), 201);
     }

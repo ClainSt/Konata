@@ -469,7 +469,7 @@ class DetailPortraitStageLayout extends StatelessWidget {
                 ),
               ),
               if (hasOverview) ...[
-                const SizedBox(height: 18),
+                const SizedBox(height: 12),
                 Padding(
                   key: const Key('detail_portrait_synopsis_section'),
                   padding: EdgeInsets.symmetric(horizontal: padH),

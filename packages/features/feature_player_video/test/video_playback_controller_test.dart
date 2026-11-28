@@ -252,6 +252,40 @@ void main() {
       expect(harness.hostWindow.keepScreenOn, isFalse);
     });
 
+    for (final platform in [
+      KonataPlatform.androidPhone,
+      KonataPlatform.androidTablet,
+    ]) {
+      test('$platform 播放舞台隐藏系统栏，小窗及退出恢复系统栏', () async {
+        final harness = await VideoTestHarness.create(platform: platform);
+        addTearDown(harness.dispose);
+        final seeded = await harness.seedSampleAnime();
+        final controller = harness.createController(
+          enablePeriodicTimers: false,
+        );
+        addTearDown(controller.dispose);
+
+        await controller.initialize(VideoLaunchRequest(workId: seeded.work.id));
+        expect(controller.state.isFullscreen, isTrue);
+        expect(harness.hostWindow.fullScreen, isTrue);
+        expect(harness.hostWindow.preferredLandscape, isTrue);
+
+        await controller.enterMiniPlayer(desktopAlwaysOnTop: false);
+        expect(controller.state.isMiniPlayer, isTrue);
+        expect(controller.state.isFullscreen, isFalse);
+        expect(harness.hostWindow.fullScreen, isFalse);
+
+        await controller.exitMiniPlayerToStage();
+        expect(controller.state.isMiniPlayer, isFalse);
+        expect(controller.state.isFullscreen, isTrue);
+        expect(harness.hostWindow.fullScreen, isTrue);
+
+        await controller.closeSession();
+        expect(harness.hostWindow.fullScreen, isFalse);
+        expect(harness.hostWindow.preferredLandscape, isFalse);
+      });
+    }
+
     test('全屏与悬浮小窗切换及画中画快照写入恢复与外部播放器接力回写', () async {
       final harness = await VideoTestHarness.create();
       addTearDown(harness.dispose);

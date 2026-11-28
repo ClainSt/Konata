@@ -240,7 +240,7 @@ class DetailSubFilterBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(top: 8),
+    padding: const EdgeInsets.only(top: 6),
     child: KonataSecondaryFilterBar<String>(
       items: [
         for (final chip in chips)

@@ -190,6 +190,7 @@ class KonataMediaPlaybackService : Service() {
     private var mediaSession: MediaSession? = null
     private var foregroundStarted = false
     private var lastMetadataSignature: String = ""
+    private var lastNotificationSignature: String = ""
     private val notificationManager by lazy {
         getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     }
@@ -356,6 +357,9 @@ class KonataMediaPlaybackService : Service() {
             session.isActive = true
         }
 
+        // 播放进度由 MediaSession 独立驱动，避免重复发布含封面的通知触发系统重新加载图片。
+        val notificationSig = "$metadataSig|${snap.isPlaying}"
+        if (foregroundStarted && notificationSig == lastNotificationSignature) return
         val notification = buildMediaNotification(session, snap, coverBitmap)
         if (!foregroundStarted) {
             try {
@@ -375,6 +379,7 @@ class KonataMediaPlaybackService : Service() {
         } else {
             notificationManager.notify(NOTIFICATION_ID, notification)
         }
+        lastNotificationSignature = notificationSig
     }
 
     /// 停止前台服务并清理通知与会话。

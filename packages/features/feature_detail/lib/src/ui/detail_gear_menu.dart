@@ -60,7 +60,7 @@ class DetailGearMenu extends StatelessWidget {
           isDanger: true,
         ),
       ],
-      minWidth: 212,
+      minWidth: 156,
     );
     if (picked is DetailBuiltInGearAction) {
       onBuiltInAction(picked);

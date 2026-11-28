@@ -111,8 +111,29 @@ class _KonataGlassMenuOverlayState<T>
         ? KonataAdaptiveTokens.touchTarget
         : 36.0;
     final estimatedHeight = widget.items.length * itemHeight + 12.0;
+    final labelStyle = KonataTheme.bodyLabelStyle(
+      p,
+      fontSize: KonataTheme.fontSizeBodySm,
+    );
+    double contentWidth = 0;
+    for (final item in widget.items) {
+      final painter = TextPainter(
+        text: TextSpan(text: item.label, style: labelStyle),
+        textDirection: Directionality.of(context),
+        textScaler: media.textScaler,
+        maxLines: 1,
+      )..layout();
+      contentWidth = math.max(
+        contentWidth,
+        painter.width + 32 + (item.icon == null ? 0 : 26),
+      );
+      painter.dispose();
+    }
     final menuWidth = math.min(
-      math.max(widget.minWidth, widget.anchorRect.width),
+      math.max(
+        math.max(widget.minWidth, widget.anchorRect.width),
+        contentWidth.ceilToDouble(),
+      ),
       math.max(160.0, viewport.width - safe.horizontal - 24.0),
     );
 

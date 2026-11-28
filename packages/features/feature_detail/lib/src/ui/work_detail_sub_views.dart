@@ -358,10 +358,7 @@ class DetailPortraitHeroHeader extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          AnimatedContainer(
-            duration: KonataTheme.motionNormal,
-            color: baseCanvas,
-          ),
+          ColoredBox(color: baseCanvas),
           if (hasPortraitBackdrop)
             DetailManagedImage(
               portraitBackdrop,
@@ -423,8 +420,8 @@ class DetailPortraitHeroHeader extends StatelessWidget {
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   stops: isPosterFallback
-                      ? const [0.0, 0.16, 0.30, 0.50, 0.72, 1.0]
-                      : const [0.0, 0.16, 0.42, 0.66, 0.86, 1.0],
+                      ? const [0.0, 0.16, 0.30, 0.50, 0.72, 0.96, 1.0]
+                      : const [0.0, 0.16, 0.42, 0.66, 0.86, 0.96, 1.0],
                   colors: isPosterFallback
                       ? [
                           KonataTheme.cinemaObsidian.withValues(alpha: 0.36),
@@ -433,6 +430,7 @@ class DetailPortraitHeroHeader extends StatelessWidget {
                           baseCanvas.withValues(alpha: 0.56),
                           baseCanvas.withValues(alpha: 0.94),
                           baseCanvas,
+                          baseCanvas,
                         ]
                       : [
                           KonataTheme.cinemaObsidian.withValues(alpha: 0.34),
@@ -440,6 +438,7 @@ class DetailPortraitHeroHeader extends StatelessWidget {
                           Colors.transparent,
                           baseCanvas.withValues(alpha: 0.52),
                           baseCanvas.withValues(alpha: 0.90),
+                          baseCanvas,
                           baseCanvas,
                         ],
                 ),

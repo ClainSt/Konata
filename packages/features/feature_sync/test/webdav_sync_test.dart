@@ -23,6 +23,7 @@ final class _InMemoryWebDavServer {
   bool includeEtags = true;
   bool denyWrites = false;
   bool denyDirectoryCreation = false;
+  bool rejectConditionalOverwrite = false;
   bool rejectExistingShardsWith405 = false;
   Completer<void>? manifestBarrier;
   int waitingManifestPuts = 0;
@@ -130,6 +131,12 @@ final class _InMemoryWebDavServer {
       }
       final ifMatch = request.headers['if-match'];
       final ifNoneMatch = request.headers['if-none-match'];
+      if (rejectConditionalOverwrite && ifMatch != null) {
+        return http.StreamedResponse(
+          Stream<List<int>>.value(const <int>[]),
+          501,
+        );
+      }
       if ((ifMatch != null && (old == null || etag(old) != ifMatch)) ||
           (ifNoneMatch == '*' && old != null)) {
         conflicts++;
@@ -337,8 +344,8 @@ void main() {
     test('连接测试验证真实文件读写并清理探测文件，拒绝只读服务端', () async {
       await coordinatorA.testConnection(webDavConfig);
       expect(server.files, isEmpty);
-      expect(server.countRequests('PUT', pathContains: 'konata-probe-'), 1);
-      expect(server.countRequests('GET', pathContains: 'konata-probe-'), 1);
+      expect(server.countRequests('PUT', pathContains: 'konata-probe-'), 3);
+      expect(server.countRequests('GET', pathContains: 'konata-probe-'), 2);
       expect(server.countRequests('DELETE', pathContains: 'konata-probe-'), 1);
       server.denyWrites = true;
       await expectLater(
@@ -348,6 +355,18 @@ void main() {
         ),
       );
       expect(server.files, isEmpty);
+    });
+
+    test('拒绝不支持条件覆盖的 WebDAV，清理测试文件且不修改清单', () async {
+      server.rejectConditionalOverwrite = true;
+      await expectLater(
+        coordinatorA.testConnection(webDavConfig),
+        throwsA(
+          isA<WebDavSyncException>().having((e) => e.statusCode, 'status', 501),
+        ),
+      );
+      expect(server.files, isEmpty);
+      expect(server.countRequests('PUT', pathContains: 'manifest.json'), 0);
     });
 
     test('目录已存在时核实 405，目录无法创建时不得继续上传', () async {
@@ -1340,8 +1359,8 @@ void main() {
       );
       await a.testConnection(config);
       expect(backend.files, isEmpty);
-      expect(backend.countRequests('PUT', pathContains: 'konata-probe-'), 1);
-      expect(backend.countRequests('GET', pathContains: 'konata-probe-'), 1);
+      expect(backend.countRequests('PUT', pathContains: 'konata-probe-'), 3);
+      expect(backend.countRequests('GET', pathContains: 'konata-probe-'), 2);
       expect(backend.countRequests('DELETE', pathContains: 'konata-probe-'), 1);
       prefsA.write(
         appearanceSlice,

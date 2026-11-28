@@ -333,8 +333,11 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
           child: _isExpanded
               ? SizedBox(
                   key: const Key('detail_drawer_expanded_body'),
-                  height: widget.compact ? 274 : 286,
+                  height: widget.inlineMode
+                      ? null
+                      : (widget.compact ? 274 : 286),
                   child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       if (subFilters.length > 1)
@@ -359,19 +362,28 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
                             });
                           },
                         ),
-                      const SizedBox(height: 12),
-                      Expanded(
-                        child: Align(
-                          alignment: Alignment.topCenter,
-                          child: _buildActiveContent(
-                            context,
-                            mains: mains,
-                            extras: extras,
-                            cds: visibleCds,
-                            multiSeason: multiSeason,
+                      SizedBox(height: subFilters.length > 1 ? 6 : 8),
+                      if (widget.inlineMode)
+                        _buildActiveContent(
+                          context,
+                          mains: mains,
+                          extras: extras,
+                          cds: visibleCds,
+                          multiSeason: multiSeason,
+                        )
+                      else
+                        Expanded(
+                          child: Align(
+                            alignment: Alignment.topCenter,
+                            child: _buildActiveContent(
+                              context,
+                              mains: mains,
+                              extras: extras,
+                              cds: visibleCds,
+                              multiSeason: multiSeason,
+                            ),
                           ),
                         ),
-                      ),
                     ],
                   ),
                 )
@@ -402,9 +414,9 @@ class _DetailBottomDrawerState extends State<DetailBottomDrawer> {
         ),
       );
       if (slotResult is Widget) {
-        return ConstrainedBox(
+        return SizedBox(
           key: ValueKey<String>('detail_external_tab_slot_${extTab.id}'),
-          constraints: const BoxConstraints.expand(),
+          height: widget.compact ? 230 : 242,
           child: slotResult,
         );
       }

@@ -323,6 +323,14 @@ class VideoPlaybackController extends ChangeNotifier {
     if (_disposed || epoch != _initEpoch) return;
 
     await env.hostWindow.setPreferredLandscape(true);
+    if (env.platform != KonataPlatform.windows) {
+      await env.hostWindow.setFullScreen(true);
+      if (_disposed || epoch != _initEpoch) {
+        await env.hostWindow.setFullScreen(false);
+        return;
+      }
+      _setState(_state.copyWith(isFullscreen: true));
+    }
     await env.hostWindow.setKeepScreenOn(true);
     if (_disposed || epoch != _initEpoch) return;
 

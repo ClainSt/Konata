@@ -207,7 +207,11 @@ extension VideoPlaybackControllerWindowAndPersistence
           await env.hostWindow.exitDesktopMiniWindow();
         }
       } else if (env.platform != KonataPlatform.windows) {
+        await env.hostWindow.setFullScreen(false);
         await env.hostWindow.setPreferredLandscape(false);
+        if (!_disposed && !_closing) {
+          _setState(_state.copyWith(isFullscreen: false));
+        }
       }
     } catch (_) {
       if (!_disposed && !_closing) {
@@ -234,13 +238,17 @@ extension VideoPlaybackControllerWindowAndPersistence
         if (enterFullscreen) await env.hostWindow.setFullScreen(true);
       } else {
         await env.hostWindow.setPreferredLandscape(true);
+        await env.hostWindow.setFullScreen(true);
       }
       await env.pipRecoveryStore.clear();
       if (!_disposed && !_closing) {
         _setState(
           _state.copyWith(
             miniMode: VideoMiniMode.stage,
-            isFullscreen: enterFullscreen || _state.isFullscreen,
+            isFullscreen:
+                env.platform != KonataPlatform.windows ||
+                enterFullscreen ||
+                _state.isFullscreen,
           ),
         );
       }
@@ -455,6 +463,9 @@ extension VideoPlaybackControllerWindowAndPersistence
       env.playbackEngine.resetSession();
       await env.pipRecoveryStore.clear();
       await env.hostWindow.setKeepScreenOn(false);
+      if (env.platform != KonataPlatform.windows) {
+        await env.hostWindow.setFullScreen(false);
+      }
       await env.hostWindow.setPreferredLandscape(false);
     }
   }

@@ -139,24 +139,22 @@ final class WebDavSyncTransport {
     await _verifyWriteAccess(config);
   }
 
-  /// 使用同步分片目录中的独立随机测试文件验证读写权限，绝不修改清单或已发布分片。
+  /// 在清单所在目录验证条件创建、覆盖及冲突保护，不触碰正式清单或分片。
   Future<void> _verifyWriteAccess(WebDavSyncConfig config) async {
     final random = Random.secure();
     final token = List.generate(
       16,
       (_) => random.nextInt(256),
     ).map((value) => value.toRadixString(16).padLeft(2, '0')).join();
-    final uri = resolveRelativeUri(
-      config,
-      '$slicesDirectoryName/konata-probe-$token.json.gz',
-    );
-    final bytes = gzip.encode(utf8.encode(jsonEncode({'probe': token})));
+    final uri = resolveRelativeUri(config, 'konata-probe-$token.json');
+    final bytes = utf8.encode(jsonEncode({'probe': token, 'revision': 1}));
+    const contentType = 'application/json; charset=utf-8';
     final uploaded = await _sendWithAuth(
       config: config,
       method: 'PUT',
       uri: uri,
       headers: const {
-        HttpHeaders.contentTypeHeader: 'application/gzip',
+        HttpHeaders.contentTypeHeader: contentType,
         'If-None-Match': '*',
       },
       body: bytes,
@@ -173,13 +171,41 @@ final class WebDavSyncTransport {
       if (downloaded.statusCode != 200) {
         throw _buildHttpException('无法读取同步测试文件', downloaded.statusCode);
       }
-      if (downloaded.bodyBytes.length != bytes.length ||
-          !List.generate(
-            bytes.length,
-            (i) => i,
-          ).every((i) => bytes[i] == downloaded.bodyBytes[i])) {
-        throw const WebDavSyncException('同步测试文件内容与上传内容不一致');
+      _verifyProbeBody(downloaded, bytes);
+      final etag = _readCaseInsensitiveHeader(downloaded.headers, 'etag');
+      if (etag == null || !RegExp(r'^"[^"]*"$').hasMatch(etag)) {
+        throw const WebDavSyncException('服务器未提供强 ETag，无法安全更新同步清单');
       }
+      final updatedBytes = utf8.encode(
+        jsonEncode({'probe': token, 'revision': 2}),
+      );
+      Future<http.Response> putRevision(List<int> body) => _sendWithAuth(
+        config: config,
+        method: 'PUT',
+        uri: uri,
+        headers: {HttpHeaders.contentTypeHeader: contentType, 'If-Match': etag},
+        body: body,
+      );
+      final updated = await putRevision(updatedBytes);
+      if (updated.statusCode < 200 || updated.statusCode >= 300) {
+        throw _buildHttpException('服务器无法条件覆盖同步文件', updated.statusCode);
+      }
+      final stale = await putRevision(bytes);
+      if (stale.statusCode != 412) {
+        throw WebDavSyncException(
+          '服务器未正确拒绝过期 ETag，无法保证多设备同步安全（HTTP ${stale.statusCode}）',
+          statusCode: stale.statusCode,
+        );
+      }
+      final verified = await _sendWithAuth(
+        config: config,
+        method: 'GET',
+        uri: uri,
+      );
+      if (verified.statusCode != 200) {
+        throw _buildHttpException('无法读取更新后的同步测试文件', verified.statusCode);
+      }
+      _verifyProbeBody(verified, updatedBytes);
     } finally {
       final deleted = await _sendWithAuth(
         config: config,
@@ -190,6 +216,17 @@ final class WebDavSyncTransport {
           deleted.statusCode != 404) {
         throw _buildHttpException('无法清理独立的同步测试文件', deleted.statusCode);
       }
+    }
+  }
+
+  static void _verifyProbeBody(http.Response response, List<int> expected) {
+    final actual = response.bodyBytes;
+    if (actual.length != expected.length ||
+        !List.generate(
+          expected.length,
+          (i) => i,
+        ).every((i) => actual[i] == expected[i])) {
+      throw const WebDavSyncException('同步测试文件内容与上传内容不一致');
     }
   }
 
@@ -700,6 +737,12 @@ final class WebDavSyncTransport {
     if (status == 405) {
       return WebDavSyncException(
         '$prefix：服务器不允许此操作，请检查 WebDAV 地址及同步目录写入权限（HTTP 405）',
+        statusCode: status,
+      );
+    }
+    if (status == 501) {
+      return WebDavSyncException(
+        '$prefix：WebDAV 服务未实现该操作，请检查同步目录是否支持条件覆盖写入（HTTP 501）',
         statusCode: status,
       );
     }
